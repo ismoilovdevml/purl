@@ -5,6 +5,7 @@ local/
 
 # Build output
 web/public/build/
+web/public/assets/
 web/dist/
 
 # Data

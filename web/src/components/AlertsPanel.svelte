@@ -171,7 +171,7 @@
               <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="#6e7681" stroke-width="1.5"/></svg>
             {/if}
           </button>
-          <button class="btn-delete" on:click|stopPropagation={() => deleteAlert(alert.id)}>
+          <button class="btn-delete" aria-label="Delete alert" on:click|stopPropagation={() => deleteAlert(alert.id)}>
             <svg width="12" height="12" viewBox="0 0 12 12">
               <path fill="currentColor" d="M9.5 3L3 9.5M3 3l6.5 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
@@ -183,8 +183,8 @@
 </div>
 
 {#if showModal}
-  <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-  <div class="modal-overlay" role="dialog" aria-modal="true" on:click={() => showModal = false} on:keydown={(e) => e.key === 'Escape' && (showModal = false)}>
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" on:click={() => showModal = false} on:keydown={(e) => e.key === 'Escape' && (showModal = false)}>
     <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
     <div class="modal" role="document" on:click|stopPropagation on:keydown|stopPropagation>
       <h3>{editingAlert ? 'Edit Alert' : 'Create Alert'}</h3>

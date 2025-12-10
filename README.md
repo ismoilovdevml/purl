@@ -207,69 +207,35 @@ systemctl enable --now vector
 journalctl -u vector -f
 ```
 
-### Alternative Agents
-
-**Filebeat:**
-
-```yaml
-# /etc/filebeat/filebeat.yml
-filebeat.inputs:
-  - type: log
-    paths:
-      - /var/log/*.log
-
-output.http:
-  hosts: ["http://your-purl-server:3000/api/logs"]
-  headers:
-    X-API-Key: "your-api-key"
-```
-
-**Fluent Bit:**
-
-```conf
-[OUTPUT]
-    Name http
-    Host your-purl-server
-    Port 3000
-    URI /api/logs
-    Format json
-    Header X-API-Key your-api-key
-```
-
-**rsyslog:**
-
-```conf
-*.* action(type="omhttp"
-    server="your-purl-server"
-    serverport="3000"
-    restpath="api/logs"
-)
-```
-
 ## Features
 
 ### Search & Filter
+
 - KQL query syntax: `level:ERROR AND service:api*`
 - Time range picker (5m to 30d)
 - Field-based filtering (level, service, host)
 - Full-text search in messages
 
 ### Live Tail
+
 - Real-time log streaming via WebSocket
 - Server-side filtering (reduces bandwidth)
 - Auto-scroll with latest logs
 
 ### Saved Searches
+
 - Save frequently used queries
 - Quick access from sidebar
 - Include time range with search
 
 ### Alerts
+
 - Define threshold-based alerts
 - Notifications via Telegram, Slack, or custom webhook
 - Configure time windows and conditions
 
 ### Security
+
 - API Key authentication
 - Rate limiting (1000 req/min per IP)
 - SQL injection protection (parameterized queries)
@@ -340,79 +306,6 @@ service:api*
 message:*timeout*
 ```
 
-## Sending Logs
-
-### HTTP API
-
-```bash
-# With API Key
-curl -X POST http://localhost:3000/api/logs \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: your-api-key" \
-  -d '{"level":"ERROR","service":"api","message":"Connection failed"}'
-```
-
-### Python
-
-```python
-import requests
-
-def send_log(level, message, service="myapp"):
-    requests.post("http://localhost:3000/api/logs",
-        headers={"X-API-Key": "your-api-key"},
-        json={"level": level, "service": service, "message": message}
-    )
-```
-
-### Node.js
-
-```javascript
-async function sendLog(level, message, service = 'myapp') {
-  await fetch('http://localhost:3000/api/logs', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-Key': 'your-api-key'
-    },
-    body: JSON.stringify({ level, message, service })
-  });
-}
-```
-
-## Project Structure
-
-```text
-purl/
-├── lib/Purl/
-│   ├── API/
-│   │   ├── Server.pm           # REST API + WebSocket
-│   │   ├── Middleware.pm       # Auth, rate limit, cache
-│   │   └── Routes/             # Route modules
-│   │       ├── Logs.pm
-│   │       ├── Stats.pm
-│   │       ├── Alerts.pm
-│   │       └── Analytics.pm
-│   ├── Storage/
-│   │   └── ClickHouse/
-│   │       ├── Query.pm        # SQL sanitization
-│   │       ├── Cache.pm        # Query caching
-│   │       ├── Alerts.pm       # Alert CRUD
-│   │       └── SavedSearches.pm
-│   └── Alert/
-│       ├── Telegram.pm
-│       ├── Slack.pm
-│       └── Webhook.pm
-├── web/src/                    # Svelte frontend
-├── deploy/
-│   ├── vector/                 # Vector configs
-│   │   ├── vector.toml         # Local config
-│   │   └── vector-remote.toml  # Remote agent config
-│   ├── kubernetes/             # K8s manifests
-│   └── systemd/                # Systemd units
-├── docker-compose.yml
-└── Makefile
-```
-
 ## Development
 
 ```bash
@@ -437,7 +330,3 @@ make up
 - **Frontend**: Svelte 5, Vite
 - **Log Collection**: Vector
 - **Deploy**: Docker, Kubernetes, Systemd
-
-## License
-
-MIT
