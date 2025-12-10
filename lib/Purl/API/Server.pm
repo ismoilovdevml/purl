@@ -620,6 +620,64 @@ METRICS
         $c->render(json => $stats);
     });
 
+    # ============================================
+    # Analytics API
+    # ============================================
+
+    # Table statistics
+    $protected->get('/analytics/tables' => sub ($c) {
+        my $cache_key = 'analytics_tables';
+        if (my $cached = _cache_get($cache_key)) {
+            $c->res->headers->header('X-Cache' => 'HIT');
+            $c->render(json => $cached);
+            return;
+        }
+
+        my $tables = $storage->get_table_stats();
+        my $response = { tables => $tables };
+
+        _cache_set($cache_key, $response, 60);
+        $c->res->headers->header('X-Cache' => 'MISS');
+
+        $c->render(json => $response);
+    });
+
+    # Recent slow queries
+    $protected->get('/analytics/queries' => sub ($c) {
+        my $limit = $c->param('limit') // 10;
+
+        my $cache_key = "analytics_queries:$limit";
+        if (my $cached = _cache_get($cache_key)) {
+            $c->res->headers->header('X-Cache' => 'HIT');
+            $c->render(json => $cached);
+            return;
+        }
+
+        my $queries = $storage->get_slow_queries(int($limit));
+        my $response = { queries => $queries };
+
+        _cache_set($cache_key, $response, 30);
+        $c->res->headers->header('X-Cache' => 'MISS');
+
+        $c->render(json => $response);
+    });
+
+    # Notifier status
+    $protected->get('/analytics/notifiers' => sub ($c) {
+        my %status;
+        for my $type (keys %notifiers) {
+            $status{$type} = {
+                configured => 1,
+                name       => $notifiers{$type}->name,
+            };
+        }
+
+        $c->render(json => {
+            notifiers => \%status,
+            available => [qw(telegram slack webhook)],
+        });
+    });
+
     # Configured sources
     $protected->get('/sources' => sub ($c) {
         my $sources = $config->{sources} // [];

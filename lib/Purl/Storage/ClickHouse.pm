@@ -803,6 +803,50 @@ sub ping {
     return $@ ? 0 : 1;
 }
 
+# Get table statistics for analytics
+sub get_table_stats {
+    my ($self) = @_;
+
+    my $sql = qq{
+        SELECT
+            table,
+            sum(rows) as rows,
+            sum(bytes) as bytes,
+            count() as partitions,
+            max(modification_time) as last_modified
+        FROM system.parts
+        WHERE database = '$self->{database}' AND active
+        GROUP BY table
+        ORDER BY bytes DESC
+    };
+
+    return $self->_query_json($sql);
+}
+
+# Get slow queries for analytics
+sub get_slow_queries {
+    my ($self, $limit) = @_;
+    $limit //= 10;
+
+    my $sql = qq{
+        SELECT
+            query,
+            query_duration_ms as duration_ms,
+            read_rows,
+            memory_usage,
+            formatDateTime(event_time, '%Y-%m-%dT%H:%i:%SZ') as event_time
+        FROM system.query_log
+        WHERE type = 'QueryFinish'
+          AND query_kind = 'Select'
+          AND query_duration_ms > 100
+          AND query NOT LIKE '%system.%'
+        ORDER BY query_duration_ms DESC
+        LIMIT $limit
+    };
+
+    return $self->_query_json($sql);
+}
+
 sub disconnect {
     my ($self) = @_;
     $self->flush();  # Flush any remaining logs

@@ -7,15 +7,38 @@
   import Histogram from './components/Histogram.svelte';
   import SavedSearches from './components/SavedSearches.svelte';
   import AlertsPanel from './components/AlertsPanel.svelte';
+  import AnalyticsPage from './components/AnalyticsPage.svelte';
+  import SettingsPage from './components/SettingsPage.svelte';
   import { logs, loading, query, timeRange, total, searchLogs, connectWebSocket } from './stores/logs.js';
 
   let ws;
   let liveMode = false;
   let savedSearchesRef;
+  let currentPage = 'logs'; // 'logs' | 'analytics' | 'settings'
 
   onMount(async () => {
-    await searchLogs();
+    // Check URL hash for navigation
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+
+    if (currentPage === 'logs') {
+      await searchLogs();
+    }
+
+    return () => window.removeEventListener('hashchange', handleHashChange);
   });
+
+  function handleHashChange() {
+    const hash = window.location.hash.slice(1) || 'logs';
+    if (['logs', 'analytics', 'settings'].includes(hash)) {
+      currentPage = hash;
+    }
+  }
+
+  function navigate(page) {
+    currentPage = page;
+    window.location.hash = page;
+  }
 
   function toggleLiveMode() {
     liveMode = !liveMode;
@@ -38,7 +61,6 @@
 
   function handleFieldFilter(event) {
     const { value } = event.detail;
-    // Value now comes pre-formatted (e.g., "level:ERROR" or "NOT level:ERROR")
     $query = value;
     searchLogs();
   }
@@ -63,7 +85,6 @@
     for (const log of $logs) {
       const row = headers.map(h => {
         const val = log[h] || '';
-        // Escape quotes and wrap in quotes if contains comma or newline
         const escaped = String(val).replace(/"/g, '""');
         return /[,\n"]/.test(escaped) ? `"${escaped}"` : escaped;
       });
@@ -104,84 +125,116 @@
 
 <main>
   <header>
-    <div class="logo">
+    <button class="logo" on:click={() => navigate('logs')}>
       <svg width="32" height="32" viewBox="0 0 32 32">
         <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="2"/>
         <path d="M10 12 L22 12 M10 16 L22 16 M10 20 L18 20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       </svg>
       <span>Purl</span>
-    </div>
+    </button>
 
-    <SearchBar bind:value={$query} on:search={handleSearch} />
-
-    <div class="header-actions">
-      <TimeRangePicker value={$timeRange} on:change={handleTimeRangeChange} />
-
-      <button class="btn" class:active={liveMode} on:click={toggleLiveMode} title={liveMode ? 'Stop live tail' : 'Start live tail'}>
-        {#if liveMode}
-          <span class="live-dot"></span> Live
-        {:else}
-          Live Tail
-        {/if}
-      </button>
-
-      <button class="btn" on:click={saveCurrentSearch} title="Save current search">
-        <svg width="14" height="14" viewBox="0 0 14 14">
-          <path fill="currentColor" d="M11 1H3a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2ZM7 10a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm3-6H4V2h6v2Z"/>
+    <nav class="nav-tabs">
+      <button class:active={currentPage === 'logs'} on:click={() => navigate('logs')}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+          <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>
         </svg>
+        Logs
       </button>
+      <button class:active={currentPage === 'analytics'} on:click={() => navigate('analytics')}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 3v18h18"/>
+          <path d="M18 9l-5-6-4 8-3-2"/>
+        </svg>
+        Analytics
+      </button>
+      <button class:active={currentPage === 'settings'} on:click={() => navigate('settings')}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+        Settings
+      </button>
+    </nav>
 
-      <div class="export-dropdown">
-        <button class="btn" title="Export logs" disabled={$logs.length === 0}>
-          <svg width="14" height="14" viewBox="0 0 14 14">
-            <path d="M7 1v8M3 5l4 4 4-4M2 11v1a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          Export
+    {#if currentPage === 'logs'}
+      <SearchBar bind:value={$query} on:search={handleSearch} />
+
+      <div class="header-actions">
+        <TimeRangePicker value={$timeRange} on:change={handleTimeRangeChange} />
+
+        <button class="btn" class:active={liveMode} on:click={toggleLiveMode} title={liveMode ? 'Stop live tail' : 'Start live tail'}>
+          {#if liveMode}
+            <span class="live-dot"></span> Live
+          {:else}
+            Live Tail
+          {/if}
         </button>
-        <div class="export-menu">
-          <button on:click={exportCSV}>
-            <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1Zm1 3h6v1H3V4Zm0 2h6v1H3V6Zm0 2h4v1H3V8Z"/></svg>
-            Export as CSV
-          </button>
-          <button on:click={exportJSON}>
-            <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M3 2a1 1 0 0 0-1 1v2a1 1 0 0 1-1 1 1 1 0 0 1 1 1v2a1 1 0 0 0 1 1M9 2a1 1 0 0 1 1 1v2a1 1 0 0 0 1 1 1 1 0 0 0-1 1v2a1 1 0 0 1-1 1"/></svg>
-            Export as JSON
-          </button>
-        </div>
-      </div>
 
-      <button class="btn" on:click={handleSearch} disabled={$loading}>
-        {#if $loading}
-          <span class="spinner"></span>
-        {:else}
-          Refresh
-        {/if}
-      </button>
-    </div>
+        <button class="btn" on:click={saveCurrentSearch} title="Save current search">
+          <svg width="14" height="14" viewBox="0 0 14 14">
+            <path fill="currentColor" d="M11 1H3a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2ZM7 10a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm3-6H4V2h6v2Z"/>
+          </svg>
+        </button>
+
+        <div class="export-dropdown">
+          <button class="btn" title="Export logs" disabled={$logs.length === 0}>
+            <svg width="14" height="14" viewBox="0 0 14 14">
+              <path d="M7 1v8M3 5l4 4 4-4M2 11v1a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Export
+          </button>
+          <div class="export-menu">
+            <button on:click={exportCSV}>
+              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1Zm1 3h6v1H3V4Zm0 2h6v1H3V6Zm0 2h4v1H3V8Z"/></svg>
+              Export as CSV
+            </button>
+            <button on:click={exportJSON}>
+              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M3 2a1 1 0 0 0-1 1v2a1 1 0 0 1-1 1 1 1 0 0 1 1 1v2a1 1 0 0 0 1 1M9 2a1 1 0 0 1 1 1v2a1 1 0 0 0 1 1 1 1 0 0 0-1 1v2a1 1 0 0 1-1 1"/></svg>
+              Export as JSON
+            </button>
+          </div>
+        </div>
+
+        <button class="btn" on:click={handleSearch} disabled={$loading}>
+          {#if $loading}
+            <span class="spinner"></span>
+          {:else}
+            Refresh
+          {/if}
+        </button>
+      </div>
+    {/if}
   </header>
 
-  <div class="stats-bar">
-    <span>{$total.toLocaleString()} logs</span>
-    <span class="separator">|</span>
-    <span>Time range: {$timeRange}</span>
-    {#if $query}
+  {#if currentPage === 'logs'}
+    <div class="stats-bar">
+      <span>{$total.toLocaleString()} logs</span>
       <span class="separator">|</span>
-      <span>Query: <code>{$query}</code></span>
-    {/if}
-  </div>
-
-  <div class="container">
-    <aside class="sidebar">
-      <FieldsSidebar on:filter={handleFieldFilter} />
-      <SavedSearches bind:this={savedSearchesRef} on:apply={handleApplySavedSearch} />
-      <AlertsPanel />
-    </aside>
-
-    <div class="main-content">
-      <Histogram />
-      <LogTable logs={$logs} />
+      <span>Time range: {$timeRange}</span>
+      {#if $query}
+        <span class="separator">|</span>
+        <span>Query: <code>{$query}</code></span>
+      {/if}
     </div>
-  </div>
+
+    <div class="container">
+      <aside class="sidebar">
+        <FieldsSidebar on:filter={handleFieldFilter} />
+        <SavedSearches bind:this={savedSearchesRef} on:apply={handleApplySavedSearch} />
+        <AlertsPanel />
+      </aside>
+
+      <div class="main-content">
+        <Histogram />
+        <LogTable logs={$logs} />
+      </div>
+    </div>
+  {:else if currentPage === 'analytics'}
+    <AnalyticsPage />
+  {:else if currentPage === 'settings'}
+    <SettingsPage />
+  {/if}
 </main>
 
 <style>
@@ -225,6 +278,54 @@
     color: #58a6ff;
     font-weight: 600;
     font-size: 18px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .logo:hover {
+    color: #79c0ff;
+  }
+
+  .nav-tabs {
+    display: flex;
+    gap: 4px;
+    background: #0d1117;
+    padding: 4px;
+    border-radius: 8px;
+  }
+
+  .nav-tabs button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #8b949e;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .nav-tabs button:hover {
+    color: #c9d1d9;
+    background: #21262d;
+  }
+
+  .nav-tabs button.active {
+    color: #f0f6fc;
+    background: #21262d;
+  }
+
+  .nav-tabs button svg {
+    opacity: 0.7;
+  }
+
+  .nav-tabs button.active svg {
+    opacity: 1;
   }
 
   .header-actions {
