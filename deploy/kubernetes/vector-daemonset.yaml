@@ -1,0 +1,179 @@
+# Vector DaemonSet - Collects logs from ALL pods in the cluster
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vector
+  namespace: purl
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vector
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vector
+subjects:
+  - kind: ServiceAccount
+    name: vector
+    namespace: purl
+roleRef:
+  kind: ClusterRole
+  name: vector
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-config
+  namespace: purl
+data:
+  vector.yaml: |
+    sources:
+      # Kubernetes pod logs
+      kubernetes_logs:
+        type: kubernetes_logs
+        # Auto-discover all pods
+        # Exclude system namespaces if needed:
+        # exclude_paths_glob_patterns:
+        #   - "/var/log/pods/kube-system_*/**"
+
+    transforms:
+      # Parse and enrich Kubernetes logs
+      k8s_parsed:
+        type: remap
+        inputs:
+          - kubernetes_logs
+        source: |
+          # Extract Kubernetes metadata
+          .service = .kubernetes.pod_labels."app.kubernetes.io/name" ??
+                     .kubernetes.pod_labels.app ??
+                     .kubernetes.container_name ??
+                     "unknown"
+          .host = .kubernetes.pod_name
+          .namespace = .kubernetes.pod_namespace
+
+          # Try to parse JSON logs
+          parsed, err = parse_json(.message)
+          if err == null {
+            .level = parsed.level ?? parsed.lvl ?? parsed.severity ?? "INFO"
+            .message = parsed.msg ?? parsed.message ?? parsed.text ?? .message
+            .meta = {
+              "namespace": .namespace,
+              "pod": .kubernetes.pod_name,
+              "container": .kubernetes.container_name,
+              "node": .kubernetes.pod_node_name,
+              "labels": .kubernetes.pod_labels
+            }
+            # Merge parsed fields into meta
+            .meta = merge(.meta, parsed)
+          } else {
+            # Plain text - detect level
+            if contains(string!(.message), "ERROR") || contains(string!(.message), "error") {
+              .level = "ERROR"
+            } else if contains(string!(.message), "WARN") || contains(string!(.message), "warn") {
+              .level = "WARN"
+            } else if contains(string!(.message), "DEBUG") || contains(string!(.message), "debug") {
+              .level = "DEBUG"
+            } else {
+              .level = "INFO"
+            }
+            .meta = {
+              "namespace": .namespace,
+              "pod": .kubernetes.pod_name,
+              "container": .kubernetes.container_name,
+              "node": .kubernetes.pod_node_name
+            }
+          }
+
+          .level = upcase(string!(.level))
+          .raw = .message
+
+          # Remove kubernetes object (already extracted to meta)
+          del(.kubernetes)
+          del(.file)
+          del(.source_type)
+          del(.stream)
+          del(.namespace)
+
+    sinks:
+      purl:
+        type: http
+        inputs:
+          - k8s_parsed
+        uri: "http://purl.purl.svc.cluster.local:3000/api/logs"
+        encoding:
+          codec: json
+        batch:
+          max_bytes: 1048576
+          max_events: 100
+          timeout_secs: 5
+        request:
+          retry_attempts: 5
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: vector
+  namespace: purl
+spec:
+  selector:
+    matchLabels:
+      app: vector
+  template:
+    metadata:
+      labels:
+        app: vector
+    spec:
+      serviceAccountName: vector
+      containers:
+        - name: vector
+          image: timberio/vector:0.34.1-alpine
+          args:
+            - --config-yaml
+            - /etc/vector/vector.yaml
+          env:
+            - name: VECTOR_SELF_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vector
+              readOnly: true
+            - name: var-log
+              mountPath: /var/log
+              readOnly: true
+            - name: var-lib-docker
+              mountPath: /var/lib/docker
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/vector
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+      volumes:
+        - name: config
+          configMap:
+            name: vector-config
+        - name: var-log
+          hostPath:
+            path: /var/log
+        - name: var-lib-docker
+          hostPath:
+            path: /var/lib/docker
+        - name: data
+          hostPath:
+            path: /var/lib/vector
+      tolerations:
+        # Run on all nodes including masters
+        - operator: Exists

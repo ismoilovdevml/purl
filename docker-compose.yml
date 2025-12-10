@@ -66,6 +66,27 @@ services:
       retries: 10
       start_period: 10s
 
+  # ============================================================
+  # Vector - Log Collector (optional, use --profile vector)
+  # ============================================================
+  vector:
+    image: timberio/vector:0.34.1-alpine
+    container_name: purl-vector
+    restart: unless-stopped
+    profiles:
+      - vector
+    volumes:
+      - ./deploy/docker/vector.yaml:/etc/vector/vector.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log:/var/log:ro
+    environment:
+      - PURL_URL=http://purl:3000
+    depends_on:
+      purl:
+        condition: service_healthy
+    networks:
+      - purl-network
+
 networks:
   purl-network:
     driver: bridge

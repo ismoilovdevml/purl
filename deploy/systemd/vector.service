@@ -1,0 +1,26 @@
+[Unit]
+Description=Vector Log Collector
+Documentation=https://vector.dev
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vector
+Group=vector
+ExecStartPre=/usr/bin/vector validate /etc/vector/vector.yaml
+ExecStart=/usr/bin/vector --config /etc/vector/vector.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+Environment=PURL_URL=http://localhost:3000
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/vector
+ReadOnlyPaths=/var/log /etc/vector
+
+[Install]
+WantedBy=multi-user.target

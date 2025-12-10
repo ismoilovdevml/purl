@@ -1,0 +1,30 @@
+[Unit]
+Description=Purl Log Dashboard
+Documentation=https://github.com/your-username/purl
+After=network-online.target clickhouse-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=purl
+Group=purl
+WorkingDirectory=/opt/purl
+ExecStart=/usr/bin/perl bin/purl server -p 3000
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+
+# Environment
+Environment=PURL_CLICKHOUSE_HOST=localhost
+Environment=PURL_CLICKHOUSE_PORT=8123
+Environment=PURL_PORT=3000
+Environment=PURL_RETENTION_DAYS=30
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/purl/data
+
+[Install]
+WantedBy=multi-user.target

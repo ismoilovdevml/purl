@@ -1,0 +1,158 @@
+# Vector config for systemd/journald log collection
+# Install: /etc/vector/vector.yaml
+
+sources:
+  # Systemd journal (all services)
+  journald:
+    type: journald
+    # Collect from all units
+    # include_units:
+    #   - nginx.service
+    #   - myapp.service
+
+  # File logs
+  var_log:
+    type: file
+    include:
+      - /var/log/*.log
+      - /var/log/**/*.log
+    exclude:
+      - /var/log/vector.log
+    read_from: end
+
+  # Nginx (if installed)
+  nginx_access:
+    type: file
+    include:
+      - /var/log/nginx/access.log
+    read_from: end
+
+  nginx_error:
+    type: file
+    include:
+      - /var/log/nginx/error.log
+    read_from: end
+
+transforms:
+  # Parse journald logs
+  journald_parsed:
+    type: remap
+    inputs:
+      - journald
+    source: |
+      .service = ._SYSTEMD_UNIT ?? .SYSLOG_IDENTIFIER ?? "systemd"
+      .host = .host ?? get_hostname() ?? "unknown"
+
+      # Map syslog priority to level
+      priority = to_int(.PRIORITY) ?? 6
+      if priority <= 3 {
+        .level = "ERROR"
+      } else if priority == 4 {
+        .level = "WARN"
+      } else if priority == 7 {
+        .level = "DEBUG"
+      } else {
+        .level = "INFO"
+      }
+
+      .raw = .message
+      .meta = {
+        "pid": .SYSLOG_PID,
+        "unit": ._SYSTEMD_UNIT,
+        "exe": ._EXE
+      }
+
+      # Cleanup
+      del(.PRIORITY)
+      del(.SYSLOG_IDENTIFIER)
+      del(._SYSTEMD_UNIT)
+      del(._EXE)
+      del(.SYSLOG_PID)
+      del(.__REALTIME_TIMESTAMP)
+      del(.__MONOTONIC_TIMESTAMP)
+
+  # Parse var/log files
+  varlog_parsed:
+    type: remap
+    inputs:
+      - var_log
+    source: |
+      .service = replace(string!(.file), "/var/log/", "")
+      .service = replace(.service, ".log", "")
+      .service = replace(.service, "/", "-")
+      .host = get_hostname() ?? "unknown"
+      .level = "INFO"
+      .raw = .message
+      .meta = {"file": .file}
+
+      # Detect level from message
+      if contains(string!(.message), "ERROR") || contains(string!(.message), "error") {
+        .level = "ERROR"
+      } else if contains(string!(.message), "WARN") || contains(string!(.message), "warn") {
+        .level = "WARN"
+      }
+
+  # Parse nginx access logs
+  nginx_access_parsed:
+    type: remap
+    inputs:
+      - nginx_access
+    source: |
+      .service = "nginx"
+      .host = get_hostname() ?? "unknown"
+
+      parsed, err = parse_nginx_log(.message, "combined")
+      if err == null {
+        .meta = {
+          "client_ip": parsed.client,
+          "method": parsed.method,
+          "path": parsed.path,
+          "status": parsed.status,
+          "bytes": parsed.size,
+          "referrer": parsed.referrer,
+          "user_agent": parsed.agent
+        }
+        status = to_int(parsed.status) ?? 200
+        if status >= 500 {
+          .level = "ERROR"
+        } else if status >= 400 {
+          .level = "WARN"
+        } else {
+          .level = "INFO"
+        }
+        .message = to_string(parsed.method) + " " + to_string(parsed.path) + " " + to_string(parsed.status)
+      } else {
+        .level = "INFO"
+        .meta = {}
+      }
+      .raw = .message
+
+  # Parse nginx error logs
+  nginx_error_parsed:
+    type: remap
+    inputs:
+      - nginx_error
+    source: |
+      .service = "nginx-error"
+      .host = get_hostname() ?? "unknown"
+      .level = "ERROR"
+      .raw = .message
+      .meta = {}
+
+sinks:
+  purl:
+    type: http
+    inputs:
+      - journald_parsed
+      - varlog_parsed
+      - nginx_access_parsed
+      - nginx_error_parsed
+    uri: "${PURL_URL:-http://localhost:3000}/api/logs"
+    encoding:
+      codec: json
+    batch:
+      max_bytes: 1048576
+      max_events: 100
+      timeout_secs: 5
+    request:
+      retry_attempts: 5
