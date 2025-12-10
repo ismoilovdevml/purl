@@ -1,14 +1,185 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
+  import { levelStats, serviceStats, hostStats } from '../stores/logs.js';
 
   export let value = '';
 
   const dispatch = createEventDispatcher();
 
+  // Autocomplete state
+  let showSuggestions = false;
+  let suggestions = [];
+  let selectedIndex = -1;
+  let inputEl;
+
+  // Search history
+  let searchHistory = [];
+  let showHistory = false;
+  const MAX_HISTORY = 10;
+
+  // KQL operators and fields
+  const OPERATORS = ['AND', 'OR', 'NOT'];
+  const FIELDS = ['level', 'service', 'host', 'message', 'timestamp'];
+
+  onMount(() => {
+    const saved = localStorage.getItem('purl_search_history');
+    if (saved) {
+      searchHistory = JSON.parse(saved);
+    }
+  });
+
+  function saveToHistory(query) {
+    if (!query.trim()) return;
+    searchHistory = [query, ...searchHistory.filter(h => h !== query)].slice(0, MAX_HISTORY);
+    localStorage.setItem('purl_search_history', JSON.stringify(searchHistory));
+  }
+
   function handleKeydown(event) {
+    if (showSuggestions && suggestions.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        selectedIndex = Math.min(selectedIndex + 1, suggestions.length - 1);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        selectedIndex = Math.max(selectedIndex - 1, -1);
+      } else if (event.key === 'Enter' && selectedIndex >= 0) {
+        event.preventDefault();
+        applySuggestion(suggestions[selectedIndex]);
+        return;
+      } else if (event.key === 'Escape') {
+        showSuggestions = false;
+        showHistory = false;
+        return;
+      }
+    }
+
     if (event.key === 'Enter') {
+      showSuggestions = false;
+      showHistory = false;
+      saveToHistory(value);
       dispatch('search');
     }
+  }
+
+  function handleInput() {
+    selectedIndex = -1;
+    updateSuggestions();
+  }
+
+  function handleFocus() {
+    if (!value && searchHistory.length > 0) {
+      showHistory = true;
+    } else {
+      updateSuggestions();
+    }
+  }
+
+  function handleBlur() {
+    setTimeout(() => {
+      showSuggestions = false;
+      showHistory = false;
+    }, 200);
+  }
+
+  function updateSuggestions() {
+    showHistory = false;
+    const cursorPos = inputEl?.selectionStart || value.length;
+    const textBeforeCursor = value.substring(0, cursorPos);
+
+    // Get the current token being typed
+    const tokens = textBeforeCursor.split(/\s+/);
+    const currentToken = tokens[tokens.length - 1] || '';
+
+    if (!currentToken) {
+      showSuggestions = false;
+      return;
+    }
+
+    suggestions = [];
+
+    // Check if typing field:value
+    if (currentToken.includes(':')) {
+      const [field, partial] = currentToken.split(':');
+      const fieldLower = field.toLowerCase();
+
+      // Get values for this field
+      let values = [];
+      if (fieldLower === 'level') {
+        values = $levelStats.map(s => s.value);
+      } else if (fieldLower === 'service') {
+        values = $serviceStats.map(s => s.value);
+      } else if (fieldLower === 'host') {
+        values = $hostStats.map(s => s.value);
+      }
+
+      // Filter by partial match
+      const partialLower = (partial || '').toLowerCase();
+      suggestions = values
+        .filter(v => v.toLowerCase().includes(partialLower))
+        .slice(0, 8)
+        .map(v => ({
+          type: 'value',
+          text: `${field}:${v}`,
+          display: v,
+          field: field
+        }));
+    } else {
+      // Suggest fields or operators
+      const tokenLower = currentToken.toLowerCase();
+
+      // Field suggestions
+      const fieldSuggestions = FIELDS
+        .filter(f => f.toLowerCase().startsWith(tokenLower))
+        .map(f => ({
+          type: 'field',
+          text: `${f}:`,
+          display: f,
+          hint: 'field'
+        }));
+
+      // Operator suggestions (only after space)
+      const opSuggestions = tokens.length > 1 ? OPERATORS
+        .filter(op => op.toLowerCase().startsWith(tokenLower))
+        .map(op => ({
+          type: 'operator',
+          text: op,
+          display: op,
+          hint: 'operator'
+        })) : [];
+
+      suggestions = [...fieldSuggestions, ...opSuggestions].slice(0, 8);
+    }
+
+    showSuggestions = suggestions.length > 0;
+  }
+
+  function applySuggestion(suggestion) {
+    const cursorPos = inputEl?.selectionStart || value.length;
+    const textBeforeCursor = value.substring(0, cursorPos);
+    const textAfterCursor = value.substring(cursorPos);
+
+    // Find the start of current token
+    const lastSpace = textBeforeCursor.lastIndexOf(' ');
+    const beforeToken = textBeforeCursor.substring(0, lastSpace + 1);
+
+    value = beforeToken + suggestion.text + (suggestion.type === 'field' ? '' : ' ') + textAfterCursor.trimStart();
+    showSuggestions = false;
+    selectedIndex = -1;
+
+    // Focus back to input
+    setTimeout(() => inputEl?.focus(), 0);
+  }
+
+  function applyHistory(query) {
+    value = query;
+    showHistory = false;
+    dispatch('search');
+  }
+
+  function clearHistory() {
+    searchHistory = [];
+    localStorage.removeItem('purl_search_history');
+    showHistory = false;
   }
 
   function handleClear() {
@@ -23,18 +194,74 @@
   </svg>
 
   <input
+    bind:this={inputEl}
     type="text"
     bind:value
     on:keydown={handleKeydown}
+    on:input={handleInput}
+    on:focus={handleFocus}
+    on:blur={handleBlur}
     placeholder="Search logs... level:ERROR AND service:api*"
+    autocomplete="off"
   />
 
   {#if value}
-    <button class="clear-btn" on:click={handleClear}>
+    <button class="clear-btn" on:click={handleClear} title="Clear search">
       <svg width="14" height="14" viewBox="0 0 14 14">
         <path fill="currentColor" d="M7 5.586 3.707 2.293a1 1 0 0 0-1.414 1.414L5.586 7 2.293 10.293a1 1 0 1 0 1.414 1.414L7 8.414l3.293 3.293a1 1 0 0 0 1.414-1.414L8.414 7l3.293-3.293a1 1 0 0 0-1.414-1.414L7 5.586Z"/>
       </svg>
     </button>
+  {/if}
+
+  <!-- Autocomplete dropdown -->
+  {#if showSuggestions && suggestions.length > 0}
+    <div class="suggestions">
+      {#each suggestions as suggestion, i}
+        <button
+          class="suggestion-item"
+          class:selected={i === selectedIndex}
+          on:mousedown|preventDefault={() => applySuggestion(suggestion)}
+        >
+          <span class="suggestion-icon">
+            {#if suggestion.type === 'field'}
+              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 3h8v1H2V3zm0 2.5h8v1H2v-1zm0 2.5h5v1H2V8z"/></svg>
+            {:else if suggestion.type === 'operator'}
+              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5"/></svg>
+            {:else}
+              <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="currentColor"/></svg>
+            {/if}
+          </span>
+          <span class="suggestion-text">{suggestion.display}</span>
+          {#if suggestion.hint}
+            <span class="suggestion-hint">{suggestion.hint}</span>
+          {/if}
+          {#if suggestion.field}
+            <span class="suggestion-field">{suggestion.field}</span>
+          {/if}
+        </button>
+      {/each}
+    </div>
+  {/if}
+
+  <!-- Search history dropdown -->
+  {#if showHistory && searchHistory.length > 0}
+    <div class="suggestions history">
+      <div class="history-header">
+        <span>Recent searches</span>
+        <button class="history-clear" on:mousedown|preventDefault={clearHistory}>Clear</button>
+      </div>
+      {#each searchHistory as query, i}
+        <button
+          class="suggestion-item"
+          on:mousedown|preventDefault={() => applyHistory(query)}
+        >
+          <span class="suggestion-icon">
+            <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M6 1a5 5 0 1 0 5 5 5 5 0 0 0-5-5zm0 9a4 4 0 1 1 4-4 4 4 0 0 1-4 4zm.5-4V3.5a.5.5 0 0 0-1 0v3a.5.5 0 0 0 .15.35l2 2a.5.5 0 0 0 .7-.7L6.5 6z"/></svg>
+          </span>
+          <span class="suggestion-text history-query">{query}</span>
+        </button>
+      {/each}
+    </div>
   {/if}
 </div>
 
@@ -52,6 +279,7 @@
     left: 12px;
     color: #8b949e;
     pointer-events: none;
+    z-index: 1;
   }
 
   input {
@@ -84,10 +312,99 @@
     color: #8b949e;
     cursor: pointer;
     border-radius: 4px;
+    z-index: 1;
   }
 
   .clear-btn:hover {
     color: #c9d1d9;
     background: #30363d;
+  }
+
+  .suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 100;
+    overflow: hidden;
+  }
+
+  .history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid #30363d;
+    font-size: 11px;
+    color: #8b949e;
+    text-transform: uppercase;
+  }
+
+  .history-clear {
+    background: none;
+    border: none;
+    color: #58a6ff;
+    cursor: pointer;
+    font-size: 11px;
+    text-transform: uppercase;
+  }
+
+  .history-clear:hover {
+    text-decoration: underline;
+  }
+
+  .suggestion-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    color: #c9d1d9;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+  }
+
+  .suggestion-item:hover,
+  .suggestion-item.selected {
+    background: #21262d;
+  }
+
+  .suggestion-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    color: #8b949e;
+  }
+
+  .suggestion-text {
+    flex: 1;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+  }
+
+  .history-query {
+    color: #58a6ff;
+  }
+
+  .suggestion-hint {
+    font-size: 11px;
+    color: #6e7681;
+    padding: 2px 6px;
+    background: #21262d;
+    border-radius: 4px;
+  }
+
+  .suggestion-field {
+    font-size: 11px;
+    color: #8b949e;
   }
 </style>

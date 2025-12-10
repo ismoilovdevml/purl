@@ -37,8 +37,9 @@
   }
 
   function handleFieldFilter(event) {
-    const { field, value } = event.detail;
-    $query = `${field}:${value}`;
+    const { value } = event.detail;
+    // Value now comes pre-formatted (e.g., "level:ERROR" or "NOT level:ERROR")
+    $query = value;
     searchLogs();
   }
 
@@ -51,6 +52,53 @@
 
   function saveCurrentSearch() {
     savedSearchesRef?.openSaveModal($query, $timeRange);
+  }
+
+  function exportCSV() {
+    if ($logs.length === 0) return;
+
+    const headers = ['timestamp', 'level', 'service', 'host', 'message'];
+    const csvRows = [headers.join(',')];
+
+    for (const log of $logs) {
+      const row = headers.map(h => {
+        const val = log[h] || '';
+        // Escape quotes and wrap in quotes if contains comma or newline
+        const escaped = String(val).replace(/"/g, '""');
+        return /[,\n"]/.test(escaped) ? `"${escaped}"` : escaped;
+      });
+      csvRows.push(row.join(','));
+    }
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    downloadBlob(blob, `purl-logs-${Date.now()}.csv`);
+  }
+
+  function exportJSON() {
+    if ($logs.length === 0) return;
+
+    const data = $logs.map(log => ({
+      timestamp: log.timestamp,
+      level: log.level,
+      service: log.service,
+      host: log.host,
+      message: log.message,
+      meta: log.meta || {}
+    }));
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    downloadBlob(blob, `purl-logs-${Date.now()}.json`);
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 </script>
 
@@ -82,6 +130,25 @@
           <path fill="currentColor" d="M11 1H3a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2ZM7 10a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm3-6H4V2h6v2Z"/>
         </svg>
       </button>
+
+      <div class="export-dropdown">
+        <button class="btn" title="Export logs" disabled={$logs.length === 0}>
+          <svg width="14" height="14" viewBox="0 0 14 14">
+            <path d="M7 1v8M3 5l4 4 4-4M2 11v1a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Export
+        </button>
+        <div class="export-menu">
+          <button on:click={exportCSV}>
+            <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1Zm1 3h6v1H3V4Zm0 2h6v1H3V6Zm0 2h4v1H3V8Z"/></svg>
+            Export as CSV
+          </button>
+          <button on:click={exportJSON}>
+            <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M3 2a1 1 0 0 0-1 1v2a1 1 0 0 1-1 1 1 1 0 0 1 1 1v2a1 1 0 0 0 1 1M9 2a1 1 0 0 1 1 1v2a1 1 0 0 0 1 1 1 1 0 0 0-1 1v2a1 1 0 0 1-1 1"/></svg>
+            Export as JSON
+          </button>
+        </div>
+      </div>
 
       <button class="btn" on:click={handleSearch} disabled={$loading}>
         {#if $loading}
@@ -263,5 +330,51 @@
     flex: 1;
     padding: 16px;
     overflow: auto;
+  }
+
+  .export-dropdown {
+    position: relative;
+  }
+
+  .export-dropdown:hover .export-menu,
+  .export-dropdown:focus-within .export-menu {
+    display: block;
+  }
+
+  .export-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 200;
+    min-width: 160px;
+    overflow: hidden;
+  }
+
+  .export-menu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    background: none;
+    border: none;
+    color: #c9d1d9;
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .export-menu button:hover {
+    background: #21262d;
+  }
+
+  .export-menu button svg {
+    color: #8b949e;
   }
 </style>
