@@ -7,111 +7,49 @@ use Moo;
 use namespace::clean;
 use JSON::XS ();
 
-# Format detection patterns
+# Format detection patterns (single-line for reliability)
 my %FORMAT_PATTERNS = (
     # JSON logs (must be first - most specific)
     json => qr/^\s*\{.*\}\s*$/,
 
     # Nginx combined log format
-    nginx_combined => qr/^
-        \S+\s+-\s+\S+\s+             # remote_addr - remote_user
-        \[[^\]]+\]\s+                 # [timestamp]
-        "[A-Z]+\s+\S+\s+HTTP\/[\d.]+"  # "METHOD path HTTP/x.x"
-        \s+\d{3}\s+\d+                # status bytes
-        \s+"[^"]*"\s+"[^"]*"          # "referrer" "user_agent"
-    /x,
+    nginx_combined => qr/^\S+\s+-\s+\S+\s+\[[^\]]+\]\s+"[A-Z]+\s+\S+\s+HTTP\/[\d.]+"\s+\d{3}\s+\d+\s+"[^"]*"\s+"[^"]*"/,
 
     # Nginx error log
-    nginx_error => qr/^
-        \d{4}\/\d{2}\/\d{2}\s+       # date
-        \d{2}:\d{2}:\d{2}\s+         # time
-        \[\w+\]\s+                    # [level]
-        \d+\#\d+:                     # pid#tid:
-    /x,
+    nginx_error => qr/^\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}\s+\[\w+\]\s+\d+#\d+:/,
 
     # Syslog RFC3164
-    syslog => qr/^
-        (?:<\d+>)?                    # optional priority
-        [A-Z][a-z]{2}\s+\d+\s+        # Month Day
-        \d{2}:\d{2}:\d{2}\s+          # time
-        \S+\s+                        # hostname
-        \S+                           # program
-    /x,
+    syslog => qr/^(?:<\d+>)?[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\S+\s+\S+/,
 
     # Syslog RFC5424
-    syslog_rfc5424 => qr/^
-        <\d+>\d+\s+                   # priority and version
-        \d{4}-\d{2}-\d{2}T            # ISO timestamp start
-    /x,
+    syslog_rfc5424 => qr/^<\d+>\d+\s+\d{4}-\d{2}-\d{2}T/,
 
     # Docker JSON logs
-    docker_json => qr/^
-        \{"log":".*",
-        "stream":"(?:stdout|stderr)",
-        "time":"
-    /x,
+    docker_json => qr/^\{"log":".*","stream":"(?:stdout|stderr)","time":"/,
 
     # Apache/NCSA Combined Log Format (CLF)
-    clf => qr/^
-        \S+\s+\S+\s+\S+\s+           # host ident user
-        \[[^\]]+\]\s+                 # [timestamp]
-        "[^"]*"\s+                    # "request"
-        \d{3}\s+                      # status
-        (?:\d+|-)                     # bytes
-    /x,
+    clf => qr/^\S+\s+\S+\s+\S+\s+\[[^\]]+\]\s+"[^"]*"\s+\d{3}\s+(?:\d+|-)/,
 
     # Apache error log
-    apache_error => qr/^
-        \[[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d+\s+  # [Day Mon DD
-        \d{2}:\d{2}:\d{2}(?:\.\d+)?\s+\d{4}\]     # HH:MM:SS.ms YYYY]
-    /x,
+    apache_error => qr/^\[[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+\d{4}\]/,
 
     # Kubernetes/container logs with timestamp prefix
-    kubernetes => qr/^
-        \d{4}-\d{2}-\d{2}T           # ISO date
-        \d{2}:\d{2}:\d{2}            # time
-        (?:\.\d+)?Z?\s+              # optional ms and Z
-        (?:stdout|stderr)\s+         # stream
-        [FP]\s+                      # full/partial flag
-    /x,
+    kubernetes => qr/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?\s+(?:stdout|stderr)\s+[FP]\s+/,
 
     # PostgreSQL
-    postgresql => qr/^
-        \d{4}-\d{2}-\d{2}\s+         # date
-        \d{2}:\d{2}:\d{2}            # time
-        (?:\.\d+)?\s+                # optional ms
-        \w+\s+                       # timezone
-        \[\d+\]                      # [pid]
-    /x,
+    postgresql => qr/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+\w+\s+\[\d+\]/,
 
     # Python logging default format
-    python => qr/^
-        \d{4}-\d{2}-\d{2}\s+         # date
-        \d{2}:\d{2}:\d{2},\d{3}\s+   # time with ms
-        -\s+\w+\s+-                  # - LEVEL -
-    /x,
+    python => qr/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2},\d{3}\s+-\s+\w+\s+-/,
 
     # Java/Log4j
-    log4j => qr/^
-        \d{4}-\d{2}-\d{2}\s+         # date
-        \d{2}:\d{2}:\d{2}[,\.]\d{3}\s+  # time with ms
-        (?:\[[\w\-]+\]\s+)?          # optional thread
-        \b(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\b
-    /x,
+    log4j => qr/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[,\.]\d{3}\s+(?:\[[\w\-]+\]\s+)?\b(?:TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\b/,
 
     # Go standard log
-    go_log => qr/^
-        \d{4}\/\d{2}\/\d{2}\s+       # date with /
-        \d{2}:\d{2}:\d{2}\s+         # time
-    /x,
+    go_log => qr/^\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}\s+/,
 
     # Generic ISO timestamp with level
-    generic_iso => qr/^
-        \d{4}-\d{2}-\d{2}[T\s]       # ISO date
-        \d{2}:\d{2}:\d{2}            # time
-        [^\[]*                       # anything before level
-        \b(?:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL)\b
-    /xi,
+    generic_iso => qr/^\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}[^\[]*\b(?:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRITICAL)\b/i,
 );
 
 # Confidence weights for each format

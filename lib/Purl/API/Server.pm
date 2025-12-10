@@ -3,47 +3,27 @@ use strict;
 use warnings;
 use 5.024;
 
-use Moo;
-use namespace::clean;
-
 use Mojolicious::Lite -signatures;
 use Mojo::JSON qw(encode_json decode_json);
 
 use Purl::Storage::SQLite;
 use Purl::Storage::ClickHouse;
 use Purl::Query::KQL;
-use Purl::Collector::Manager;
 
-has 'config' => (
-    is      => 'ro',
-    default => sub { {} },
-);
+# Package-level state
+my $storage;
+my $kql;
+my $config = {};
+my $websockets = [];
 
-has 'storage' => (
-    is      => 'ro',
-    lazy    => 1,
-    builder => '_build_storage',
-);
-
-has 'kql' => (
-    is      => 'ro',
-    lazy    => 1,
-    default => sub { Purl::Query::KQL->new() },
-);
-
-has 'collector_manager' => (
-    is      => 'rw',
-);
-
-has '_websockets' => (
-    is      => 'rw',
-    default => sub { [] },
-);
+sub new {
+    my ($class, %args) = @_;
+    $config = $args{config} // {};
+    return bless {}, $class;
+}
 
 sub _build_storage {
-    my ($self) = @_;
-
-    my $storage_config = $self->config->{storage} // {};
+    my $storage_config = $config->{storage} // {};
     my $storage_type = $ENV{PURL_STORAGE_TYPE} // $storage_config->{type} // 'sqlite';
     my $retention_days = $storage_config->{retention_days} // 30;
 
@@ -72,8 +52,8 @@ sub _build_storage {
 sub setup_routes {
     my ($self) = @_;
 
-    my $storage = $self->storage;
-    my $kql = $self->kql;
+    $storage //= _build_storage();
+    $kql //= Purl::Query::KQL->new();
 
     # Serve static files from web/public
     app->static->paths->[0] = app->home->child('web/public');
@@ -113,7 +93,7 @@ sub setup_routes {
 
         # Handle time range shortcuts
         if (my $range = $c->param('range')) {
-            ($from, $to) = $self->_parse_time_range($range);
+            ($from, $to) = _parse_time_range($range);
         }
 
         my %params = (
@@ -131,7 +111,6 @@ sub setup_routes {
         # Parse KQL query
         if ($query) {
             my $parsed = $kql->parse($query);
-            # For now, use message contains for full query support
             $params{query} = $query;
         }
 
@@ -232,7 +211,7 @@ sub setup_routes {
 
     # Configured sources
     $api->get('/sources' => sub ($c) {
-        my $sources = $self->config->{sources} // [];
+        my $sources = $config->{sources} // [];
         $c->render(json => { sources => $sources });
     });
 
@@ -241,10 +220,9 @@ sub setup_routes {
         my $ws = $c->tx;
 
         # Add to websocket list
-        push @{$self->_websockets}, $ws;
+        push @$websockets, $ws;
 
         $c->on(message => sub ($c, $msg) {
-            # Handle client messages (e.g., filter updates)
             my $data = eval { decode_json($msg) };
             if ($data && $data->{type} eq 'subscribe') {
                 $ws->{filter} = $data->{filter} // {};
@@ -252,13 +230,9 @@ sub setup_routes {
         });
 
         $c->on(finish => sub ($c, $code, $reason) {
-            # Remove from websocket list
-            $self->_websockets([
-                grep { $_ != $ws } @{$self->_websockets}
-            ]);
+            $websockets = [grep { $_ != $ws } @$websockets];
         });
 
-        # Send initial message
         $c->send(encode_json({
             type    => 'connected',
             message => 'Connected to log stream',
@@ -266,38 +240,16 @@ sub setup_routes {
     });
 
     # Serve SPA for all other routes
-    app->routes->get('/*path' => { path => '' } => sub ($c) {
+    app->routes->get('/*catchall' => { catchall => '' } => sub ($c) {
         $c->reply->static('index.html');
     });
 
     return app;
 }
 
-# Broadcast log to all connected WebSocket clients
-sub broadcast_log {
-    my ($self, $log) = @_;
-
-    for my $ws (@{$self->_websockets}) {
-        next unless $ws->is_websocket;
-
-        # Apply filter if set
-        if (my $filter = $ws->{filter}) {
-            next if $filter->{level} && $log->{level} ne $filter->{level};
-            next if $filter->{service} && $log->{service} !~ /^\Q$filter->{service}\E/;
-        }
-
-        eval {
-            $ws->send(encode_json({
-                type => 'log',
-                data => $log,
-            }));
-        };
-    }
-}
-
 # Parse time range shortcut (15m, 1h, 24h, 7d)
 sub _parse_time_range {
-    my ($self, $range) = @_;
+    my ($range) = @_;
 
     my $now = time();
     my $from;
@@ -332,7 +284,7 @@ sub _epoch_to_iso {
 sub run {
     my ($self, %options) = @_;
 
-    my $server_config = $self->config->{server} // {};
+    my $server_config = $config->{server} // {};
 
     my $host    = $options{host} // $server_config->{host} // '0.0.0.0';
     my $port    = $options{port} // $server_config->{port} // 3000;

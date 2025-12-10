@@ -6,8 +6,9 @@ use 5.024;
 use Moo;
 use namespace::clean;
 use DBI;
+use DBD::SQLite;
 use JSON::XS ();
-use Path::Tiny;
+use Path::Tiny ();
 use Time::Piece;
 
 has 'db_path' => (
@@ -45,7 +46,7 @@ sub BUILD {
     my ($self) = @_;
 
     # Ensure data directory exists
-    my $dir = path($self->db_path)->parent;
+    my $dir = Path::Tiny::path($self->db_path)->parent;
     $dir->mkpath unless $dir->exists;
 }
 

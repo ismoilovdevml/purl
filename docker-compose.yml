@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   # ============================================================
-  # Purl - Log Parser & Dashboard
+  # Purl - Log Parser & Dashboard (SQLite mode)
   # ============================================================
   purl:
     build:
@@ -15,19 +13,12 @@ services:
     environment:
       - PURL_HOST=0.0.0.0
       - PURL_PORT=3000
-      - PURL_STORAGE_TYPE=${PURL_STORAGE_TYPE:-clickhouse}
-      - PURL_CLICKHOUSE_HOST=clickhouse
-      - PURL_CLICKHOUSE_PORT=8123
-      - PURL_CLICKHOUSE_DATABASE=purl
+      - PURL_STORAGE_TYPE=sqlite
+      - PURL_DB_PATH=/app/data/purl.db
       - PURL_RETENTION_DAYS=${PURL_RETENTION_DAYS:-30}
     volumes:
       - purl_data:/app/data
       - ./config:/app/config:ro
-      # Mount log directories to collect (customize as needed)
-      - /var/log:/var/log:ro
-    depends_on:
-      clickhouse:
-        condition: service_healthy
     networks:
       - purl-network
     healthcheck:
@@ -37,64 +28,10 @@ services:
       retries: 3
       start_period: 10s
 
-  # ============================================================
-  # ClickHouse - Column-oriented DBMS for logs
-  # ============================================================
-  clickhouse:
-    image: clickhouse/clickhouse-server:24.3-alpine
-    container_name: purl-clickhouse
-    restart: unless-stopped
-    ports:
-      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
-      - "${CLICKHOUSE_NATIVE_PORT:-9000}:9000"
-    environment:
-      - CLICKHOUSE_DB=purl
-      - CLICKHOUSE_USER=default
-      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
-    volumes:
-      - clickhouse_data:/var/lib/clickhouse
-      - clickhouse_logs:/var/log/clickhouse-server
-      - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.d/custom.xml:ro
-      - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.d/custom.xml:ro
-    ulimits:
-      nofile:
-        soft: 262144
-        hard: 262144
-    networks:
-      - purl-network
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  # ============================================================
-  # Vector - Log collector (optional, alternative to built-in)
-  # ============================================================
-  vector:
-    image: timberio/vector:0.35.0-alpine
-    container_name: purl-vector
-    restart: unless-stopped
-    profiles:
-      - vector
-    volumes:
-      - ./docker/vector/vector.toml:/etc/vector/vector.toml:ro
-      - /var/log:/var/log:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    depends_on:
-      - clickhouse
-    networks:
-      - purl-network
-
 networks:
   purl-network:
     driver: bridge
 
 volumes:
   purl_data:
-    driver: local
-  clickhouse_data:
-    driver: local
-  clickhouse_logs:
     driver: local

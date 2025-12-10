@@ -5,12 +5,12 @@ use 5.024;
 
 use Moo;
 use namespace::clean;
-use Path::Tiny;
+use Path::Tiny ();
 use IO::Select;
 
 with 'Purl::Collector::Base';
 
-has 'path' => (
+has 'file_path' => (
     is       => 'ro',
     required => 1,
 );
@@ -68,7 +68,7 @@ sub is_running {
 sub _open_file {
     my ($self) = @_;
 
-    my $path = $self->path;
+    my $path = $self->file_path;
 
     unless (-e $path) {
         $self->on_error->("File does not exist: $path");
@@ -150,7 +150,7 @@ sub poll {
 sub _check_rotation {
     my ($self) = @_;
 
-    my $path = $self->path;
+    my $path = $self->file_path;
     return unless -e $path;
 
     my @stat = stat($path);
@@ -195,7 +195,7 @@ Purl::Collector::File - Tail log files
 
     my $collector = Purl::Collector::File->new(
         name => 'nginx-access',
-        path => '/var/log/nginx/access.log',
+        file_path => '/var/log/nginx/access.log',
         format => 'nginx_combined',
         on_line => sub {
             my ($line, $collector) = @_;

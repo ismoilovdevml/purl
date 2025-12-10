@@ -77,21 +77,6 @@ sub cmd_server {
 
     my $server = Purl::API::Server->new(config => $config->config);
 
-    # Start collector in background if sources configured
-    my @sources = @{$config->get('sources') // []};
-    if (@sources) {
-        my $manager = setup_collector($config, $server->storage);
-        $server->collector_manager($manager);
-
-        # Start collector in background thread
-        require threads;
-        threads->create(sub {
-            $manager->run();
-        })->detach();
-
-        info("Started collecting from " . scalar(@sources) . " sources");
-    }
-
     $server->run(
         port    => $port,
         host    => $host,
