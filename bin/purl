@@ -1,0 +1,463 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use 5.024;
+
+use FindBin qw($RealBin);
+use lib "$RealBin/../lib";
+
+use Getopt::Long qw(:config no_ignore_case bundling);
+use Pod::Usage;
+use Term::ANSIColor qw(colored);
+
+use Purl;
+use Purl::Config;
+use Purl::Storage::SQLite;
+use Purl::Collector::Manager;
+use Purl::Parser::Engine;
+use Purl::Parser::Normalizer;
+use Purl::API::Server;
+
+# Global options
+my %opts = (
+    config  => './config/default.yaml',
+    verbose => 0,
+    help    => 0,
+);
+
+# Parse global options
+GetOptions(
+    'c|config=s' => \$opts{config},
+    'v|verbose'  => \$opts{verbose},
+    'h|help'     => \$opts{help},
+    'version'    => sub { print "purl version $Purl::VERSION\n"; exit 0; },
+) or pod2usage(2);
+
+# Get command
+my $command = shift @ARGV // 'help';
+
+# Dispatch command
+my %commands = (
+    server  => \&cmd_server,
+    collect => \&cmd_collect,
+    parse   => \&cmd_parse,
+    query   => \&cmd_query,
+    stats   => \&cmd_stats,
+    cleanup => \&cmd_cleanup,
+    help    => \&cmd_help,
+);
+
+if (exists $commands{$command}) {
+    $commands{$command}->();
+} else {
+    print STDERR colored("Unknown command: $command\n", 'red');
+    cmd_help();
+    exit 1;
+}
+
+# ============================================================================
+# Commands
+# ============================================================================
+
+sub cmd_server {
+    my $port    = 3000;
+    my $host    = '0.0.0.0';
+    my $workers = 4;
+
+    GetOptions(
+        'p|port=i'    => \$port,
+        'H|host=s'    => \$host,
+        'w|workers=i' => \$workers,
+    );
+
+    my $config = load_config();
+
+    print_banner();
+    info("Starting Purl server...");
+
+    my $server = Purl::API::Server->new(config => $config->config);
+
+    # Start collector in background if sources configured
+    my @sources = @{$config->get('sources') // []};
+    if (@sources) {
+        my $manager = setup_collector($config, $server->storage);
+        $server->collector_manager($manager);
+
+        # Start collector in background thread
+        require threads;
+        threads->create(sub {
+            $manager->run();
+        })->detach();
+
+        info("Started collecting from " . scalar(@sources) . " sources");
+    }
+
+    $server->run(
+        port    => $port,
+        host    => $host,
+        workers => $workers,
+    );
+}
+
+sub cmd_collect {
+    my $from_beginning = 0;
+
+    GetOptions(
+        'from-beginning' => \$from_beginning,
+    );
+
+    my $config = load_config();
+
+    print_banner();
+    info("Starting log collector...");
+
+    my $storage = Purl::Storage::SQLite->new(
+        db_path        => $config->get('storage.path'),
+        fts_enabled    => $config->get('storage.fts_enabled'),
+        retention_days => $config->get('storage.retention_days'),
+    );
+
+    my $manager = setup_collector($config, $storage, $from_beginning);
+
+    my @sources = $manager->list_collectors();
+    info("Collecting from " . scalar(@sources) . " sources: " . join(', ', @sources));
+
+    # Run collector loop
+    $manager->run(0.1);
+}
+
+sub cmd_parse {
+    my $format = 'auto';
+    my $output = 'json';
+
+    GetOptions(
+        'f|format=s' => \$format,
+        'o|output=s' => \$output,
+    );
+
+    my $parser = Purl::Parser::Engine->new();
+    my $normalizer = Purl::Parser::Normalizer->new();
+
+    require JSON::XS;
+    my $json = JSON::XS->new->utf8->pretty;
+
+    while (my $line = <STDIN>) {
+        chomp $line;
+        next unless length $line;
+
+        my $parsed = $parser->parse($line, $format eq 'auto' ? undef : $format);
+        my $normalized = $normalizer->normalize($parsed);
+
+        if ($output eq 'json') {
+            print $json->encode($normalized);
+        } elsif ($output eq 'line') {
+            printf "%s [%s] %s: %s\n",
+                $normalized->{timestamp},
+                $normalized->{level},
+                $normalized->{service},
+                $normalized->{message};
+        }
+    }
+}
+
+sub cmd_query {
+    my $query  = '';
+    my $limit  = 100;
+    my $range  = '1h';
+    my $output = 'table';
+
+    GetOptions(
+        'q|query=s'  => \$query,
+        'l|limit=i'  => \$limit,
+        'r|range=s'  => \$range,
+        'o|output=s' => \$output,
+    );
+
+    $query = shift @ARGV if @ARGV && !$query;
+
+    my $config = load_config();
+
+    my $storage = Purl::Storage::SQLite->new(
+        db_path     => $config->get('storage.path'),
+        fts_enabled => $config->get('storage.fts_enabled'),
+    );
+
+    use Purl::Query::KQL;
+    my $kql = Purl::Query::KQL->new();
+
+    my %params = (limit => $limit);
+
+    # Parse time range
+    if ($range =~ /^(\d+)([mhd])$/) {
+        my $seconds = $1 * ($2 eq 'm' ? 60 : $2 eq 'h' ? 3600 : 86400);
+        my $from = time() - $seconds;
+        $params{from} = epoch_to_iso($from);
+    }
+
+    # Parse KQL
+    if ($query) {
+        my $parsed = $kql->parse($query);
+        $params{query} = $query if $storage->fts_enabled;
+    }
+
+    my $results = $storage->search(%params);
+
+    if ($output eq 'json') {
+        require JSON::XS;
+        print JSON::XS->new->utf8->pretty->encode($results);
+    } else {
+        for my $log (@$results) {
+            my $level_color = level_color($log->{level});
+            printf "%s %s %s: %s\n",
+                colored($log->{timestamp}, 'cyan'),
+                colored(sprintf('%-8s', $log->{level}), $level_color),
+                colored($log->{service}, 'yellow'),
+                $log->{message};
+        }
+        print colored("\nTotal: " . scalar(@$results) . " logs\n", 'green');
+    }
+}
+
+sub cmd_stats {
+    my $config = load_config();
+
+    my $storage = Purl::Storage::SQLite->new(
+        db_path => $config->get('storage.path'),
+    );
+
+    my $stats = $storage->stats();
+
+    print colored("=== Purl Database Statistics ===\n", 'bold');
+    print "Total logs:   $stats->{total_logs}\n";
+    print "Oldest log:   $stats->{oldest_log}\n";
+    print "Newest log:   $stats->{newest_log}\n";
+    print "Database:     $stats->{db_size_mb} MB\n";
+    print "\n";
+
+    # Level distribution
+    print colored("=== Level Distribution ===\n", 'bold');
+    my $levels = $storage->field_stats('level', limit => 10);
+    for my $item (@$levels) {
+        my $color = level_color($item->{value});
+        printf "  %-12s %s\n",
+            colored($item->{value}, $color),
+            $item->{count};
+    }
+    print "\n";
+
+    # Top services
+    print colored("=== Top Services ===\n", 'bold');
+    my $services = $storage->field_stats('service', limit => 10);
+    for my $item (@$services) {
+        printf "  %-20s %s\n", $item->{value}, $item->{count};
+    }
+}
+
+sub cmd_cleanup {
+    my $days = 30;
+    my $dry_run = 0;
+
+    GetOptions(
+        'd|days=i' => \$days,
+        'dry-run'  => \$dry_run,
+    );
+
+    my $config = load_config();
+
+    my $storage = Purl::Storage::SQLite->new(
+        db_path => $config->get('storage.path'),
+    );
+
+    if ($dry_run) {
+        my $count = $storage->count(
+            to => epoch_to_iso(time() - $days * 86400)
+        );
+        print "Would delete $count logs older than $days days\n";
+    } else {
+        my $deleted = $storage->cleanup($days);
+        print colored("Deleted $deleted logs older than $days days\n", 'green');
+    }
+}
+
+sub cmd_help {
+    print colored("purl - Universal Log Parser & Dashboard\n\n", 'bold');
+
+    print "Usage: purl [options] <command> [command-options]\n\n";
+
+    print colored("Commands:\n", 'bold');
+    print "  server    Start the web server and dashboard\n";
+    print "  collect   Start the log collector\n";
+    print "  parse     Parse logs from stdin\n";
+    print "  query     Query logs from database\n";
+    print "  stats     Show database statistics\n";
+    print "  cleanup   Remove old logs\n";
+    print "  help      Show this help\n";
+    print "\n";
+
+    print colored("Global Options:\n", 'bold');
+    print "  -c, --config <file>  Config file (default: ./config/default.yaml)\n";
+    print "  -v, --verbose        Verbose output\n";
+    print "  --version            Show version\n";
+    print "\n";
+
+    print colored("Examples:\n", 'bold');
+    print "  purl server -p 8080\n";
+    print "  purl collect --from-beginning\n";
+    print "  cat access.log | purl parse -f nginx\n";
+    print "  purl query 'level:ERROR AND service:api*' -r 24h\n";
+    print "\n";
+}
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+sub load_config {
+    my $config = Purl::Config->new(config_file => $opts{config});
+
+    if (my $errors = $config->validate()) {
+        for my $err (@$errors) {
+            print STDERR colored("Config error: $err\n", 'red');
+        }
+        exit 1;
+    }
+
+    return $config;
+}
+
+sub setup_collector {
+    my ($config, $storage, $from_beginning) = @_;
+
+    my $manager = Purl::Collector::Manager->new(
+        batch_size => $config->get('collector.batch_size') // 1000,
+        on_log     => sub {
+            my ($logs) = @_;
+            $storage->insert_batch($logs);
+            info("Inserted " . scalar(@$logs) . " logs") if $opts{verbose};
+        },
+        on_error => sub {
+            my ($msg) = @_;
+            warn colored("Collector error: $msg\n", 'red');
+        },
+    );
+
+    for my $source (@{$config->get('sources') // []}) {
+        $source->{from_beginning} = $from_beginning if $from_beginning;
+        $manager->add_source($source);
+    }
+
+    return $manager;
+}
+
+sub print_banner {
+    print colored(<<'BANNER', 'cyan');
+  ____            _
+ |  _ \ _   _ _ _| |
+ | |_) | | | | '_| |
+ |  __/| |_| | | | |
+ |_|    \__,_|_| |_|
+
+BANNER
+    print colored("Universal Log Parser & Dashboard v$Purl::VERSION\n\n", 'white');
+}
+
+sub info {
+    my ($msg) = @_;
+    print colored("[INFO] ", 'green') . "$msg\n";
+}
+
+sub level_color {
+    my ($level) = @_;
+    my %colors = (
+        EMERGENCY => 'red bold',
+        ALERT     => 'red bold',
+        CRITICAL  => 'red bold',
+        ERROR     => 'red',
+        WARNING   => 'yellow',
+        NOTICE    => 'cyan',
+        INFO      => 'green',
+        DEBUG     => 'white',
+        TRACE     => 'white',
+    );
+    return $colors{$level // 'INFO'} // 'white';
+}
+
+sub epoch_to_iso {
+    my ($epoch) = @_;
+    my @t = gmtime($epoch);
+    return sprintf('%04d-%02d-%02dT%02d:%02d:%02dZ',
+        $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0]);
+}
+
+__END__
+
+=head1 NAME
+
+purl - Universal Log Parser & Dashboard
+
+=head1 SYNOPSIS
+
+    purl [options] <command> [command-options]
+
+    purl server -p 3000
+    purl collect --from-beginning
+    cat access.log | purl parse -f nginx
+    purl query 'level:ERROR' -r 24h
+
+=head1 DESCRIPTION
+
+Purl is a universal log parser that auto-detects formats, normalizes logs
+to JSON, stores in SQLite with full-text search, and provides a web dashboard.
+
+=head1 COMMANDS
+
+=over 4
+
+=item B<server>
+
+Start the web server and dashboard.
+
+    -p, --port     Port number (default: 3000)
+    -H, --host     Host to bind (default: 0.0.0.0)
+    -w, --workers  Worker processes (default: 4)
+
+=item B<collect>
+
+Start the log collector.
+
+    --from-beginning  Read files from beginning
+
+=item B<parse>
+
+Parse logs from stdin.
+
+    -f, --format  Log format (auto, nginx, json, syslog, etc.)
+    -o, --output  Output format (json, line)
+
+=item B<query>
+
+Query logs from database.
+
+    -q, --query   KQL query string
+    -l, --limit   Max results (default: 100)
+    -r, --range   Time range (1h, 24h, 7d)
+    -o, --output  Output format (table, json)
+
+=item B<stats>
+
+Show database statistics.
+
+=item B<cleanup>
+
+Remove old logs.
+
+    -d, --days   Days to keep (default: 30)
+    --dry-run    Show what would be deleted
+
+=back
+
+=head1 AUTHOR
+
+Purl Contributors
+
+=cut
