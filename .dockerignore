@@ -1,0 +1,35 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Node modules (build will install fresh)
+web/node_modules
+
+# Data directories
+data/
+logs/
+
+# Test files
+t/
+
+# Documentation
+*.md
+!README.md
+
+# Local config
+.env
+.env.local
+config/local.yaml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/

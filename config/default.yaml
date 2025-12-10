@@ -7,14 +7,27 @@ server:
   workers: 4
 
 storage:
-  # SQLite database path
-  path: "./data/purl.db"
+  # Storage type: sqlite or clickhouse
+  type: "sqlite"
+
+  # SQLite settings
+  sqlite:
+    path: "./data/purl.db"
+    fts_enabled: true
+
+  # ClickHouse settings
+  clickhouse:
+    host: "localhost"
+    port: 8123
+    database: "purl"
+    username: "default"
+    password: ""
+    # Buffer size for batch inserts
+    buffer_size: 1000
+
+  # Common settings
   # Retention in days (0 = unlimited)
   retention_days: 30
-  # Enable FTS5 full-text search
-  fts_enabled: true
-  # Partition by day (creates separate tables)
-  partition_by_day: false
 
 collector:
   # Batch size for inserts

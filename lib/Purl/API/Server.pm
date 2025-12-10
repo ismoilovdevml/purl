@@ -10,6 +10,7 @@ use Mojolicious::Lite -signatures;
 use Mojo::JSON qw(encode_json decode_json);
 
 use Purl::Storage::SQLite;
+use Purl::Storage::ClickHouse;
 use Purl::Query::KQL;
 use Purl::Collector::Manager;
 
@@ -43,11 +44,28 @@ sub _build_storage {
     my ($self) = @_;
 
     my $storage_config = $self->config->{storage} // {};
+    my $storage_type = $ENV{PURL_STORAGE_TYPE} // $storage_config->{type} // 'sqlite';
+    my $retention_days = $storage_config->{retention_days} // 30;
 
+    if ($storage_type eq 'clickhouse') {
+        my $ch_config = $storage_config->{clickhouse} // {};
+        return Purl::Storage::ClickHouse->new(
+            host           => $ENV{PURL_CLICKHOUSE_HOST} // $ch_config->{host} // 'localhost',
+            port           => $ENV{PURL_CLICKHOUSE_PORT} // $ch_config->{port} // 8123,
+            database       => $ENV{PURL_CLICKHOUSE_DATABASE} // $ch_config->{database} // 'purl',
+            username       => $ENV{PURL_CLICKHOUSE_USER} // $ch_config->{username} // 'default',
+            password       => $ENV{PURL_CLICKHOUSE_PASSWORD} // $ch_config->{password} // '',
+            buffer_size    => $ch_config->{buffer_size} // 1000,
+            retention_days => $retention_days,
+        );
+    }
+
+    # Default: SQLite
+    my $sqlite_config = $storage_config->{sqlite} // {};
     return Purl::Storage::SQLite->new(
-        db_path        => $storage_config->{path} // './data/purl.db',
-        fts_enabled    => $storage_config->{fts_enabled} // 1,
-        retention_days => $storage_config->{retention_days} // 30,
+        db_path        => $ENV{PURL_DB_PATH} // $sqlite_config->{path} // './data/purl.db',
+        fts_enabled    => $sqlite_config->{fts_enabled} // 1,
+        retention_days => $retention_days,
     );
 }
 
@@ -114,7 +132,7 @@ sub setup_routes {
         if ($query) {
             my $parsed = $kql->parse($query);
             # For now, use message contains for full query support
-            $params{query} = $query if $storage->fts_enabled;
+            $params{query} = $query;
         }
 
         my $results = $storage->search(%params);
@@ -142,7 +160,7 @@ sub setup_routes {
 
         if ($query) {
             my $parsed = $kql->parse($query);
-            $params{query} = $query if $storage->fts_enabled;
+            $params{query} = $query;
         }
 
         my $results = $storage->search(%params);

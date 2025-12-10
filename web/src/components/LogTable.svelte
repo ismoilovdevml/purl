@@ -3,17 +3,7 @@
 
   export let logs = [];
 
-  let expandedRows = new Set();
   let selectedLog = null;
-
-  function toggleRow(id) {
-    if (expandedRows.has(id)) {
-      expandedRows.delete(id);
-    } else {
-      expandedRows.add(id);
-    }
-    expandedRows = expandedRows; // trigger reactivity
-  }
 
   function selectLog(log) {
     selectedLog = selectedLog?.id === log.id ? null : log;
@@ -48,7 +38,6 @@
         {#each logs as log, i (log.id || i)}
           <tr
             class="log-row"
-            class:expanded={expandedRows.has(log.id)}
             class:selected={selectedLog?.id === log.id}
             on:click={() => selectLog(log)}
           >
