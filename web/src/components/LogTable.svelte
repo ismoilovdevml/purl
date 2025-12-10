@@ -30,7 +30,9 @@
           ...col,
           ...parsed.find(p => p.id === col.id)
         }));
-      } catch (e) {}
+      } catch {
+        // Ignore parse errors
+      }
     }
   });
 
@@ -149,7 +151,8 @@
             <th style={col.width ? `width: ${col.width}px` : ''}>
               {col.label}
               {#if col.id !== 'message'}
-                <div class="resize-handle" role="separator" aria-orientation="vertical" on:mousedown={(e) => startResize(e, col.id)}></div>
+                <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+                <div class="resize-handle" role="separator" aria-orientation="vertical" tabindex="-1" on:mousedown={(e) => startResize(e, col.id)}></div>
               {/if}
             </th>
           {/each}
@@ -212,24 +215,24 @@
                   </div>
 
                   <div class="detail-grid">
-                    <div class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.timestamp)} title="Click to copy">
+                    <button class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.timestamp)} title="Click to copy">
                       <span class="field-name">timestamp</span>
                       <span class="field-value mono">{log.timestamp}</span>
-                    </div>
-                    <div class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.level)} title="Click to copy">
+                    </button>
+                    <button class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.level)} title="Click to copy">
                       <span class="field-name">level</span>
                       <span class="field-value">
                         <span class="level-badge-sm" style="background: {getLevelColor(log.level)}20; color: {getLevelColor(log.level)}">{log.level}</span>
                       </span>
-                    </div>
-                    <div class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.service)} title="Click to copy">
+                    </button>
+                    <button class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.service)} title="Click to copy">
                       <span class="field-name">service</span>
                       <span class="field-value highlight-blue">{log.service}</span>
-                    </div>
-                    <div class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.host)} title="Click to copy">
+                    </button>
+                    <button class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.host)} title="Click to copy">
                       <span class="field-name">host</span>
                       <span class="field-value highlight-purple">{log.host}</span>
-                    </div>
+                    </button>
                   </div>
 
                   <div class="detail-field full-width">
@@ -245,12 +248,12 @@
                       </h5>
                       <div class="meta-grid">
                         {#each Object.entries(log.meta) as [key, value]}
-                          <div class="meta-field" on:click|stopPropagation={() => copyToClipboard(String(value))} title="Click to copy">
+                          <button class="meta-field" on:click|stopPropagation={() => copyToClipboard(String(value))} title="Click to copy">
                             <span class="meta-key">{key}</span>
                             <span class="meta-value">
                               {typeof value === 'object' ? JSON.stringify(value) : value}
                             </span>
-                          </div>
+                          </button>
                         {/each}
                       </div>
                     </div>

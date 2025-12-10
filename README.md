@@ -94,10 +94,32 @@ Vector automatically collects logs from **all Docker containers**.
 
 ### Alerts
 - Define threshold-based alerts
-- Notifications via webhook, Slack, or browser
+- Notifications via Telegram, Slack, or custom webhook
 - Configure time windows and conditions
 
-### Enterprise Features
+### Notifications
+
+Purl supports sending alerts to:
+
+- **Telegram** - via Bot API
+- **Slack** - via Incoming Webhooks
+- **Custom Webhook** - any HTTP endpoint
+
+Configure via environment variables:
+
+```bash
+# Telegram
+PURL_TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
+PURL_TELEGRAM_CHAT_ID=-1001234567890
+
+# Slack
+PURL_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T00/B00/XXX
+
+# Custom webhook
+PURL_ALERT_WEBHOOK_URL=https://example.com/alerts
+```
+
+### Features
 - Prometheus metrics (`/api/metrics`)
 - In-memory caching with TTL
 - Rate limiting (1000 req/min per IP)
@@ -117,7 +139,8 @@ Vector automatically collects logs from **all Docker containers**.
 | `/api/stats/histogram` | GET | Time histogram |
 | `/api/saved-searches` | GET/POST/DELETE | Saved searches CRUD |
 | `/api/alerts` | GET/POST/PUT/DELETE | Alerts CRUD |
-| `/api/alerts/check` | POST | Check alert conditions |
+| `/api/alerts/check` | POST | Check and trigger alerts |
+| `/api/alerts/test-notification` | POST | Test notification (type=telegram/slack/webhook) |
 
 **Query Parameters for GET /api/logs:**
 
@@ -235,25 +258,23 @@ async function sendLog(level, message, service = 'myapp') {
 ```text
 purl/
 ├── lib/
-│   ├── Purl.pm             # Main module
+│   ├── Purl.pm                 # Main module
 │   └── Purl/
 │       ├── API/
-│       │   └── Server.pm   # REST API + WebSocket
+│       │   └── Server.pm       # REST API + WebSocket
+│       ├── Alert/
+│       │   ├── Base.pm         # Alert notifier base role
+│       │   ├── Telegram.pm     # Telegram notifications
+│       │   ├── Slack.pm        # Slack notifications
+│       │   └── Webhook.pm      # Custom webhook
 │       └── Storage/
-│           └── ClickHouse.pm  # ClickHouse client
-├── web/src/                # Svelte dashboard
-│   ├── components/
-│   │   ├── SearchBar.svelte
-│   │   ├── TimeRangePicker.svelte
-│   │   ├── FieldsSidebar.svelte
-│   │   ├── LogTable.svelte
-│   │   ├── Histogram.svelte
-│   │   ├── SavedSearches.svelte
-│   │   └── AlertsPanel.svelte
-│   ├── stores/logs.js
+│           └── ClickHouse.pm   # ClickHouse client
+├── web/src/
+│   ├── components/             # Svelte components
+│   ├── stores/logs.js          # State management
 │   └── App.svelte
 ├── config/
-│   └── default.yaml        # App configuration
+│   └── default.yaml
 ├── docker-compose.yml
 ├── Dockerfile
 └── Makefile

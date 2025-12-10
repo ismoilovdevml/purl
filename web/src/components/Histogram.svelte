@@ -42,7 +42,7 @@
     const dims = getBarDimensions();
     if (!dims) return;
 
-    const { width, height, padding, chartWidth, chartHeight, barWidth, gap } = dims;
+    const { width, height, padding, chartHeight, barWidth, gap } = dims;
 
     canvas.width = width * window.devicePixelRatio;
     canvas.height = height * window.devicePixelRatio;
@@ -176,7 +176,6 @@
 
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
 
     // Find which bar is hovered
     const { padding, barWidth, gap } = dims;

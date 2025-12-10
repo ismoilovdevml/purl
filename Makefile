@@ -57,7 +57,7 @@ web-build:
 lint: lint-perl lint-js
 
 lint-perl:
-	perl -MPerl::Critic -e 'my $$c = Perl::Critic->new(-profile => ".perlcriticrc"); for my $$f (@ARGV) { print $$_ for $$c->critique($$f) }' lib/Purl.pm lib/Purl/API/Server.pm lib/Purl/Storage/ClickHouse.pm
+	perl -MPerl::Critic -e 'my $$c = Perl::Critic->new(-profile => ".perlcriticrc"); for my $$f (@ARGV) { print $$_ for $$c->critique($$f) }' lib/Purl.pm lib/Purl/API/Server.pm lib/Purl/Storage/ClickHouse.pm lib/Purl/Alert/*.pm
 
 lint-js:
 	cd web && npm run lint

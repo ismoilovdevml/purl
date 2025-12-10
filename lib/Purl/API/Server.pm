@@ -10,11 +10,15 @@ use MIME::Base64 qw(decode_base64);
 use Time::HiRes qw(time);
 
 use Purl::Storage::ClickHouse;
+use Purl::Alert::Telegram;
+use Purl::Alert::Slack;
+use Purl::Alert::Webhook;
 
 # Package-level state
 my $storage;
 my $config = {};
 my $websockets = [];
+my %notifiers;
 
 # Metrics counters
 my %metrics = (
@@ -57,6 +61,77 @@ sub _build_storage {
         buffer_size    => $ch_config->{buffer_size} // 1000,
         retention_days => $retention_days,
     );
+}
+
+sub _build_notifiers {
+    %notifiers = ();
+
+    # Telegram
+    if ($ENV{PURL_TELEGRAM_BOT_TOKEN} && $ENV{PURL_TELEGRAM_CHAT_ID}) {
+        $notifiers{telegram} = Purl::Alert::Telegram->new(
+            name      => 'telegram',
+            bot_token => $ENV{PURL_TELEGRAM_BOT_TOKEN},
+            chat_id   => $ENV{PURL_TELEGRAM_CHAT_ID},
+        );
+    }
+
+    # Slack
+    if ($ENV{PURL_SLACK_WEBHOOK_URL}) {
+        $notifiers{slack} = Purl::Alert::Slack->new(
+            name        => 'slack',
+            webhook_url => $ENV{PURL_SLACK_WEBHOOK_URL},
+            channel     => $ENV{PURL_SLACK_CHANNEL} // '',
+        );
+    }
+
+    # Custom webhook
+    if ($ENV{PURL_ALERT_WEBHOOK_URL}) {
+        $notifiers{webhook} = Purl::Alert::Webhook->new(
+            name       => 'webhook',
+            url        => $ENV{PURL_ALERT_WEBHOOK_URL},
+            auth_token => $ENV{PURL_ALERT_WEBHOOK_TOKEN} // '',
+        );
+    }
+
+    return \%notifiers;
+}
+
+sub _send_notifications {
+    my ($alert, $context) = @_;
+
+    my @sent;
+    my $notify_type = $alert->{notify_type} // 'webhook';
+
+    # Send to specific notifier if configured in alert
+    if ($notify_type eq 'telegram' && $notifiers{telegram}) {
+        if ($notifiers{telegram}->notify($alert, $context)) {
+            push @sent, 'telegram';
+        }
+    }
+    elsif ($notify_type eq 'slack' && $notifiers{slack}) {
+        if ($notifiers{slack}->notify($alert, $context)) {
+            push @sent, 'slack';
+        }
+    }
+    elsif ($notify_type eq 'webhook') {
+        # For webhook type, use target URL from alert or default webhook
+        if ($alert->{notify_target}) {
+            my $webhook = Purl::Alert::Webhook->new(
+                name => 'alert-webhook',
+                url  => $alert->{notify_target},
+            );
+            if ($webhook->notify($alert, $context)) {
+                push @sent, 'webhook';
+            }
+        }
+        elsif ($notifiers{webhook}) {
+            if ($notifiers{webhook}->notify($alert, $context)) {
+                push @sent, 'webhook';
+            }
+        }
+    }
+
+    return \@sent;
 }
 
 # Cache helpers
@@ -132,6 +207,7 @@ sub setup_routes {
     my ($self) = @_;
 
     $storage //= _build_storage();
+    _build_notifiers();
 
     # Serve static files from web/public
     app->static->paths->[0] = '/app/web/public';
@@ -641,7 +717,39 @@ METRICS
 
     $protected->post('/alerts/check' => sub ($c) {
         my $triggered = $storage->check_alerts();
-        $c->render(json => { triggered => $triggered });
+
+        # Send notifications for each triggered alert
+        my @notifications;
+        for my $alert (@$triggered) {
+            my $sent = _send_notifications($alert, { count => $alert->{count} });
+            push @notifications, {
+                alert  => $alert->{name},
+                sent   => $sent,
+            } if @$sent;
+        }
+
+        $c->render(json => {
+            triggered     => $triggered,
+            notifications => \@notifications,
+        });
+    });
+
+    # Test notification endpoint
+    $protected->post('/alerts/test-notification' => sub ($c) {
+        my $type = $c->param('type') // 'telegram';
+
+        unless ($notifiers{$type}) {
+            return $c->render(
+                json   => { error => "Notifier '$type' not configured" },
+                status => 400
+            );
+        }
+
+        my $result = $notifiers{$type}->send_test();
+        $c->render(json => {
+            success => $result ? 1 : 0,
+            type    => $type,
+        });
     });
 
     # Serve SPA for all other routes

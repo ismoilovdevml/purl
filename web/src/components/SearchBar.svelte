@@ -250,7 +250,7 @@
         <span>Recent searches</span>
         <button class="history-clear" on:mousedown|preventDefault={clearHistory}>Clear</button>
       </div>
-      {#each searchHistory as query, i}
+      {#each searchHistory as query}
         <button
           class="suggestion-item"
           on:mousedown|preventDefault={() => applyHistory(query)}
