@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+web/node_modules/
+local/
+
+# Build output
+web/public/build/
+web/dist/
+
+# Data
+data/
+*.db
+
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Perl
+blib/
+_build/
+cover_db/
+inc/
+Build
+Build.bat
+MANIFEST.bak
+META.yml
+META.json
+MYMETA.*
+nytprof.out
+*.o
+*.bs
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Docker
+docker/clickhouse/data/
+docker/clickhouse/logs/

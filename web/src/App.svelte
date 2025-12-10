@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import SearchBar from './components/SearchBar.svelte';
   import TimeRangePicker from './components/TimeRangePicker.svelte';
   import FieldsSidebar from './components/FieldsSidebar.svelte';

@@ -1,4 +1,4 @@
-.PHONY: help build up down logs shell test clean dev install
+.PHONY: help build up down logs shell test clean dev install lint lint-perl lint-js
 
 # Default target
 help:
@@ -18,6 +18,7 @@ help:
 	@echo "  dev        Start development server (local)"
 	@echo "  install    Install Perl dependencies"
 	@echo "  test       Run tests"
+	@echo "  lint       Run all linters"
 	@echo "  web-dev    Start web development server"
 	@echo "  web-build  Build web assets"
 	@echo ""
@@ -63,6 +64,15 @@ web-dev:
 
 web-build:
 	cd web && npm install && npm run build
+
+# Linting targets
+lint: lint-perl lint-js
+
+lint-perl:
+	perl -MPerl::Critic -e 'my $$c = Perl::Critic->new(-profile => ".perlcriticrc"); for my $$f (@ARGV) { print $$_ for $$c->critique($$f) }' lib/Purl/*.pm lib/Purl/**/*.pm bin/purl
+
+lint-js:
+	cd web && npm run lint
 
 # Maintenance targets
 clean:

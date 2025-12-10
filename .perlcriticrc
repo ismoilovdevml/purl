@@ -1,0 +1,20 @@
+severity = 4
+verbose = %f:%l:%c: %m (%p)\n
+
+[-Subroutines::ProhibitSubroutinePrototypes]
+[-ValuesAndExpressions::ProhibitInterpolationOfLiterals]
+[-RegularExpressions::RequireExtendedFormatting]
+[-ControlStructures::ProhibitPostfixControls]
+[-InputOutput::RequireBriefOpen]
+[-ValuesAndExpressions::ProhibitNoisyQuotes]
+[-Subroutines::ProhibitExcessComplexity]
+[-Subroutines::RequireFinalReturn]
+[-ErrorHandling::RequireCheckingReturnValueOfEval]
+[-RegularExpressions::ProhibitComplexRegexes]
+[-NamingConventions::ProhibitAmbiguousNames]
+[-ValuesAndExpressions::ProhibitLongChainsOfMethodCalls]
+[-InputOutput::ProhibitExplicitStdin]
+[-BuiltinFunctions::ProhibitBooleanGrep]
+[-BuiltinFunctions::ProhibitReverseSortBlock]
+[-Subroutines::ProhibitExplicitReturnUndef]
+[-RegularExpressions::ProhibitCaptureWithoutTest]
