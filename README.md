@@ -57,14 +57,30 @@ Purl provides:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Quick Start (Local)
+## Quick Start
 
 ```bash
 git clone https://github.com/your-username/purl.git
 cd purl
-docker-compose up -d
+
+# Start with auto log collection (recommended)
+docker-compose --profile vector up -d
+
+# Open dashboard
 open http://localhost:3000
 ```
+
+That's it! Vector automatically collects logs from **all Docker containers**.
+
+## Deployment Options
+
+| Environment | Command | Auto-collect |
+|-------------|---------|--------------|
+| Docker | `docker-compose --profile vector up -d` | All containers |
+| Kubernetes | `helm install purl ./deploy/helm/purl` | All pods |
+| Systemd | `sudo ./deploy/systemd/install.sh` | journald + files |
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed setup guides.
 
 ## Server Setup
 
@@ -75,12 +91,8 @@ open http://localhost:3000
 git clone https://github.com/your-username/purl.git /opt/purl
 cd /opt/purl
 
-# Configure (optional)
-cp config/default.yaml config/local.yaml
-vi config/local.yaml
-
-# Start
-docker-compose up -d
+# Start with Vector (auto-collects all container logs)
+docker-compose --profile vector up -d
 
 # Check status
 docker-compose ps
