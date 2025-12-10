@@ -234,11 +234,13 @@ async function sendLog(level, message, service = 'myapp') {
 
 ```text
 purl/
-├── lib/Purl/
-│   ├── API/
-│   │   └── Server.pm       # Mojolicious REST API + WebSocket
-│   └── Storage/
-│       └── ClickHouse.pm   # ClickHouse HTTP client
+├── lib/
+│   ├── Purl.pm             # Main module
+│   └── Purl/
+│       ├── API/
+│       │   └── Server.pm   # REST API + WebSocket
+│       └── Storage/
+│           └── ClickHouse.pm  # ClickHouse client
 ├── web/src/                # Svelte dashboard
 │   ├── components/
 │   │   ├── SearchBar.svelte
@@ -251,7 +253,7 @@ purl/
 │   ├── stores/logs.js
 │   └── App.svelte
 ├── config/
-│   └── vector.yaml         # Vector log collector config
+│   └── default.yaml        # App configuration
 ├── docker-compose.yml
 ├── Dockerfile
 └── Makefile

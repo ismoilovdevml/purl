@@ -9,7 +9,9 @@ use HTTP::Tiny;
 use JSON::XS ();
 use URI::Escape qw(uri_escape);
 use Time::Piece;
+use Time::HiRes qw(time);
 
+# Configuration
 has 'host' => (
     is      => 'ro',
     default => 'localhost',
@@ -45,14 +47,32 @@ has 'retention_days' => (
     default => 30,
 );
 
+# Performance tuning
+has 'max_execution_time' => (
+    is      => 'ro',
+    default => 30,  # seconds
+);
+
+has 'max_rows_to_read' => (
+    is      => 'ro',
+    default => 1_000_000,
+);
+
+has 'use_query_cache' => (
+    is      => 'ro',
+    default => 1,
+);
+
+# Connection pool with keep-alive
 has '_http' => (
     is      => 'ro',
     lazy    => 1,
     default => sub {
         HTTP::Tiny->new(
-            timeout    => 30,
-            keep_alive => 1,           # Connection pooling
+            timeout      => 60,
+            keep_alive   => 1,
             max_redirect => 0,
+            agent        => 'Purl/1.0',
         )
     },
 );
@@ -60,9 +80,10 @@ has '_http' => (
 has '_json' => (
     is      => 'ro',
     lazy    => 1,
-    default => sub { JSON::XS->new->utf8->canonical },
+    default => sub { JSON::XS->new->utf8->canonical->allow_nonref },
 );
 
+# Async insert buffer
 has '_buffer' => (
     is      => 'rw',
     default => sub { [] },
@@ -70,7 +91,51 @@ has '_buffer' => (
 
 has 'buffer_size' => (
     is      => 'ro',
-    default => 1000,
+    default => 5000,  # Increased for better throughput
+);
+
+has 'flush_interval' => (
+    is      => 'ro',
+    default => 1,  # seconds
+);
+
+has '_last_flush' => (
+    is      => 'rw',
+    default => sub { time() },
+);
+
+# Query cache (in-memory LRU)
+has '_query_cache' => (
+    is      => 'rw',
+    default => sub { {} },
+);
+
+has '_cache_timestamps' => (
+    is      => 'rw',
+    default => sub { {} },
+);
+
+has 'cache_ttl' => (
+    is      => 'ro',
+    default => 5,  # seconds
+);
+
+has 'cache_max_size' => (
+    is      => 'ro',
+    default => 100,
+);
+
+# Metrics
+has '_metrics' => (
+    is      => 'rw',
+    default => sub { {
+        queries_total     => 0,
+        queries_cached    => 0,
+        inserts_total     => 0,
+        bytes_inserted    => 0,
+        query_time_total  => 0,
+        errors_total      => 0,
+    } },
 );
 
 sub BUILD {
@@ -92,10 +157,28 @@ sub _auth_params {
     return join('&', @params);
 }
 
+# ClickHouse performance settings
+sub _query_settings {
+    my ($self) = @_;
+    my @settings = (
+        'max_execution_time=' . $self->max_execution_time,
+        'max_rows_to_read=' . $self->max_rows_to_read,
+        'optimize_read_in_order=1',
+        'use_uncompressed_cache=1',
+        'load_balancing=nearest_hostname',
+        'prefer_localhost_replica=1',
+        'async_insert=1',
+        'wait_for_async_insert=0',
+    );
+    return join('&', @settings);
+}
+
 sub _query {
     my ($self, $sql, %opts) = @_;
 
+    my $start = time();
     my $url = $self->_base_url . '/?' . $self->_auth_params;
+    $url .= '&' . $self->_query_settings unless $opts{no_settings};
 
     if ($opts{format}) {
         $url .= '&default_format=' . $opts{format};
@@ -105,18 +188,76 @@ sub _query {
         content => $sql,
         headers => {
             'Content-Type' => 'text/plain',
+            'X-ClickHouse-Format' => $opts{format} // 'TabSeparated',
         },
     });
 
+    my $elapsed = time() - $start;
+    $self->_metrics->{queries_total}++;
+    $self->_metrics->{query_time_total} += $elapsed;
+
     unless ($response->{success}) {
+        $self->_metrics->{errors_total}++;
         die "ClickHouse error: $response->{status} - $response->{content}";
     }
 
     return $response->{content};
 }
 
-sub _query_json {
+# Cache management
+sub _get_cache_key {
     my ($self, $sql) = @_;
+    # Simple hash for cache key
+    my $key = 0;
+    $key = ($key * 31 + ord($_)) % 2147483647 for split //, $sql;
+    return $key;
+}
+
+sub _get_cached {
+    my ($self, $key) = @_;
+    return unless $self->use_query_cache;
+
+    my $cached = $self->_query_cache->{$key};
+    my $ts = $self->_cache_timestamps->{$key};
+
+    return unless $cached && $ts;
+    return if (time() - $ts) > $self->cache_ttl;
+
+    $self->_metrics->{queries_cached}++;
+    return $cached;
+}
+
+sub _set_cached {
+    my ($self, $key, $value) = @_;
+    return unless $self->use_query_cache;
+
+    # LRU eviction
+    my $cache = $self->_query_cache;
+    if (keys %$cache >= $self->cache_max_size) {
+        my @keys = sort { $self->_cache_timestamps->{$a} <=> $self->_cache_timestamps->{$b} } keys %$cache;
+        my $to_delete = int(@keys / 2);
+        for my $k (@keys[0..$to_delete-1]) {
+            delete $cache->{$k};
+            delete $self->_cache_timestamps->{$k};
+        }
+    }
+
+    $cache->{$key} = $value;
+    $self->_cache_timestamps->{$key} = time();
+}
+
+sub _query_json {
+    my ($self, $sql, %opts) = @_;
+
+    # Check cache for read queries
+    my $cache_key;
+    my $is_select = $sql =~ /^\s*SELECT/i;
+    if ($is_select && !$opts{no_cache}) {
+        $cache_key = $self->_get_cache_key($sql);
+        if (my $cached = $self->_get_cached($cache_key)) {
+            return $cached;
+        }
+    }
 
     my $result = $self->_query($sql, format => 'JSONEachRow');
 
@@ -128,7 +269,28 @@ sub _query_json {
         push @rows, $self->_json->decode($line);
     }
 
+    # Cache the result
+    if ($cache_key) {
+        $self->_set_cached($cache_key, \@rows);
+    }
+
     return \@rows;
+}
+
+# Get metrics for monitoring
+sub get_metrics {
+    my ($self) = @_;
+    my $m = $self->_metrics;
+    return {
+        %$m,
+        cache_hit_rate => $m->{queries_total} > 0
+            ? sprintf('%.1f%%', ($m->{queries_cached} / $m->{queries_total}) * 100)
+            : '0%',
+        avg_query_time => $m->{queries_total} > 0
+            ? sprintf('%.3fs', $m->{query_time_total} / $m->{queries_total})
+            : '0s',
+        buffer_size => scalar @{$self->_buffer},
+    };
 }
 
 sub _init_schema {
@@ -261,22 +423,25 @@ sub insert_batch {
     return scalar @$logs;
 }
 
-# Flush buffer to ClickHouse
+# Flush buffer to ClickHouse with async insert
 sub flush {
     my ($self) = @_;
 
-    return unless @{$self->_buffer};
+    return 0 unless @{$self->_buffer};
 
     my @logs = @{$self->_buffer};
     $self->_buffer([]);
+    $self->_last_flush(time());
 
     my $table = $self->database . '.' . $self->table;
 
-    # Build INSERT query with JSONEachRow format
+    # Use async_insert for better throughput
     my $url = $self->_base_url . '/?' . $self->_auth_params;
+    $url .= '&async_insert=1&wait_for_async_insert=0';
     $url .= '&query=' . uri_escape("INSERT INTO $table FORMAT JSONEachRow");
 
     my @rows;
+    my $bytes = 0;
     for my $log (@logs) {
         my $row = {
             timestamp => $self->_format_timestamp($log->{timestamp}),
@@ -287,21 +452,46 @@ sub flush {
             raw       => $log->{raw} // '',
             meta      => $self->_json->encode($log->{meta} // {}),
         };
-        push @rows, $self->_json->encode($row);
+        my $json = $self->_json->encode($row);
+        $bytes += length($json);
+        push @rows, $json;
     }
 
     my $body = join("\n", @rows);
 
     my $response = $self->_http->post($url, {
         content => $body,
-        headers => { 'Content-Type' => 'application/json' },
+        headers => {
+            'Content-Type' => 'application/json',
+            'X-ClickHouse-Async-Insert' => '1',
+        },
     });
 
     unless ($response->{success}) {
+        $self->_metrics->{errors_total}++;
         die "ClickHouse insert error: $response->{status} - $response->{content}";
     }
 
+    # Update metrics
+    $self->_metrics->{inserts_total} += scalar @logs;
+    $self->_metrics->{bytes_inserted} += $bytes;
+
     return scalar @logs;
+}
+
+# Check if flush is needed (time-based)
+sub maybe_flush {
+    my ($self) = @_;
+
+    return 0 unless @{$self->_buffer};
+
+    # Flush if buffer is full or interval exceeded
+    if (@{$self->_buffer} >= $self->buffer_size ||
+        (time() - $self->_last_flush) >= $self->flush_interval) {
+        return $self->flush();
+    }
+
+    return 0;
 }
 
 # Format timestamp for ClickHouse DateTime64(3)

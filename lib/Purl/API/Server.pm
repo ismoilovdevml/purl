@@ -266,6 +266,53 @@ METRICS
         $c->render(text => $output, format => 'txt');
     });
 
+    # JSON metrics endpoint (for dashboard)
+    $api->get('/metrics/json' => sub ($c) {
+        my $stats = eval { $storage->stats() } // {};
+        my $ch_metrics = eval { $storage->get_metrics() } // {};
+        my $uptime = int(time() - $metrics{start_time});
+        my $avg_duration = $metrics{query_count} > 0
+            ? sprintf('%.3f', $metrics{query_duration_sum} / $metrics{query_count})
+            : 0;
+
+        $c->render(json => {
+            server => {
+                version       => '0.1.0',
+                uptime_secs   => $uptime,
+                uptime_human  => _format_duration($uptime),
+            },
+            requests => {
+                total         => $metrics{requests_total},
+                errors        => $metrics{errors_total},
+                avg_duration  => $avg_duration,
+                by_path       => $metrics{requests_by_path},
+            },
+            storage => {
+                total_logs    => $stats->{total_logs} // 0,
+                db_size_mb    => $stats->{db_size_mb} // 0,
+                oldest_log    => $stats->{oldest_log},
+                newest_log    => $stats->{newest_log},
+            },
+            clickhouse => {
+                queries_total   => $ch_metrics->{queries_total} // 0,
+                queries_cached  => $ch_metrics->{queries_cached} // 0,
+                cache_hit_rate  => $ch_metrics->{cache_hit_rate} // '0%',
+                avg_query_time  => $ch_metrics->{avg_query_time} // '0s',
+                inserts_total   => $ch_metrics->{inserts_total} // 0,
+                bytes_inserted  => $ch_metrics->{bytes_inserted} // 0,
+                buffer_size     => $ch_metrics->{buffer_size} // 0,
+                errors_total    => $ch_metrics->{errors_total} // 0,
+            },
+            ingestion => {
+                logs_ingested => $metrics{logs_ingested},
+            },
+            cache => {
+                entries       => scalar keys %cache,
+                ttl_seconds   => $cache_ttl,
+            },
+        });
+    });
+
     # Search logs (with caching)
     $protected->get('/logs' => sub ($c) {
         my $query   = $c->param('q') // '';
@@ -628,6 +675,31 @@ sub _broadcast_logs {
     }
 }
 
+# Format duration in human readable format
+sub _format_duration {
+    my ($secs) = @_;
+    return '0s' unless $secs;
+
+    my @parts;
+    if ($secs >= 86400) {
+        push @parts, int($secs / 86400) . 'd';
+        $secs %= 86400;
+    }
+    if ($secs >= 3600) {
+        push @parts, int($secs / 3600) . 'h';
+        $secs %= 3600;
+    }
+    if ($secs >= 60) {
+        push @parts, int($secs / 60) . 'm';
+        $secs %= 60;
+    }
+    if ($secs > 0 && @parts < 2) {
+        push @parts, $secs . 's';
+    }
+
+    return join(' ', @parts) || '0s';
+}
+
 # Parse time range shortcut (15m, 1h, 24h, 7d)
 sub _parse_time_range {
     my ($range) = @_;
@@ -690,7 +762,7 @@ __END__
 
 =head1 NAME
 
-Purl::API::Server - Enterprise-grade Mojolicious REST API server
+Purl::API::Server - Mojolicious REST API server for Purl
 
 =head1 SYNOPSIS
 

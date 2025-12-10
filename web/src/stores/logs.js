@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, derived } from 'svelte/store';
 
 // State stores
 export const logs = writable([]);
@@ -16,11 +16,34 @@ export const hostStats = writable([]);
 // Histogram data
 export const histogram = writable([]);
 
+// Performance metrics
+export const metrics = writable(null);
+
 // API base URL
 const API_BASE = '/api';
 
-// Search logs
+// Debounce utility
+let debounceTimer = null;
+export function debounce(fn, delay = 300) {
+  return (...args) => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => fn(...args), delay);
+  };
+}
+
+// Request deduplication
+let currentRequest = null;
+
+// Search logs with request deduplication
 export async function searchLogs() {
+  // Cancel previous request
+  if (currentRequest) {
+    currentRequest.cancelled = true;
+  }
+
+  const thisRequest = { cancelled: false };
+  currentRequest = thisRequest;
+
   loading.set(true);
   error.set(null);
 
@@ -41,25 +64,38 @@ export async function searchLogs() {
     }
 
     const response = await fetch(`${API_BASE}/logs?${params}`);
+
+    // Check if request was cancelled
+    if (thisRequest.cancelled) return;
+
     const data = await response.json();
 
     logs.set(data.hits || []);
     total.set(data.total || 0);
 
-    // Fetch stats in parallel
-    await Promise.all([
+    // Fetch stats in parallel (non-blocking)
+    Promise.all([
       fetchFieldStats('level'),
       fetchFieldStats('service'),
       fetchFieldStats('host'),
       fetchHistogram(),
-    ]);
+      fetchMetrics(),
+    ]).catch(console.error);
+
   } catch (err) {
-    error.set(err.message);
-    console.error('Search error:', err);
+    if (!thisRequest.cancelled) {
+      error.set(err.message);
+      console.error('Search error:', err);
+    }
   } finally {
-    loading.set(false);
+    if (!thisRequest.cancelled) {
+      loading.set(false);
+    }
   }
 }
+
+// Debounced search for typing
+export const debouncedSearch = debounce(searchLogs, 300);
 
 // Fetch field statistics
 export async function fetchFieldStats(field) {
@@ -105,6 +141,17 @@ export async function fetchHistogram() {
     histogram.set(data.buckets || []);
   } catch (err) {
     console.error('Failed to fetch histogram:', err);
+  }
+}
+
+// Fetch metrics for dashboard
+export async function fetchMetrics() {
+  try {
+    const response = await fetch(`${API_BASE}/metrics/json`);
+    const data = await response.json();
+    metrics.set(data);
+  } catch (err) {
+    console.error('Failed to fetch metrics:', err);
   }
 }
 
