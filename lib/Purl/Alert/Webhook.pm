@@ -47,7 +47,7 @@ has '_json' => (
     default => sub { JSON::XS->new->utf8 },
 );
 
-sub send {
+sub deliver {
     my ($self, $message) = @_;
 
     my %headers = (
@@ -92,7 +92,7 @@ sub send {
 sub send_test {
     my ($self) = @_;
 
-    return $self->send({
+    return $self->deliver({
         title     => 'Test Alert',
         alert     => 'Test Connection',
         query     => 'level:ERROR',

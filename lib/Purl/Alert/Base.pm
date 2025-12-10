@@ -6,7 +6,7 @@ use 5.024;
 use Moo::Role;
 use namespace::clean;
 
-requires 'send';
+requires 'deliver';
 
 has 'name' => (
     is       => 'ro',
@@ -41,7 +41,7 @@ sub notify {
     return 0 unless $self->can_send;
 
     my $message = $self->format_message($alert, $context);
-    my $result = $self->send($message);
+    my $result = $self->deliver($message);
 
     if ($result) {
         $self->_last_sent(time());
