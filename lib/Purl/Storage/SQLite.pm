@@ -153,10 +153,12 @@ sub _init_schema {
 sub insert {
     my ($self, $log) = @_;
 
-    $self->_insert_sth //= $self->_dbh->prepare(q{
-        INSERT INTO logs (timestamp, level, service, host, message, raw, meta_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    });
+    unless ($self->_insert_sth) {
+        $self->_insert_sth($self->_dbh->prepare(q{
+            INSERT INTO logs (timestamp, level, service, host, message, raw, meta_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        }));
+    }
 
     $self->_insert_sth->execute(
         $log->{timestamp},
@@ -242,10 +244,61 @@ sub search {
         push @bind, $params{host};
     }
 
-    # Full-text search
-    if ($params{query} && $self->fts_enabled) {
-        push @where, 'id IN (SELECT rowid FROM logs_fts WHERE logs_fts MATCH ?)';
-        push @bind, $params{query};
+    # Full-text search or simple message search
+    if ($params{query}) {
+        my $query = $params{query};
+
+        # Parse simple KQL-like queries: field:value
+        if ($query =~ /^(\w+):(.+)$/) {
+            my ($field, $value) = ($1, $2);
+            $value =~ s/^\s+|\s+$//g;  # trim
+            $value =~ s/^["']|["']$//g;  # remove quotes
+
+            if ($field eq 'level') {
+                push @where, 'level = ?';
+                push @bind, uc($value);
+            }
+            elsif ($field eq 'service') {
+                if ($value =~ /\*/) {
+                    $value =~ s/\*/%/g;
+                    push @where, 'service LIKE ?';
+                } else {
+                    push @where, 'service = ?';
+                }
+                push @bind, $value;
+            }
+            elsif ($field eq 'host') {
+                push @where, 'host = ?';
+                push @bind, $value;
+            }
+            elsif ($field eq 'message') {
+                push @where, 'message LIKE ?';
+                push @bind, '%' . $value . '%';
+            }
+            else {
+                # Generic field search in message
+                push @where, 'message LIKE ?';
+                push @bind, '%' . $value . '%';
+            }
+        }
+        # Try FTS if enabled
+        elsif ($self->fts_enabled) {
+            # Simple word search - escape FTS special chars
+            my $fts_query = $query;
+            $fts_query =~ s/[^\w\s]/ /g;  # remove special chars
+            $fts_query =~ s/\s+/ /g;      # normalize spaces
+            $fts_query =~ s/^\s+|\s+$//g; # trim
+
+            if ($fts_query) {
+                push @where, 'id IN (SELECT rowid FROM logs_fts WHERE logs_fts MATCH ?)';
+                push @bind, qq{"$fts_query"};
+            }
+        }
+        # Fallback to LIKE search
+        else {
+            push @where, 'message LIKE ?';
+            push @bind, '%' . $query . '%';
+        }
     }
 
     # Message contains

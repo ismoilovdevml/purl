@@ -124,6 +124,37 @@ sub setup_routes {
         });
     });
 
+    # Ingest logs (POST)
+    $api->post('/logs' => sub ($c) {
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body) {
+            $c->render(json => { error => 'Invalid JSON' }, status => 400);
+            return;
+        }
+
+        my $logs = ref $body eq 'ARRAY' ? $body : [$body];
+        my $count = 0;
+
+        for my $log (@$logs) {
+            # Ensure required fields
+            $log->{timestamp} //= _epoch_to_iso(time());
+            $log->{level} //= 'INFO';
+            $log->{service} //= 'unknown';
+            $log->{host} //= 'unknown';
+            $log->{message} //= $log->{msg} // $log->{log} // '';
+            $log->{raw} //= $log->{message};
+            $log->{meta} //= {};
+
+            $storage->insert($log);
+            $count++;
+        }
+
+        $c->render(json => {
+            status => 'ok',
+            inserted => $count
+        });
+    });
+
     # KQL query endpoint (POST)
     $api->post('/query' => sub ($c) {
         my $body = decode_json($c->req->body);
