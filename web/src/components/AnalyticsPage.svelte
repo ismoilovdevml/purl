@@ -8,6 +8,8 @@
   let loading = true;
   let error = null;
   let refreshInterval;
+  let selectedTab = 'overview';
+  let timeRange = '1h';
 
   const API_BASE = '/api';
 
@@ -60,32 +62,58 @@
 
   function formatNumber(num) {
     if (!num) return '0';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
     return num.toLocaleString();
   }
 
   function formatDuration(ms) {
     if (!ms) return '0ms';
     if (ms < 1000) return ms.toFixed(0) + 'ms';
-    return (ms / 1000).toFixed(2) + 's';
+    if (ms < 60000) return (ms / 1000).toFixed(2) + 's';
+    return (ms / 60000).toFixed(1) + 'm';
   }
+
+  function getUptimeStatus() {
+    const uptime = clickhouseMetrics?.server?.uptime_secs || 0;
+    if (uptime < 300) return 'warning';
+    return 'healthy';
+  }
+
+  $: errorRate = clickhouseMetrics?.clickhouse?.queries_total > 0
+    ? ((clickhouseMetrics?.clickhouse?.errors_total || 0) / clickhouseMetrics.clickhouse.queries_total * 100).toFixed(2)
+    : 0;
+
+  $: cacheHitRate = parseFloat(clickhouseMetrics?.cache?.hit_rate || '0%') || 0;
+
+  $: avgQueryTime = parseFloat(clickhouseMetrics?.clickhouse?.avg_query_time || '0') || 0;
 </script>
 
 <div class="analytics-page">
-  <header class="page-header">
-    <h1>
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M3 3v18h18"/>
-        <path d="M18 9l-5-6-4 8-3-2"/>
-      </svg>
-      Analytics
-    </h1>
-    <button class="refresh-btn" on:click={fetchAnalytics} disabled={loading}>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class:spinning={loading}>
-        <path d="M23 4v6h-6M1 20v-6h6"/>
-        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-      </svg>
-      Refresh
-    </button>
+  <!-- Compact Header -->
+  <header class="header">
+    <div class="header-left">
+      <h1>Analytics</h1>
+      <div class="tabs">
+        <button class:active={selectedTab === 'overview'} on:click={() => selectedTab = 'overview'}>Overview</button>
+        <button class:active={selectedTab === 'performance'} on:click={() => selectedTab = 'performance'}>Performance</button>
+        <button class:active={selectedTab === 'storage'} on:click={() => selectedTab = 'storage'}>Storage</button>
+        <button class:active={selectedTab === 'queries'} on:click={() => selectedTab = 'queries'}>Queries</button>
+      </div>
+    </div>
+    <div class="header-right">
+      <select bind:value={timeRange} class="time-select">
+        <option value="15m">15m</option>
+        <option value="1h">1h</option>
+        <option value="6h">6h</option>
+        <option value="24h">24h</option>
+      </select>
+      <button class="refresh-btn" on:click={fetchAnalytics} disabled={loading}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class:spinning={loading}>
+          <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg>
+      </button>
+    </div>
   </header>
 
   {#if error}
@@ -93,418 +121,823 @@
   {/if}
 
   {#if loading && !stats}
-    <div class="loading">Loading analytics...</div>
+    <div class="loading"><div class="spinner"></div></div>
   {:else}
-    <!-- Overview Cards -->
-    <section class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-icon blue">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-            <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>
-          </svg>
+    <!-- Status Bar -->
+    <div class="status-bar">
+      <span class:ok={getUptimeStatus() === 'healthy'} class:warn={getUptimeStatus() === 'warning'}><i></i>System</span>
+      <span class:ok={errorRate < 1} class:warn={errorRate >= 1}><i></i>Errors: {errorRate}%</span>
+      <span class:ok={cacheHitRate > 50} class:warn={cacheHitRate <= 50}><i></i>Cache: {clickhouseMetrics?.cache?.hit_rate || '0%'}</span>
+      <span class="ok"><i></i>ClickHouse</span>
+    </div>
+
+    {#if selectedTab === 'overview'}
+      <!-- Metrics Row -->
+      <div class="metrics-row">
+        <div class="metric">
+          <div class="metric-main">
+            <span class="metric-val">{formatNumber(stats?.total_logs)}</span>
+            <span class="metric-lbl">Logs</span>
+          </div>
+          <span class="metric-trend">+{formatNumber(clickhouseMetrics?.ingestion?.total || 0)}</span>
         </div>
-        <div class="stat-content">
-          <span class="stat-label">Total Logs</span>
-          <span class="stat-value">{formatNumber(stats?.total_logs)}</span>
+        <div class="metric">
+          <div class="metric-main">
+            <span class="metric-val">{stats?.db_size_mb || 0} MB</span>
+            <span class="metric-lbl">Storage</span>
+          </div>
+        </div>
+        <div class="metric">
+          <div class="metric-main">
+            <span class="metric-val">{clickhouseMetrics?.server?.uptime_human || '-'}</span>
+            <span class="metric-lbl">Uptime</span>
+          </div>
+        </div>
+        <div class="metric">
+          <div class="metric-main">
+            <span class="metric-val">{formatNumber(clickhouseMetrics?.requests?.total || 0)}</span>
+            <span class="metric-lbl">Requests</span>
+          </div>
+          <span class="metric-err">{clickhouseMetrics?.requests?.errors || 0} err</span>
         </div>
       </div>
 
-      <div class="stat-card">
-        <div class="stat-icon green">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="2" width="20" height="8" rx="2"/>
-            <rect x="2" y="14" width="20" height="8" rx="2"/>
-            <line x1="6" y1="6" x2="6.01" y2="6"/>
-            <line x1="6" y1="18" x2="6.01" y2="18"/>
-          </svg>
-        </div>
-        <div class="stat-content">
-          <span class="stat-label">Database Size</span>
-          <span class="stat-value">{stats?.db_size_mb || 0} MB</span>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-icon purple">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <polyline points="12,6 12,12 16,14"/>
-          </svg>
-        </div>
-        <div class="stat-content">
-          <span class="stat-label">Uptime</span>
-          <span class="stat-value">{clickhouseMetrics?.server?.uptime || '-'}</span>
-        </div>
-      </div>
-
-      <div class="stat-card">
-        <div class="stat-icon orange">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-          </svg>
-        </div>
-        <div class="stat-content">
-          <span class="stat-label">Requests/min</span>
-          <span class="stat-value">{clickhouseMetrics?.requests?.per_minute || 0}</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- ClickHouse Metrics -->
-    <section class="metrics-section">
-      <h2>ClickHouse Performance</h2>
-      <div class="metrics-grid">
-        <div class="metric-card">
-          <h3>Cache</h3>
-          <div class="metric-row">
-            <span>Hit Rate</span>
-            <span class="value">{clickhouseMetrics?.cache?.hit_rate || '0%'}</span>
-          </div>
-          <div class="metric-row">
-            <span>Size</span>
-            <span class="value">{clickhouseMetrics?.cache?.size || 0} entries</span>
+      <!-- Grid -->
+      <div class="grid">
+        <!-- Query Performance -->
+        <div class="card">
+          <div class="card-head"><h3>Query Performance</h3><span class="badge">{formatNumber(clickhouseMetrics?.clickhouse?.queries_total)}</span></div>
+          <div class="perf-list">
+            <div class="perf-row">
+              <span>Avg Response</span>
+              <span class="mono">{clickhouseMetrics?.clickhouse?.avg_query_time || '0s'}</span>
+            </div>
+            <div class="perf-row">
+              <span>Cache Hit</span>
+              <span class="mono">{clickhouseMetrics?.cache?.hit_rate || '0%'}</span>
+            </div>
+            <div class="perf-row">
+              <span>Error Rate</span>
+              <span class="mono">{errorRate}%</span>
+            </div>
           </div>
         </div>
 
-        <div class="metric-card">
-          <h3>Queries</h3>
-          <div class="metric-row">
-            <span>Total</span>
-            <span class="value">{formatNumber(clickhouseMetrics?.clickhouse?.queries_total)}</span>
-          </div>
-          <div class="metric-row">
-            <span>Avg Time</span>
-            <span class="value">{clickhouseMetrics?.clickhouse?.avg_query_time || '-'}</span>
-          </div>
-          <div class="metric-row">
-            <span>Errors</span>
-            <span class="value error">{formatNumber(clickhouseMetrics?.clickhouse?.errors_total)}</span>
-          </div>
-        </div>
-
-        <div class="metric-card">
-          <h3>Ingestion</h3>
-          <div class="metric-row">
-            <span>Total Inserted</span>
-            <span class="value">{formatNumber(clickhouseMetrics?.ingestion?.total)}</span>
-          </div>
-          <div class="metric-row">
-            <span>Bytes</span>
-            <span class="value">{formatBytes(clickhouseMetrics?.clickhouse?.bytes_inserted)}</span>
-          </div>
-          <div class="metric-row">
-            <span>Buffer</span>
-            <span class="value">{clickhouseMetrics?.clickhouse?.buffer_size || 0}</span>
+        <!-- Storage -->
+        <div class="card">
+          <div class="card-head"><h3>Storage</h3></div>
+          <div class="storage-grid">
+            <div class="storage-ring">
+              <svg viewBox="0 0 36 36">
+                <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                <path class="ring-fill" stroke-dasharray="75, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+              </svg>
+              <div class="ring-text"><span>{stats?.db_size_mb || 0}</span><small>MB</small></div>
+            </div>
+            <div class="storage-info">
+              <div><span>Rows</span><span class="mono">{formatNumber(stats?.total_rows)}</span></div>
+              <div><span>Oldest</span><span class="mono">{stats?.oldest_log?.split(' ')[0] || '-'}</span></div>
+              <div><span>Newest</span><span class="mono">{stats?.newest_log?.split(' ')[0] || '-'}</span></div>
+              <div><span>TTL</span><span class="mono">30d</span></div>
+            </div>
           </div>
         </div>
 
-        <div class="metric-card">
-          <h3>Storage</h3>
-          <div class="metric-row">
-            <span>Total Rows</span>
-            <span class="value">{formatNumber(stats?.total_rows)}</span>
+        <!-- Ingestion -->
+        <div class="card">
+          <div class="card-head"><h3>Ingestion</h3><span class="badge live">Live</span></div>
+          <div class="stats-grid">
+            <div><span class="stat-val">{formatNumber(clickhouseMetrics?.ingestion?.total)}</span><span class="stat-lbl">Ingested</span></div>
+            <div><span class="stat-val">{formatBytes(clickhouseMetrics?.clickhouse?.bytes_inserted)}</span><span class="stat-lbl">Written</span></div>
+            <div><span class="stat-val">{clickhouseMetrics?.clickhouse?.buffer_size || 0}</span><span class="stat-lbl">Buffer</span></div>
+            <div><span class="stat-val">{formatNumber(clickhouseMetrics?.clickhouse?.inserts_total)}</span><span class="stat-lbl">Inserts</span></div>
           </div>
-          <div class="metric-row">
-            <span>Oldest Log</span>
-            <span class="value small">{stats?.oldest_log || '-'}</span>
-          </div>
-          <div class="metric-row">
-            <span>Newest Log</span>
-            <span class="value small">{stats?.newest_log || '-'}</span>
+        </div>
+
+        <!-- Cache -->
+        <div class="card">
+          <div class="card-head"><h3>Cache</h3></div>
+          <div class="cache-row">
+            <div><span class="cache-val">{clickhouseMetrics?.cache?.hit_rate || '0%'}</span><span class="cache-lbl">Hit Rate</span></div>
+            <div><span class="cache-val">{clickhouseMetrics?.cache?.entries || 0}</span><span class="cache-lbl">Entries</span></div>
+            <div><span class="cache-val">{clickhouseMetrics?.cache?.ttl_seconds || 60}s</span><span class="cache-lbl">TTL</span></div>
           </div>
         </div>
       </div>
-    </section>
-
-    <!-- Table Statistics -->
-    {#if tableStats.length > 0}
-      <section class="table-section">
-        <h2>Table Statistics</h2>
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Table</th>
-              <th>Rows</th>
-              <th>Size</th>
-              <th>Partitions</th>
-              <th>Avg Row Size</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each tableStats as t}
-              <tr>
-                <td class="table-name">{t.table}</td>
-                <td>{formatNumber(t.rows)}</td>
-                <td>{formatBytes(t.bytes)}</td>
-                <td>{t.partitions || '-'}</td>
-                <td>{t.rows > 0 ? formatBytes(t.bytes / t.rows) : '-'}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </section>
     {/if}
 
-    <!-- Recent Queries -->
-    {#if queryStats.length > 0}
-      <section class="table-section">
-        <h2>Recent Slow Queries</h2>
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Query</th>
-              <th>Duration</th>
-              <th>Read Rows</th>
-              <th>Memory</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each queryStats as q}
-              <tr>
-                <td class="query-text">{q.query?.substring(0, 100)}...</td>
-                <td>{formatDuration(q.duration_ms)}</td>
-                <td>{formatNumber(q.read_rows)}</td>
-                <td>{formatBytes(q.memory_usage)}</td>
-              </tr>
+    {#if selectedTab === 'performance'}
+      <!-- Endpoints -->
+      <div class="card wide">
+        <div class="card-head"><h3>Endpoints</h3></div>
+        <div class="endpoint-list">
+          {#if clickhouseMetrics?.requests?.by_path}
+            {#each Object.entries(clickhouseMetrics.requests.by_path).sort((a, b) => b[1] - a[1]).slice(0, 8) as [path, count]}
+              <div class="endpoint-row">
+                <code>{path}</code>
+                <div class="endpoint-bar"><div style="width: {Math.min(count / Math.max(...Object.values(clickhouseMetrics.requests.by_path)) * 100, 100)}%"></div></div>
+                <span>{formatNumber(count)}</span>
+              </div>
             {/each}
-          </tbody>
-        </table>
-      </section>
+          {:else}
+            <div class="no-data">No data</div>
+          {/if}
+        </div>
+      </div>
+
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="card-head"><h3>Response Times</h3></div>
+          <div class="time-list">
+            <div><span>Average</span><span class="mono">{clickhouseMetrics?.requests?.avg_duration || '0'}s</span></div>
+            <div><span>Total Time</span><span class="mono">{formatDuration((clickhouseMetrics?.clickhouse?.queries_total || 0) * avgQueryTime * 1000)}</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Throughput</h3></div>
+          <div class="throughput">
+            <div><span class="tp-val">{formatNumber(clickhouseMetrics?.requests?.total || 0)}</span><span class="tp-lbl">Requests</span></div>
+            <div><span class="tp-val">{formatBytes(clickhouseMetrics?.clickhouse?.bytes_inserted || 0)}</span><span class="tp-lbl">Processed</span></div>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    {#if selectedTab === 'storage'}
+      <div class="card wide">
+        <div class="card-head"><h3>Tables</h3><span class="badge">{tableStats.length}</span></div>
+        {#if tableStats.length > 0}
+          <table class="data-table">
+            <thead><tr><th>Table</th><th>Rows</th><th>Size</th><th>Parts</th><th>Comp</th></tr></thead>
+            <tbody>
+              {#each tableStats as t}
+                <tr>
+                  <td><code>{t.table}</code></td>
+                  <td class="mono">{formatNumber(t.rows)}</td>
+                  <td class="mono">{formatBytes(t.bytes)}</td>
+                  <td class="mono">{t.partitions || '-'}</td>
+                  <td>ZSTD</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <div class="no-data">No tables</div>
+        {/if}
+      </div>
+
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="card-head"><h3>Distribution</h3></div>
+          <div class="dist-list">
+            {#each tableStats.slice(0, 4) as t}
+              <div class="dist-row">
+                <span>{t.table}</span>
+                <div class="dist-bar"><div style="width: {t.bytes / Math.max(...tableStats.map(x => x.bytes)) * 100}%"></div></div>
+                <span class="mono">{formatBytes(t.bytes)}</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Retention</h3></div>
+          <div class="retention">
+            <div><span>Policy</span><span>30 days</span></div>
+            <div><span>Cleanup</span><span class="ok-text">Enabled</span></div>
+            <div><span>Compression</span><span>ZSTD L3</span></div>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    {#if selectedTab === 'queries'}
+      <div class="card wide">
+        <div class="card-head"><h3>Slow Queries</h3><span class="badge warn">&gt;100ms</span></div>
+        {#if queryStats.length > 0}
+          <table class="data-table">
+            <thead><tr><th>Query</th><th>Time</th><th>Rows</th><th>Mem</th></tr></thead>
+            <tbody>
+              {#each queryStats as q}
+                <tr>
+                  <td><code class="query-text">{q.query?.substring(0, 60)}...</code></td>
+                  <td class="mono" class:slow={q.duration_ms > 500}>{formatDuration(q.duration_ms)}</td>
+                  <td class="mono">{formatNumber(q.read_rows)}</td>
+                  <td class="mono">{formatBytes(q.memory_usage)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <div class="no-data">No slow queries</div>
+        {/if}
+      </div>
+
+      <div class="grid cols-2">
+        <div class="card">
+          <div class="card-head"><h3>Query Stats</h3></div>
+          <div class="query-stats">
+            <div><span>Total</span><span class="mono">{formatNumber(clickhouseMetrics?.clickhouse?.queries_total)}</span></div>
+            <div><span>Cached</span><span class="mono">{formatNumber(clickhouseMetrics?.clickhouse?.queries_cached)}</span></div>
+            <div><span>Failed</span><span class="mono err">{formatNumber(clickhouseMetrics?.clickhouse?.errors_total)}</span></div>
+            <div><span>Avg Time</span><span class="mono">{clickhouseMetrics?.clickhouse?.avg_query_time || '0s'}</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Tips</h3></div>
+          <div class="tips">
+            <p>Use time filters to reduce scans</p>
+            <p>Leverage indexed columns</p>
+            <p>Use LIMIT clause</p>
+          </div>
+        </div>
+      </div>
     {/if}
   {/if}
 </div>
 
 <style>
   .analytics-page {
-    padding: 20px;
+    padding: 12px;
     max-width: 1400px;
     margin: 0 auto;
   }
 
-  .page-header {
+  /* Header */
+  .header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 24px;
+    margin-bottom: 10px;
+    gap: 10px;
+    flex-wrap: wrap;
   }
 
-  .page-header h1 {
+  .header-left {
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-size: 1.5rem;
+    gap: 12px;
+  }
+
+  .header h1 {
+    font-size: 1rem;
     font-weight: 600;
     color: #f0f6fc;
     margin: 0;
   }
 
-  .refresh-btn {
+  .tabs {
+    display: flex;
+    gap: 2px;
+    background: #161b22;
+    padding: 2px;
+    border-radius: 6px;
+    border: 1px solid #30363d;
+  }
+
+  .tabs button {
+    padding: 4px 10px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: #8b949e;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+
+  .tabs button:hover { color: #c9d1d9; }
+  .tabs button.active { background: #21262d; color: #f0f6fc; }
+
+  .header-right {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 16px;
+  }
+
+  .time-select {
+    padding: 4px 8px;
     background: #21262d;
     border: 1px solid #30363d;
-    border-radius: 6px;
+    border-radius: 4px;
     color: #c9d1d9;
-    cursor: pointer;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
   }
 
-  .refresh-btn:hover {
-    background: #30363d;
-  }
-
-  .refresh-btn:disabled {
-    opacity: 0.6;
-  }
-
-  .spinning {
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-
-  .error-banner {
-    background: #f8514926;
-    border: 1px solid #f85149;
-    color: #f85149;
-    padding: 12px 16px;
-    border-radius: 6px;
-    margin-bottom: 20px;
-  }
-
-  .loading {
-    text-align: center;
-    padding: 60px;
-    color: #8b949e;
-  }
-
-  /* Stats Grid */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px;
-    margin-bottom: 24px;
-  }
-
-  .stat-card {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 20px;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-  }
-
-  .stat-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 10px;
+  .refresh-btn {
+    width: 26px;
+    height: 26px;
     display: flex;
     align-items: center;
     justify-content: center;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #c9d1d9;
+    cursor: pointer;
   }
 
-  .stat-icon.blue { background: #388bfd26; color: #58a6ff; }
-  .stat-icon.green { background: #3fb95026; color: #3fb950; }
-  .stat-icon.purple { background: #a371f726; color: #a371f7; }
-  .stat-icon.orange { background: #d2992226; color: #d29922; }
+  .refresh-btn:hover { background: #30363d; }
+  .spinning { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-  .stat-content {
+  /* Error */
+  .error-banner {
+    background: #f8514915;
+    border: 1px solid #f85149;
+    color: #f85149;
+    padding: 6px 10px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    font-size: 0.75rem;
+  }
+
+  /* Loading */
+  .loading {
+    display: flex;
+    justify-content: center;
+    padding: 40px;
+  }
+
+  .spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid #30363d;
+    border-top-color: #58a6ff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  /* Status Bar */
+  .status-bar {
+    display: flex;
+    gap: 12px;
+    padding: 6px 10px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+
+  .status-bar span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.6875rem;
+    color: #8b949e;
+  }
+
+  .status-bar i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #484f58;
+  }
+
+  .status-bar .ok i { background: #3fb950; }
+  .status-bar .warn i { background: #d29922; }
+
+  /* Metrics Row */
+  .metrics-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  @media (max-width: 800px) {
+    .metrics-row { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .metric {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+  }
+
+  .metric-main {
     display: flex;
     flex-direction: column;
   }
 
-  .stat-label {
-    font-size: 0.75rem;
+  .metric-val {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #f0f6fc;
+    line-height: 1.2;
+  }
+
+  .metric-lbl {
+    font-size: 0.625rem;
     color: #8b949e;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
   }
 
-  .stat-value {
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: #f0f6fc;
+  .metric-trend {
+    font-size: 0.625rem;
+    color: #3fb950;
   }
 
-  /* Metrics Section */
-  .metrics-section, .table-section {
-    margin-bottom: 24px;
-  }
-
-  .metrics-section h2, .table-section h2 {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #f0f6fc;
-    margin: 0 0 16px 0;
-  }
-
-  .metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 16px;
-  }
-
-  .metric-card {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 16px;
-  }
-
-  .metric-card h3 {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: #8b949e;
-    margin: 0 0 12px 0;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .metric-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 8px 0;
-    border-bottom: 1px solid #21262d;
-    font-size: 0.875rem;
-  }
-
-  .metric-row:last-child {
-    border-bottom: none;
-  }
-
-  .metric-row span:first-child {
-    color: #8b949e;
-  }
-
-  .metric-row .value {
-    color: #f0f6fc;
-    font-weight: 500;
-    font-family: 'SF Mono', Monaco, monospace;
-  }
-
-  .metric-row .value.error {
+  .metric-err {
+    font-size: 0.625rem;
     color: #f85149;
   }
 
-  .metric-row .value.small {
+  /* Grid */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+
+  .grid.cols-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  @media (max-width: 1000px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  @media (max-width: 600px) {
+    .grid, .grid.cols-2 { grid-template-columns: 1fr; }
+  }
+
+  /* Card */
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .card.wide {
+    grid-column: 1 / -1;
+    margin-bottom: 8px;
+  }
+
+  .card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-bottom: 1px solid #21262d;
+  }
+
+  .card-head h3 {
     font-size: 0.75rem;
+    font-weight: 600;
+    color: #f0f6fc;
+    margin: 0;
+  }
+
+  .badge {
+    font-size: 0.5625rem;
+    padding: 2px 6px;
+    background: #21262d;
+    border-radius: 8px;
+    color: #8b949e;
+  }
+
+  .badge.live { background: #3fb95020; color: #3fb950; }
+  .badge.warn { background: #d2992220; color: #d29922; }
+
+  /* Perf List */
+  .perf-list {
+    padding: 8px 10px;
+  }
+
+  .perf-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.6875rem;
+    color: #8b949e;
+    padding: 3px 0;
+  }
+
+  .perf-row .mono { color: #f0f6fc; }
+
+  /* Storage Grid */
+  .storage-grid {
+    display: flex;
+    padding: 10px;
+    gap: 12px;
+  }
+
+  .storage-ring {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    flex-shrink: 0;
+  }
+
+  .storage-ring svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+  }
+
+  .ring-bg { fill: none; stroke: #21262d; stroke-width: 3; }
+  .ring-fill { fill: none; stroke: #3fb950; stroke-width: 3; stroke-linecap: round; }
+
+  .ring-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    line-height: 1;
+  }
+
+  .ring-text span {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #f0f6fc;
+  }
+
+  .ring-text small {
+    font-size: 0.5rem;
+    color: #8b949e;
+  }
+
+  .storage-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .storage-info div {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.625rem;
+    color: #8b949e;
+  }
+
+  .storage-info .mono { color: #f0f6fc; font-family: 'SF Mono', Monaco, monospace; }
+
+  /* Stats Grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: #21262d;
+  }
+
+  .stats-grid > div {
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    background: #161b22;
+  }
+
+  .stat-val {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #f0f6fc;
+  }
+
+  .stat-lbl {
+    font-size: 0.5625rem;
+    color: #8b949e;
+    text-transform: uppercase;
+  }
+
+  /* Cache Row */
+  .cache-row {
+    display: flex;
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .cache-row > div {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .cache-val {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #f0f6fc;
+  }
+
+  .cache-lbl {
+    font-size: 0.5625rem;
+    color: #8b949e;
+  }
+
+  /* Endpoint List */
+  .endpoint-list {
+    padding: 8px 10px;
+  }
+
+  .endpoint-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+  }
+
+  .endpoint-row code {
+    width: 120px;
+    font-size: 0.625rem;
+    color: #58a6ff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .endpoint-bar {
+    flex: 1;
+    height: 4px;
+    background: #21262d;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .endpoint-bar div {
+    height: 100%;
+    background: linear-gradient(90deg, #388bfd, #a371f7);
+    border-radius: 2px;
+  }
+
+  .endpoint-row > span {
+    width: 40px;
+    text-align: right;
+    font-size: 0.625rem;
+    font-family: 'SF Mono', Monaco, monospace;
+    color: #f0f6fc;
+  }
+
+  /* Time List */
+  .time-list {
+    padding: 10px;
+  }
+
+  .time-list div {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.6875rem;
+    color: #8b949e;
+    padding: 4px 0;
+  }
+
+  .time-list .mono { color: #f0f6fc; font-family: 'SF Mono', Monaco, monospace; }
+
+  /* Throughput */
+  .throughput {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: #21262d;
+  }
+
+  .throughput > div {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+    background: #161b22;
+  }
+
+  .tp-val {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #f0f6fc;
+  }
+
+  .tp-lbl {
+    font-size: 0.5625rem;
+    color: #8b949e;
+    text-transform: uppercase;
   }
 
   /* Data Table */
   .data-table {
     width: 100%;
     border-collapse: collapse;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    overflow: hidden;
+    font-size: 0.6875rem;
   }
 
   .data-table th,
   .data-table td {
-    padding: 12px 16px;
+    padding: 6px 10px;
     text-align: left;
     border-bottom: 1px solid #21262d;
   }
 
   .data-table th {
     background: #0d1117;
-    font-size: 0.75rem;
+    font-size: 0.5625rem;
     font-weight: 600;
     color: #8b949e;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
   }
 
-  .data-table td {
-    font-size: 0.875rem;
-    color: #c9d1d9;
-  }
-
-  .data-table tbody tr:hover {
-    background: #1c2128;
-  }
-
-  .table-name {
-    font-family: 'SF Mono', Monaco, monospace;
-    color: #58a6ff;
-  }
+  .data-table td { color: #c9d1d9; }
+  .data-table td code { color: #58a6ff; font-size: 0.625rem; }
+  .data-table .mono { font-family: 'SF Mono', Monaco, monospace; }
+  .data-table .slow { color: #d29922; }
 
   .query-text {
-    font-family: 'SF Mono', Monaco, monospace;
-    font-size: 0.75rem;
-    color: #8b949e;
-    max-width: 400px;
+    max-width: 200px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    display: inline-block;
+  }
+
+  /* Distribution */
+  .dist-list {
+    padding: 8px 10px;
+  }
+
+  .dist-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 0.625rem;
+    color: #8b949e;
+  }
+
+  .dist-row span:first-child {
+    width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dist-bar {
+    flex: 1;
+    height: 4px;
+    background: #21262d;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .dist-bar div {
+    height: 100%;
+    background: #3fb950;
+    border-radius: 2px;
+  }
+
+  .dist-row .mono { color: #f0f6fc; width: 50px; text-align: right; }
+
+  /* Retention */
+  .retention {
+    padding: 8px 10px;
+  }
+
+  .retention div {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.6875rem;
+    color: #8b949e;
+    padding: 3px 0;
+  }
+
+  .retention span:last-child { color: #f0f6fc; }
+  .ok-text { color: #3fb950 !important; }
+
+  /* Query Stats */
+  .query-stats {
+    padding: 8px 10px;
+  }
+
+  .query-stats div {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.6875rem;
+    color: #8b949e;
+    padding: 3px 0;
+  }
+
+  .query-stats .mono { color: #f0f6fc; font-family: 'SF Mono', Monaco, monospace; }
+  .query-stats .err { color: #f85149; }
+
+  /* Tips */
+  .tips {
+    padding: 8px 10px;
+  }
+
+  .tips p {
+    font-size: 0.625rem;
+    color: #8b949e;
+    margin: 0;
+    padding: 3px 0;
+  }
+
+  /* No Data */
+  .no-data {
+    padding: 20px;
+    text-align: center;
+    color: #8b949e;
+    font-size: 0.75rem;
   }
 </style>
