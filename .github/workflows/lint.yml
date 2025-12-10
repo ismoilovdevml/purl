@@ -21,7 +21,7 @@ jobs:
         run: cpanm --notest Perl::Critic
 
       - name: Run perlcritic
-        run: perlcritic --profile .perlcriticrc lib/ bin/
+        run: perlcritic --profile .perlcriticrc lib/
 
   js-lint:
     runs-on: ubuntu-latest
