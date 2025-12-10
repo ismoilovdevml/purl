@@ -209,7 +209,8 @@ sub get_collector {
 # List all collector names
 sub list_collectors {
     my ($self) = @_;
-    return sort keys %{$self->collectors};
+    my @names = sort keys %{$self->collectors};
+    return @names;
 }
 
 1;

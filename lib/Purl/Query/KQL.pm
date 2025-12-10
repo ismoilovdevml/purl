@@ -98,9 +98,10 @@ sub _tokenize {
         if (substr($query, $pos) =~ /^([\w\.@]+):("[^"]*"|[^\s()]+)/) {
             my $field = $1;
             my $value = $2;
+            my $matched = $field . ':' . $value;
             $value =~ s/^"(.*)"$/$1/;  # Remove quotes
             push @tokens, { type => 'FIELD', field => $field, value => $value };
-            $pos += length($&);
+            $pos += length($matched);
             next;
         }
 

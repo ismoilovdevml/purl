@@ -177,7 +177,8 @@ sub detect_file {
 
 # Get list of supported formats
 sub supported_formats {
-    return sort keys %FORMAT_PATTERNS;
+    my @formats = sort keys %FORMAT_PATTERNS;
+    return @formats;
 }
 
 # Get pattern for a format
