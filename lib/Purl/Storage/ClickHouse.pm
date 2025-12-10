@@ -95,17 +95,12 @@ sub _query {
         $url .= '&default_format=' . $opts{format};
     }
 
-    warn "DEBUG _query URL: $url";
-    warn "DEBUG _query SQL: $sql";
-
     my $response = $self->_http->post($url, {
         content => $sql,
         headers => {
             'Content-Type' => 'text/plain',
         },
     });
-
-    warn "DEBUG _query response status: $response->{status}, success: $response->{success}";
 
     unless ($response->{success}) {
         die "ClickHouse error: $response->{status} - $response->{content}";
@@ -119,7 +114,6 @@ sub _query_json {
 
     my $result = $self->_query($sql, format => 'JSONEachRow');
 
-    warn "DEBUG _query_json result: '$result'";
     return [] unless $result && length($result);
 
     my @rows;
@@ -128,7 +122,6 @@ sub _query_json {
         push @rows, $self->_json->decode($line);
     }
 
-    warn "DEBUG _query_json parsed rows: " . scalar(@rows);
     return \@rows;
 }
 
@@ -365,24 +358,14 @@ sub search {
     my $limit = $params{limit} // 500;
     my $offset = $params{offset} // 0;
 
-    my $sql = qq{
-        SELECT
-            toString(id) as id,
-            formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as timestamp,
-            level,
-            service,
-            host,
-            message,
-            raw,
-            meta as meta_json
-        FROM $table
-        $where_sql
-        ORDER BY timestamp $order
-        LIMIT $offset, $limit
-    };
+    my $sql = qq{SELECT toString(id) as id, formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts, level, service, host, message, raw, meta as meta_json FROM $table $where_sql ORDER BY timestamp $order LIMIT $limit OFFSET $offset};
 
-    warn "DEBUG SQL: $sql";
     my $results = $self->_query_json($sql);
+
+    # Rename ts back to timestamp for API response
+    for my $row (@$results) {
+        $row->{timestamp} = delete $row->{ts};
+    }
 
     # Parse meta JSON
     for my $row (@$results) {
