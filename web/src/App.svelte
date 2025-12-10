@@ -129,12 +129,14 @@
     background: #0d1117;
     color: #c9d1d9;
     line-height: 1.5;
+    overflow: hidden;
   }
 
   main {
-    min-height: 100vh;
+    height: 100vh;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
 
   header {
@@ -244,6 +246,8 @@
   .container {
     display: flex;
     flex: 1;
+    overflow: hidden;
+    max-height: calc(100vh - 100px);
   }
 
   .sidebar {
@@ -252,12 +256,12 @@
     border-right: 1px solid #30363d;
     padding: 16px;
     overflow-y: auto;
-    max-height: calc(100vh - 100px);
+    flex-shrink: 0;
   }
 
   .main-content {
     flex: 1;
     padding: 16px;
-    overflow-x: auto;
+    overflow: auto;
   }
 </style>

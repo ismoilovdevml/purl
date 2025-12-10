@@ -127,7 +127,8 @@
     background: #161b22;
     border: 1px solid #30363d;
     border-radius: 6px;
-    overflow: hidden;
+    overflow: auto;
+    max-height: calc(100vh - 280px);
   }
 
   .empty-state {
