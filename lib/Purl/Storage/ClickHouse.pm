@@ -11,6 +11,12 @@ use URI::Escape qw(uri_escape);
 use Time::Piece;
 use Time::HiRes qw(time);
 
+# Consume roles for modular functionality
+with 'Purl::Storage::ClickHouse::Query';
+with 'Purl::Storage::ClickHouse::Cache';
+with 'Purl::Storage::ClickHouse::Alerts';
+with 'Purl::Storage::ClickHouse::SavedSearches';
+
 # Configuration
 has 'host' => (
     is      => 'ro',
@@ -104,26 +110,7 @@ has '_last_flush' => (
     default => sub { time() },
 );
 
-# Query cache (in-memory LRU)
-has '_query_cache' => (
-    is      => 'rw',
-    default => sub { {} },
-);
-
-has '_cache_timestamps' => (
-    is      => 'rw',
-    default => sub { {} },
-);
-
-has 'cache_ttl' => (
-    is      => 'ro',
-    default => 5,  # seconds
-);
-
-has 'cache_max_size' => (
-    is      => 'ro',
-    default => 100,
-);
+# Note: Cache attributes are provided by Purl::Storage::ClickHouse::Cache role
 
 # Metrics
 has '_metrics' => (
@@ -142,6 +129,8 @@ sub BUILD {
     my ($self) = @_;
     $self->_init_schema();
 }
+
+# Note: SQL injection prevention helpers are provided by Purl::Storage::ClickHouse::Query role
 
 sub _base_url {
     my ($self) = @_;
@@ -204,47 +193,7 @@ sub _query {
     return $response->{content};
 }
 
-# Cache management
-sub _get_cache_key {
-    my ($self, $sql) = @_;
-    # Simple hash for cache key
-    my $key = 0;
-    $key = ($key * 31 + ord($_)) % 2147483647 for split //, $sql;
-    return $key;
-}
-
-sub _get_cached {
-    my ($self, $key) = @_;
-    return unless $self->use_query_cache;
-
-    my $cached = $self->_query_cache->{$key};
-    my $ts = $self->_cache_timestamps->{$key};
-
-    return unless $cached && $ts;
-    return if (time() - $ts) > $self->cache_ttl;
-
-    $self->_metrics->{queries_cached}++;
-    return $cached;
-}
-
-sub _set_cached {
-    my ($self, $key, $value) = @_;
-    return unless $self->use_query_cache;
-
-    # LRU eviction
-    my $cache = $self->_query_cache;
-    if (keys %$cache >= $self->cache_max_size) {
-        my @keys = sort { $self->_cache_timestamps->{$a} <=> $self->_cache_timestamps->{$b} } keys %$cache;
-        my $to_delete = int(@keys / 2);
-        for my $k (@keys[0..$to_delete-1]) {
-            delete $cache->{$k};
-            delete $self->_cache_timestamps->{$k};
-        }
-    }
-
-    $cache->{$key} = $value;
-    $self->_cache_timestamps->{$key} = time();
-}
+# Note: Cache management methods are provided by Purl::Storage::ClickHouse::Cache role
 
 sub _query_json {
     my ($self, $sql, %opts) = @_;
@@ -529,63 +478,76 @@ sub _convert_to_clickhouse_ts {
     return $ts;
 }
 
-# Search logs
+# Search logs (SQL injection protected)
 sub search {
     my ($self, %params) = @_;
 
     my $table = $self->database . '.' . $self->table;
     my @where;
-    my @values;
 
     # Time range - convert ISO format to ClickHouse format
     if ($params{from}) {
         my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
-        push @where, "timestamp >= '$from_ts'";
+        if ($from_ts =~ /^[\d\-: \.]+$/) {  # Validate timestamp format
+            push @where, "timestamp >= " . $self->_quote_string($from_ts);
+        }
     }
     if ($params{to}) {
         my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
-        push @where, "timestamp <= '$to_ts'";
+        if ($to_ts =~ /^[\d\-: \.]+$/) {  # Validate timestamp format
+            push @where, "timestamp <= " . $self->_quote_string($to_ts);
+        }
     }
 
-    # Level filter
+    # Level filter (validated against whitelist)
     if ($params{level}) {
         if (ref $params{level} eq 'ARRAY') {
-            my $levels = join(',', map { "'$_'" } @{$params{level}});
-            push @where, "level IN ($levels)";
+            my @valid_levels = grep { defined } map { $self->_validate_level($_) } @{$params{level}};
+            if (@valid_levels) {
+                my $levels = join(',', map { $self->_quote_string($_) } @valid_levels);
+                push @where, "level IN ($levels)";
+            }
         } else {
-            push @where, "level = '$params{level}'";
+            my $valid_level = $self->_validate_level($params{level});
+            if ($valid_level) {
+                push @where, "level = " . $self->_quote_string($valid_level);
+            }
         }
     }
 
-    # Service filter
+    # Service filter (sanitized)
     if ($params{service}) {
-        if ($params{service} =~ /\*/) {
-            my $pattern = $params{service};
-            $pattern =~ s/\*/%/g;
-            push @where, "service LIKE '$pattern'";
-        } else {
-            push @where, "service = '$params{service}'";
+        my $service = $self->_sanitize_identifier($params{service});
+        if ($service) {
+            if ($service =~ /\*/) {
+                my $pattern = $service;
+                $pattern =~ s/\*/%/g;
+                push @where, "service LIKE " . $self->_quote_string($pattern);
+            } else {
+                push @where, "service = " . $self->_quote_string($service);
+            }
         }
     }
 
-    # Host filter
+    # Host filter (sanitized)
     if ($params{host}) {
-        push @where, "host = '$params{host}'";
+        my $host = $self->_sanitize_identifier($params{host});
+        if ($host) {
+            push @where, "host = " . $self->_quote_string($host);
+        }
     }
 
-    # Full-text search in message
+    # Full-text search in message (properly escaped)
     if ($params{query}) {
-        my $escaped = $params{query};
-        $escaped =~ s/'/\\'/g;
-        push @where, "position(message, '$escaped') > 0";
+        push @where, "position(message, " . $self->_quote_string($params{query}) . ") > 0";
     }
 
     # Build query
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
 
-    my $order = $params{order} // 'DESC';
-    my $limit = $params{limit} // 500;
-    my $offset = $params{offset} // 0;
+    my $order = $self->_validate_order($params{order});
+    my $limit = $self->_validate_int($params{limit}, 1, 10000) // 500;
+    my $offset = $self->_validate_int($params{offset}, 0, 1000000) // 0;
 
     my $sql = qq{SELECT toString(id) as id, formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts, level, service, host, message, raw, meta as meta_json FROM $table $where_sql ORDER BY timestamp $order LIMIT $limit OFFSET $offset};
 
@@ -605,7 +567,7 @@ sub search {
     return $results;
 }
 
-# Count logs
+# Count logs (SQL injection protected)
 sub count {
     my ($self, %params) = @_;
 
@@ -614,17 +576,27 @@ sub count {
 
     if ($params{from}) {
         my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
-        push @where, "timestamp >= '$from_ts'";
+        if ($from_ts =~ /^[\d\-: \.]+$/) {
+            push @where, "timestamp >= " . $self->_quote_string($from_ts);
+        }
     }
     if ($params{to}) {
         my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
-        push @where, "timestamp <= '$to_ts'";
+        if ($to_ts =~ /^[\d\-: \.]+$/) {
+            push @where, "timestamp <= " . $self->_quote_string($to_ts);
+        }
     }
     if ($params{level}) {
-        push @where, "level = '$params{level}'";
+        my $valid_level = $self->_validate_level($params{level});
+        if ($valid_level) {
+            push @where, "level = " . $self->_quote_string($valid_level);
+        }
     }
     if ($params{service}) {
-        push @where, "service = '$params{service}'";
+        my $service = $self->_sanitize_identifier($params{service});
+        if ($service) {
+            push @where, "service = " . $self->_quote_string($service);
+        }
     }
 
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
@@ -635,30 +607,40 @@ sub count {
     return $result->[0]{cnt} // 0;
 }
 
-# Field statistics
+# Field statistics (SQL injection protected)
 sub field_stats {
     my ($self, $field, %params) = @_;
 
+    # Validate field name (whitelist)
+    my $valid_field = $self->_validate_field($field);
+    unless ($valid_field) {
+        return [];  # Invalid field, return empty
+    }
+
     my $table = $self->database . '.' . $self->table;
-    my $limit = $params{limit} // 10;
+    my $limit = $self->_validate_int($params{limit}, 1, 1000) // 10;
 
     my @where;
     if ($params{from}) {
         my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
-        push @where, "timestamp >= '$from_ts'";
+        if ($from_ts =~ /^[\d\-: \.]+$/) {
+            push @where, "timestamp >= " . $self->_quote_string($from_ts);
+        }
     }
     if ($params{to}) {
         my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
-        push @where, "timestamp <= '$to_ts'";
+        if ($to_ts =~ /^[\d\-: \.]+$/) {
+            push @where, "timestamp <= " . $self->_quote_string($to_ts);
+        }
     }
 
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
 
     my $sql = qq{
-        SELECT $field as value, count() as count
+        SELECT $valid_field as value, count() as count
         FROM $table
         $where_sql
-        GROUP BY $field
+        GROUP BY $valid_field
         ORDER BY count DESC
         LIMIT $limit
     };
@@ -666,14 +648,14 @@ sub field_stats {
     return $self->_query_json($sql);
 }
 
-# Time histogram with level breakdown
+# Time histogram with level breakdown (SQL injection protected)
 sub histogram {
     my ($self, %params) = @_;
 
     my $table = $self->database . '.' . $self->table;
     my $interval = $params{interval} // '1 hour';
 
-    # Convert interval to ClickHouse function
+    # Convert interval to ClickHouse function (whitelist approach)
     my $time_func;
     if ($interval =~ /minute/i) {
         $time_func = "toStartOfMinute(timestamp)";
@@ -688,17 +670,27 @@ sub histogram {
     my @where;
     if ($params{from}) {
         my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
-        push @where, "timestamp >= '$from_ts'";
+        if ($from_ts =~ /^[\d\-: \.]+$/) {
+            push @where, "timestamp >= " . $self->_quote_string($from_ts);
+        }
     }
     if ($params{to}) {
         my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
-        push @where, "timestamp <= '$to_ts'";
+        if ($to_ts =~ /^[\d\-: \.]+$/) {
+            push @where, "timestamp <= " . $self->_quote_string($to_ts);
+        }
     }
     if ($params{level}) {
-        push @where, "level = '$params{level}'";
+        my $valid_level = $self->_validate_level($params{level});
+        if ($valid_level) {
+            push @where, "level = " . $self->_quote_string($valid_level);
+        }
     }
     if ($params{service}) {
-        push @where, "service = '$params{service}'";
+        my $service = $self->_sanitize_identifier($params{service});
+        if ($service) {
+            push @where, "service = " . $self->_quote_string($service);
+        }
     }
 
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
@@ -857,171 +849,8 @@ sub DEMOLISH {
     $self->disconnect();
 }
 
-# ============================================
-# Saved Searches CRUD
-# ============================================
-
-sub get_saved_searches {
-    my ($self) = @_;
-    my $db = $self->database;
-    return $self->_query_json(qq{
-        SELECT toString(id) as id, name, query, time_range, formatDateTime(created_at, '%Y-%m-%dT%H:%i:%SZ') as created_at
-        FROM ${db}.saved_searches
-        ORDER BY created_at DESC
-    });
-}
-
-sub create_saved_search {
-    my ($self, $name, $query, $time_range) = @_;
-    my $db = $self->database;
-    $time_range //= '15m';
-
-    $name =~ s/'/\\'/g;
-    $query =~ s/'/\\'/g;
-
-    $self->_query(qq{
-        INSERT INTO ${db}.saved_searches (name, query, time_range)
-        VALUES ('$name', '$query', '$time_range')
-    });
-    return 1;
-}
-
-sub delete_saved_search {
-    my ($self, $id) = @_;
-    my $db = $self->database;
-    $self->_query(qq{
-        ALTER TABLE ${db}.saved_searches DELETE WHERE id = '$id'
-    });
-    return 1;
-}
-
-# ============================================
-# Alerts CRUD
-# ============================================
-
-sub get_alerts {
-    my ($self) = @_;
-    my $db = $self->database;
-    return $self->_query_json(qq{
-        SELECT toString(id) as id, name, query, condition, threshold, window_minutes,
-               notify_type, notify_target, enabled,
-               formatDateTime(last_triggered, '%Y-%m-%dT%H:%i:%SZ') as last_triggered,
-               formatDateTime(created_at, '%Y-%m-%dT%H:%i:%SZ') as created_at
-        FROM ${db}.alerts
-        ORDER BY created_at DESC
-    });
-}
-
-sub create_alert {
-    my ($self, %params) = @_;
-    my $db = $self->database;
-
-    my $name = $params{name} // 'Unnamed Alert';
-    my $query = $params{query} // '';
-    my $condition = $params{condition} // 'count';
-    my $threshold = $params{threshold} // 10;
-    my $window = $params{window_minutes} // 5;
-    my $notify_type = $params{notify_type} // 'webhook';
-    my $notify_target = $params{notify_target} // '';
-
-    $name =~ s/'/\\'/g;
-    $query =~ s/'/\\'/g;
-    $notify_target =~ s/'/\\'/g;
-
-    $self->_query(qq{
-        INSERT INTO ${db}.alerts (name, query, condition, threshold, window_minutes, notify_type, notify_target)
-        VALUES ('$name', '$query', '$condition', $threshold, $window, '$notify_type', '$notify_target')
-    });
-    return 1;
-}
-
-sub update_alert {
-    my ($self, $id, %params) = @_;
-    my $db = $self->database;
-
-    my @updates;
-    for my $key (qw(name query condition notify_type notify_target)) {
-        if (exists $params{$key}) {
-            my $val = $params{$key};
-            $val =~ s/'/\\'/g;
-            push @updates, "$key = '$val'";
-        }
-    }
-    for my $key (qw(threshold window_minutes enabled)) {
-        if (exists $params{$key}) {
-            push @updates, "$key = $params{$key}";
-        }
-    }
-
-    return 0 unless @updates;
-
-    my $set_clause = join(', ', @updates);
-    $self->_query(qq{
-        ALTER TABLE ${db}.alerts UPDATE $set_clause WHERE id = '$id'
-    });
-    return 1;
-}
-
-sub delete_alert {
-    my ($self, $id) = @_;
-    my $db = $self->database;
-    $self->_query(qq{
-        ALTER TABLE ${db}.alerts DELETE WHERE id = '$id'
-    });
-    return 1;
-}
-
-sub check_alerts {
-    my ($self) = @_;
-    my $db = $self->database;
-    my $table = $self->database . '.' . $self->table;
-
-    my $alerts = $self->_query_json(qq{
-        SELECT toString(id) as id, name, query, condition, threshold, window_minutes,
-               notify_type, notify_target
-        FROM ${db}.alerts
-        WHERE enabled = 1
-    });
-
-    my @triggered;
-    for my $alert (@$alerts) {
-        my $window = $alert->{window_minutes};
-        my $query_filter = $alert->{query};
-
-        # Build WHERE clause
-        my @where = ("timestamp >= now() - INTERVAL $window MINUTE");
-        if ($query_filter) {
-            if ($query_filter =~ /^level:(\w+)$/i) {
-                push @where, "level = '" . uc($1) . "'";
-            } elsif ($query_filter =~ /^service:(\S+)$/i) {
-                push @where, "service = '$1'";
-            } else {
-                my $escaped = $query_filter;
-                $escaped =~ s/'/\\'/g;
-                push @where, "position(message, '$escaped') > 0";
-            }
-        }
-
-        my $where_sql = join(' AND ', @where);
-        my $count_sql = "SELECT count() as cnt FROM $table WHERE $where_sql";
-        my $result = $self->_query_json($count_sql);
-        my $count = $result->[0]{cnt} // 0;
-
-        if ($count >= $alert->{threshold}) {
-            push @triggered, {
-                %$alert,
-                count => $count,
-            };
-
-            # Update last_triggered
-            $self->_query(qq{
-                ALTER TABLE ${db}.alerts UPDATE last_triggered = now() WHERE id = '$alert->{id}'
-            });
-        }
-    }
-
-    return \@triggered;
-}
+# Note: Saved Searches and Alerts CRUD methods are provided by
+# Purl::Storage::ClickHouse::SavedSearches and Purl::Storage::ClickHouse::Alerts roles
 
 1;
 

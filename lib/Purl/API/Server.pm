@@ -179,12 +179,21 @@ sub _check_auth {
     my ($c) = @_;
 
     my $auth_config = $config->{auth} // {};
-    return 1 unless $auth_config->{enabled};
+
+    # Check if auth is enabled via env or config
+    my $auth_enabled = $ENV{PURL_AUTH_ENABLED} // $auth_config->{enabled} // 0;
+    return 1 unless $auth_enabled;
 
     my $auth_header = $c->req->headers->authorization // '';
 
-    # API Key auth
+    # API Key auth (env or config)
     if (my $api_key = $c->req->headers->header('X-API-Key')) {
+        # Check env API keys (comma-separated)
+        if (my $env_keys = $ENV{PURL_API_KEYS}) {
+            my @keys = split /,/, $env_keys;
+            return 1 if grep { $_ eq $api_key } @keys;
+        }
+        # Check config API keys
         my $valid_keys = $auth_config->{api_keys} // [];
         return 1 if grep { $_ eq $api_key } @$valid_keys;
     }
@@ -818,19 +827,52 @@ METRICS
     return app;
 }
 
-# Broadcast logs to WebSocket subscribers
+# Broadcast logs to WebSocket subscribers (with server-side filtering)
 sub _broadcast_logs {
     my ($logs) = @_;
 
     for my $ws (@$websockets) {
         next unless $ws;
         eval {
-            for my $log (@$logs) {
-                my $filter = $ws->{filter} // {};
+            my $filter = $ws->{filter} // {};
 
-                # Apply filter
-                next if $filter->{level} && $log->{level} ne $filter->{level};
-                next if $filter->{service} && $log->{service} ne $filter->{service};
+            for my $log (@$logs) {
+                # Apply all filters server-side to reduce bandwidth
+
+                # Level filter (exact match or array)
+                if ($filter->{level}) {
+                    if (ref $filter->{level} eq 'ARRAY') {
+                        my %allowed = map { uc($_) => 1 } @{$filter->{level}};
+                        next unless $allowed{uc($log->{level} // '')};
+                    } else {
+                        next if uc($log->{level} // '') ne uc($filter->{level});
+                    }
+                }
+
+                # Service filter (exact match or wildcard)
+                if ($filter->{service}) {
+                    my $service = $log->{service} // '';
+                    my $pattern = $filter->{service};
+                    if ($pattern =~ /\*/) {
+                        # Convert wildcard to regex
+                        $pattern =~ s/\./\\./g;
+                        $pattern =~ s/\*/.*/g;
+                        next unless $service =~ /^$pattern$/i;
+                    } else {
+                        next if lc($service) ne lc($pattern);
+                    }
+                }
+
+                # Host filter
+                if ($filter->{host}) {
+                    next if lc($log->{host} // '') ne lc($filter->{host});
+                }
+
+                # Message contains filter (case-insensitive)
+                if ($filter->{query}) {
+                    my $message = $log->{message} // '';
+                    next unless index(lc($message), lc($filter->{query})) >= 0;
+                }
 
                 $ws->send(encode_json({
                     type => 'log',
@@ -838,6 +880,10 @@ sub _broadcast_logs {
                 }));
             }
         };
+        if ($@) {
+            # Remove dead connections
+            $websockets = [grep { $_ != $ws } @$websockets];
+        }
     }
 }
 

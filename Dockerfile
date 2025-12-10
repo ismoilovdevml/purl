@@ -17,7 +17,7 @@ RUN npm run build
 # ============================================================
 # Stage 2: Perl application
 # ============================================================
-FROM perl:5.38-slim-bookworm
+FROM perl:5.40-slim-bookworm
 
 LABEL maintainer="Purl Contributors"
 LABEL description="Log Aggregation Dashboard"

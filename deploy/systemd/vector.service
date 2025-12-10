@@ -1,26 +1,32 @@
 [Unit]
-Description=Vector Log Collector
+Description=Vector Log Collector for Purl
 Documentation=https://vector.dev
-After=network-online.target
-Wants=network-online.target
+After=network.target docker.service
+Wants=docker.service
 
 [Service]
 Type=simple
-User=vector
-Group=vector
-ExecStartPre=/usr/bin/vector validate /etc/vector/vector.yaml
-ExecStart=/usr/bin/vector --config /etc/vector/vector.yaml
-ExecReload=/bin/kill -HUP $MAINPID
-Restart=always
-RestartSec=5
-Environment=PURL_URL=http://localhost:3000
+User=root
+Group=root
 
-# Security hardening
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=/var/lib/vector
-ReadOnlyPaths=/var/log /etc/vector
+# Environment file
+EnvironmentFile=-/etc/default/vector
+
+# Start command
+ExecStart=/usr/bin/vector --config /etc/vector/vector.toml
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart on failure
+Restart=on-failure
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vector
+
+# Allow access to Docker socket
+SupplementaryGroups=docker
 
 [Install]
 WantedBy=multi-user.target

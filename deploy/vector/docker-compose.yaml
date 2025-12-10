@@ -1,0 +1,66 @@
+# Vector Agent with Docker Compose
+# Deploy on any server to collect logs and send to Purl/ClickHouse
+
+services:
+  vector:
+    image: timberio/vector:0.51.1-alpine
+    container_name: purl-vector
+    restart: unless-stopped
+    hostname: ${HOSTNAME:-vector}
+    environment:
+      # ClickHouse connection (direct - recommended)
+      - CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://clickhouse:8123}
+      - CLICKHOUSE_DATABASE=${CLICKHOUSE_DATABASE:-purl}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+      # Or Purl API (if ClickHouse not accessible)
+      - PURL_SERVER_URL=${PURL_SERVER_URL:-}
+      - PURL_API_KEY=${PURL_API_KEY:-}
+      # Labels
+      - PURL_ENVIRONMENT=${PURL_ENVIRONMENT:-production}
+      - PURL_CLUSTER=${PURL_CLUSTER:-}
+      - HOSTNAME=${HOSTNAME:-}
+    volumes:
+      # Vector config
+      - ./vector.toml:/etc/vector/vector.toml:ro
+      # Docker socket for container logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # System logs
+      - /var/log:/var/log:ro
+      # Journald (if available)
+      - /run/log/journal:/run/log/journal:ro
+      - /var/log/journal:/var/log/journal:ro
+      # Persistent buffer
+      - vector-data:/var/lib/vector
+    ports:
+      # Vector API (optional)
+      - "8686:8686"
+      # Prometheus metrics (optional)
+      - "9598:9598"
+    networks:
+      - purl-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "vector", "top", "--interval", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  vector-data:
+
+networks:
+  purl-network:
+    external: true

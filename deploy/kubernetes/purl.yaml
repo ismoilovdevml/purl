@@ -1,3 +1,33 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: purl-secret
+  namespace: purl
+type: Opaque
+stringData:
+  api-key: "your-api-key-here"
+  clickhouse-password: "purl_password"
+  # Optional: Alert notifications
+  # telegram-token: ""
+  # slack-webhook: ""
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: purl-config
+  namespace: purl
+data:
+  PURL_PORT: "3000"
+  PURL_CLICKHOUSE_HOST: "clickhouse"
+  PURL_CLICKHOUSE_PORT: "8123"
+  PURL_CLICKHOUSE_DATABASE: "purl"
+  PURL_CLICKHOUSE_USER: "purl"
+  PURL_RETENTION_DAYS: "30"
+  PURL_AUTH_ENABLED: "1"
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,16 +48,23 @@ spec:
           image: purl:latest
           ports:
             - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: purl-config
           env:
-            - name: PURL_CLICKHOUSE_HOST
-              value: "clickhouse"
-            - name: PURL_CLICKHOUSE_PORT
-              value: "8123"
-            - name: PURL_PORT
-              value: "3000"
+            - name: PURL_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: purl-secret
+                  key: api-key
+            - name: PURL_CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: purl-secret
+                  key: clickhouse-password
           resources:
             requests:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "100m"
             limits:
               memory: "512Mi"
@@ -36,7 +73,7 @@ spec:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 10
           readinessProbe:
             httpGet:
@@ -44,6 +81,7 @@ spec:
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 5
+
 ---
 apiVersion: v1
 kind: Service
@@ -56,6 +94,8 @@ spec:
   ports:
     - port: 3000
       targetPort: 3000
+  type: ClusterIP
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -63,11 +103,11 @@ metadata:
   name: purl
   namespace: purl
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
-  ingressClassName: nginx
   rules:
-    - host: logs.example.com  # Change this
+    - host: logs.example.com
       http:
         paths:
           - path: /
@@ -77,3 +117,7 @@ spec:
                 name: purl
                 port:
                   number: 3000
+  # tls:
+  #   - hosts:
+  #       - logs.example.com
+  #     secretName: purl-tls

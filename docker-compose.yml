@@ -17,9 +17,19 @@ services:
       - PURL_CLICKHOUSE_HOST=clickhouse
       - PURL_CLICKHOUSE_PORT=8123
       - PURL_CLICKHOUSE_DATABASE=purl
-      - PURL_CLICKHOUSE_USER=default
-      - PURL_CLICKHOUSE_PASSWORD=
+      - PURL_CLICKHOUSE_USER=${PURL_CLICKHOUSE_USER:-purl}
+      - PURL_CLICKHOUSE_PASSWORD=${PURL_CLICKHOUSE_PASSWORD:-purl_password}
       - PURL_RETENTION_DAYS=${PURL_RETENTION_DAYS:-30}
+      # Authentication - enabled by default for security
+      - PURL_AUTH_ENABLED=${PURL_AUTH_ENABLED:-1}
+      - PURL_API_KEYS=${PURL_API_KEYS:-}
+      # Alert Notifications
+      - PURL_TELEGRAM_BOT_TOKEN=${PURL_TELEGRAM_BOT_TOKEN:-}
+      - PURL_TELEGRAM_CHAT_ID=${PURL_TELEGRAM_CHAT_ID:-}
+      - PURL_SLACK_WEBHOOK_URL=${PURL_SLACK_WEBHOOK_URL:-}
+      - PURL_SLACK_CHANNEL=${PURL_SLACK_CHANNEL:-}
+      - PURL_ALERT_WEBHOOK_URL=${PURL_ALERT_WEBHOOK_URL:-}
+      - PURL_ALERT_WEBHOOK_TOKEN=${PURL_ALERT_WEBHOOK_TOKEN:-}
     volumes:
       - ./config:/app/config:ro
     depends_on:
@@ -38,7 +48,7 @@ services:
   # ClickHouse - Column-oriented DBMS for logs
   # ============================================================
   clickhouse:
-    image: clickhouse/clickhouse-server:24.3-alpine
+    image: clickhouse/clickhouse-server:25.11-alpine
     container_name: purl-clickhouse
     restart: unless-stopped
     ports:
@@ -70,13 +80,13 @@ services:
   # Vector - Log Collector (optional, use --profile vector)
   # ============================================================
   vector:
-    image: timberio/vector:0.34.1-alpine
+    image: timberio/vector:0.51.1-alpine
     container_name: purl-vector
     restart: unless-stopped
     profiles:
       - vector
     volumes:
-      - ./deploy/docker/vector.yaml:/etc/vector/vector.yaml:ro
+      - ./deploy/vector/vector.toml:/etc/vector/vector.toml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/log:/var/log:ro
     environment:
