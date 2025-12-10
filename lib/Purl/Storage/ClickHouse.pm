@@ -95,12 +95,17 @@ sub _query {
         $url .= '&default_format=' . $opts{format};
     }
 
+    warn "DEBUG _query URL: $url";
+    warn "DEBUG _query SQL: $sql";
+
     my $response = $self->_http->post($url, {
         content => $sql,
         headers => {
             'Content-Type' => 'text/plain',
         },
     });
+
+    warn "DEBUG _query response status: $response->{status}, success: $response->{success}";
 
     unless ($response->{success}) {
         die "ClickHouse error: $response->{status} - $response->{content}";
@@ -114,6 +119,7 @@ sub _query_json {
 
     my $result = $self->_query($sql, format => 'JSONEachRow');
 
+    warn "DEBUG _query_json result: '$result'";
     return [] unless $result && length($result);
 
     my @rows;
@@ -122,6 +128,7 @@ sub _query_json {
         push @rows, $self->_json->decode($line);
     }
 
+    warn "DEBUG _query_json parsed rows: " . scalar(@rows);
     return \@rows;
 }
 
@@ -285,6 +292,21 @@ sub _format_timestamp {
     return sprintf('%s.000', $t->strftime('%Y-%m-%d %H:%M:%S'));
 }
 
+# Convert ISO timestamp (from API) to ClickHouse format for queries
+sub _convert_to_clickhouse_ts {
+    my ($self, $ts) = @_;
+    return '' unless $ts;
+
+    # Replace T with space
+    $ts =~ s/T/ /;
+    # Remove Z suffix
+    $ts =~ s/Z$//;
+    # Add milliseconds if missing
+    $ts .= '.000' unless $ts =~ /\.\d+$/;
+
+    return $ts;
+}
+
 # Search logs
 sub search {
     my ($self, %params) = @_;
@@ -293,12 +315,14 @@ sub search {
     my @where;
     my @values;
 
-    # Time range
+    # Time range - convert ISO format to ClickHouse format
     if ($params{from}) {
-        push @where, "timestamp >= toDateTime64('$params{from}', 3)";
+        my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
+        push @where, "timestamp >= '$from_ts'";
     }
     if ($params{to}) {
-        push @where, "timestamp <= toDateTime64('$params{to}', 3)";
+        my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
+        push @where, "timestamp <= '$to_ts'";
     }
 
     # Level filter
@@ -354,10 +378,10 @@ sub search {
         FROM $table
         $where_sql
         ORDER BY timestamp $order
-        LIMIT $limit
-        OFFSET $offset
+        LIMIT $offset, $limit
     };
 
+    warn "DEBUG SQL: $sql";
     my $results = $self->_query_json($sql);
 
     # Parse meta JSON
@@ -377,10 +401,12 @@ sub count {
     my @where;
 
     if ($params{from}) {
-        push @where, "timestamp >= toDateTime64('$params{from}', 3)";
+        my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
+        push @where, "timestamp >= '$from_ts'";
     }
     if ($params{to}) {
-        push @where, "timestamp <= toDateTime64('$params{to}', 3)";
+        my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
+        push @where, "timestamp <= '$to_ts'";
     }
     if ($params{level}) {
         push @where, "level = '$params{level}'";
@@ -406,10 +432,12 @@ sub field_stats {
 
     my @where;
     if ($params{from}) {
-        push @where, "timestamp >= toDateTime64('$params{from}', 3)";
+        my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
+        push @where, "timestamp >= '$from_ts'";
     }
     if ($params{to}) {
-        push @where, "timestamp <= toDateTime64('$params{to}', 3)";
+        my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
+        push @where, "timestamp <= '$to_ts'";
     }
 
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
@@ -447,10 +475,12 @@ sub histogram {
 
     my @where;
     if ($params{from}) {
-        push @where, "timestamp >= toDateTime64('$params{from}', 3)";
+        my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
+        push @where, "timestamp >= '$from_ts'";
     }
     if ($params{to}) {
-        push @where, "timestamp <= toDateTime64('$params{to}', 3)";
+        my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
+        push @where, "timestamp <= '$to_ts'";
     }
     if ($params{level}) {
         push @where, "level = '$params{level}'";
