@@ -56,7 +56,7 @@ sub setup_routes {
     $kql //= Purl::Query::KQL->new();
 
     # Serve static files from web/public
-    app->static->paths->[0] = app->home->child('web/public');
+    app->static->paths->[0] = '/app/web/public';
 
     # CORS middleware
     app->hook(before_dispatch => sub ($c) {
