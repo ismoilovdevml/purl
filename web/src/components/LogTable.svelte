@@ -200,51 +200,68 @@
                   <div class="detail-header">
                     <h4>Log Details</h4>
                     <div class="detail-actions">
-                      <button on:click={() => copyToClipboard(log.raw)}>Copy Raw</button>
-                      <button on:click={() => copyToClipboard(JSON.stringify(log, null, 2))}>Copy JSON</button>
+                      <button class="action-btn" on:click|stopPropagation={() => copyToClipboard(log.raw)} title="Copy raw log">
+                        <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M4 2a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1H4Zm5 7H4V3h5v6Z"/><path fill="currentColor" d="M2 4v6a2 2 0 0 0 2 2h5v-1H4a1 1 0 0 1-1-1V4H2Z"/></svg>
+                        Copy Raw
+                      </button>
+                      <button class="action-btn" on:click|stopPropagation={() => copyToClipboard(JSON.stringify(log, null, 2))} title="Copy as JSON">
+                        <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M3 2a1 1 0 0 0-1 1v2a1 1 0 0 1-1 1 1 1 0 0 1 1 1v2a1 1 0 0 0 1 1M9 2a1 1 0 0 1 1 1v2a1 1 0 0 0 1 1 1 1 0 0 0-1 1v2a1 1 0 0 1-1 1"/></svg>
+                        Copy JSON
+                      </button>
                     </div>
                   </div>
 
-                  <div class="detail-fields">
-                    <div class="detail-field">
+                  <div class="detail-grid">
+                    <div class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.timestamp)} title="Click to copy">
                       <span class="field-name">timestamp</span>
-                      <span class="field-value">{log.timestamp}</span>
+                      <span class="field-value mono">{log.timestamp}</span>
                     </div>
-                    <div class="detail-field">
+                    <div class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.level)} title="Click to copy">
                       <span class="field-name">level</span>
-                      <span class="field-value">{log.level}</span>
+                      <span class="field-value">
+                        <span class="level-badge-sm" style="background: {getLevelColor(log.level)}20; color: {getLevelColor(log.level)}">{log.level}</span>
+                      </span>
                     </div>
-                    <div class="detail-field">
+                    <div class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.service)} title="Click to copy">
                       <span class="field-name">service</span>
-                      <span class="field-value">{log.service}</span>
+                      <span class="field-value highlight-blue">{log.service}</span>
                     </div>
-                    <div class="detail-field">
+                    <div class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.host)} title="Click to copy">
                       <span class="field-name">host</span>
-                      <span class="field-value">{log.host}</span>
+                      <span class="field-value highlight-purple">{log.host}</span>
                     </div>
-                    <div class="detail-field">
-                      <span class="field-name">message</span>
-                      <span class="field-value">{log.message}</span>
-                    </div>
+                  </div>
 
-                    {#if log.meta && Object.keys(log.meta).length > 0}
-                      <div class="detail-section">
-                        <h5>Meta Fields</h5>
+                  <div class="detail-field full-width">
+                    <span class="field-name">message</span>
+                    <span class="field-value mono">{log.message}</span>
+                  </div>
+
+                  {#if log.meta && Object.keys(log.meta).length > 0}
+                    <div class="detail-section">
+                      <h5>
+                        <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 3h8v1H2V3Zm0 2h8v1H2V5Zm0 2h6v1H2V7Zm0 2h4v1H2V9Z"/></svg>
+                        Meta Fields
+                      </h5>
+                      <div class="meta-grid">
                         {#each Object.entries(log.meta) as [key, value]}
-                          <div class="detail-field">
-                            <span class="field-name">{key}</span>
-                            <span class="field-value">
+                          <div class="meta-field" on:click|stopPropagation={() => copyToClipboard(String(value))} title="Click to copy">
+                            <span class="meta-key">{key}</span>
+                            <span class="meta-value">
                               {typeof value === 'object' ? JSON.stringify(value) : value}
                             </span>
                           </div>
                         {/each}
                       </div>
-                    {/if}
-
-                    <div class="detail-section">
-                      <h5>Raw Log</h5>
-                      <pre class="raw-log">{log.raw}</pre>
                     </div>
+                  {/if}
+
+                  <div class="detail-section">
+                    <h5>
+                      <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M1 2h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm0 1v6h10V3H1Zm1 1h2v1H2V4Zm3 0h5v1H5V4Zm-3 2h1v1H2V6Zm2 0h4v1H4V6Z"/></svg>
+                      Raw Log
+                    </h5>
+                    <pre class="raw-log">{log.raw}</pre>
                   </div>
                 </div>
               </td>
@@ -476,8 +493,8 @@
   }
 
   .log-detail {
-    padding: 16px;
-    border-top: 1px solid #30363d;
+    padding: 16px 20px;
+    border-top: 2px solid #30363d;
   }
 
   .detail-header {
@@ -485,12 +502,17 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #21262d;
   }
 
   .detail-header h4 {
     font-size: 14px;
     font-weight: 600;
     color: #c9d1d9;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .detail-actions {
@@ -498,46 +520,97 @@
     gap: 8px;
   }
 
-  .detail-actions button {
-    padding: 4px 12px;
+  .action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
     background: #21262d;
     border: 1px solid #30363d;
-    border-radius: 4px;
+    border-radius: 6px;
     color: #c9d1d9;
     font-size: 12px;
     cursor: pointer;
+    transition: all 0.15s;
   }
 
-  .detail-actions button:hover {
+  .action-btn:hover {
     background: #30363d;
+    border-color: #484f58;
   }
 
-  .detail-fields {
+  .action-btn svg {
+    color: #8b949e;
+  }
+
+  .detail-grid {
     display: grid;
-    gap: 8px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
   }
 
   .detail-field {
     display: flex;
-    gap: 16px;
-    padding: 6px 0;
-    border-bottom: 1px solid #21262d;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+  }
+
+  .detail-field.clickable {
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .detail-field.clickable:hover {
+    border-color: #30363d;
+    background: #1c2128;
+  }
+
+  .detail-field.full-width {
+    grid-column: 1 / -1;
+    margin-bottom: 8px;
   }
 
   .field-name {
-    width: 120px;
-    flex-shrink: 0;
-    color: #58a6ff;
+    font-size: 11px;
+    font-weight: 500;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .field-value {
+    color: #c9d1d9;
+    font-size: 13px;
+    word-break: break-all;
+  }
+
+  .field-value.mono {
     font-family: 'SFMono-Regular', Consolas, monospace;
     font-size: 12px;
   }
 
-  .field-value {
-    flex: 1;
-    color: #c9d1d9;
-    font-family: 'SFMono-Regular', Consolas, monospace;
-    font-size: 12px;
-    word-break: break-all;
+  .field-value.highlight-blue {
+    color: #58a6ff;
+    font-weight: 500;
+  }
+
+  .field-value.highlight-purple {
+    color: #a371f7;
+    font-weight: 500;
+  }
+
+  .level-badge-sm {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
   }
 
   .detail-section {
@@ -545,23 +618,68 @@
   }
 
   .detail-section h5 {
-    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
     font-weight: 600;
     color: #8b949e;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .detail-section h5 svg {
+    color: #6e7681;
+  }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+  }
+
+  .meta-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .meta-field:hover {
+    border-color: #30363d;
+    background: #1c2128;
+  }
+
+  .meta-key {
+    font-size: 10px;
+    color: #6e7681;
     text-transform: uppercase;
   }
 
+  .meta-value {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 12px;
+    color: #c9d1d9;
+    word-break: break-all;
+  }
+
   .raw-log {
-    padding: 12px;
+    padding: 14px;
     background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 4px;
+    border: 1px solid #21262d;
+    border-radius: 6px;
     font-family: 'SFMono-Regular', Consolas, monospace;
     font-size: 12px;
     color: #c9d1d9;
     white-space: pre-wrap;
     word-break: break-all;
     margin: 0;
+    line-height: 1.6;
   }
 </style>

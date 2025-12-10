@@ -476,7 +476,7 @@ sub field_stats {
     return $self->_query_json($sql);
 }
 
-# Time histogram
+# Time histogram with level breakdown
 sub histogram {
     my ($self, %params) = @_;
 
@@ -513,14 +513,19 @@ sub histogram {
 
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
 
+    # Query with level breakdown for stacked bars
     my $sql = qq{
         SELECT
-            formatDateTime($time_func, '%Y-%m-%d %H:%i:%S') as bucket,
-            count() as count
+            formatDateTime($time_func, '%Y-%m-%dT%H:%i:%S') as time,
+            count() as count,
+            countIf(level IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT')) as errors,
+            countIf(level = 'WARNING') as warnings,
+            countIf(level IN ('INFO', 'NOTICE')) as info,
+            countIf(level IN ('DEBUG', 'TRACE')) as debug
         FROM $table
         $where_sql
-        GROUP BY bucket
-        ORDER BY bucket ASC
+        GROUP BY time
+        ORDER BY time ASC
     };
 
     return $self->_query_json($sql);
