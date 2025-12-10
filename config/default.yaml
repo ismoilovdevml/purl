@@ -1,5 +1,5 @@
 # Purl Configuration
-# Universal Log Parser & Dashboard
+# Log Aggregation Dashboard
 
 server:
   host: "0.0.0.0"
@@ -7,132 +7,34 @@ server:
   workers: 4
 
 storage:
-  # Storage type: sqlite or clickhouse
-  type: "sqlite"
-
-  # SQLite settings
-  sqlite:
-    path: "./data/purl.db"
-    fts_enabled: true
-
-  # ClickHouse settings
   clickhouse:
     host: "localhost"
     port: 8123
     database: "purl"
     username: "default"
     password: ""
-    # Buffer size for batch inserts
     buffer_size: 1000
-
-  # Common settings
-  # Retention in days (0 = unlimited)
   retention_days: 30
 
-collector:
-  # Batch size for inserts
-  batch_size: 1000
-  # Flush interval in seconds
-  flush_interval: 5
+# Authentication (disabled by default)
+auth:
+  enabled: false
+  users:
+    admin: "changeme"
+  api_keys: []
 
-# Log sources to monitor
-sources:
-  - name: "nginx-access"
-    type: "file"
-    path: "/var/log/nginx/access.log"
-    format: "auto"  # auto-detect, or: nginx, json, syslog, clf, docker
-    tags:
-      service: "nginx"
-      env: "production"
+# Rate limiting
+rate_limit:
+  max_requests: 1000  # per minute per IP
 
-  - name: "nginx-error"
-    type: "file"
-    path: "/var/log/nginx/error.log"
-    format: "nginx_error"
-    tags:
-      service: "nginx"
-      type: "error"
-
-  - name: "syslog"
-    type: "file"
-    path: "/var/log/syslog"
-    format: "syslog"
-    tags:
-      service: "system"
-
-  # Stdin example (for piping)
-  # - name: "stdin"
-  #   type: "stdin"
-  #   format: "auto"
-
-# Custom format patterns (Grok-like)
-patterns:
-  # Pattern name: regex with named captures
-  NGINX_COMBINED: |
-    ^(?<remote_ip>\S+) - (?<remote_user>\S+) \[(?<timestamp>[^\]]+)\] "(?<method>\S+) (?<path>\S+) (?<protocol>[^"]+)" (?<status>\d+) (?<bytes>\d+) "(?<referrer>[^"]*)" "(?<user_agent>[^"]*)"
-
-  NGINX_ERROR: |
-    ^(?<timestamp>\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}) \[(?<level>\w+)\] (?<pid>\d+)#(?<tid>\d+): (?:\*(?<cid>\d+) )?(?<message>.*)
-
-  SYSLOG_RFC3164: |
-    ^(?<timestamp>\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}) (?<host>\S+) (?<program>[^\[]+)(?:\[(?<pid>\d+)\])?: (?<message>.*)
-
-  DOCKER_JSON: |
-    ^{"log":"(?<message>.*)","stream":"(?<stream>\w+)","time":"(?<timestamp>[^"]+)"}
-
-  CLF: |
-    ^(?<remote_ip>\S+) (?<ident>\S+) (?<remote_user>\S+) \[(?<timestamp>[^\]]+)\] "(?<request>[^"]*)" (?<status>\d+) (?<bytes>\S+)
-
-# Field mappings for normalization
-field_mappings:
-  # Map source field names to unified schema
-  timestamp_fields:
-    - "timestamp"
-    - "time"
-    - "@timestamp"
-    - "date"
-    - "datetime"
-
-  level_fields:
-    - "level"
-    - "severity"
-    - "log_level"
-    - "loglevel"
-    - "priority"
-
-  message_fields:
-    - "message"
-    - "msg"
-    - "log"
-    - "text"
-    - "body"
-
-  # Level normalization
-  level_mapping:
-    # Source value: normalized value
-    emerg: "EMERGENCY"
-    emergency: "EMERGENCY"
-    alert: "ALERT"
-    crit: "CRITICAL"
-    critical: "CRITICAL"
-    err: "ERROR"
-    error: "ERROR"
-    warn: "WARNING"
-    warning: "WARNING"
-    notice: "NOTICE"
-    info: "INFO"
-    debug: "DEBUG"
-    trace: "TRACE"
+# Query caching
+cache:
+  ttl: 60  # seconds
 
 # Dashboard settings
 dashboard:
-  # Default time range
   default_time_range: "15m"
-  # Max results per page
   max_results: 500
-  # Refresh interval in seconds (0 = disabled)
-  auto_refresh: 0
-  # Available time ranges
   time_ranges:
     - "5m"
     - "15m"

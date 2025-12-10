@@ -48,7 +48,13 @@ has 'retention_days' => (
 has '_http' => (
     is      => 'ro',
     lazy    => 1,
-    default => sub { HTTP::Tiny->new(timeout => 30) },
+    default => sub {
+        HTTP::Tiny->new(
+            timeout    => 30,
+            keep_alive => 1,           # Connection pooling
+            max_redirect => 0,
+        )
+    },
 );
 
 has '_json' => (
@@ -142,7 +148,7 @@ sub _init_schema {
         die "ClickHouse error creating database: $response->{status} - $response->{content}";
     }
 
-    # Create logs table with MergeTree engine
+    # Create logs table with MergeTree engine - optimized schema
     my $table = $self->database . '.' . $self->table;
 
     $self->_query(qq{
@@ -152,9 +158,9 @@ sub _init_schema {
             level LowCardinality(String),
             service LowCardinality(String),
             host LowCardinality(String),
-            message String,
-            raw String,
-            meta String,
+            message String CODEC(ZSTD(3)),
+            raw String CODEC(ZSTD(3)),
+            meta String CODEC(ZSTD(3)),
 
             INDEX idx_level level TYPE set(100) GRANULARITY 4,
             INDEX idx_service service TYPE set(1000) GRANULARITY 4,
@@ -162,7 +168,7 @@ sub _init_schema {
         )
         ENGINE = MergeTree()
         PARTITION BY toYYYYMMDD(timestamp)
-        ORDER BY (timestamp, level, service)
+        ORDER BY (service, level, timestamp)
         TTL toDateTime(timestamp) + INTERVAL $self->{retention_days} DAY
         SETTINGS index_granularity = 8192
     });
@@ -191,6 +197,39 @@ sub _init_schema {
             count() as count
         FROM $table
         GROUP BY date, service
+    });
+
+    # Create saved searches table
+    my $db = $self->database;
+    $self->_query(qq{
+        CREATE TABLE IF NOT EXISTS ${db}.saved_searches (
+            id UUID DEFAULT generateUUIDv4(),
+            name String,
+            query String,
+            time_range String DEFAULT '15m',
+            created_at DateTime DEFAULT now()
+        )
+        ENGINE = MergeTree()
+        ORDER BY created_at
+    });
+
+    # Create alerts table
+    $self->_query(qq{
+        CREATE TABLE IF NOT EXISTS ${db}.alerts (
+            id UUID DEFAULT generateUUIDv4(),
+            name String,
+            query String,
+            condition String,
+            threshold UInt32 DEFAULT 10,
+            window_minutes UInt32 DEFAULT 5,
+            notify_type LowCardinality(String) DEFAULT 'webhook',
+            notify_target String,
+            enabled UInt8 DEFAULT 1,
+            last_triggered DateTime DEFAULT toDateTime(0),
+            created_at DateTime DEFAULT now()
+        )
+        ENGINE = MergeTree()
+        ORDER BY created_at
     });
 }
 
@@ -577,6 +616,172 @@ sub disconnect {
 sub DEMOLISH {
     my ($self) = @_;
     $self->disconnect();
+}
+
+# ============================================
+# Saved Searches CRUD
+# ============================================
+
+sub get_saved_searches {
+    my ($self) = @_;
+    my $db = $self->database;
+    return $self->_query_json(qq{
+        SELECT toString(id) as id, name, query, time_range, formatDateTime(created_at, '%Y-%m-%dT%H:%i:%SZ') as created_at
+        FROM ${db}.saved_searches
+        ORDER BY created_at DESC
+    });
+}
+
+sub create_saved_search {
+    my ($self, $name, $query, $time_range) = @_;
+    my $db = $self->database;
+    $time_range //= '15m';
+
+    $name =~ s/'/\\'/g;
+    $query =~ s/'/\\'/g;
+
+    $self->_query(qq{
+        INSERT INTO ${db}.saved_searches (name, query, time_range)
+        VALUES ('$name', '$query', '$time_range')
+    });
+    return 1;
+}
+
+sub delete_saved_search {
+    my ($self, $id) = @_;
+    my $db = $self->database;
+    $self->_query(qq{
+        ALTER TABLE ${db}.saved_searches DELETE WHERE id = '$id'
+    });
+    return 1;
+}
+
+# ============================================
+# Alerts CRUD
+# ============================================
+
+sub get_alerts {
+    my ($self) = @_;
+    my $db = $self->database;
+    return $self->_query_json(qq{
+        SELECT toString(id) as id, name, query, condition, threshold, window_minutes,
+               notify_type, notify_target, enabled,
+               formatDateTime(last_triggered, '%Y-%m-%dT%H:%i:%SZ') as last_triggered,
+               formatDateTime(created_at, '%Y-%m-%dT%H:%i:%SZ') as created_at
+        FROM ${db}.alerts
+        ORDER BY created_at DESC
+    });
+}
+
+sub create_alert {
+    my ($self, %params) = @_;
+    my $db = $self->database;
+
+    my $name = $params{name} // 'Unnamed Alert';
+    my $query = $params{query} // '';
+    my $condition = $params{condition} // 'count';
+    my $threshold = $params{threshold} // 10;
+    my $window = $params{window_minutes} // 5;
+    my $notify_type = $params{notify_type} // 'webhook';
+    my $notify_target = $params{notify_target} // '';
+
+    $name =~ s/'/\\'/g;
+    $query =~ s/'/\\'/g;
+    $notify_target =~ s/'/\\'/g;
+
+    $self->_query(qq{
+        INSERT INTO ${db}.alerts (name, query, condition, threshold, window_minutes, notify_type, notify_target)
+        VALUES ('$name', '$query', '$condition', $threshold, $window, '$notify_type', '$notify_target')
+    });
+    return 1;
+}
+
+sub update_alert {
+    my ($self, $id, %params) = @_;
+    my $db = $self->database;
+
+    my @updates;
+    for my $key (qw(name query condition notify_type notify_target)) {
+        if (exists $params{$key}) {
+            my $val = $params{$key};
+            $val =~ s/'/\\'/g;
+            push @updates, "$key = '$val'";
+        }
+    }
+    for my $key (qw(threshold window_minutes enabled)) {
+        if (exists $params{$key}) {
+            push @updates, "$key = $params{$key}";
+        }
+    }
+
+    return 0 unless @updates;
+
+    my $set_clause = join(', ', @updates);
+    $self->_query(qq{
+        ALTER TABLE ${db}.alerts UPDATE $set_clause WHERE id = '$id'
+    });
+    return 1;
+}
+
+sub delete_alert {
+    my ($self, $id) = @_;
+    my $db = $self->database;
+    $self->_query(qq{
+        ALTER TABLE ${db}.alerts DELETE WHERE id = '$id'
+    });
+    return 1;
+}
+
+sub check_alerts {
+    my ($self) = @_;
+    my $db = $self->database;
+    my $table = $self->database . '.' . $self->table;
+
+    my $alerts = $self->_query_json(qq{
+        SELECT toString(id) as id, name, query, condition, threshold, window_minutes,
+               notify_type, notify_target
+        FROM ${db}.alerts
+        WHERE enabled = 1
+    });
+
+    my @triggered;
+    for my $alert (@$alerts) {
+        my $window = $alert->{window_minutes};
+        my $query_filter = $alert->{query};
+
+        # Build WHERE clause
+        my @where = ("timestamp >= now() - INTERVAL $window MINUTE");
+        if ($query_filter) {
+            if ($query_filter =~ /^level:(\w+)$/i) {
+                push @where, "level = '" . uc($1) . "'";
+            } elsif ($query_filter =~ /^service:(\S+)$/i) {
+                push @where, "service = '$1'";
+            } else {
+                my $escaped = $query_filter;
+                $escaped =~ s/'/\\'/g;
+                push @where, "position(message, '$escaped') > 0";
+            }
+        }
+
+        my $where_sql = join(' AND ', @where);
+        my $count_sql = "SELECT count() as cnt FROM $table WHERE $where_sql";
+        my $result = $self->_query_json($count_sql);
+        my $count = $result->[0]{cnt} // 0;
+
+        if ($count >= $alert->{threshold}) {
+            push @triggered, {
+                %$alert,
+                count => $count,
+            };
+
+            # Update last_triggered
+            $self->_query(qq{
+                ALTER TABLE ${db}.alerts UPDATE last_triggered = now() WHERE id = '$alert->{id}'
+            });
+        }
+    }
+
+    return \@triggered;
 }
 
 1;

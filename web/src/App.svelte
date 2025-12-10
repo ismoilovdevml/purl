@@ -5,10 +5,13 @@
   import FieldsSidebar from './components/FieldsSidebar.svelte';
   import LogTable from './components/LogTable.svelte';
   import Histogram from './components/Histogram.svelte';
-  import { logs, loading, query, timeRange, searchLogs, connectWebSocket } from './stores/logs.js';
+  import SavedSearches from './components/SavedSearches.svelte';
+  import AlertsPanel from './components/AlertsPanel.svelte';
+  import { logs, loading, query, timeRange, total, searchLogs, connectWebSocket } from './stores/logs.js';
 
   let ws;
   let liveMode = false;
+  let savedSearchesRef;
 
   onMount(async () => {
     await searchLogs();
@@ -38,6 +41,17 @@
     $query = `${field}:${value}`;
     searchLogs();
   }
+
+  function handleApplySavedSearch(event) {
+    const { query: q, timeRange: tr } = event.detail;
+    $query = q;
+    $timeRange = tr;
+    searchLogs();
+  }
+
+  function saveCurrentSearch() {
+    savedSearchesRef?.openSaveModal($query, $timeRange);
+  }
 </script>
 
 <main>
@@ -55,12 +69,18 @@
     <div class="header-actions">
       <TimeRangePicker value={$timeRange} on:change={handleTimeRangeChange} />
 
-      <button class="btn" class:active={liveMode} on:click={toggleLiveMode}>
+      <button class="btn" class:active={liveMode} on:click={toggleLiveMode} title={liveMode ? 'Stop live tail' : 'Start live tail'}>
         {#if liveMode}
           <span class="live-dot"></span> Live
         {:else}
           Live Tail
         {/if}
+      </button>
+
+      <button class="btn" on:click={saveCurrentSearch} title="Save current search">
+        <svg width="14" height="14" viewBox="0 0 14 14">
+          <path fill="currentColor" d="M11 1H3a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2ZM7 10a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm3-6H4V2h6v2Z"/>
+        </svg>
       </button>
 
       <button class="btn" on:click={handleSearch} disabled={$loading}>
@@ -73,9 +93,21 @@
     </div>
   </header>
 
+  <div class="stats-bar">
+    <span>{$total.toLocaleString()} logs</span>
+    <span class="separator">|</span>
+    <span>Time range: {$timeRange}</span>
+    {#if $query}
+      <span class="separator">|</span>
+      <span>Query: <code>{$query}</code></span>
+    {/if}
+  </div>
+
   <div class="container">
     <aside class="sidebar">
       <FieldsSidebar on:filter={handleFieldFilter} />
+      <SavedSearches bind:this={savedSearchesRef} on:apply={handleApplySavedSearch} />
+      <AlertsPanel />
     </aside>
 
     <div class="main-content">
@@ -130,6 +162,29 @@
     display: flex;
     gap: 8px;
     margin-left: auto;
+  }
+
+  .stats-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 20px;
+    background: #0d1117;
+    border-bottom: 1px solid #21262d;
+    font-size: 12px;
+    color: #8b949e;
+  }
+
+  .stats-bar .separator {
+    color: #30363d;
+  }
+
+  .stats-bar code {
+    background: #21262d;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    color: #58a6ff;
   }
 
   .btn {
@@ -197,7 +252,7 @@
     border-right: 1px solid #30363d;
     padding: 16px;
     overflow-y: auto;
-    max-height: calc(100vh - 60px);
+    max-height: calc(100vh - 100px);
   }
 
   .main-content {

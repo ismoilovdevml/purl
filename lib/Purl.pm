@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use 5.024;
 
-our $VERSION = '0.01';
+our $VERSION = '0.2.0';
 
 1;
 
@@ -11,42 +11,55 @@ __END__
 
 =head1 NAME
 
-Purl - Universal Log Parser & Dashboard
+Purl - Log Aggregation Dashboard
 
 =head1 SYNOPSIS
 
-    # Start the collector
-    purl collect --config /path/to/config.yaml
+    # Start with Docker
+    docker-compose --profile vector up -d
 
-    # Start the web dashboard
-    purl server --port 3000
-
-    # Parse logs from stdin
-    cat /var/log/nginx/access.log | purl parse --format nginx
+    # Open dashboard
+    open http://localhost:3000
 
 =head1 DESCRIPTION
 
-Purl is a universal log parser that automatically detects log formats,
-normalizes them to a unified JSON schema, stores them in SQLite with
-full-text search, and provides an OpenSearch Discover-like web dashboard.
+Purl is a lightweight log aggregation dashboard that automatically
+collects logs from Docker containers via Vector, stores them in
+ClickHouse, and provides a web dashboard for searching and analysis.
 
 =head1 FEATURES
 
 =over 4
 
-=item * Auto-detection of log formats (nginx, syslog, JSON, docker, etc.)
+=item * Auto-collection from Docker/Kubernetes via Vector
 
-=item * Unified JSON schema for all logs
+=item * ClickHouse storage with MergeTree engine and TTL retention
 
-=item * SQLite storage with FTS5 full-text search
+=item * Web dashboard with search, filtering, and histogram
 
-=item * KQL-like query language
+=item * Prometheus metrics at /api/metrics
 
-=item * Real-time log tailing (live tail mode)
+=item * Basic Auth and API key authentication
 
-=item * Web dashboard with filtering, time ranges, and aggregations
+=item * Rate limiting and query caching
 
 =back
+
+=head1 ARCHITECTURE
+
+    Docker Containers --> Vector --> POST /api/logs --> ClickHouse
+                                           |
+                                           v
+                                      Dashboard
+
+=head1 API ENDPOINTS
+
+    GET  /api/health    - Health check
+    GET  /api/metrics   - Prometheus metrics
+    GET  /api/logs      - Search logs
+    POST /api/logs      - Ingest logs
+    GET  /api/stats     - Database statistics
+    WS   /api/logs/stream - Live log stream
 
 =head1 AUTHOR
 

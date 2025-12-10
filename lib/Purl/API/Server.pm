@@ -5,28 +5,48 @@ use 5.024;
 
 use Mojolicious::Lite -signatures;
 use Mojo::JSON qw(encode_json decode_json);
+use Digest::MD5 qw(md5_hex);
+use MIME::Base64 qw(decode_base64);
+use Time::HiRes qw(time);
 
 use Purl::Storage::ClickHouse;
-use Purl::Query::KQL;
 
 # Package-level state
 my $storage;
-my $kql;
 my $config = {};
 my $websockets = [];
+
+# Metrics counters
+my %metrics = (
+    requests_total     => 0,
+    requests_by_path   => {},
+    errors_total       => 0,
+    logs_ingested      => 0,
+    query_duration_sum => 0,
+    query_count        => 0,
+    start_time         => time(),
+);
+
+# Simple in-memory cache
+my %cache;
+my $cache_ttl = 60;  # seconds
+
+# Rate limiting state
+my %rate_limit;
+my $rate_limit_window = 60;  # seconds
+my $rate_limit_max = 1000;   # requests per window
 
 sub new {
     my ($class, %args) = @_;
     $config = $args{config} // {};
+    $cache_ttl = $config->{cache}{ttl} // 60;
+    $rate_limit_max = $config->{rate_limit}{max_requests} // 1000;
     return bless {}, $class;
 }
 
 sub _build_storage {
     my $storage_config = $config->{storage} // {};
-    my $storage_type = $ENV{PURL_STORAGE_TYPE} // $storage_config->{type} // 'sqlite';
     my $retention_days = $storage_config->{retention_days} // 30;
-
-    # ClickHouse only
     my $ch_config = $storage_config->{clickhouse} // {};
     return Purl::Storage::ClickHouse->new(
         host           => $ENV{PURL_CLICKHOUSE_HOST} // $ch_config->{host} // 'localhost',
@@ -39,38 +59,215 @@ sub _build_storage {
     );
 }
 
+# Cache helpers
+sub _cache_get {
+    my ($key) = @_;
+    my $entry = $cache{$key};
+    return unless $entry;
+    return if $entry->{expires} < time();
+    return $entry->{value};
+}
+
+sub _cache_set {
+    my ($key, $value, $ttl) = @_;
+    $ttl //= $cache_ttl;
+    $cache{$key} = {
+        value   => $value,
+        expires => time() + $ttl,
+    };
+    return $value;
+}
+
+sub _cache_clear {
+    %cache = ();
+}
+
+# Rate limiting
+sub _check_rate_limit {
+    my ($ip) = @_;
+    my $now = time();
+    my $window_start = int($now / $rate_limit_window) * $rate_limit_window;
+
+    my $key = "$ip:$window_start";
+
+    # Cleanup old entries
+    for my $k (keys %rate_limit) {
+        delete $rate_limit{$k} if $k !~ /:$window_start$/;
+    }
+
+    $rate_limit{$key}++;
+    return $rate_limit{$key} <= $rate_limit_max;
+}
+
+# Basic Auth check
+sub _check_auth {
+    my ($c) = @_;
+
+    my $auth_config = $config->{auth} // {};
+    return 1 unless $auth_config->{enabled};
+
+    my $auth_header = $c->req->headers->authorization // '';
+
+    # API Key auth
+    if (my $api_key = $c->req->headers->header('X-API-Key')) {
+        my $valid_keys = $auth_config->{api_keys} // [];
+        return 1 if grep { $_ eq $api_key } @$valid_keys;
+    }
+
+    # Basic auth
+    if ($auth_header =~ /^Basic\s+(.+)$/) {
+        my $decoded = decode_base64($1);
+        my ($user, $pass) = split /:/, $decoded, 2;
+
+        my $users = $auth_config->{users} // {};
+        if (exists $users->{$user} && $users->{$user} eq $pass) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 sub setup_routes {
     my ($self) = @_;
 
     $storage //= _build_storage();
-    $kql //= Purl::Query::KQL->new();
 
     # Serve static files from web/public
     app->static->paths->[0] = '/app/web/public';
 
-    # CORS middleware
+    # Global hooks
     app->hook(before_dispatch => sub ($c) {
+        my $start = time();
+        $c->stash(request_start => $start);
+
+        # CORS
         $c->res->headers->header('Access-Control-Allow-Origin' => '*');
         $c->res->headers->header('Access-Control-Allow-Methods' => 'GET, POST, OPTIONS');
-        $c->res->headers->header('Access-Control-Allow-Headers' => 'Content-Type');
+        $c->res->headers->header('Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-API-Key');
 
-        # Handle preflight
         if ($c->req->method eq 'OPTIONS') {
             $c->render(text => '', status => 200);
             return;
+        }
+
+        # Metrics
+        $metrics{requests_total}++;
+        my $path = $c->req->url->path->to_string;
+        $path =~ s/\/[0-9a-f-]{36}/:id/g;  # Normalize UUIDs
+        $metrics{requests_by_path}{$path}++;
+    });
+
+    app->hook(after_dispatch => sub ($c) {
+        my $start = $c->stash('request_start');
+        if ($start) {
+            my $duration = time() - $start;
+            $metrics{query_duration_sum} += $duration;
+            $metrics{query_count}++;
         }
     });
 
     # API routes
     my $api = app->routes->under('/api');
 
-    # Health check
-    $api->get('/health' => sub ($c) {
-        $c->render(json => { status => 'ok', timestamp => time() });
+    # Auth middleware for protected routes
+    my $protected = $api->under('/' => sub ($c) {
+        # Skip auth for health and metrics
+        my $path = $c->req->url->path->to_string;
+        return 1 if $path =~ m{^/api/(health|metrics)$};
+
+        # Rate limiting
+        my $ip = $c->tx->remote_address // '127.0.0.1';
+        unless (_check_rate_limit($ip)) {
+            $c->render(json => {
+                error => 'Rate limit exceeded',
+                retry_after => $rate_limit_window
+            }, status => 429);
+            $metrics{errors_total}++;
+            return 0;
+        }
+
+        # Auth check
+        unless (_check_auth($c)) {
+            $c->res->headers->www_authenticate('Basic realm="Purl"');
+            $c->render(json => { error => 'Unauthorized' }, status => 401);
+            $metrics{errors_total}++;
+            return 0;
+        }
+
+        return 1;
     });
 
-    # Search logs
-    $api->get('/logs' => sub ($c) {
+    # Health check (no auth required)
+    $api->get('/health' => sub ($c) {
+        my $ch_ok = eval { $storage->stats(); 1 } // 0;
+        my $status = $ch_ok ? 'ok' : 'degraded';
+        my $code = $ch_ok ? 200 : 503;
+
+        $c->render(json => {
+            status      => $status,
+            timestamp   => time(),
+            version     => $Purl::VERSION // '0.1.0',
+            clickhouse  => $ch_ok ? 'connected' : 'disconnected',
+            uptime_secs => int(time() - $metrics{start_time}),
+        }, status => $code);
+    });
+
+    # Prometheus metrics (no auth required)
+    $api->get('/metrics' => sub ($c) {
+        my $stats = eval { $storage->stats() } // {};
+        my $uptime = int(time() - $metrics{start_time});
+        my $avg_duration = $metrics{query_count} > 0
+            ? $metrics{query_duration_sum} / $metrics{query_count}
+            : 0;
+
+        my $output = <<"METRICS";
+# HELP purl_info Purl server information
+# TYPE purl_info gauge
+purl_info{version="0.1.0"} 1
+
+# HELP purl_uptime_seconds Server uptime in seconds
+# TYPE purl_uptime_seconds counter
+purl_uptime_seconds $uptime
+
+# HELP purl_requests_total Total HTTP requests
+# TYPE purl_requests_total counter
+purl_requests_total $metrics{requests_total}
+
+# HELP purl_errors_total Total errors
+# TYPE purl_errors_total counter
+purl_errors_total $metrics{errors_total}
+
+# HELP purl_logs_ingested_total Total logs ingested
+# TYPE purl_logs_ingested_total counter
+purl_logs_ingested_total $metrics{logs_ingested}
+
+# HELP purl_logs_stored Total logs in storage
+# TYPE purl_logs_stored gauge
+purl_logs_stored $stats->{total_logs}
+
+# HELP purl_db_size_bytes Database size in bytes
+# TYPE purl_db_size_bytes gauge
+purl_db_size_bytes $stats->{db_size_bytes}
+
+# HELP purl_query_duration_seconds_avg Average query duration
+# TYPE purl_query_duration_seconds_avg gauge
+purl_query_duration_seconds_avg $avg_duration
+
+# HELP purl_cache_size Cache entries count
+# TYPE purl_cache_size gauge
+purl_cache_size @{[scalar keys %cache]}
+
+# HELP purl_rate_limit_max Max requests per window
+# TYPE purl_rate_limit_max gauge
+purl_rate_limit_max $rate_limit_max
+METRICS
+
+        $c->render(text => $output, format => 'txt');
+    });
+
+    # Search logs (with caching)
+    $protected->get('/logs' => sub ($c) {
         my $query   = $c->param('q') // '';
         my $from    = $c->param('from');
         my $to      = $c->param('to');
@@ -81,7 +278,6 @@ sub setup_routes {
         my $offset  = $c->param('offset') // 0;
         my $order   = $c->param('order') // 'DESC';
 
-        # Handle time range shortcuts
         if (my $range = $c->param('range')) {
             ($from, $to) = _parse_time_range($range);
         }
@@ -98,13 +294,12 @@ sub setup_routes {
         $params{service} = $service if $service;
         $params{host}    = $host if $host;
 
-        # Parse KQL query - extract field:value patterns
+        # Parse KQL query
         if ($query) {
-            # Simple field:value extraction for ClickHouse
             if ($query =~ /^(\w+):(.+)$/) {
                 my ($field, $value) = ($1, $2);
                 $field = lc($field);
-                $value =~ s/^["']|["']$//g;  # Remove quotes
+                $value =~ s/^["']|["']$//g;
 
                 if ($field eq 'level') {
                     $params{level} = uc($value);
@@ -113,27 +308,42 @@ sub setup_routes {
                 } elsif ($field eq 'host') {
                     $params{host} = $value;
                 } else {
-                    $params{query} = $value;  # Search in message
+                    $params{query} = $value;
                 }
             } else {
-                $params{query} = $query;  # Free text search
+                $params{query} = $query;
             }
+        }
+
+        # Check cache
+        my $cache_key = md5_hex(encode_json(\%params));
+        if (my $cached = _cache_get($cache_key)) {
+            $c->res->headers->header('X-Cache' => 'HIT');
+            $c->render(json => $cached);
+            return;
         }
 
         my $results = $storage->search(%params);
         my $total = $storage->count(%params);
 
-        $c->render(json => {
+        my $response = {
             hits  => $results,
             total => $total,
             query => $query,
-        });
+        };
+
+        # Cache results (shorter TTL for real-time data)
+        _cache_set($cache_key, $response, 10);
+        $c->res->headers->header('X-Cache' => 'MISS');
+
+        $c->render(json => $response);
     });
 
     # Ingest logs (POST)
-    $api->post('/logs' => sub ($c) {
+    $protected->post('/logs' => sub ($c) {
         my $body = eval { decode_json($c->req->body) };
         unless ($body) {
+            $metrics{errors_total}++;
             $c->render(json => { error => 'Invalid JSON' }, status => 400);
             return;
         }
@@ -142,7 +352,6 @@ sub setup_routes {
         my $count = 0;
 
         for my $log (@$logs) {
-            # Ensure required fields
             $log->{timestamp} //= _epoch_to_iso(time());
             $log->{level} //= 'INFO';
             $log->{service} //= 'unknown';
@@ -155,8 +364,15 @@ sub setup_routes {
             $count++;
         }
 
-        # Flush buffer for ClickHouse (immediate write)
         $storage->flush() if $storage->can('flush');
+
+        $metrics{logs_ingested} += $count;
+
+        # Invalidate search cache on new data
+        _cache_clear();
+
+        # Broadcast to WebSocket subscribers
+        _broadcast_logs($logs);
 
         $c->render(json => {
             status => 'ok',
@@ -165,7 +381,7 @@ sub setup_routes {
     });
 
     # KQL query endpoint (POST)
-    $api->post('/query' => sub ($c) {
+    $protected->post('/query' => sub ($c) {
         my $body = decode_json($c->req->body);
 
         my $query = $body->{query} // '';
@@ -178,7 +394,6 @@ sub setup_routes {
         $params{to}   = $to if $to;
 
         if ($query) {
-            my $parsed = $kql->parse($query);
             $params{query} = $query;
         }
 
@@ -190,14 +405,13 @@ sub setup_routes {
         });
     });
 
-    # Field statistics
-    $api->get('/stats/fields/:field' => sub ($c) {
+    # Field statistics (with caching)
+    $protected->get('/stats/fields/:field' => sub ($c) {
         my $field = $c->param('field');
         my $limit = $c->param('limit') // 10;
         my $from  = $c->param('from');
         my $to    = $c->param('to');
 
-        # Validate field name
         unless ($field =~ /^(level|service|host)$/) {
             $c->render(json => { error => 'Invalid field' }, status => 400);
             return;
@@ -207,16 +421,28 @@ sub setup_routes {
         $params{from} = $from if $from;
         $params{to}   = $to if $to;
 
+        my $cache_key = "field_stats:$field:" . md5_hex(encode_json(\%params));
+        if (my $cached = _cache_get($cache_key)) {
+            $c->res->headers->header('X-Cache' => 'HIT');
+            $c->render(json => $cached);
+            return;
+        }
+
         my $stats = $storage->field_stats($field, %params);
 
-        $c->render(json => {
+        my $response = {
             field  => $field,
             values => $stats,
-        });
+        };
+
+        _cache_set($cache_key, $response, 30);
+        $c->res->headers->header('X-Cache' => 'MISS');
+
+        $c->render(json => $response);
     });
 
-    # Time histogram
-    $api->get('/stats/histogram' => sub ($c) {
+    # Time histogram (with caching)
+    $protected->get('/stats/histogram' => sub ($c) {
         my $interval = $c->param('interval') // '1 hour';
         my $from     = $c->param('from');
         my $to       = $c->param('to');
@@ -229,28 +455,50 @@ sub setup_routes {
         $params{level}   = $level if $level;
         $params{service} = $service if $service;
 
+        my $cache_key = "histogram:" . md5_hex(encode_json(\%params));
+        if (my $cached = _cache_get($cache_key)) {
+            $c->res->headers->header('X-Cache' => 'HIT');
+            $c->render(json => $cached);
+            return;
+        }
+
         my $histogram = $storage->histogram(%params);
 
-        $c->render(json => {
+        my $response = {
             interval => $interval,
             buckets  => $histogram,
-        });
+        };
+
+        _cache_set($cache_key, $response, 30);
+        $c->res->headers->header('X-Cache' => 'MISS');
+
+        $c->render(json => $response);
     });
 
     # Available fields
-    $api->get('/fields' => sub ($c) {
+    $protected->get('/fields' => sub ($c) {
         my $fields = $storage->get_fields();
         $c->render(json => { fields => $fields });
     });
 
     # Database stats
-    $api->get('/stats' => sub ($c) {
+    $protected->get('/stats' => sub ($c) {
+        my $cache_key = 'db_stats';
+        if (my $cached = _cache_get($cache_key)) {
+            $c->res->headers->header('X-Cache' => 'HIT');
+            $c->render(json => $cached);
+            return;
+        }
+
         my $stats = $storage->stats();
+        _cache_set($cache_key, $stats, 30);
+        $c->res->headers->header('X-Cache' => 'MISS');
+
         $c->render(json => $stats);
     });
 
     # Configured sources
-    $api->get('/sources' => sub ($c) {
+    $protected->get('/sources' => sub ($c) {
         my $sources = $config->{sources} // [];
         $c->render(json => { sources => $sources });
     });
@@ -259,7 +507,6 @@ sub setup_routes {
     $api->websocket('/logs/stream' => sub ($c) {
         my $ws = $c->tx;
 
-        # Add to websocket list
         push @$websockets, $ws;
 
         $c->on(message => sub ($c, $msg) {
@@ -279,12 +526,106 @@ sub setup_routes {
         }));
     });
 
+    # Cache management endpoints
+    $protected->delete('/cache' => sub ($c) {
+        _cache_clear();
+        $c->render(json => { status => 'ok', message => 'Cache cleared' });
+    });
+
+    # ============================================
+    # Saved Searches API
+    # ============================================
+
+    $protected->get('/saved-searches' => sub ($c) {
+        my $searches = $storage->get_saved_searches();
+        $c->render(json => { searches => $searches });
+    });
+
+    $protected->post('/saved-searches' => sub ($c) {
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body && $body->{name} && $body->{query}) {
+            $c->render(json => { error => 'Name and query required' }, status => 400);
+            return;
+        }
+
+        $storage->create_saved_search($body->{name}, $body->{query}, $body->{time_range});
+        $c->render(json => { status => 'ok' });
+    });
+
+    $protected->delete('/saved-searches/:id' => sub ($c) {
+        my $id = $c->param('id');
+        $storage->delete_saved_search($id);
+        $c->render(json => { status => 'ok' });
+    });
+
+    # ============================================
+    # Alerts API
+    # ============================================
+
+    $protected->get('/alerts' => sub ($c) {
+        my $alerts = $storage->get_alerts();
+        $c->render(json => { alerts => $alerts });
+    });
+
+    $protected->post('/alerts' => sub ($c) {
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body && $body->{name}) {
+            $c->render(json => { error => 'Name required' }, status => 400);
+            return;
+        }
+
+        $storage->create_alert(%$body);
+        $c->render(json => { status => 'ok' });
+    });
+
+    $protected->put('/alerts/:id' => sub ($c) {
+        my $id = $c->param('id');
+        my $body = eval { decode_json($c->req->body) };
+
+        $storage->update_alert($id, %$body);
+        $c->render(json => { status => 'ok' });
+    });
+
+    $protected->delete('/alerts/:id' => sub ($c) {
+        my $id = $c->param('id');
+        $storage->delete_alert($id);
+        $c->render(json => { status => 'ok' });
+    });
+
+    $protected->post('/alerts/check' => sub ($c) {
+        my $triggered = $storage->check_alerts();
+        $c->render(json => { triggered => $triggered });
+    });
+
     # Serve SPA for all other routes
     app->routes->get('/*catchall' => { catchall => '' } => sub ($c) {
         $c->reply->static('index.html');
     });
 
     return app;
+}
+
+# Broadcast logs to WebSocket subscribers
+sub _broadcast_logs {
+    my ($logs) = @_;
+
+    for my $ws (@$websockets) {
+        next unless $ws;
+        eval {
+            for my $log (@$logs) {
+                my $filter = $ws->{filter} // {};
+
+                # Apply filter
+                next if $filter->{level} && $log->{level} ne $filter->{level};
+                next if $filter->{service} && $log->{service} ne $filter->{service};
+
+                $ws->send(encode_json({
+                    type => 'log',
+                    data => $log,
+                }));
+            }
+        };
+    }
 }
 
 # Parse time range shortcut (15m, 1h, 24h, 7d)
@@ -332,7 +673,6 @@ sub run {
 
     $self->setup_routes();
 
-    # Configure and start
     app->config(hypnotoad => {
         listen  => ["http://$host:$port"],
         workers => $workers,
@@ -350,7 +690,7 @@ __END__
 
 =head1 NAME
 
-Purl::API::Server - Mojolicious REST API server
+Purl::API::Server - Enterprise-grade Mojolicious REST API server
 
 =head1 SYNOPSIS
 
@@ -362,16 +702,52 @@ Purl::API::Server - Mojolicious REST API server
 
     $server->run(port => 3000);
 
+=head1 FEATURES
+
+=over 4
+
+=item * Prometheus metrics at /api/metrics
+
+=item * Basic Auth and API Key authentication
+
+=item * Rate limiting (configurable requests/minute)
+
+=item * In-memory query caching with TTL
+
+=item * WebSocket live tail with filtering
+
+=item * Health check with component status
+
+=back
+
 =head1 API ENDPOINTS
 
-    GET  /api/health              - Health check
-    GET  /api/logs                - Search logs
+    GET  /api/health              - Health check (no auth)
+    GET  /api/metrics             - Prometheus metrics (no auth)
+    GET  /api/logs                - Search logs (cached)
+    POST /api/logs                - Ingest logs
     POST /api/query               - KQL query
-    GET  /api/stats/fields/:field - Field statistics
-    GET  /api/stats/histogram     - Time histogram
+    GET  /api/stats/fields/:field - Field statistics (cached)
+    GET  /api/stats/histogram     - Time histogram (cached)
     GET  /api/fields              - Available fields
-    GET  /api/stats               - Database stats
+    GET  /api/stats               - Database stats (cached)
     GET  /api/sources             - Configured log sources
     WS   /api/logs/stream         - Live log stream
+    DELETE /api/cache             - Clear cache
+
+=head1 CONFIGURATION
+
+    auth:
+      enabled: true
+      users:
+        admin: secret123
+      api_keys:
+        - sk_live_xxxxx
+
+    rate_limit:
+      max_requests: 1000
+
+    cache:
+      ttl: 60
 
 =cut

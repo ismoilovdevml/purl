@@ -1,30 +1,28 @@
-.PHONY: help build up down logs shell test clean dev install lint lint-perl lint-js
+.PHONY: help build up down logs shell restart up-vector lint lint-perl lint-js clean prune clickhouse-client web-dev web-build
 
 # Default target
 help:
-	@echo "Purl - Universal Log Parser & Dashboard"
+	@echo "Purl - Log Aggregation Dashboard"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Docker targets:"
-	@echo "  build      Build Docker images"
-	@echo "  up         Start all services"
-	@echo "  down       Stop all services"
-	@echo "  logs       View container logs"
-	@echo "  shell      Open shell in purl container"
-	@echo "  restart    Restart all services"
+	@echo "  build        Build Docker images"
+	@echo "  up           Start services (Purl + ClickHouse)"
+	@echo "  up-vector    Start with Vector log collector"
+	@echo "  down         Stop all services"
+	@echo "  logs         View container logs"
+	@echo "  shell        Open shell in purl container"
+	@echo "  restart      Restart all services"
 	@echo ""
 	@echo "Development targets:"
-	@echo "  dev        Start development server (local)"
-	@echo "  install    Install Perl dependencies"
-	@echo "  test       Run tests"
-	@echo "  lint       Run all linters"
-	@echo "  web-dev    Start web development server"
-	@echo "  web-build  Build web assets"
+	@echo "  lint         Run all linters"
+	@echo "  web-dev      Start web development server"
+	@echo "  web-build    Build web assets"
 	@echo ""
 	@echo "Maintenance targets:"
-	@echo "  clean      Remove containers and volumes"
-	@echo "  prune      Deep clean (removes images too)"
+	@echo "  clean        Remove containers and volumes"
+	@echo "  prune        Deep clean (removes images too)"
 
 # Docker targets
 build:
@@ -32,6 +30,9 @@ build:
 
 up:
 	docker-compose up -d
+
+up-vector:
+	docker-compose --profile vector up -d
 
 down:
 	docker-compose down
@@ -45,39 +46,25 @@ shell:
 restart:
 	docker-compose restart
 
-# Start with Vector log collector
-up-vector:
-	docker-compose --profile vector up -d
-
-# Development targets
-dev:
-	perl bin/purl server -p 3000
-
-install:
-	cpanm --installdeps .
-
-test:
-	prove -lv t/
-
+# Web development
 web-dev:
 	cd web && npm install && npm run dev
 
 web-build:
 	cd web && npm install && npm run build
 
-# Linting targets
+# Linting
 lint: lint-perl lint-js
 
 lint-perl:
-	perl -MPerl::Critic -e 'my $$c = Perl::Critic->new(-profile => ".perlcriticrc"); for my $$f (@ARGV) { print $$_ for $$c->critique($$f) }' lib/Purl/*.pm lib/Purl/**/*.pm bin/purl
+	perl -MPerl::Critic -e 'my $$c = Perl::Critic->new(-profile => ".perlcriticrc"); for my $$f (@ARGV) { print $$_ for $$c->critique($$f) }' lib/Purl.pm lib/Purl/API/Server.pm lib/Purl/Storage/ClickHouse.pm
 
 lint-js:
 	cd web && npm run lint
 
-# Maintenance targets
+# Maintenance
 clean:
 	docker-compose down -v
-	rm -rf data/*.db
 
 prune: clean
 	docker-compose down --rmi local -v
@@ -86,19 +73,3 @@ prune: clean
 # ClickHouse client
 clickhouse-client:
 	docker-compose exec clickhouse clickhouse-client
-
-# Database stats
-stats:
-	perl bin/purl stats
-
-# Query logs
-query:
-	@read -p "Enter query: " q; perl bin/purl query "$$q" -r 24h
-
-# Generate sample logs (for testing)
-generate-logs:
-	@echo "Generating sample logs..."
-	@for i in $$(seq 1 100); do \
-		echo "{\"timestamp\":\"$$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"level\":\"INFO\",\"service\":\"test\",\"message\":\"Sample log message $$i\"}" | \
-		perl bin/purl parse -f json; \
-	done
