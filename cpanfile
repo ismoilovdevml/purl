@@ -17,9 +17,9 @@ requires 'YAML::XS', '0.88';
 # Web Framework
 requires 'Mojolicious', '9.0';
 
-# Database
-requires 'DBI', '1.643';
-requires 'DBD::SQLite', '1.74';
+# HTTP client (for ClickHouse HTTP API)
+requires 'HTTP::Tiny';
+requires 'URI::Escape';
 
 # File operations
 requires 'Path::Tiny', '0.144';
@@ -30,9 +30,6 @@ requires 'Hash::Merge';
 # Date/Time
 requires 'Time::Piece';
 
-# HTTP client (for ClickHouse)
-requires 'HTTP::Tiny';
-requires 'URI::Escape';
 
 # Testing
 on 'test' => sub {

@@ -6,7 +6,6 @@ use 5.024;
 use Mojolicious::Lite -signatures;
 use Mojo::JSON qw(encode_json decode_json);
 
-use Purl::Storage::SQLite;
 use Purl::Storage::ClickHouse;
 use Purl::Query::KQL;
 
@@ -27,24 +26,15 @@ sub _build_storage {
     my $storage_type = $ENV{PURL_STORAGE_TYPE} // $storage_config->{type} // 'sqlite';
     my $retention_days = $storage_config->{retention_days} // 30;
 
-    if ($storage_type eq 'clickhouse') {
-        my $ch_config = $storage_config->{clickhouse} // {};
-        return Purl::Storage::ClickHouse->new(
-            host           => $ENV{PURL_CLICKHOUSE_HOST} // $ch_config->{host} // 'localhost',
-            port           => $ENV{PURL_CLICKHOUSE_PORT} // $ch_config->{port} // 8123,
-            database       => $ENV{PURL_CLICKHOUSE_DATABASE} // $ch_config->{database} // 'purl',
-            username       => $ENV{PURL_CLICKHOUSE_USER} // $ch_config->{username} // 'default',
-            password       => $ENV{PURL_CLICKHOUSE_PASSWORD} // $ch_config->{password} // '',
-            buffer_size    => $ch_config->{buffer_size} // 1000,
-            retention_days => $retention_days,
-        );
-    }
-
-    # Default: SQLite
-    my $sqlite_config = $storage_config->{sqlite} // {};
-    return Purl::Storage::SQLite->new(
-        db_path        => $ENV{PURL_DB_PATH} // $sqlite_config->{path} // './data/purl.db',
-        fts_enabled    => $sqlite_config->{fts_enabled} // 1,
+    # ClickHouse only
+    my $ch_config = $storage_config->{clickhouse} // {};
+    return Purl::Storage::ClickHouse->new(
+        host           => $ENV{PURL_CLICKHOUSE_HOST} // $ch_config->{host} // 'localhost',
+        port           => $ENV{PURL_CLICKHOUSE_PORT} // $ch_config->{port} // 8123,
+        database       => $ENV{PURL_CLICKHOUSE_DATABASE} // $ch_config->{database} // 'purl',
+        username       => $ENV{PURL_CLICKHOUSE_USER} // $ch_config->{username} // 'default',
+        password       => $ENV{PURL_CLICKHOUSE_PASSWORD} // $ch_config->{password} // '',
+        buffer_size    => $ch_config->{buffer_size} // 1000,
         retention_days => $retention_days,
     );
 }
@@ -108,10 +98,26 @@ sub setup_routes {
         $params{service} = $service if $service;
         $params{host}    = $host if $host;
 
-        # Parse KQL query
+        # Parse KQL query - extract field:value patterns
         if ($query) {
-            my $parsed = $kql->parse($query);
-            $params{query} = $query;
+            # Simple field:value extraction for ClickHouse
+            if ($query =~ /^(\w+):(.+)$/) {
+                my ($field, $value) = ($1, $2);
+                $field = lc($field);
+                $value =~ s/^["']|["']$//g;  # Remove quotes
+
+                if ($field eq 'level') {
+                    $params{level} = uc($value);
+                } elsif ($field eq 'service') {
+                    $params{service} = $value;
+                } elsif ($field eq 'host') {
+                    $params{host} = $value;
+                } else {
+                    $params{query} = $value;  # Search in message
+                }
+            } else {
+                $params{query} = $query;  # Free text search
+            }
         }
 
         my $results = $storage->search(%params);
@@ -148,6 +154,9 @@ sub setup_routes {
             $storage->insert($log);
             $count++;
         }
+
+        # Flush buffer for ClickHouse (immediate write)
+        $storage->flush() if $storage->can('flush');
 
         $c->render(json => {
             status => 'ok',

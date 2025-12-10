@@ -12,7 +12,7 @@ use Term::ANSIColor qw(colored);
 
 use Purl;
 use Purl::Config;
-use Purl::Storage::SQLite;
+use Purl::Storage::ClickHouse;
 use Purl::Collector::Manager;
 use Purl::Parser::Engine;
 use Purl::Parser::Normalizer;
@@ -96,10 +96,11 @@ sub cmd_collect {
     print_banner();
     info("Starting log collector...");
 
-    my $storage = Purl::Storage::SQLite->new(
-        db_path        => $config->get('storage.path'),
-        fts_enabled    => $config->get('storage.fts_enabled'),
-        retention_days => $config->get('storage.retention_days'),
+    my $storage = Purl::Storage::ClickHouse->new(
+        host           => $ENV{PURL_CLICKHOUSE_HOST} // $config->get('storage.clickhouse.host') // 'localhost',
+        port           => $ENV{PURL_CLICKHOUSE_PORT} // $config->get('storage.clickhouse.port') // 8123,
+        database       => $ENV{PURL_CLICKHOUSE_DATABASE} // $config->get('storage.clickhouse.database') // 'purl',
+        retention_days => $config->get('storage.retention_days') // 30,
     );
 
     my $manager = setup_collector($config, $storage, $from_beginning);
@@ -162,9 +163,10 @@ sub cmd_query {
 
     my $config = load_config();
 
-    my $storage = Purl::Storage::SQLite->new(
-        db_path     => $config->get('storage.path'),
-        fts_enabled => $config->get('storage.fts_enabled'),
+    my $storage = Purl::Storage::ClickHouse->new(
+        host     => $ENV{PURL_CLICKHOUSE_HOST} // $config->get('storage.clickhouse.host') // 'localhost',
+        port     => $ENV{PURL_CLICKHOUSE_PORT} // $config->get('storage.clickhouse.port') // 8123,
+        database => $ENV{PURL_CLICKHOUSE_DATABASE} // $config->get('storage.clickhouse.database') // 'purl',
     );
 
     use Purl::Query::KQL;
@@ -179,10 +181,9 @@ sub cmd_query {
         $params{from} = epoch_to_iso($from);
     }
 
-    # Parse KQL
+    # Parse KQL query
     if ($query) {
-        my $parsed = $kql->parse($query);
-        $params{query} = $query if $storage->fts_enabled;
+        $params{query} = $query;
     }
 
     my $results = $storage->search(%params);
@@ -206,8 +207,10 @@ sub cmd_query {
 sub cmd_stats {
     my $config = load_config();
 
-    my $storage = Purl::Storage::SQLite->new(
-        db_path => $config->get('storage.path'),
+    my $storage = Purl::Storage::ClickHouse->new(
+        host     => $ENV{PURL_CLICKHOUSE_HOST} // $config->get('storage.clickhouse.host') // 'localhost',
+        port     => $ENV{PURL_CLICKHOUSE_PORT} // $config->get('storage.clickhouse.port') // 8123,
+        database => $ENV{PURL_CLICKHOUSE_DATABASE} // $config->get('storage.clickhouse.database') // 'purl',
     );
 
     my $stats = $storage->stats();
@@ -249,8 +252,10 @@ sub cmd_cleanup {
 
     my $config = load_config();
 
-    my $storage = Purl::Storage::SQLite->new(
-        db_path => $config->get('storage.path'),
+    my $storage = Purl::Storage::ClickHouse->new(
+        host     => $ENV{PURL_CLICKHOUSE_HOST} // $config->get('storage.clickhouse.host') // 'localhost',
+        port     => $ENV{PURL_CLICKHOUSE_PORT} // $config->get('storage.clickhouse.port') // 8123,
+        database => $ENV{PURL_CLICKHOUSE_DATABASE} // $config->get('storage.clickhouse.database') // 'purl',
     );
 
     if ($dry_run) {

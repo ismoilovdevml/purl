@@ -128,8 +128,19 @@ sub _query_json {
 sub _init_schema {
     my ($self) = @_;
 
-    # Create database
-    $self->_query("CREATE DATABASE IF NOT EXISTS " . $self->database);
+    # Create database first (without database in URL)
+    my $url = sprintf('http://%s:%d/?user=%s',
+        $self->host, $self->port, uri_escape($self->username));
+    $url .= '&password=' . uri_escape($self->password) if $self->password;
+
+    my $response = $self->_http->post($url, {
+        content => "CREATE DATABASE IF NOT EXISTS " . $self->database,
+        headers => { 'Content-Type' => 'text/plain' },
+    });
+
+    unless ($response->{success}) {
+        die "ClickHouse error creating database: $response->{status} - $response->{content}";
+    }
 
     # Create logs table with MergeTree engine
     my $table = $self->database . '.' . $self->table;
@@ -160,7 +171,6 @@ sub _init_schema {
     $self->_query(qq{
         CREATE MATERIALIZED VIEW IF NOT EXISTS ${table}_level_stats
         ENGINE = SummingMergeTree()
-        PARTITION BY toYYYYMMDD(timestamp)
         ORDER BY (date, level)
         AS SELECT
             toDate(timestamp) as date,
@@ -174,7 +184,6 @@ sub _init_schema {
     $self->_query(qq{
         CREATE MATERIALIZED VIEW IF NOT EXISTS ${table}_service_stats
         ENGINE = SummingMergeTree()
-        PARTITION BY toYYYYMMDD(timestamp)
         ORDER BY (date, service)
         AS SELECT
             toDate(timestamp) as date,
@@ -256,15 +265,24 @@ sub flush {
     return scalar @logs;
 }
 
-# Format timestamp for ClickHouse
+# Format timestamp for ClickHouse DateTime64(3)
+# Required format: YYYY-MM-DD HH:MM:SS.mmm (space, not T)
 sub _format_timestamp {
     my ($self, $ts) = @_;
 
-    return $ts if $ts && $ts =~ /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/;
+    if ($ts) {
+        # Replace T with space for ClickHouse
+        $ts =~ s/T/ /;
+        # Remove Z suffix if present
+        $ts =~ s/Z$//;
+        # Ensure milliseconds exist
+        $ts .= '.000' unless $ts =~ /\.\d{3}$/;
+        return $ts if $ts =~ /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/;
+    }
 
-    # Default to now
+    # Default to now with milliseconds
     my $t = Time::Piece->new;
-    return $t->datetime;
+    return sprintf('%s.000', $t->strftime('%Y-%m-%d %H:%M:%S'));
 }
 
 # Search logs

@@ -6,14 +6,13 @@ use 5.024;
 use FindBin qw($RealBin);
 use lib "$RealBin/../lib";
 
-use Purl::Storage::SQLite;
+use Purl::Storage::ClickHouse;
 use Purl::Parser::FormatDetector;
 use Purl::Parser::Engine;
 use Purl::Parser::Normalizer;
 use Time::Piece;
 use Getopt::Long;
 
-my $db_path = $ENV{PURL_DB_PATH} // '/app/data/purl.db';
 my $container = shift @ARGV;
 
 unless ($container) {
@@ -22,8 +21,13 @@ unless ($container) {
 
 print "Importing logs from container: $container\n";
 
-# Initialize components
-my $storage = Purl::Storage::SQLite->new(db_path => $db_path);
+# Initialize ClickHouse storage
+my $storage = Purl::Storage::ClickHouse->new(
+    host     => $ENV{PURL_CLICKHOUSE_HOST} // 'localhost',
+    port     => $ENV{PURL_CLICKHOUSE_PORT} // 8123,
+    database => $ENV{PURL_CLICKHOUSE_DATABASE} // 'purl',
+);
+
 my $detector = Purl::Parser::FormatDetector->new();
 my $engine = Purl::Parser::Engine->new();
 my $normalizer = Purl::Parser::Normalizer->new();
@@ -54,6 +58,7 @@ for my $line (@logs) {
     # Batch insert every 100 logs
     if (@batch >= 100) {
         $storage->insert_batch(\@batch);
+        $storage->flush();
         @batch = ();
         print "Imported $count logs...\n";
     }
@@ -62,6 +67,7 @@ for my $line (@logs) {
 # Insert remaining
 if (@batch) {
     $storage->insert_batch(\@batch);
+    $storage->flush();
 }
 
 print "Done! Imported $count logs from $container\n";
