@@ -1,23 +1,53 @@
 <?xml version="1.0"?>
 <clickhouse>
     <profiles>
+        <!-- Default profile - optimized for log queries -->
         <default>
-            <max_memory_usage>10000000000</max_memory_usage>
-            <max_execution_time>300</max_execution_time>
-            <max_rows_to_read>1000000000</max_rows_to_read>
-            <max_bytes_to_read>100000000000</max_bytes_to_read>
+            <!-- Memory limits per query (2GB max) -->
+            <max_memory_usage>2000000000</max_memory_usage>
+            <max_memory_usage_for_user>3000000000</max_memory_usage_for_user>
+
+            <!-- Query timeouts -->
+            <max_execution_time>60</max_execution_time>
+            <timeout_before_checking_execution_speed>10</timeout_before_checking_execution_speed>
+
+            <!-- Row/byte limits -->
+            <max_rows_to_read>100000000</max_rows_to_read>
+            <max_bytes_to_read>10000000000</max_bytes_to_read>
             <max_result_rows>100000</max_result_rows>
             <max_result_bytes>100000000</max_result_bytes>
-            <use_uncompressed_cache>0</use_uncompressed_cache>
+
+            <!-- Load balancing -->
             <load_balancing>random</load_balancing>
+
+            <!-- Optimize for log workloads -->
+            <use_uncompressed_cache>1</use_uncompressed_cache>
+            <optimize_read_in_order>1</optimize_read_in_order>
+
+            <!-- Reduce memory for GROUP BY -->
+            <max_bytes_before_external_group_by>500000000</max_bytes_before_external_group_by>
+            <max_bytes_before_external_sort>500000000</max_bytes_before_external_sort>
+
+            <!-- Insert settings for high-throughput -->
+            <async_insert>1</async_insert>
+            <wait_for_async_insert>0</wait_for_async_insert>
+            <async_insert_max_data_size>10000000</async_insert_max_data_size>
+            <async_insert_busy_timeout_ms>1000</async_insert_busy_timeout_ms>
+
+            <!-- Merge settings -->
+            <background_pool_size>4</background_pool_size>
         </default>
 
+        <!-- Read-only profile -->
         <readonly>
             <readonly>1</readonly>
+            <max_memory_usage>1000000000</max_memory_usage>
+            <max_execution_time>30</max_execution_time>
         </readonly>
     </profiles>
 
     <users>
+        <!-- Default user (admin) -->
         <default>
             <password></password>
             <networks>
@@ -28,6 +58,7 @@
             <access_management>1</access_management>
         </default>
 
+        <!-- Purl application user -->
         <purl>
             <password>npJCZy1eKK6sHLmqt5tXVl08</password>
             <networks>

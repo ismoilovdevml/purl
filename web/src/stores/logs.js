@@ -70,7 +70,12 @@ export async function searchLogs() {
 
     const data = await response.json();
 
-    logs.set(data.hits || []);
+    // Add unique IDs to logs for selection tracking
+    const logsWithIds = (data.hits || []).map((log, index) => ({
+      ...log,
+      id: log.id || `${log.timestamp}-${index}`
+    }));
+    logs.set(logsWithIds);
     total.set(data.total || 0);
 
     // Fetch stats in parallel (non-blocking)
@@ -168,7 +173,11 @@ export function connectWebSocket() {
     try {
       const data = JSON.parse(event.data);
       if (data.type === 'log') {
-        logs.update(current => [data.data, ...current.slice(0, 499)]);
+        const logWithId = {
+          ...data.data,
+          id: data.data.id || `${data.data.timestamp}-${Date.now()}`
+        };
+        logs.update(current => [logWithId, ...current.slice(0, 499)]);
       }
     } catch (err) {
       console.error('WebSocket message error:', err);

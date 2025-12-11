@@ -1,38 +1,98 @@
 <?xml version="1.0"?>
 <clickhouse>
-    <!-- Force IPv4 only - fixes Docker Desktop IPv6 issues -->
+    <!-- Network - Force IPv4 only -->
     <listen_host>0.0.0.0</listen_host>
-
-    <!-- Disable IPv6 completely -->
     <listen_try>1</listen_try>
 
-    <!-- Logging -->
+    <!-- Logging - reduce noise -->
     <logger>
         <level>warning</level>
         <console>1</console>
     </logger>
 
-    <!-- Memory limits -->
-    <max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>
+    <!-- =========================================================== -->
+    <!-- Memory Management - CRITICAL for stability -->
+    <!-- =========================================================== -->
 
-    <!-- MergeTree settings -->
+    <!-- Use max 70% of available RAM -->
+    <max_server_memory_usage_to_ram_ratio>0.7</max_server_memory_usage_to_ram_ratio>
+
+    <!-- Hard limit for total server memory -->
+    <max_server_memory_usage>4000000000</max_server_memory_usage>
+
+    <!-- Memory for merges (30% of max) -->
+    <max_memory_usage_for_all_queries>3000000000</max_memory_usage_for_all_queries>
+
+    <!-- =========================================================== -->
+    <!-- MergeTree Settings - optimized for log ingestion -->
+    <!-- =========================================================== -->
     <merge_tree>
+        <!-- Parts management -->
         <max_suspicious_broken_parts>5</max_suspicious_broken_parts>
         <parts_to_delay_insert>150</parts_to_delay_insert>
         <parts_to_throw_insert>300</parts_to_throw_insert>
+
+        <!-- Merge behavior - reduce memory pressure -->
+        <max_bytes_to_merge_at_max_space_in_pool>161061273600</max_bytes_to_merge_at_max_space_in_pool>
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>8</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+
+        <!-- Mutation settings - must be <= background_pool_size * concurrency_ratio -->
+        <number_of_free_entries_in_pool_to_execute_mutation>8</number_of_free_entries_in_pool_to_execute_mutation>
+
+        <!-- Background operations -->
+        <max_replicated_merges_in_queue>16</max_replicated_merges_in_queue>
+
+        <!-- Index granularity for logs (larger = less memory) -->
+        <index_granularity>8192</index_granularity>
+
+        <!-- Min rows for wide part format -->
+        <min_rows_for_wide_part>100000</min_rows_for_wide_part>
+        <min_bytes_for_wide_part>10485760</min_bytes_for_wide_part>
     </merge_tree>
 
-    <!-- Background pools -->
-    <background_pool_size>16</background_pool_size>
-    <background_schedule_pool_size>16</background_schedule_pool_size>
+    <!-- =========================================================== -->
+    <!-- Background Pools - reduced for single node -->
+    <!-- =========================================================== -->
 
-    <!-- Compression -->
+    <!-- Main background pool (merges, mutations) -->
+    <background_pool_size>8</background_pool_size>
+
+    <!-- Merges/mutations concurrency ratio -->
+    <background_merges_mutations_concurrency_ratio>4</background_merges_mutations_concurrency_ratio>
+
+    <!-- Move/fetch pool -->
+    <background_move_pool_size>2</background_move_pool_size>
+
+    <!-- Schedule pool (TTL, etc) -->
+    <background_schedule_pool_size>4</background_schedule_pool_size>
+
+    <!-- Common pool -->
+    <background_common_pool_size>2</background_common_pool_size>
+
+    <!-- Distributed operations (not needed for single node) -->
+    <background_distributed_schedule_pool_size>0</background_distributed_schedule_pool_size>
+
+    <!-- =========================================================== -->
+    <!-- Compression - LZ4 is fastest for logs -->
+    <!-- =========================================================== -->
     <compression>
         <case>
             <method>lz4</method>
         </case>
     </compression>
 
-    <!-- Disable interserver for single node -->
+    <!-- =========================================================== -->
+    <!-- Query optimization -->
+    <!-- =========================================================== -->
+    <max_concurrent_queries>50</max_concurrent_queries>
+    <max_connections>100</max_connections>
+
+    <!-- Mark cache for faster queries -->
+    <mark_cache_size>536870912</mark_cache_size>
+
+    <!-- Uncompressed cache -->
+    <uncompressed_cache_size>1073741824</uncompressed_cache_size>
+
+    <!-- Single node - disable interserver -->
     <interserver_http_host>127.0.0.1</interserver_http_host>
 </clickhouse>
