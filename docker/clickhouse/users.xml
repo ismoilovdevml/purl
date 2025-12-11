@@ -7,6 +7,10 @@
             <max_memory_usage>2000000000</max_memory_usage>
             <max_memory_usage_for_user>3000000000</max_memory_usage_for_user>
 
+            <!-- Disable query logging (reduces noise) -->
+            <log_queries>0</log_queries>
+            <log_queries_min_type>EXCEPTION_WHILE_PROCESSING</log_queries_min_type>
+
             <!-- Query timeouts -->
             <max_execution_time>60</max_execution_time>
             <timeout_before_checking_execution_speed>10</timeout_before_checking_execution_speed>

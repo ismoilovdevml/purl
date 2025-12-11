@@ -4,10 +4,11 @@
     <listen_host>0.0.0.0</listen_host>
     <listen_try>1</listen_try>
 
-    <!-- Logging - reduce noise -->
+    <!-- Logging - reduce noise (only critical errors) -->
     <logger>
-        <level>warning</level>
+        <level>error</level>
         <console>1</console>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
     </logger>
 
     <!-- =========================================================== -->
@@ -95,4 +96,15 @@
 
     <!-- Single node - disable interserver -->
     <interserver_http_host>127.0.0.1</interserver_http_host>
+
+    <!-- =========================================================== -->
+    <!-- HTTP Server Settings - reduce connection errors -->
+    <!-- =========================================================== -->
+    <http_server_default_response><![CDATA[<html><body><h1>Ok.</h1></body></html>]]></http_server_default_response>
+
+    <!-- Keep-alive settings (server-level) -->
+    <keep_alive_timeout>10</keep_alive_timeout>
+
+    <!-- Skip check for user-level settings at top level -->
+    <skip_check_for_incorrect_settings>1</skip_check_for_incorrect_settings>
 </clickhouse>
