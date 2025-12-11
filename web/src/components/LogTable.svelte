@@ -25,14 +25,19 @@
 
   // Highlight matching text in a string (XSS-safe)
   function highlightText(text, query) {
-    if (!query || !text) return escapeHtml(text);
+    if (!text) return '';
     // First escape HTML in the text
-    const safeText = escapeHtml(text);
-    const safeQuery = escapeHtml(query);
-    // Escape regex special characters in query
-    const escaped = safeQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(${escaped})`, 'gi');
-    return safeText.replace(regex, '<mark class="search-highlight">$1</mark>');
+    let safeText = escapeHtml(text);
+
+    // Then highlight search query if present
+    if (query) {
+      const safeQuery = escapeHtml(query);
+      const escaped = safeQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(${escaped})`, 'gi');
+      safeText = safeText.replace(regex, '<mark class="search-highlight">$1</mark>');
+    }
+
+    return safeText;
   }
 
   let selectedLog = null;
@@ -624,6 +629,90 @@
     font-family: 'SFMono-Regular', Consolas, monospace;
     word-break: break-all;
     color: #c9d1d9;
+  }
+
+  /* Log syntax highlighting */
+  :global(.log-uuid) {
+    color: #a371f7;
+    font-weight: 500;
+  }
+
+  :global(.log-id) {
+    color: #79c0ff;
+    font-weight: 500;
+  }
+
+  :global(.log-key) {
+    color: #7ee787;
+  }
+
+  :global(.log-method) {
+    color: #ff7b72;
+    font-weight: 600;
+  }
+
+  :global(.log-path) {
+    color: #a5d6ff;
+  }
+
+  :global(.log-ip) {
+    color: #ffa657;
+  }
+
+  :global(.log-time) {
+    color: #8b949e;
+  }
+
+  :global(.log-number) {
+    color: #79c0ff;
+  }
+
+  :global(.log-string) {
+    color: #a5d6ff;
+  }
+
+  :global(.log-status) {
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+
+  :global(.log-status-2), :global(.log-status-200), :global(.log-status-201), :global(.log-status-204) {
+    color: #3fb950;
+    background: rgba(63, 185, 80, 0.15);
+  }
+
+  :global(.log-status-3), :global(.log-status-301), :global(.log-status-302), :global(.log-status-304) {
+    color: #58a6ff;
+    background: rgba(88, 166, 255, 0.15);
+  }
+
+  :global(.log-status-4), :global(.log-status-400), :global(.log-status-401), :global(.log-status-403), :global(.log-status-404) {
+    color: #d29922;
+    background: rgba(210, 153, 34, 0.15);
+  }
+
+  :global(.log-status-5), :global(.log-status-500), :global(.log-status-502), :global(.log-status-503) {
+    color: #f85149;
+    background: rgba(248, 81, 73, 0.15);
+  }
+
+  :global(.log-level-error), :global(.log-level-fatal), :global(.log-level-critical) {
+    color: #f85149;
+    font-weight: 600;
+  }
+
+  :global(.log-level-warn), :global(.log-level-warning) {
+    color: #d29922;
+    font-weight: 600;
+  }
+
+  :global(.log-level-info) {
+    color: #3fb950;
+  }
+
+  :global(.log-level-debug), :global(.log-level-trace) {
+    color: #8b949e;
   }
 
   .detail-row td {

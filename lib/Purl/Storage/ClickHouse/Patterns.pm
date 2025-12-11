@@ -47,9 +47,10 @@ sub get_patterns {
 
     # Query patterns - apply FINAL first, then aggregate
     # This avoids aggregate function conflicts
+    # Cast pattern_hash to String to avoid JavaScript BigInt precision loss
     my $sql = qq{
         SELECT
-            pattern_hash,
+            toString(pattern_hash) as pattern_hash,
             pattern,
             any(sample_message) as sample_message,
             service,
@@ -68,12 +69,14 @@ sub get_patterns {
 
     my $results = $self->_query_json($sql, no_cache => 1);
 
-    # Format timestamps
+    # Format timestamps and ensure pattern_hash is string (avoid JS BigInt issues)
     for my $row (@$results) {
         $row->{first_seen} =~ s/ /T/;
         $row->{first_seen} .= 'Z' unless $row->{first_seen} =~ /Z$/;
         $row->{last_seen} =~ s/ /T/;
         $row->{last_seen} .= 'Z' unless $row->{last_seen} =~ /Z$/;
+        # Force string type for JSON encoding
+        $row->{pattern_hash} = "$row->{pattern_hash}";
     }
 
     return $results;

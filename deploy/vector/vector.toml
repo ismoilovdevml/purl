@@ -17,19 +17,6 @@ address = "0.0.0.0:8686"
 type = "docker_logs"
 exclude_containers = ["vector", "purl-vector", "*-vector"]
 
-# Journald system logs (optional - uncomment if needed)
-# [sources.journald]
-# type = "journald"
-# current_boot_only = true
-# exclude_units = ["vector.service"]
-
-# File logs (optional - uncomment if needed)
-# [sources.file_logs]
-# type = "file"
-# include = ["/var/log/*.log", "/var/log/**/*.log"]
-# exclude = ["/var/log/vector*.log"]
-# read_from = "end"
-
 # =============================================================================
 # TRANSFORMS
 # =============================================================================
@@ -42,46 +29,39 @@ source = '''
 container = string!(.container_name)
 .service = replace(container, r'^/', "")
 
-# Get hostname from environment or use default
-.host = get_env_var("HOSTNAME") ?? get_env_var("HOST") ?? "docker-host"
+# Get hostname
+.host = "docker-host"
 
 # Ensure message is string
-msg = string(.message) ?? ""
+msg = string!(.message)
 
 # Try to parse JSON logs for structured data
 parsed, err = parse_json(msg)
 if err == null {
     # Extract message from parsed JSON
-    msg = parsed.msg ?? parsed.message ?? msg
+    msg_val, msg_err = get(parsed, ["msg"])
+    if msg_err != null {
+        msg_val, msg_err = get(parsed, ["message"])
+    }
+    if msg_err == null && msg_val != null {
+        msg = to_string!(msg_val)
+    }
     .message = msg
 }
 
-# Extract trace/request IDs from parsed JSON or message
+# Initialize trace fields
 .trace_id = ""
 .request_id = ""
 .span_id = ""
 .parent_span_id = ""
 
+# Extract trace fields from JSON if available
 if err == null {
-    # JSON log - extract trace fields (support multiple naming conventions)
-    .trace_id = string(parsed.trace_id ?? parsed.traceId ?? parsed.traceid ?? parsed."X-Trace-Id" ?? "") ?? ""
-    .request_id = string(parsed.request_id ?? parsed.requestId ?? parsed.reqId ?? parsed.req_id ?? parsed."X-Request-Id" ?? "") ?? ""
-    .span_id = string(parsed.span_id ?? parsed.spanId ?? parsed.spanid ?? "") ?? ""
-    .parent_span_id = string(parsed.parent_span_id ?? parsed.parentSpanId ?? parsed.parent_id ?? parsed.parentId ?? "") ?? ""
-}
+    trace_val, t_err = get(parsed, ["trace_id"])
+    if t_err == null && trace_val != null { .trace_id = to_string!(trace_val) }
 
-# Fallback: extract trace IDs from message using regex
-if .trace_id == "" {
-    trace_match, trace_err = parse_regex(msg, r'(?i)(?:trace[-_]?id|traceid)[=:\s]+["\']?(?P<trace>[a-f0-9-]{16,36})["\']?')
-    if trace_err == null {
-        .trace_id = trace_match.trace ?? ""
-    }
-}
-if .request_id == "" {
-    req_match, req_err = parse_regex(msg, r'(?i)(?:request[-_]?id|requestid|req[-_]?id)[=:\s]+["\']?(?P<req>[a-f0-9-]{8,36})["\']?')
-    if req_err == null {
-        .request_id = req_match.req ?? ""
-    }
+    req_val, r_err = get(parsed, ["request_id"])
+    if r_err == null && req_val != null { .request_id = to_string!(req_val) }
 }
 
 # Detect log level with priority (most specific first)
@@ -100,9 +80,15 @@ if match(msg, r'(?i)\b(fatal|panic|critical)\b') {
 
 # If JSON had level, use it
 if err == null {
-    parsed_level = upcase(string(parsed.level ?? parsed.severity ?? "") ?? "")
-    if parsed_level != "" {
-        level = parsed_level
+    level_val, lv_err = get(parsed, ["level"])
+    if lv_err != null {
+        level_val, lv_err = get(parsed, ["severity"])
+    }
+    if lv_err == null && level_val != null {
+        parsed_level = upcase!(to_string!(level_val))
+        if parsed_level != "" {
+            level = parsed_level
+        }
     }
 }
 
@@ -110,11 +96,14 @@ if err == null {
 .raw = msg
 
 # Store metadata as JSON
+container_id_str = to_string(.container_id) ?? ""
+image_str = to_string(.image) ?? ""
+stream_str = to_string(.stream) ?? "stdout"
 .meta = encode_json({
-    "container_id": string(.container_id) ?? "",
-    "image": string(.image) ?? "",
+    "container_id": container_id_str,
+    "image": image_str,
     "source": "docker",
-    "stream": string(.stream) ?? "stdout"
+    "stream": stream_str
 })
 
 # Clean up original fields

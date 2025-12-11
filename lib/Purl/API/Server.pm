@@ -1255,15 +1255,25 @@ METRICS
 
         my $patterns = $storage->get_patterns(%params);
 
-        my $response = {
-            patterns => $patterns,
-            total    => scalar @$patterns,
-        };
+        # Build JSON manually to ensure pattern_hash is string (avoid JS BigInt precision loss)
+        my @pattern_json;
+        for my $p (@$patterns) {
+            my $hash_str = $p->{pattern_hash};
+            my $pattern_escaped = $p->{pattern} =~ s/([\\"])/\\$1/gr;
+            my $sample_escaped = ($p->{sample_message} // '') =~ s/([\\"])/\\$1/gr;
+            push @pattern_json, sprintf(
+                '{"pattern_hash":"%s","pattern":"%s","sample_message":"%s","service":"%s","level":"%s","first_seen":"%s","last_seen":"%s","count":%d}',
+                $hash_str, $pattern_escaped, $sample_escaped,
+                $p->{service}, $p->{level}, $p->{first_seen}, $p->{last_seen}, $p->{count}
+            );
+        }
+        my $json = '{"patterns":[' . join(',', @pattern_json) . '],"total":' . scalar(@$patterns) . '}';
 
-        _cache_set($cache_key, $response, 30);
+        _cache_set($cache_key, { raw_json => $json }, 30);
         $c->res->headers->header('X-Cache' => 'MISS');
+        $c->res->headers->content_type('application/json');
 
-        $c->render(json => $response);
+        $c->render(data => $json);
     });
 
     # Get logs for a specific pattern

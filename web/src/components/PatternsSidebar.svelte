@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { patterns, patternsLoading, patternsError, fetchPatterns, fetchPatternLogs, highlightPattern, getLevelColor, logs, timeRange } from '../stores/logs.js';
+  import { patterns, patternsLoading, patternsError, fetchPatterns, fetchPatternLogs, highlightPattern, getLevelColor, logs, timeRange, query, total } from '../stores/logs.js';
 
   let selectedPattern = null;
   let patternLogs = null;
@@ -31,10 +31,20 @@
     const result = await fetchPatternLogs(pattern.pattern_hash);
     patternLogsLoading = false;
 
-    if (result) {
+    if (result && result.hits) {
       patternLogs = result.hits;
-      // Update main logs view with pattern logs
-      logs.set(patternLogs);
+      // Clear query and update main logs view with pattern logs
+      query.set(`pattern:${pattern.pattern_hash}`);
+      // Create new array to trigger reactivity
+      const logsWithIds = patternLogs.map((log, index) => ({
+        ...log,
+        id: log.id || `${log.timestamp}-${index}`
+      }));
+      console.log('Setting logs:', logsWithIds.length, logsWithIds);
+      logs.set(logsWithIds);
+      total.set(result.total || logsWithIds.length);
+    } else {
+      console.log('No result or hits:', result);
     }
   }
 
