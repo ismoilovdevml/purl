@@ -503,6 +503,8 @@
     padding: 12px 16px;
     border-left: 3px solid #30363d;
     margin-left: 8px;
+    max-width: 100%;
+    overflow: hidden;
   }
 
   .detail-actions {
@@ -539,6 +541,10 @@
     padding: 4px 8px;
     border-radius: 4px;
     cursor: pointer;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
   }
 
   .detail-line:hover {
@@ -574,6 +580,9 @@
     font-size: 13px;
     color: #c9d1d9;
     word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
 
   .line-value.mono {
