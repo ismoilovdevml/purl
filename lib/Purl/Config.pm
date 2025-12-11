@@ -78,7 +78,7 @@ sub load {
 
     if (-f $file) {
         eval {
-            open my $fh, '<:utf8', $file or die "Cannot open $file: $!";
+            open my $fh, '<:encoding(UTF-8)', $file or die "Cannot open $file: $!";
             local $/;
             my $json = <$fh>;
             close $fh;
@@ -108,7 +108,7 @@ sub save {
     }
 
     eval {
-        open my $fh, '>:utf8', $file or die "Cannot write $file: $!";
+        open my $fh, '>:encoding(UTF-8)', $file or die "Cannot write $file: $!";
         print $fh $self->_json->encode($self->_config);
         close $fh;
     };

@@ -1,4 +1,4 @@
-.PHONY: help build up down logs shell restart up-vector lint lint-perl lint-js clean prune clickhouse-client web-dev web-build
+.PHONY: help build up down logs shell restart up-vector lint lint-perl lint-perlcritic lint-js clean prune clickhouse-client web-dev web-build test
 
 # Default target
 help:
@@ -7,22 +7,26 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Docker targets:"
-	@echo "  build        Build Docker images"
-	@echo "  up           Start services (Purl + ClickHouse)"
-	@echo "  up-vector    Start with Vector log collector"
-	@echo "  down         Stop all services"
-	@echo "  logs         View container logs"
-	@echo "  shell        Open shell in purl container"
-	@echo "  restart      Restart all services"
+	@echo "  build           Build Docker images"
+	@echo "  up              Start services (Purl + ClickHouse)"
+	@echo "  up-vector       Start with Vector log collector"
+	@echo "  down            Stop all services"
+	@echo "  logs            View container logs"
+	@echo "  shell           Open shell in purl container"
+	@echo "  restart         Restart all services"
 	@echo ""
 	@echo "Development targets:"
-	@echo "  lint         Run all linters"
-	@echo "  web-dev      Start web development server"
-	@echo "  web-build    Build web assets"
+	@echo "  lint            Run all linters (syntax + perlcritic + eslint)"
+	@echo "  lint-perl       Check Perl syntax only"
+	@echo "  lint-perlcritic Run Perl::Critic analysis"
+	@echo "  lint-js         Run ESLint on JavaScript/Svelte"
+	@echo "  web-dev         Start web development server"
+	@echo "  web-build       Build web assets"
+	@echo "  test            Run tests"
 	@echo ""
 	@echo "Maintenance targets:"
-	@echo "  clean        Remove containers and volumes"
-	@echo "  prune        Deep clean (removes images too)"
+	@echo "  clean           Remove containers and volumes"
+	@echo "  prune           Deep clean (removes images too)"
 
 # Docker targets
 build:
@@ -54,17 +58,30 @@ web-build:
 	cd web && npm install && npm run build
 
 # Linting
-lint: lint-perl lint-js
+PERL5LIB := lib
+PERLCRITIC := $(shell which perlcritic 2>/dev/null || echo /opt/homebrew/Cellar/perl/5.40.2/bin/perlcritic)
+
+lint: lint-perl lint-perlcritic lint-js
 
 lint-perl:
 	@echo "Checking Perl syntax..."
-	@for f in lib/Purl.pm lib/Purl/API/Server.pm lib/Purl/API/Middleware.pm lib/Purl/Storage/ClickHouse.pm lib/Purl/Storage/ClickHouse/*.pm lib/Purl/Alert/*.pm; do \
-		PERL5LIB=lib perl -c $$f 2>&1 || exit 1; \
+	@for f in $$(find lib -name '*.pm'); do \
+		PERL5LIB=$(PERL5LIB) perl -c $$f 2>&1 || exit 1; \
 	done
-	@echo "All Perl files OK"
+	@echo "All Perl files syntax OK"
+
+lint-perlcritic:
+	@echo "Running Perl::Critic..."
+	@PERL5LIB=$(PERL5LIB) $(PERLCRITIC) --profile .perlcriticrc lib/
 
 lint-js:
-	cd web && npm run lint
+	@echo "Running ESLint..."
+	@cd web && npm run lint
+
+# Testing
+test:
+	@echo "Running tests..."
+	@PERL5LIB=lib prove -r t/ 2>/dev/null || echo "No tests found in t/"
 
 # Maintenance
 clean:

@@ -292,10 +292,6 @@
     return parts.join(' ') || '< 1m';
   }
 
-  function isFromEnv(section, field) {
-    if (!serverSettings) return false;
-    return serverSettings[section]?.[field]?.from_env || false;
-  }
 </script>
 
 <div class="settings-page">
@@ -371,11 +367,7 @@
                   type="text"
                   bind:value={dbForm.host}
                   placeholder="localhost"
-                  disabled={isFromEnv('clickhouse', 'host')}
                 />
-                {#if isFromEnv('clickhouse', 'host')}
-                  <span class="field-hint env">Set via PURL_CLICKHOUSE_HOST</span>
-                {/if}
               </div>
 
               <div class="form-field">
@@ -385,7 +377,6 @@
                   type="number"
                   bind:value={dbForm.port}
                   placeholder="8123"
-                  disabled={isFromEnv('clickhouse', 'port')}
                 />
               </div>
 
@@ -396,7 +387,6 @@
                   type="text"
                   bind:value={dbForm.database}
                   placeholder="purl"
-                  disabled={isFromEnv('clickhouse', 'database')}
                 />
               </div>
 
@@ -407,7 +397,6 @@
                   type="text"
                   bind:value={dbForm.user}
                   placeholder="default"
-                  disabled={isFromEnv('clickhouse', 'user')}
                 />
               </div>
 
@@ -418,7 +407,6 @@
                   type="password"
                   bind:value={dbForm.password}
                   placeholder={serverSettings?.clickhouse?.password_set?.value ? '********' : 'Enter password'}
-                  disabled={isFromEnv('clickhouse', 'password')}
                 />
                 {#if serverSettings?.clickhouse?.password_set?.value && !dbForm.password}
                   <span class="field-hint">Password is already set. Leave empty to keep current.</span>
@@ -430,7 +418,7 @@
               <button class="test-btn" on:click={testDbConnection} disabled={testingDb}>
                 {testingDb ? 'Testing...' : 'Test Connection'}
               </button>
-              <button class="save-btn" on:click={saveDbSettings} disabled={savingDb || isFromEnv('clickhouse', 'host')}>
+              <button class="save-btn" on:click={saveDbSettings} disabled={savingDb}>
                 {savingDb ? 'Saving...' : 'Save Settings'}
               </button>
             </div>
@@ -479,10 +467,9 @@
                   min="1"
                   max="365"
                   bind:value={retentionDays}
-                  disabled={serverSettings?.retention?.days?.from_env}
                 />
                 <span class="unit">days</span>
-                <button class="save-btn" on:click={saveRetention} disabled={savingRetention || serverSettings?.retention?.days?.from_env}>
+                <button class="save-btn" on:click={saveRetention} disabled={savingRetention}>
                   {savingRetention ? 'Saving...' : 'Apply'}
                 </button>
               </div>
@@ -545,8 +532,9 @@
 
           <div class="notification-form">
             <div class="form-field">
-              <label>Bot Token</label>
+              <label for="telegram-token">Bot Token</label>
               <input
+                id="telegram-token"
                 type="password"
                 bind:value={notifications.telegram.bot_token}
                 placeholder="123456:ABC-DEF..."
@@ -554,8 +542,9 @@
               />
             </div>
             <div class="form-field">
-              <label>Chat ID</label>
+              <label for="telegram-chat">Chat ID</label>
               <input
+                id="telegram-chat"
                 type="text"
                 bind:value={notifications.telegram.chat_id}
                 placeholder="-1001234567890"
@@ -602,8 +591,9 @@
 
           <div class="notification-form">
             <div class="form-field">
-              <label>Webhook URL</label>
+              <label for="slack-webhook">Webhook URL</label>
               <input
+                id="slack-webhook"
                 type="password"
                 bind:value={notifications.slack.webhook_url}
                 placeholder="https://hooks.slack.com/services/..."
@@ -611,8 +601,9 @@
               />
             </div>
             <div class="form-field">
-              <label>Channel (optional)</label>
+              <label for="slack-channel">Channel (optional)</label>
               <input
+                id="slack-channel"
                 type="text"
                 bind:value={notifications.slack.channel}
                 placeholder="#alerts"
@@ -660,8 +651,9 @@
 
           <div class="notification-form">
             <div class="form-field">
-              <label>Webhook URL</label>
+              <label for="webhook-url">Webhook URL</label>
               <input
+                id="webhook-url"
                 type="text"
                 bind:value={notifications.webhook.url}
                 placeholder="https://your-server.com/webhook"
@@ -669,8 +661,9 @@
               />
             </div>
             <div class="form-field">
-              <label>Auth Token (optional)</label>
+              <label for="webhook-token">Auth Token (optional)</label>
               <input
+                id="webhook-token"
                 type="password"
                 bind:value={notifications.webhook.auth_token}
                 placeholder="Bearer token"
@@ -1150,10 +1143,6 @@
     color: #8b949e;
   }
 
-  .field-hint.env {
-    color: #d29922;
-  }
-
   .form-actions {
     display: flex;
     gap: 8px;
@@ -1401,47 +1390,6 @@
     margin: 8px 0;
     font-size: 0.8125rem;
     color: #8b949e;
-  }
-
-  .auth-info code {
-    background: #21262d;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 0.8125rem;
-    color: #f85149;
-  }
-
-  .auth-info pre {
-    margin: 12px 0;
-    padding: 12px;
-    background: #0d1117;
-    border-radius: 6px;
-    overflow-x: auto;
-  }
-
-  .auth-info pre code {
-    background: none;
-    padding: 0;
-    color: #7ee787;
-  }
-
-  .api-key-control {
-    display: flex;
-    gap: 8px;
-  }
-
-  .api-key-control input {
-    width: 300px;
-    padding: 8px 12px;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-  }
-
-  .api-key-control input:focus {
-    outline: none;
-    border-color: #58a6ff;
   }
 
   .toggle {

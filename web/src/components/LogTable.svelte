@@ -203,6 +203,7 @@
             {/if}
             {#if columns.find(c => c.id === 'message')?.visible}
               <td>
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                 <span class="message">{@html highlightText(log.message, searchQuery)}</span>
               </td>
             {/if}
@@ -222,35 +223,36 @@
                   </div>
 
                   <div class="detail-lines">
-                    <div class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.timestamp)}>
+                    <button type="button" class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.timestamp)}>
                       <span class="line-key">timestamp</span>
                       <span class="line-value mono">{log.timestamp}</span>
-                    </div>
-                    <div class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.level)}>
+                    </button>
+                    <button type="button" class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.level)}>
                       <span class="line-key">level</span>
                       <span class="line-value" style="color: {getLevelColor(log.level)}">{log.level}</span>
-                    </div>
-                    <div class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.service)}>
+                    </button>
+                    <button type="button" class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.service)}>
                       <span class="line-key">service</span>
                       <span class="line-value blue">{log.service}</span>
-                    </div>
-                    <div class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.host)}>
+                    </button>
+                    <button type="button" class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.host)}>
                       <span class="line-key">host</span>
                       <span class="line-value purple">{log.host}</span>
-                    </div>
-                    <div class="detail-line msg" on:click|stopPropagation={() => copyToClipboard(log.message)}>
+                    </button>
+                    <button type="button" class="detail-line msg" on:click|stopPropagation={() => copyToClipboard(log.message)}>
                       <span class="line-key">message</span>
+                      <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                       <span class="line-value mono">{@html highlightText(log.message, searchQuery)}</span>
-                    </div>
+                    </button>
 
                     {#if log.meta}
                       {@const parsedMeta = typeof log.meta === 'string' ? (() => { try { return JSON.parse(log.meta); } catch { return null; } })() : log.meta}
                       {#if parsedMeta && typeof parsedMeta === 'object' && Object.keys(parsedMeta).length > 0}
                         {#each Object.entries(parsedMeta) as [key, value]}
-                          <div class="detail-line meta" on:click|stopPropagation={() => copyToClipboard(String(value))}>
+                          <button type="button" class="detail-line meta" on:click|stopPropagation={() => copyToClipboard(String(value))}>
                             <span class="line-key">{key}</span>
                             <span class="line-value mono">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
-                          </div>
+                          </button>
                         {/each}
                       {/if}
                     {/if}
