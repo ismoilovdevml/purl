@@ -572,6 +572,120 @@ METRICS
         });
     });
 
+    # Get log context (surrounding logs)
+    $protected->get('/logs/:id/context' => sub ($c) {
+        my $id     = $c->param('id');
+        my $before = $c->param('before') // 50;
+        my $after  = $c->param('after') // 50;
+
+        # Validate UUID format
+        unless ($id && $id =~ /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i) {
+            $c->render(json => { error => 'Invalid log ID format' }, status => 400);
+            return;
+        }
+
+        my $context = $storage->get_context($id,
+            before => int($before),
+            after  => int($after),
+        );
+
+        unless ($context->{reference}) {
+            $c->render(json => { error => 'Log not found' }, status => 404);
+            return;
+        }
+
+        $c->render(json => {
+            reference    => $context->{reference},
+            before_logs  => $context->{before},
+            after_logs   => $context->{after},
+            before_count => scalar(@{$context->{before}}),
+            after_count  => scalar(@{$context->{after}}),
+        });
+    });
+
+    # ============================================
+    # Trace Correlation API
+    # ============================================
+
+    # Get logs by trace ID
+    $protected->get('/traces/:trace_id' => sub ($c) {
+        my $trace_id = $c->param('trace_id');
+        my $limit    = $c->param('limit') // 200;
+
+        # Validate trace_id format (hex + dashes, 8-36 chars)
+        unless ($trace_id && $trace_id =~ /^[a-fA-F0-9\-]{8,36}$/) {
+            $c->render(json => { error => 'Invalid trace ID format' }, status => 400);
+            return;
+        }
+
+        my $result = $storage->search_by_trace($trace_id, limit => int($limit));
+
+        unless ($result->{total} > 0) {
+            $c->render(json => { error => 'Trace not found' }, status => 404);
+            return;
+        }
+
+        $c->render(json => {
+            trace_id => lc($trace_id),
+            hits     => $result->{hits},
+            total    => $result->{total},
+        });
+    });
+
+    # Get trace timeline (service spans)
+    $protected->get('/traces/:trace_id/timeline' => sub ($c) {
+        my $trace_id = $c->param('trace_id');
+
+        # Validate trace_id format
+        unless ($trace_id && $trace_id =~ /^[a-fA-F0-9\-]{8,36}$/) {
+            $c->render(json => { error => 'Invalid trace ID format' }, status => 400);
+            return;
+        }
+
+        my $timeline = $storage->get_trace_timeline($trace_id);
+
+        unless (@$timeline) {
+            $c->render(json => { error => 'Trace not found' }, status => 404);
+            return;
+        }
+
+        # Calculate total duration
+        my $first_start = $timeline->[0]{start_time};
+        my $last_end = $timeline->[-1]{end_time};
+
+        $c->render(json => {
+            trace_id   => lc($trace_id),
+            services   => $timeline,
+            start_time => $first_start,
+            end_time   => $last_end,
+        });
+    });
+
+    # Get logs by request ID
+    $protected->get('/requests/:request_id' => sub ($c) {
+        my $request_id = $c->param('request_id');
+        my $limit      = $c->param('limit') // 200;
+
+        # Validate request_id format
+        unless ($request_id && $request_id =~ /^[a-fA-F0-9\-]{8,36}$/) {
+            $c->render(json => { error => 'Invalid request ID format' }, status => 400);
+            return;
+        }
+
+        my $result = $storage->search_by_request($request_id, limit => int($limit));
+
+        unless ($result->{total} > 0) {
+            $c->render(json => { error => 'Request not found' }, status => 404);
+            return;
+        }
+
+        $c->render(json => {
+            request_id => lc($request_id),
+            hits       => $result->{hits},
+            total      => $result->{total},
+        });
+    });
+
     # KQL query endpoint (POST)
     $protected->post('/query' => sub ($c) {
         my $body = decode_json($c->req->body);
@@ -1107,6 +1221,94 @@ METRICS
     $protected->delete('/cache' => sub ($c) {
         _cache_clear();
         $c->render(json => { status => 'ok', message => 'Cache cleared' });
+    });
+
+    # ============================================
+    # Log Patterns API
+    # ============================================
+
+    # Get top patterns
+    $protected->get('/patterns' => sub ($c) {
+        my $limit   = $c->param('limit') // 30;
+        my $service = $c->param('service');
+        my $level   = $c->param('level');
+        my $from    = $c->param('from');
+        my $to      = $c->param('to');
+
+        if (my $range = $c->param('range')) {
+            ($from, $to) = _parse_time_range($range);
+        }
+
+        my %params = (limit => int($limit));
+        $params{from}    = $from if $from;
+        $params{to}      = $to if $to;
+        $params{service} = $service if $service;
+        $params{level}   = $level if $level;
+
+        # Check cache
+        my $cache_key = "patterns:" . md5_hex(encode_json(\%params));
+        if (my $cached = _cache_get($cache_key)) {
+            $c->res->headers->header('X-Cache' => 'HIT');
+            $c->render(json => $cached);
+            return;
+        }
+
+        my $patterns = $storage->get_patterns(%params);
+
+        my $response = {
+            patterns => $patterns,
+            total    => scalar @$patterns,
+        };
+
+        _cache_set($cache_key, $response, 30);
+        $c->res->headers->header('X-Cache' => 'MISS');
+
+        $c->render(json => $response);
+    });
+
+    # Get logs for a specific pattern
+    $protected->get('/patterns/:hash/logs' => sub ($c) {
+        my $hash  = $c->param('hash');
+        my $limit = $c->param('limit') // 100;
+        my $from  = $c->param('from');
+        my $to    = $c->param('to');
+
+        unless ($hash && $hash =~ /^\d+$/) {
+            $c->render(json => { error => 'Invalid pattern hash' }, status => 400);
+            return;
+        }
+
+        if (my $range = $c->param('range')) {
+            ($from, $to) = _parse_time_range($range);
+        }
+
+        my %params = (limit => int($limit));
+        $params{from} = $from if $from;
+        $params{to}   = $to if $to;
+
+        my $result = $storage->get_pattern_logs($hash, %params);
+
+        $c->render(json => {
+            pattern_hash => $hash,
+            hits         => $result->{hits},
+            total        => $result->{total},
+        });
+    });
+
+    # Get pattern statistics
+    $protected->get('/patterns/stats' => sub ($c) {
+        my $cache_key = 'pattern_stats';
+        if (my $cached = _cache_get($cache_key)) {
+            $c->res->headers->header('X-Cache' => 'HIT');
+            $c->render(json => $cached);
+            return;
+        }
+
+        my $stats = $storage->get_pattern_stats();
+        _cache_set($cache_key, $stats, 60);
+        $c->res->headers->header('X-Cache' => 'MISS');
+
+        $c->render(json => $stats);
     });
 
     # ============================================

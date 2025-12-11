@@ -48,6 +48,42 @@ container = string!(.container_name)
 # Ensure message is string
 msg = string(.message) ?? ""
 
+# Try to parse JSON logs for structured data
+parsed, err = parse_json(msg)
+if err == null {
+    # Extract message from parsed JSON
+    msg = parsed.msg ?? parsed.message ?? msg
+    .message = msg
+}
+
+# Extract trace/request IDs from parsed JSON or message
+.trace_id = ""
+.request_id = ""
+.span_id = ""
+.parent_span_id = ""
+
+if err == null {
+    # JSON log - extract trace fields (support multiple naming conventions)
+    .trace_id = string(parsed.trace_id ?? parsed.traceId ?? parsed.traceid ?? parsed."X-Trace-Id" ?? "") ?? ""
+    .request_id = string(parsed.request_id ?? parsed.requestId ?? parsed.reqId ?? parsed.req_id ?? parsed."X-Request-Id" ?? "") ?? ""
+    .span_id = string(parsed.span_id ?? parsed.spanId ?? parsed.spanid ?? "") ?? ""
+    .parent_span_id = string(parsed.parent_span_id ?? parsed.parentSpanId ?? parsed.parent_id ?? parsed.parentId ?? "") ?? ""
+}
+
+# Fallback: extract trace IDs from message using regex
+if .trace_id == "" {
+    trace_match, trace_err = parse_regex(msg, r'(?i)(?:trace[-_]?id|traceid)[=:\s]+["\']?(?P<trace>[a-f0-9-]{16,36})["\']?')
+    if trace_err == null {
+        .trace_id = trace_match.trace ?? ""
+    }
+}
+if .request_id == "" {
+    req_match, req_err = parse_regex(msg, r'(?i)(?:request[-_]?id|requestid|req[-_]?id)[=:\s]+["\']?(?P<req>[a-f0-9-]{8,36})["\']?')
+    if req_err == null {
+        .request_id = req_match.req ?? ""
+    }
+}
+
 # Detect log level with priority (most specific first)
 level = "INFO"
 if match(msg, r'(?i)\b(fatal|panic|critical)\b') {
@@ -60,6 +96,14 @@ if match(msg, r'(?i)\b(fatal|panic|critical)\b') {
     level = "DEBUG"
 } else if match(msg, r'(?i)\b(info)\b') {
     level = "INFO"
+}
+
+# If JSON had level, use it
+if err == null {
+    parsed_level = upcase(string(parsed.level ?? parsed.severity ?? "") ?? "")
+    if parsed_level != "" {
+        level = parsed_level
+    }
 }
 
 .level = level

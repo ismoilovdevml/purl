@@ -16,6 +16,7 @@ with 'Purl::Storage::ClickHouse::Query';
 with 'Purl::Storage::ClickHouse::Cache';
 with 'Purl::Storage::ClickHouse::Alerts';
 with 'Purl::Storage::ClickHouse::SavedSearches';
+with 'Purl::Storage::ClickHouse::Patterns';
 
 # Configuration
 has 'host' => (
@@ -272,10 +273,16 @@ sub _init_schema {
             message String CODEC(ZSTD(3)),
             raw String CODEC(ZSTD(3)),
             meta String CODEC(ZSTD(3)),
+            trace_id String DEFAULT '' CODEC(ZSTD(3)),
+            request_id String DEFAULT '' CODEC(ZSTD(3)),
+            span_id String DEFAULT '' CODEC(ZSTD(3)),
+            parent_span_id String DEFAULT '' CODEC(ZSTD(3)),
 
             INDEX idx_level level TYPE set(100) GRANULARITY 4,
             INDEX idx_service service TYPE set(1000) GRANULARITY 4,
-            INDEX idx_message message TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4
+            INDEX idx_message message TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,
+            INDEX idx_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_request_id request_id TYPE bloom_filter(0.01) GRANULARITY 4
         )
         ENGINE = MergeTree()
         PARTITION BY toYYYYMMDD(timestamp)
@@ -283,6 +290,25 @@ sub _init_schema {
         TTL toDateTime(timestamp) + INTERVAL $self->{retention_days} DAY
         SETTINGS index_granularity = 8192
     });
+
+    # Add trace columns if they don't exist (for existing tables)
+    for my $col (qw(trace_id request_id span_id parent_span_id)) {
+        eval {
+            $self->_query(qq{
+                ALTER TABLE $table ADD COLUMN IF NOT EXISTS $col String DEFAULT '' CODEC(ZSTD(3))
+            });
+        };
+    }
+
+    # Add trace indexes if they don't exist
+    eval {
+        $self->_query(qq{
+            ALTER TABLE $table ADD INDEX IF NOT EXISTS idx_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 4
+        });
+        $self->_query(qq{
+            ALTER TABLE $table ADD INDEX IF NOT EXISTS idx_request_id request_id TYPE bloom_filter(0.01) GRANULARITY 4
+        });
+    };
 
     # Create materialized view for level stats
     $self->_query(qq{
@@ -342,6 +368,61 @@ sub _init_schema {
         ENGINE = MergeTree()
         ORDER BY created_at
     });
+
+    # Create log patterns table for pattern-based grouping
+    $self->_query(qq{
+        CREATE TABLE IF NOT EXISTS ${db}.log_patterns (
+            pattern_hash UInt64,
+            pattern String,
+            sample_message String,
+            service LowCardinality(String),
+            level LowCardinality(String),
+            first_seen DateTime64(3),
+            last_seen DateTime64(3),
+            occurrence_count UInt64
+        )
+        ENGINE = ReplacingMergeTree(last_seen)
+        ORDER BY (pattern_hash, service, level)
+        TTL toDateTime(first_seen) + INTERVAL $self->{retention_days} DAY
+    });
+
+    # Create materialized view to auto-populate patterns
+    # Pattern extraction: replace UUIDs, IPs, numbers, dates with placeholders
+    $self->_query(qq{
+        CREATE MATERIALIZED VIEW IF NOT EXISTS ${table}_patterns_mv TO ${db}.log_patterns AS
+        SELECT
+            cityHash64(
+                replaceRegexpAll(
+                    replaceRegexpAll(
+                        replaceRegexpAll(
+                            replaceRegexpAll(
+                                replaceRegexpAll(message,
+                                    '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<UUID>'),
+                                '[0-9]{1,3}\\\\.[0-9]{1,3}\\\\.[0-9]{1,3}\\\\.[0-9]{1,3}', '<IP>'),
+                            '[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}', '<DATETIME>'),
+                        '\\\\b[0-9]+\\\\b', '<NUM>'),
+                    '[a-fA-F0-9]{24,}', '<HEX>')
+            ) as pattern_hash,
+            replaceRegexpAll(
+                replaceRegexpAll(
+                    replaceRegexpAll(
+                        replaceRegexpAll(
+                            replaceRegexpAll(message,
+                                '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<UUID>'),
+                            '[0-9]{1,3}\\\\.[0-9]{1,3}\\\\.[0-9]{1,3}\\\\.[0-9]{1,3}', '<IP>'),
+                        '[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}', '<DATETIME>'),
+                    '\\\\b[0-9]+\\\\b', '<NUM>'),
+                '[a-fA-F0-9]{24,}', '<HEX>')
+            as pattern,
+            any(message) as sample_message,
+            service,
+            level,
+            min(timestamp) as first_seen,
+            max(timestamp) as last_seen,
+            count() as occurrence_count
+        FROM $table
+        GROUP BY pattern_hash, pattern, service, level
+    });
 }
 
 # Insert single log
@@ -393,13 +474,17 @@ sub flush {
     my $bytes = 0;
     for my $log (@logs) {
         my $row = {
-            timestamp => $self->_format_timestamp($log->{timestamp}),
-            level     => $log->{level} // 'INFO',
-            service   => $log->{service} // 'unknown',
-            host      => $log->{host} // 'localhost',
-            message   => $log->{message} // '',
-            raw       => $log->{raw} // '',
-            meta      => $self->_json->encode($log->{meta} // {}),
+            timestamp      => $self->_format_timestamp($log->{timestamp}),
+            level          => $log->{level} // 'INFO',
+            service        => $log->{service} // 'unknown',
+            host           => $log->{host} // 'localhost',
+            message        => $log->{message} // '',
+            raw            => $log->{raw} // '',
+            meta           => $self->_json->encode($log->{meta} // {}),
+            trace_id       => $log->{trace_id} // '',
+            request_id     => $log->{request_id} // '',
+            span_id        => $log->{span_id} // '',
+            parent_span_id => $log->{parent_span_id} // '',
         };
         my $json = $self->_json->encode($row);
         $bytes += length($json);
@@ -781,6 +866,216 @@ sub stats {
         db_size_bytes => $size_result->[0]{bytes} // 0,
         db_size_mb => sprintf('%.2f', ($size_result->[0]{bytes} // 0) / 1024 / 1024),
         total_rows => $size_result->[0]{rows} // 0,
+    };
+}
+
+# Get log context (surrounding logs from same service/host)
+sub get_context {
+    my ($self, $log_id, %params) = @_;
+
+    my $before = $self->_validate_int($params{before}, 1, 200) // 50;
+    my $after  = $self->_validate_int($params{after}, 1, 200) // 50;
+    my $table  = $self->database . '.' . $self->table;
+
+    # Validate UUID format
+    return { before => [], after => [], reference => undef }
+        unless $log_id && $log_id =~ /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    # First, get the reference log
+    my $ref_sql = qq{
+        SELECT
+            toString(id) as id,
+            formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts,
+            timestamp as raw_ts,
+            level, service, host, message, raw, meta as meta_json
+        FROM $table
+        WHERE toString(id) = '$log_id'
+        LIMIT 1
+    };
+
+    my $ref_result = $self->_query_json($ref_sql, no_cache => 1);
+    return { before => [], after => [], reference => undef } unless @$ref_result;
+
+    my $ref_log = $ref_result->[0];
+    my $ref_ts = $ref_log->{raw_ts};
+    my $service = $self->_quote_string($ref_log->{service});
+    my $host = $self->_quote_string($ref_log->{host});
+
+    # Get logs before (same service/host, timestamp < ref)
+    my $before_sql = qq{
+        SELECT
+            toString(id) as id,
+            formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts,
+            level, service, host, message, raw, meta as meta_json
+        FROM $table
+        WHERE service = $service
+          AND host = $host
+          AND timestamp < '$ref_ts'
+          AND toString(id) != '$log_id'
+        ORDER BY timestamp DESC
+        LIMIT $before
+    };
+
+    my $before_result = $self->_query_json($before_sql, no_cache => 1);
+
+    # Get logs after (same service/host, timestamp > ref)
+    my $after_sql = qq{
+        SELECT
+            toString(id) as id,
+            formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts,
+            level, service, host, message, raw, meta as meta_json
+        FROM $table
+        WHERE service = $service
+          AND host = $host
+          AND timestamp > '$ref_ts'
+          AND toString(id) != '$log_id'
+        ORDER BY timestamp ASC
+        LIMIT $after
+    };
+
+    my $after_result = $self->_query_json($after_sql, no_cache => 1);
+
+    # Process results - rename ts to timestamp and parse meta
+    my $process_logs = sub {
+        my ($logs) = @_;
+        for my $row (@$logs) {
+            $row->{timestamp} = delete $row->{ts};
+            $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
+            delete $row->{meta_json};
+        }
+        return $logs;
+    };
+
+    # Process reference log
+    $ref_log->{timestamp} = delete $ref_log->{ts};
+    $ref_log->{meta} = eval { $self->_json->decode($ref_log->{meta_json} // '{}') } // {};
+    delete $ref_log->{meta_json};
+    delete $ref_log->{raw_ts};
+
+    return {
+        reference => $ref_log,
+        before    => [ reverse @{ $process_logs->($before_result) } ],  # Chronological order
+        after     => $process_logs->($after_result),
+    };
+}
+
+# Search logs by trace ID (all services)
+sub search_by_trace {
+    my ($self, $trace_id, %params) = @_;
+
+    my $table = $self->database . '.' . $self->table;
+
+    # Validate trace_id
+    my $valid_trace = $self->_sanitize_trace_id($trace_id);
+    return { hits => [], total => 0 } unless $valid_trace;
+
+    my $limit = $self->_validate_int($params{limit}, 1, 1000) // 200;
+
+    my $sql = qq{
+        SELECT
+            toString(id) as id,
+            formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts,
+            level, service, host, message, raw, meta as meta_json,
+            trace_id, request_id, span_id, parent_span_id
+        FROM $table
+        WHERE trace_id = } . $self->_quote_string($valid_trace) . qq{
+        ORDER BY timestamp ASC
+        LIMIT $limit
+    };
+
+    my $results = $self->_query_json($sql, no_cache => 1);
+
+    # Process results
+    for my $row (@$results) {
+        $row->{timestamp} = delete $row->{ts};
+        $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
+        delete $row->{meta_json};
+    }
+
+    # Get count
+    my $count_sql = qq{
+        SELECT count() as cnt FROM $table
+        WHERE trace_id = } . $self->_quote_string($valid_trace);
+    my $count_result = $self->_query_json($count_sql, no_cache => 1);
+
+    return {
+        hits  => $results,
+        total => $count_result->[0]{cnt} // scalar @$results,
+    };
+}
+
+# Get trace timeline (services with time spans)
+sub get_trace_timeline {
+    my ($self, $trace_id) = @_;
+
+    my $table = $self->database . '.' . $self->table;
+
+    # Validate trace_id
+    my $valid_trace = $self->_sanitize_trace_id($trace_id);
+    return [] unless $valid_trace;
+
+    my $sql = qq{
+        SELECT
+            service,
+            min(timestamp) as start_time,
+            max(timestamp) as end_time,
+            count() as log_count,
+            countIf(level IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT', 'FATAL')) as error_count
+        FROM $table
+        WHERE trace_id = } . $self->_quote_string($valid_trace) . qq{
+        GROUP BY service
+        ORDER BY start_time ASC
+    };
+
+    my $results = $self->_query_json($sql, no_cache => 1);
+
+    # Format timestamps
+    for my $row (@$results) {
+        $row->{start_time} =~ s/ /T/;
+        $row->{start_time} .= 'Z' unless $row->{start_time} =~ /Z$/;
+        $row->{end_time} =~ s/ /T/;
+        $row->{end_time} .= 'Z' unless $row->{end_time} =~ /Z$/;
+    }
+
+    return $results;
+}
+
+# Search logs by request ID
+sub search_by_request {
+    my ($self, $request_id, %params) = @_;
+
+    my $table = $self->database . '.' . $self->table;
+
+    # Validate request_id
+    my $valid_request = $self->_sanitize_trace_id($request_id);
+    return { hits => [], total => 0 } unless $valid_request;
+
+    my $limit = $self->_validate_int($params{limit}, 1, 1000) // 200;
+
+    my $sql = qq{
+        SELECT
+            toString(id) as id,
+            formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts,
+            level, service, host, message, raw, meta as meta_json,
+            trace_id, request_id, span_id, parent_span_id
+        FROM $table
+        WHERE request_id = } . $self->_quote_string($valid_request) . qq{
+        ORDER BY timestamp ASC
+        LIMIT $limit
+    };
+
+    my $results = $self->_query_json($sql, no_cache => 1);
+
+    # Process results
+    for my $row (@$results) {
+        $row->{timestamp} = delete $row->{ts};
+        $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
+        delete $row->{meta_json};
+    }
+
+    return {
+        hits  => $results,
+        total => scalar @$results,
     };
 }
 

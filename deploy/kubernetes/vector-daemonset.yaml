@@ -72,6 +72,35 @@ data:
       .level = upcase(parsed.level ?? parsed.severity ?? .level)
     }
 
+    # Extract trace/request IDs
+    .trace_id = ""
+    .request_id = ""
+    .span_id = ""
+    .parent_span_id = ""
+
+    if err == null {
+      # JSON log - extract trace fields (multiple naming conventions)
+      .trace_id = string(parsed.trace_id ?? parsed.traceId ?? parsed.traceid ?? parsed."X-Trace-Id" ?? "") ?? ""
+      .request_id = string(parsed.request_id ?? parsed.requestId ?? parsed.reqId ?? parsed.req_id ?? parsed."X-Request-Id" ?? "") ?? ""
+      .span_id = string(parsed.span_id ?? parsed.spanId ?? parsed.spanid ?? "") ?? ""
+      .parent_span_id = string(parsed.parent_span_id ?? parsed.parentSpanId ?? parsed.parent_id ?? parsed.parentId ?? "") ?? ""
+    }
+
+    # Fallback: extract from message using regex
+    raw_msg = string!(.raw)
+    if .trace_id == "" {
+      trace_match, trace_err = parse_regex(raw_msg, r'(?i)(?:trace[-_]?id|traceid)[=:\s]+["\']?(?P<trace>[a-f0-9-]{16,36})["\']?')
+      if trace_err == null {
+        .trace_id = trace_match.trace ?? ""
+      }
+    }
+    if .request_id == "" {
+      req_match, req_err = parse_regex(raw_msg, r'(?i)(?:request[-_]?id|requestid|req[-_]?id)[=:\s]+["\']?(?P<req>[a-f0-9-]{8,36})["\']?')
+      if req_err == null {
+        .request_id = req_match.req ?? ""
+      }
+    }
+
     # Add cluster label
     .meta.cluster = get_env_var("CLUSTER_NAME") ?? "default"
 

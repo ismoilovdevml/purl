@@ -1,8 +1,12 @@
 <script>
   import { onMount } from 'svelte';
-  import { formatTimestamp, formatFullTimestamp, getLevelColor, query } from '../stores/logs.js';
+  import { formatTimestamp, formatFullTimestamp, getLevelColor, query, fetchLogContext, filterByTrace, filterByRequest } from '../stores/logs.js';
 
   export let logs = [];
+
+  // Context state
+  let contextData = {};
+  let contextLoading = {};
 
   // Current search query for highlighting
   let searchQuery = '';
@@ -75,6 +79,33 @@
 
   function copyToClipboard(text) {
     navigator.clipboard.writeText(text);
+  }
+
+  async function loadContext(logId) {
+    if (contextData[logId]) {
+      // Toggle off if already loaded
+      delete contextData[logId];
+      contextData = contextData;
+      return;
+    }
+
+    contextLoading[logId] = true;
+    contextLoading = contextLoading;
+
+    const data = await fetchLogContext(logId, 50, 50);
+
+    contextLoading[logId] = false;
+    contextLoading = contextLoading;
+
+    if (data) {
+      contextData[logId] = data;
+      contextData = contextData;
+    }
+  }
+
+  function closeContext(logId) {
+    delete contextData[logId];
+    contextData = contextData;
   }
 
   function toggleColumn(colId) {
@@ -235,6 +266,21 @@
                     <button class="copy-btn" on:click|stopPropagation={() => copyToClipboard(JSON.stringify(log, null, 2))} title="Copy as JSON">
                       JSON
                     </button>
+                    <button
+                      class="context-btn"
+                      class:active={contextData[log.id]}
+                      on:click|stopPropagation={() => loadContext(log.id)}
+                      title="Show surrounding logs"
+                      disabled={contextLoading[log.id]}
+                    >
+                      {#if contextLoading[log.id]}
+                        Loading...
+                      {:else if contextData[log.id]}
+                        Hide Context
+                      {:else}
+                        Show Context
+                      {/if}
+                    </button>
                   </div>
 
                   <div class="detail-lines">
@@ -272,6 +318,36 @@
                       {/if}
                     {/if}
 
+                    {#if log.trace_id}
+                      <button type="button" class="detail-line trace" on:click|stopPropagation={() => filterByTrace(log.trace_id)} title="Filter by trace ID">
+                        <span class="line-key">trace_id</span>
+                        <span class="line-value mono trace-link">{log.trace_id}</span>
+                        <span class="trace-action">Filter</span>
+                      </button>
+                    {/if}
+
+                    {#if log.request_id}
+                      <button type="button" class="detail-line trace" on:click|stopPropagation={() => filterByRequest(log.request_id)} title="Filter by request ID">
+                        <span class="line-key">request_id</span>
+                        <span class="line-value mono trace-link">{log.request_id}</span>
+                        <span class="trace-action">Filter</span>
+                      </button>
+                    {/if}
+
+                    {#if log.span_id}
+                      <button type="button" class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.span_id)}>
+                        <span class="line-key">span_id</span>
+                        <span class="line-value mono">{log.span_id}</span>
+                      </button>
+                    {/if}
+
+                    {#if log.parent_span_id}
+                      <button type="button" class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.parent_span_id)}>
+                        <span class="line-key">parent_span</span>
+                        <span class="line-value mono">{log.parent_span_id}</span>
+                      </button>
+                    {/if}
+
                     {#if log.raw && log.raw !== log.message}
                       <div class="detail-line raw">
                         <span class="line-key">raw</span>
@@ -279,6 +355,47 @@
                       </div>
                     {/if}
                   </div>
+
+                  <!-- Context Panel -->
+                  {#if contextData[log.id]}
+                    <div class="context-panel">
+                      <div class="context-header">
+                        <span class="context-title">
+                          Context: {contextData[log.id].before_count} before, {contextData[log.id].after_count} after
+                        </span>
+                        <button class="context-close" on:click|stopPropagation={() => closeContext(log.id)}>
+                          Close
+                        </button>
+                      </div>
+                      <div class="context-logs">
+                        <!-- Before logs -->
+                        {#each contextData[log.id].before_logs as ctxLog}
+                          <div class="context-log before">
+                            <span class="ctx-time">{formatTimestamp(ctxLog.timestamp)}</span>
+                            <span class="ctx-level" style="color: {getLevelColor(ctxLog.level)}">{ctxLog.level}</span>
+                            <span class="ctx-message">{ctxLog.message}</span>
+                          </div>
+                        {/each}
+
+                        <!-- Current log marker -->
+                        <div class="context-log current">
+                          <span class="ctx-time">{formatTimestamp(log.timestamp)}</span>
+                          <span class="ctx-level" style="color: {getLevelColor(log.level)}">{log.level}</span>
+                          <span class="ctx-message">{log.message}</span>
+                          <span class="ctx-marker">← Current</span>
+                        </div>
+
+                        <!-- After logs -->
+                        {#each contextData[log.id].after_logs as ctxLog}
+                          <div class="context-log after">
+                            <span class="ctx-time">{formatTimestamp(ctxLog.timestamp)}</span>
+                            <span class="ctx-level" style="color: {getLevelColor(ctxLog.level)}">{ctxLog.level}</span>
+                            <span class="ctx-message">{ctxLog.message}</span>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
                 </div>
               </td>
             </tr>
@@ -628,5 +745,166 @@
     padding: 1px 2px;
     border-radius: 2px;
     font-weight: 600;
+  }
+
+  /* Context button */
+  .context-btn {
+    padding: 4px 10px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #58a6ff;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .context-btn:hover {
+    background: #30363d;
+    border-color: #58a6ff;
+  }
+
+  .context-btn.active {
+    background: #388bfd20;
+    border-color: #58a6ff;
+  }
+
+  .context-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  /* Context panel */
+  .context-panel {
+    margin-top: 12px;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    background: #0d1117;
+    overflow: hidden;
+  }
+
+  .context-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+  }
+
+  .context-title {
+    font-size: 12px;
+    color: #8b949e;
+    font-weight: 500;
+  }
+
+  .context-close {
+    padding: 2px 8px;
+    background: transparent;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #8b949e;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .context-close:hover {
+    background: #21262d;
+    color: #c9d1d9;
+  }
+
+  .context-logs {
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .context-log {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 6px 12px;
+    font-size: 12px;
+    border-bottom: 1px solid #21262d;
+  }
+
+  .context-log:last-child {
+    border-bottom: none;
+  }
+
+  .context-log.before {
+    background: #161b2280;
+    opacity: 0.7;
+  }
+
+  .context-log.after {
+    background: #161b2280;
+    opacity: 0.7;
+  }
+
+  .context-log.current {
+    background: #388bfd15;
+    border-left: 3px solid #58a6ff;
+    font-weight: 500;
+  }
+
+  .ctx-time {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    color: #8b949e;
+    flex-shrink: 0;
+    width: 70px;
+  }
+
+  .ctx-level {
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+    width: 60px;
+  }
+
+  .ctx-message {
+    flex: 1;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    color: #c9d1d9;
+    word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ctx-marker {
+    color: #58a6ff;
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  /* Trace/Request ID styling */
+  .detail-line.trace {
+    background: #21262d;
+    border: 1px solid #30363d;
+    margin-top: 4px;
+    border-radius: 4px;
+  }
+
+  .detail-line.trace:hover {
+    background: #30363d;
+    border-color: #58a6ff;
+  }
+
+  .trace-link {
+    color: #58a6ff;
+  }
+
+  .trace-action {
+    font-size: 11px;
+    color: #8b949e;
+    background: #21262d;
+    padding: 2px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .detail-line.trace:hover .trace-action {
+    background: #388bfd30;
+    color: #58a6ff;
   }
 </style>

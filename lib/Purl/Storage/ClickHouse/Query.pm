@@ -8,6 +8,7 @@ use Moo::Role;
 # Allowed field names (whitelist for SQL injection prevention)
 my %ALLOWED_FIELDS = map { $_ => 1 } qw(
     level service host timestamp message raw meta
+    trace_id request_id span_id parent_span_id
 );
 
 # Allowed level values
@@ -79,6 +80,15 @@ sub _validate_uuid {
     return 1;
 }
 
+# Sanitize trace/request ID (alphanumeric, dash only, 8-36 chars)
+sub _sanitize_trace_id {
+    my ($self, $value) = @_;
+    return undef unless defined $value;
+    # Only allow hex characters and dashes (common formats: UUID, W3C trace-id)
+    $value =~ s/[^a-fA-F0-9\-]//g;
+    return (length($value) >= 8 && length($value) <= 36) ? lc($value) : undef;
+}
+
 # Build WHERE clause from parameters
 sub _build_where_clause {
     my ($self, %params) = @_;
@@ -139,6 +149,30 @@ sub _build_where_clause {
     # Full-text search
     if ($params{query}) {
         push @where, "position(message, " . $self->_quote_string($params{query}) . ") > 0";
+    }
+
+    # Trace ID filter
+    if ($params{trace_id}) {
+        my $trace_id = $self->_sanitize_trace_id($params{trace_id});
+        if ($trace_id) {
+            push @where, "trace_id = " . $self->_quote_string($trace_id);
+        }
+    }
+
+    # Request ID filter
+    if ($params{request_id}) {
+        my $request_id = $self->_sanitize_trace_id($params{request_id});
+        if ($request_id) {
+            push @where, "request_id = " . $self->_quote_string($request_id);
+        }
+    }
+
+    # Span ID filter
+    if ($params{span_id}) {
+        my $span_id = $self->_sanitize_trace_id($params{span_id});
+        if ($span_id) {
+            push @where, "span_id = " . $self->_quote_string($span_id);
+        }
     }
 
     return @where ? 'WHERE ' . join(' AND ', @where) : '';

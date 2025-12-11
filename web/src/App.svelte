@@ -9,6 +9,7 @@
   import AlertsPanel from './components/AlertsPanel.svelte';
   import AnalyticsPage from './components/AnalyticsPage.svelte';
   import SettingsPage from './components/SettingsPage.svelte';
+  import PatternsSidebar from './components/PatternsSidebar.svelte';
   import { logs, loading, query, timeRange, total, searchLogs, connectWebSocket } from './stores/logs.js';
 
   let ws;
@@ -229,6 +230,10 @@
         <Histogram />
         <LogTable logs={$logs} />
       </div>
+
+      <aside class="patterns-aside">
+        <PatternsSidebar />
+      </aside>
     </div>
   {:else if currentPage === 'analytics'}
     <AnalyticsPage />
@@ -431,6 +436,12 @@
     flex: 1;
     padding: 16px;
     overflow: auto;
+  }
+
+  .patterns-aside {
+    padding: 16px;
+    padding-left: 0;
+    flex-shrink: 0;
   }
 
   .export-dropdown {

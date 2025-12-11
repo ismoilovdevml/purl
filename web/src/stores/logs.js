@@ -237,3 +237,190 @@ export function getLevelColor(level) {
   };
   return colors[level] || '#8b949e';
 }
+
+// Fetch log context (surrounding logs)
+export async function fetchLogContext(logId, before = 50, after = 50) {
+  try {
+    const params = new URLSearchParams({
+      before: before.toString(),
+      after: after.toString(),
+    });
+    const response = await fetch(`${API_BASE}/logs/${logId}/context?${params}`);
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Failed to fetch context');
+    }
+
+    return await response.json();
+  } catch (err) {
+    console.error('Failed to fetch log context:', err);
+    return null;
+  }
+}
+
+// ============================================
+// Trace Correlation
+// ============================================
+
+// Trace data store
+export const traceData = writable(null);
+export const traceLoading = writable(false);
+export const traceError = writable(null);
+
+// Fetch logs by trace ID
+export async function fetchTrace(traceId) {
+  if (!traceId) return null;
+
+  traceLoading.set(true);
+  traceError.set(null);
+
+  try {
+    const response = await fetch(`${API_BASE}/traces/${traceId}`);
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Failed to fetch trace');
+    }
+
+    const data = await response.json();
+    traceData.set(data);
+    return data;
+  } catch (err) {
+    traceError.set(err.message);
+    console.error('Failed to fetch trace:', err);
+    return null;
+  } finally {
+    traceLoading.set(false);
+  }
+}
+
+// Fetch trace timeline (service spans)
+export async function fetchTraceTimeline(traceId) {
+  if (!traceId) return null;
+
+  try {
+    const response = await fetch(`${API_BASE}/traces/${traceId}/timeline`);
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Failed to fetch timeline');
+    }
+
+    return await response.json();
+  } catch (err) {
+    console.error('Failed to fetch trace timeline:', err);
+    return null;
+  }
+}
+
+// Fetch logs by request ID
+export async function fetchRequest(requestId) {
+  if (!requestId) return null;
+
+  try {
+    const response = await fetch(`${API_BASE}/requests/${requestId}`);
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Failed to fetch request');
+    }
+
+    return await response.json();
+  } catch (err) {
+    console.error('Failed to fetch request:', err);
+    return null;
+  }
+}
+
+// Filter logs by trace ID (sets query and searches)
+export function filterByTrace(traceId) {
+  if (!traceId) return;
+  query.set(`trace_id:${traceId}`);
+  searchLogs();
+}
+
+// Filter logs by request ID
+export function filterByRequest(requestId) {
+  if (!requestId) return;
+  query.set(`request_id:${requestId}`);
+  searchLogs();
+}
+
+// ============================================
+// Log Patterns
+// ============================================
+
+// Patterns store
+export const patterns = writable([]);
+export const patternsLoading = writable(false);
+export const patternsError = writable(null);
+
+// Fetch patterns
+export async function fetchPatterns() {
+  patternsLoading.set(true);
+  patternsError.set(null);
+
+  try {
+    let currentRange;
+    timeRange.subscribe(v => currentRange = v)();
+
+    const params = new URLSearchParams({
+      range: currentRange,
+      limit: '30',
+    });
+
+    const response = await fetch(`${API_BASE}/patterns?${params}`);
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Failed to fetch patterns');
+    }
+
+    const data = await response.json();
+    patterns.set(data.patterns || []);
+  } catch (err) {
+    patternsError.set(err.message);
+    console.error('Failed to fetch patterns:', err);
+  } finally {
+    patternsLoading.set(false);
+  }
+}
+
+// Fetch logs for a specific pattern
+export async function fetchPatternLogs(patternHash) {
+  if (!patternHash) return null;
+
+  try {
+    let currentRange;
+    timeRange.subscribe(v => currentRange = v)();
+
+    const params = new URLSearchParams({
+      range: currentRange,
+      limit: '100',
+    });
+
+    const response = await fetch(`${API_BASE}/patterns/${patternHash}/logs?${params}`);
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Failed to fetch pattern logs');
+    }
+
+    return await response.json();
+  } catch (err) {
+    console.error('Failed to fetch pattern logs:', err);
+    return null;
+  }
+}
+
+// Highlight placeholders in pattern text
+export function highlightPattern(pattern) {
+  if (!pattern) return '';
+  return pattern
+    .replace(/<UUID>/g, '<span class="placeholder uuid">&lt;UUID&gt;</span>')
+    .replace(/<IP>/g, '<span class="placeholder ip">&lt;IP&gt;</span>')
+    .replace(/<NUM>/g, '<span class="placeholder num">&lt;NUM&gt;</span>')
+    .replace(/<DATETIME>/g, '<span class="placeholder datetime">&lt;DATETIME&gt;</span>')
+    .replace(/<HEX>/g, '<span class="placeholder hex">&lt;HEX&gt;</span>');
+}
