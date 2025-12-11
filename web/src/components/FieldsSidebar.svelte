@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
-  import { levelStats, serviceStats, hostStats, getLevelColor, total } from '../stores/logs.js';
+  import { levelStats, serviceStats, hostStats, getLevelColor } from '../stores/logs.js';
 
   const dispatch = createEventDispatcher();
 
@@ -35,9 +35,20 @@
     return count;
   }
 
-  function getPercentage(count) {
-    const t = $total || 1;
-    return Math.min(100, (count / t) * 100);
+  // Calculate percentage relative to category total
+  function getLevelPercentage(count) {
+    const categoryTotal = $levelStats.reduce((sum, s) => sum + s.count, 0) || 1;
+    return (count / categoryTotal) * 100;
+  }
+
+  function getServicePercentage(count) {
+    const categoryTotal = $serviceStats.reduce((sum, s) => sum + s.count, 0) || 1;
+    return (count / categoryTotal) * 100;
+  }
+
+  function getHostPercentage(count) {
+    const categoryTotal = $hostStats.reduce((sum, s) => sum + s.count, 0) || 1;
+    return (count / categoryTotal) * 100;
   }
 
   // Filter fields by search
@@ -99,7 +110,7 @@
                 <div class="value-bar" style="width: {(item.count / maxLevelCount) * 100}%; background: {getLevelColor(item.value)}40"></div>
               </div>
               <span class="value-count">{formatCount(item.count)}</span>
-              <span class="value-percent">{getPercentage(item.count).toFixed(0)}%</span>
+              <span class="value-percent">{getLevelPercentage(item.count).toFixed(0)}%</span>
             </button>
             <button class="exclude-btn" on:click|stopPropagation={() => handleFilter('level', item.value, true)} title="Exclude">
               <svg width="10" height="10" viewBox="0 0 10 10"><path stroke="currentColor" stroke-width="1.5" d="M2 2l6 6M8 2L2 8"/></svg>
@@ -134,7 +145,7 @@
                 <div class="value-bar" style="width: {(item.count / maxServiceCount) * 100}%; background: #58a6ff40"></div>
               </div>
               <span class="value-count">{formatCount(item.count)}</span>
-              <span class="value-percent">{getPercentage(item.count).toFixed(0)}%</span>
+              <span class="value-percent">{getServicePercentage(item.count).toFixed(0)}%</span>
             </button>
             <button class="exclude-btn" on:click|stopPropagation={() => handleFilter('service', item.value, true)} title="Exclude">
               <svg width="10" height="10" viewBox="0 0 10 10"><path stroke="currentColor" stroke-width="1.5" d="M2 2l6 6M8 2L2 8"/></svg>
@@ -169,7 +180,7 @@
                 <div class="value-bar" style="width: {(item.count / maxHostCount) * 100}%; background: #a371f740"></div>
               </div>
               <span class="value-count">{formatCount(item.count)}</span>
-              <span class="value-percent">{getPercentage(item.count).toFixed(0)}%</span>
+              <span class="value-percent">{getHostPercentage(item.count).toFixed(0)}%</span>
             </button>
             <button class="exclude-btn" on:click|stopPropagation={() => handleFilter('host', item.value, true)} title="Exclude">
               <svg width="10" height="10" viewBox="0 0 10 10"><path stroke="currentColor" stroke-width="1.5" d="M2 2l6 6M8 2L2 8"/></svg>
