@@ -91,7 +91,7 @@ type = "http"
 inputs = ["parse"]
 uri = "${PURL_URL}/api/logs"
 method = "post"
-compression = "gzip"
+compression = "none"
 
 [sinks.purl.encoding]
 codec = "json"

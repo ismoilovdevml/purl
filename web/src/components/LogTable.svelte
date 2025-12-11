@@ -1,8 +1,20 @@
 <script>
   import { onMount } from 'svelte';
-  import { formatTimestamp, formatFullTimestamp, getLevelColor } from '../stores/logs.js';
+  import { formatTimestamp, formatFullTimestamp, getLevelColor, query } from '../stores/logs.js';
 
   export let logs = [];
+
+  // Current search query for highlighting
+  let searchQuery = '';
+  query.subscribe(v => searchQuery = v);
+
+  // Highlight matching text in a string
+  function highlightText(text, query) {
+    if (!query || !text) return text;
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    return text.replace(regex, '<mark class="search-highlight">$1</mark>');
+  }
 
   let selectedLog = null;
   let showColumnMenu = false;
@@ -191,7 +203,7 @@
             {/if}
             {#if columns.find(c => c.id === 'message')?.visible}
               <td>
-                <span class="message">{log.message}</span>
+                <span class="message">{@html highlightText(log.message, searchQuery)}</span>
               </td>
             {/if}
           </tr>
@@ -200,74 +212,55 @@
             <tr class="detail-row">
               <td colspan={colspanCount}>
                 <div class="log-detail">
-                  <div class="detail-header">
-                    <h4>Log Details</h4>
-                    <div class="detail-actions">
-                      <button class="action-btn" on:click|stopPropagation={() => copyToClipboard(log.raw)} title="Copy raw log">
-                        <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M4 2a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1H4Zm5 7H4V3h5v6Z"/><path fill="currentColor" d="M2 4v6a2 2 0 0 0 2 2h5v-1H4a1 1 0 0 1-1-1V4H2Z"/></svg>
-                        Copy Raw
-                      </button>
-                      <button class="action-btn" on:click|stopPropagation={() => copyToClipboard(JSON.stringify(log, null, 2))} title="Copy as JSON">
-                        <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M3 2a1 1 0 0 0-1 1v2a1 1 0 0 1-1 1 1 1 0 0 1 1 1v2a1 1 0 0 0 1 1M9 2a1 1 0 0 1 1 1v2a1 1 0 0 0 1 1 1 1 0 0 0-1 1v2a1 1 0 0 1-1 1"/></svg>
-                        Copy JSON
-                      </button>
+                  <div class="detail-actions">
+                    <button class="copy-btn" on:click|stopPropagation={() => copyToClipboard(log.raw || log.message)} title="Copy raw log">
+                      Copy
+                    </button>
+                    <button class="copy-btn" on:click|stopPropagation={() => copyToClipboard(JSON.stringify(log, null, 2))} title="Copy as JSON">
+                      JSON
+                    </button>
+                  </div>
+
+                  <div class="detail-lines">
+                    <div class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.timestamp)}>
+                      <span class="line-key">timestamp</span>
+                      <span class="line-value mono">{log.timestamp}</span>
                     </div>
-                  </div>
+                    <div class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.level)}>
+                      <span class="line-key">level</span>
+                      <span class="line-value" style="color: {getLevelColor(log.level)}">{log.level}</span>
+                    </div>
+                    <div class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.service)}>
+                      <span class="line-key">service</span>
+                      <span class="line-value blue">{log.service}</span>
+                    </div>
+                    <div class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.host)}>
+                      <span class="line-key">host</span>
+                      <span class="line-value purple">{log.host}</span>
+                    </div>
+                    <div class="detail-line msg" on:click|stopPropagation={() => copyToClipboard(log.message)}>
+                      <span class="line-key">message</span>
+                      <span class="line-value mono">{@html highlightText(log.message, searchQuery)}</span>
+                    </div>
 
-                  <div class="detail-grid">
-                    <button class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.timestamp)} title="Click to copy">
-                      <span class="field-name">timestamp</span>
-                      <span class="field-value mono">{log.timestamp}</span>
-                    </button>
-                    <button class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.level)} title="Click to copy">
-                      <span class="field-name">level</span>
-                      <span class="field-value">
-                        <span class="level-badge-sm" style="background: {getLevelColor(log.level)}20; color: {getLevelColor(log.level)}">{log.level}</span>
-                      </span>
-                    </button>
-                    <button class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.service)} title="Click to copy">
-                      <span class="field-name">service</span>
-                      <span class="field-value highlight-blue">{log.service}</span>
-                    </button>
-                    <button class="detail-field clickable" on:click|stopPropagation={() => copyToClipboard(log.host)} title="Click to copy">
-                      <span class="field-name">host</span>
-                      <span class="field-value highlight-purple">{log.host}</span>
-                    </button>
-                  </div>
+                    {#if log.meta}
+                      {@const parsedMeta = typeof log.meta === 'string' ? (() => { try { return JSON.parse(log.meta); } catch { return null; } })() : log.meta}
+                      {#if parsedMeta && typeof parsedMeta === 'object' && Object.keys(parsedMeta).length > 0}
+                        {#each Object.entries(parsedMeta) as [key, value]}
+                          <div class="detail-line meta" on:click|stopPropagation={() => copyToClipboard(String(value))}>
+                            <span class="line-key">{key}</span>
+                            <span class="line-value mono">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
+                          </div>
+                        {/each}
+                      {/if}
+                    {/if}
 
-                  <div class="detail-field full-width">
-                    <span class="field-name">message</span>
-                    <span class="field-value mono">{log.message}</span>
-                  </div>
-
-                  {#if log.meta}
-                    {@const parsedMeta = typeof log.meta === 'string' ? (() => { try { return JSON.parse(log.meta); } catch { return null; } })() : log.meta}
-                    {#if parsedMeta && typeof parsedMeta === 'object' && Object.keys(parsedMeta).length > 0}
-                      <div class="detail-section">
-                        <h5>
-                          <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 3h8v1H2V3Zm0 2h8v1H2V5Zm0 2h6v1H2V7Zm0 2h4v1H2V9Z"/></svg>
-                          Meta Fields
-                        </h5>
-                        <div class="meta-grid">
-                          {#each Object.entries(parsedMeta) as [key, value]}
-                            <button class="meta-field" on:click|stopPropagation={() => copyToClipboard(String(value))} title="Click to copy">
-                              <span class="meta-key">{key}</span>
-                              <span class="meta-value">
-                                {typeof value === 'object' ? JSON.stringify(value) : value}
-                              </span>
-                            </button>
-                          {/each}
-                        </div>
+                    {#if log.raw && log.raw !== log.message}
+                      <div class="detail-line raw">
+                        <span class="line-key">raw</span>
+                        <pre class="line-value mono">{log.raw}</pre>
                       </div>
                     {/if}
-                  {/if}
-
-                  <div class="detail-section">
-                    <h5>
-                      <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M1 2h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm0 1v6h10V3H1Zm1 1h2v1H2V4Zm3 0h5v1H5V4Zm-3 2h1v1H2V6Zm2 0h4v1H4V6Z"/></svg>
-                      Raw Log
-                    </h5>
-                    <pre class="raw-log">{log.raw}</pre>
                   </div>
                 </div>
               </td>
@@ -330,10 +323,10 @@
     margin-top: 4px;
     background: #161b22;
     border: 1px solid #30363d;
-    border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
     z-index: 100;
-    min-width: 180px;
+    min-width: 240px;
     overflow: hidden;
   }
 
@@ -341,10 +334,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 12px;
+    padding: 12px 16px;
     border-bottom: 1px solid #30363d;
-    font-size: 12px;
-    color: #8b949e;
+    font-size: 13px;
+    font-weight: 500;
+    color: #c9d1d9;
   }
 
   .reset-btn {
@@ -352,21 +346,24 @@
     border: none;
     color: #58a6ff;
     cursor: pointer;
-    font-size: 11px;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
   }
 
   .reset-btn:hover {
-    text-decoration: underline;
+    background: #21262d;
   }
 
   .column-option {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
+    gap: 12px;
+    padding: 10px 16px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 14px;
     color: #c9d1d9;
+    transition: background 0.1s;
   }
 
   .column-option:hover {
@@ -374,6 +371,8 @@
   }
 
   .column-option input {
+    width: 16px;
+    height: 16px;
     accent-color: #58a6ff;
   }
 
@@ -499,193 +498,109 @@
   }
 
   .log-detail {
-    padding: 16px 20px;
-    border-top: 2px solid #30363d;
-  }
-
-  .detail-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid #21262d;
-  }
-
-  .detail-header h4 {
-    font-size: 14px;
-    font-weight: 600;
-    color: #c9d1d9;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    padding: 12px 16px;
+    border-left: 3px solid #30363d;
+    margin-left: 8px;
   }
 
   .detail-actions {
     display: flex;
-    gap: 8px;
-  }
-
-  .action-btn {
-    display: flex;
-    align-items: center;
     gap: 6px;
-    padding: 6px 12px;
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .action-btn:hover {
-    background: #30363d;
-    border-color: #484f58;
-  }
-
-  .action-btn svg {
-    color: #8b949e;
-  }
-
-  .detail-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-
-  .detail-field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 10px 12px;
-    background: #161b22;
-    border: 1px solid #21262d;
-    border-radius: 6px;
-  }
-
-  .detail-field.clickable {
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .detail-field.clickable:hover {
-    border-color: #30363d;
-    background: #1c2128;
-  }
-
-  .detail-field.full-width {
-    grid-column: 1 / -1;
-    margin-bottom: 8px;
-  }
-
-  .field-name {
-    font-size: 11px;
-    font-weight: 500;
-    color: #8b949e;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .field-value {
-    color: #c9d1d9;
-    font-size: 13px;
-    word-break: break-all;
-  }
-
-  .field-value.mono {
-    font-family: 'SFMono-Regular', Consolas, monospace;
-    font-size: 12px;
-  }
-
-  .field-value.highlight-blue {
-    color: #58a6ff;
-    font-weight: 500;
-  }
-
-  .field-value.highlight-purple {
-    color: #a371f7;
-    font-weight: 500;
-  }
-
-  .level-badge-sm {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-  }
-
-  .detail-section {
-    margin-top: 16px;
-  }
-
-  .detail-section h5 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #8b949e;
     margin-bottom: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
   }
 
-  .detail-section h5 svg {
-    color: #6e7681;
+  .copy-btn {
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #8b949e;
+    font-size: 11px;
+    cursor: pointer;
   }
 
-  .meta-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 8px;
+  .copy-btn:hover {
+    background: #21262d;
+    color: #c9d1d9;
   }
 
-  .meta-field {
+  .detail-lines {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding: 8px 10px;
-    background: #161b22;
-    border: 1px solid #21262d;
+  }
+
+  .detail-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 4px 8px;
     border-radius: 4px;
     cursor: pointer;
-    transition: all 0.15s;
   }
 
-  .meta-field:hover {
-    border-color: #30363d;
-    background: #1c2128;
-  }
-
-  .meta-key {
-    font-size: 10px;
-    color: #6e7681;
-    text-transform: uppercase;
-  }
-
-  .meta-value {
-    font-family: 'SFMono-Regular', Consolas, monospace;
-    font-size: 12px;
-    color: #c9d1d9;
-    word-break: break-all;
-  }
-
-  .raw-log {
-    padding: 14px;
+  .detail-line:hover {
     background: #161b22;
-    border: 1px solid #21262d;
-    border-radius: 6px;
+  }
+
+  .detail-line.msg {
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px solid #21262d;
+  }
+
+  .detail-line.meta {
+    opacity: 0.85;
+  }
+
+  .detail-line.raw {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #21262d;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .line-key {
+    min-width: 80px;
+    font-size: 12px;
+    color: #6e7681;
+  }
+
+  .line-value {
+    flex: 1;
+    font-size: 13px;
+    color: #c9d1d9;
+    word-break: break-all;
+  }
+
+  .line-value.mono {
     font-family: 'SFMono-Regular', Consolas, monospace;
     font-size: 12px;
-    color: #c9d1d9;
+  }
+
+  .line-value.blue {
+    color: #58a6ff;
+  }
+
+  .line-value.purple {
+    color: #a371f7;
+  }
+
+  .detail-line.raw .line-value {
     white-space: pre-wrap;
-    word-break: break-all;
+    background: #161b22;
+    padding: 8px;
+    border-radius: 4px;
     margin: 0;
-    line-height: 1.6;
+  }
+
+  /* Search highlight */
+  :global(.search-highlight) {
+    background: #f5a623;
+    color: #0d1117;
+    padding: 1px 2px;
+    border-radius: 2px;
+    font-weight: 600;
   }
 </style>

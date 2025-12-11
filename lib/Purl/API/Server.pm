@@ -510,14 +510,27 @@ METRICS
 
     # Ingest logs (POST)
     $protected->post('/logs' => sub ($c) {
-        my $body = eval { decode_json($c->req->body) };
-        unless ($body) {
-            $metrics{errors_total}++;
-            $c->render(json => { error => 'Invalid JSON' }, status => 400);
-            return;
+        my $raw_body = $c->req->body;
+        my $logs = [];
+
+        # Try parsing as JSON array first
+        my $body = eval { decode_json($raw_body) };
+        if ($body) {
+            $logs = ref $body eq 'ARRAY' ? $body : [$body];
+        } else {
+            # Try parsing as NDJSON (newline-delimited JSON) - Vector format
+            for my $line (split /\n/, $raw_body) {
+                next unless $line =~ /\S/;  # Skip empty lines
+                my $log = eval { decode_json($line) };
+                push @$logs, $log if $log;
+            }
         }
 
-        my $logs = ref $body eq 'ARRAY' ? $body : [$body];
+        unless (@$logs) {
+            $metrics{errors_total}++;
+            $c->render(json => { error => 'Invalid JSON or NDJSON' }, status => 400);
+            return;
+        }
         my $count = 0;
 
         for my $log (@$logs) {
