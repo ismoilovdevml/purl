@@ -22,6 +22,28 @@ export const metrics = writable(null);
 // API base URL
 const API_BASE = '/api';
 
+// Get API key from localStorage or default
+function getApiKey() {
+  return localStorage.getItem('purl_api_key') || '';
+}
+
+// Set API key in localStorage
+export function setApiKey(key) {
+  localStorage.setItem('purl_api_key', key);
+}
+
+// Common fetch options with auth
+function fetchOptions(options = {}) {
+  const apiKey = getApiKey();
+  return {
+    ...options,
+    headers: {
+      ...options.headers,
+      ...(apiKey && { 'X-API-Key': apiKey }),
+    },
+  };
+}
+
 // Debounce utility
 let debounceTimer = null;
 export function debounce(fn, delay = 300) {
@@ -63,7 +85,7 @@ export async function searchLogs() {
       params.set('q', currentQuery);
     }
 
-    const response = await fetch(`${API_BASE}/logs?${params}`);
+    const response = await fetch(`${API_BASE}/logs?${params}`, fetchOptions());
 
     // Check if request was cancelled
     if (thisRequest.cancelled) return;
@@ -108,7 +130,7 @@ export async function fetchFieldStats(field) {
       limit: 10,
     });
 
-    const response = await fetch(`${API_BASE}/stats/fields/${field}?${params}`);
+    const response = await fetch(`${API_BASE}/stats/fields/${field}?${params}`, fetchOptions());
     const data = await response.json();
 
     if (field === 'level') levelStats.set(data.values || []);
@@ -135,7 +157,7 @@ export async function fetchHistogram() {
       interval,
     });
 
-    const response = await fetch(`${API_BASE}/stats/histogram?${params}`);
+    const response = await fetch(`${API_BASE}/stats/histogram?${params}`, fetchOptions());
     const data = await response.json();
 
     histogram.set(data.buckets || []);
@@ -147,7 +169,7 @@ export async function fetchHistogram() {
 // Fetch metrics for dashboard
 export async function fetchMetrics() {
   try {
-    const response = await fetch(`${API_BASE}/metrics/json`);
+    const response = await fetch(`${API_BASE}/metrics/json`, fetchOptions());
     const data = await response.json();
     metrics.set(data);
   } catch (err) {

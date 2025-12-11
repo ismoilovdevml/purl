@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { setApiKey } from '../stores/logs.js';
 
   let settings = {
     theme: 'dark',
@@ -24,6 +25,7 @@
     }
   };
 
+  let apiKey = '';
   let activeSection = 'display';
   let testingNotification = null;
   let testResult = null;
@@ -33,6 +35,7 @@
   const API_BASE = '/api';
 
   const sections = [
+    { id: 'auth', label: 'Authentication', icon: 'key' },
     { id: 'display', label: 'Display', icon: 'monitor' },
     { id: 'logs', label: 'Log Viewer', icon: 'file-text' },
     { id: 'notifications', label: 'Notifications', icon: 'bell' },
@@ -86,9 +89,16 @@
 
   onMount(() => {
     loadSettings();
+    apiKey = localStorage.getItem('purl_api_key') || '';
     checkNotificationStatus();
     fetchSystemInfo();
   });
+
+  function saveApiKey() {
+    setApiKey(apiKey);
+    saved = true;
+    setTimeout(() => saved = false, 2000);
+  }
 
   function loadSettings() {
     const stored = localStorage.getItem('purl_settings');
@@ -237,7 +247,11 @@
           class:active={activeSection === section.id}
           on:click={() => activeSection = section.id}
         >
-          {#if section.icon === 'monitor'}
+          {#if section.icon === 'key'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+            </svg>
+          {:else if section.icon === 'monitor'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
             </svg>
@@ -270,7 +284,40 @@
 
   <!-- Main Content -->
   <main class="settings-content">
-    {#if activeSection === 'display'}
+    {#if activeSection === 'auth'}
+      <section class="settings-section">
+        <div class="section-header">
+          <h3>Authentication</h3>
+          <p>Configure API key for accessing the Purl server</p>
+        </div>
+
+        <div class="settings-group">
+          <div class="setting-item">
+            <div class="setting-info">
+              <label for="api-key">API Key</label>
+              <span class="setting-hint">Required when authentication is enabled on the server</span>
+            </div>
+            <div class="api-key-input">
+              <input
+                id="api-key"
+                type="password"
+                bind:value={apiKey}
+                placeholder="Enter your API key"
+                on:keydown={(e) => e.key === 'Enter' && saveApiKey()}
+              />
+              <button class="save-btn" on:click={saveApiKey}>Save</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="auth-info">
+          <h4>How to get an API key</h4>
+          <p>API keys are configured on the server via the <code>PURL_API_KEYS</code> environment variable.</p>
+          <pre><code>PURL_API_KEYS=your-secret-key-here</code></pre>
+          <p>Multiple keys can be set separated by commas.</p>
+        </div>
+      </section>
+    {:else if activeSection === 'display'}
       <section class="settings-section">
         <div class="section-header">
           <h3>Display Settings</h3>
@@ -872,6 +919,86 @@
 
   select:hover {
     border-color: #58a6ff;
+  }
+
+  /* API Key Input */
+  .api-key-input {
+    display: flex;
+    gap: 8px;
+  }
+
+  .api-key-input input {
+    padding: 8px 12px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    font-size: 0.8125rem;
+    min-width: 250px;
+    font-family: 'SF Mono', Monaco, monospace;
+  }
+
+  .api-key-input input:focus {
+    outline: none;
+    border-color: #58a6ff;
+  }
+
+  .save-btn {
+    padding: 8px 16px;
+    background: #238636;
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .save-btn:hover {
+    background: #2ea043;
+  }
+
+  .auth-info {
+    margin-top: 20px;
+    padding: 16px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+  }
+
+  .auth-info h4 {
+    font-size: 0.875rem;
+    color: #f0f6fc;
+    margin: 0 0 12px 0;
+  }
+
+  .auth-info p {
+    font-size: 0.8125rem;
+    color: #8b949e;
+    margin: 0 0 8px 0;
+  }
+
+  .auth-info code {
+    background: #21262d;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', Monaco, monospace;
+    color: #58a6ff;
+    font-size: 0.75rem;
+  }
+
+  .auth-info pre {
+    margin: 12px 0;
+    padding: 12px;
+    background: #0d1117;
+    border-radius: 6px;
+    overflow-x: auto;
+  }
+
+  .auth-info pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.8125rem;
   }
 
   /* Toggle */

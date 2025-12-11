@@ -274,7 +274,6 @@ sub setup_routes {
 
         # Auth check
         unless (_check_auth($c)) {
-            $c->res->headers->www_authenticate('Basic realm="Purl"');
             $c->render(json => { error => 'Unauthorized' }, status => 401);
             $metrics{errors_total}++;
             return 0;

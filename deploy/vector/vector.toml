@@ -1,10 +1,6 @@
 # Vector Configuration for Purl
-# Supports: Docker, Kubernetes, Files, Journald
-# Sends logs directly to ClickHouse or via Purl API
-
-# ============================================
-# Global Settings
-# ============================================
+# Collects Docker container logs and sends to Purl API
+# Version: 1.0.0
 
 data_dir = "/var/lib/vector"
 
@@ -12,257 +8,128 @@ data_dir = "/var/lib/vector"
 enabled = true
 address = "0.0.0.0:8686"
 
-# ============================================
-# SOURCES - Collect logs from various inputs
-# ============================================
+# =============================================================================
+# SOURCES
+# =============================================================================
 
-# Docker Container Logs
+# Docker container logs (excludes Vector itself to prevent loops)
 [sources.docker]
 type = "docker_logs"
-exclude_containers = ["vector", "purl-vector"]
+exclude_containers = ["vector", "purl-vector", "*-vector"]
 
-# Kubernetes Pod Logs (when running in K8s)
-# [sources.kubernetes]
-# type = "kubernetes_logs"
-# exclude_paths_glob_patterns = ["**/vector*", "**/kube-system/**"]
+# Journald system logs (optional - uncomment if needed)
+# [sources.journald]
+# type = "journald"
+# current_boot_only = true
+# exclude_units = ["vector.service"]
 
-# File Logs
-[sources.files]
-type = "file"
-include = ["/var/log/**/*.log"]
-exclude = ["/var/log/vector/**"]
-read_from = "end"
-fingerprint.strategy = "device_and_inode"
+# File logs (optional - uncomment if needed)
+# [sources.file_logs]
+# type = "file"
+# include = ["/var/log/*.log", "/var/log/**/*.log"]
+# exclude = ["/var/log/vector*.log"]
+# read_from = "end"
 
-# Journald/Systemd Logs
-[sources.journald]
-type = "journald"
-current_boot_only = true
-exclude_units = ["vector.service"]
+# =============================================================================
+# TRANSFORMS
+# =============================================================================
 
-# ============================================
-# TRANSFORMS - Parse and enrich logs
-# ============================================
-
-# Parse Docker logs
-[transforms.docker_parsed]
+[transforms.parse]
 type = "remap"
 inputs = ["docker"]
 source = '''
-# Extract container info
-.service = .container_name
-.host = get_env_var("HOSTNAME") ?? "unknown"
-.meta.container_id = .container_id
-.meta.container_name = .container_name
-.meta.image = .image
-.meta.source = "docker"
+# Extract service name from container name (remove leading slash)
+container = string!(.container_name)
+.service = replace(container, r'^/', "")
 
-# Parse timestamp
-.timestamp = to_timestamp(.timestamp) ?? now()
+# Get hostname from environment or use default
+.host = get_env_var("HOSTNAME") ?? get_env_var("HOST") ?? "docker-host"
 
-# Detect log level
-msg_upper = upcase(string!(.message))
-if contains(msg_upper, "FATAL") || contains(msg_upper, "PANIC") {
-  .level = "FATAL"
-} else if contains(msg_upper, "ERROR") || contains(msg_upper, "ERR ") {
-  .level = "ERROR"
-} else if contains(msg_upper, "WARN") {
-  .level = "WARN"
-} else if contains(msg_upper, "DEBUG") {
-  .level = "DEBUG"
-} else if contains(msg_upper, "TRACE") {
-  .level = "TRACE"
-} else {
-  .level = "INFO"
+# Ensure message is string
+msg = string(.message) ?? ""
+
+# Detect log level with priority (most specific first)
+level = "INFO"
+if match(msg, r'(?i)\b(fatal|panic|critical)\b') {
+    level = "FATAL"
+} else if match(msg, r'(?i)\b(error|err|exception|failed)\b') {
+    level = "ERROR"
+} else if match(msg, r'(?i)\b(warn|warning)\b') {
+    level = "WARN"
+} else if match(msg, r'(?i)\b(debug|trace)\b') {
+    level = "DEBUG"
+} else if match(msg, r'(?i)\b(info)\b') {
+    level = "INFO"
 }
 
-# Keep raw message
-.raw = .message
+.level = level
+.raw = msg
 
-# Try to parse JSON logs
-parsed, err = parse_json(.message)
-if err == null {
-  .message = parsed.msg ?? parsed.message ?? .message
-  .level = upcase(parsed.level ?? parsed.severity ?? .level)
-  if exists(parsed.service) { .service = parsed.service }
-}
-'''
+# Store metadata as JSON
+.meta = encode_json({
+    "container_id": string(.container_id) ?? "",
+    "image": string(.image) ?? "",
+    "source": "docker",
+    "stream": string(.stream) ?? "stdout"
+})
 
-# Parse file logs
-[transforms.files_parsed]
-type = "remap"
-inputs = ["files"]
-source = '''
-.service = replace(get!(string!(.file)), r'/var/log/|\.log$', "")
-.host = get_env_var("HOSTNAME") ?? "unknown"
-.meta.file = .file
-.meta.source = "file"
-.timestamp = to_timestamp(.timestamp) ?? now()
-.raw = .message
-
-# Detect level
-msg_upper = upcase(string!(.message))
-if contains(msg_upper, "ERROR") {
-  .level = "ERROR"
-} else if contains(msg_upper, "WARN") {
-  .level = "WARN"
-} else if contains(msg_upper, "DEBUG") {
-  .level = "DEBUG"
-} else {
-  .level = "INFO"
-}
-'''
-
-# Parse journald logs
-[transforms.journald_parsed]
-type = "remap"
-inputs = ["journald"]
-source = '''
-.service = ._SYSTEMD_UNIT ?? .SYSLOG_IDENTIFIER ?? "journald"
-.service = replace(.service, ".service", "")
-.host = .host ?? get_env_var("HOSTNAME") ?? "unknown"
-.meta.unit = ._SYSTEMD_UNIT
-.meta.pid = ._PID
-.meta.source = "journald"
-.timestamp = to_timestamp(.timestamp) ?? now()
-.raw = .message
-
-# Map priority to level
-priority = to_int(.PRIORITY) ?? 6
-if priority <= 2 {
-  .level = "FATAL"
-} else if priority == 3 {
-  .level = "ERROR"
-} else if priority == 4 {
-  .level = "WARN"
-} else if priority <= 6 {
-  .level = "INFO"
-} else {
-  .level = "DEBUG"
-}
-'''
-
-# Merge all sources
-[transforms.merged]
-type = "remap"
-inputs = ["docker_parsed", "files_parsed", "journald_parsed"]
-source = '''
-# Ensure required fields
-.timestamp = .timestamp ?? now()
-.level = .level ?? "INFO"
-.service = .service ?? "unknown"
-.host = .host ?? "unknown"
-.message = .message ?? ""
-.raw = .raw ?? .message
-.meta = .meta ?? {}
-
-# Add global labels
-.meta.environment = get_env_var("PURL_ENVIRONMENT") ?? "production"
-.meta.cluster = get_env_var("PURL_CLUSTER") ?? ""
-
-# Clean up internal fields
+# Clean up original fields
 del(.container_id)
 del(.container_name)
 del(.image)
-del(.file)
-del(._SYSTEMD_UNIT)
-del(.SYSLOG_IDENTIFIER)
-del(.PRIORITY)
-del(._PID)
+del(.stream)
+del(.source_type)
+del(.label)
 '''
 
-# Filter out noise (optional)
-[transforms.filtered]
-type = "filter"
-inputs = ["merged"]
-condition = '''
-# Skip empty messages
-length(.message) > 0 &&
-# Skip health checks
-!contains(string!(.message), "health") &&
-!contains(string!(.message), "/healthz")
-'''
+# =============================================================================
+# SINKS
+# =============================================================================
 
-# Sample high-volume logs (optional - reduce volume)
-# [transforms.sampled]
-# type = "sample"
-# inputs = ["filtered"]
-# rate = 10  # Keep 1 in 10 logs
-
-# ============================================
-# SINKS - Send logs to destinations
-# ============================================
-
-# Option 1: Direct to ClickHouse (recommended for performance)
-[sinks.clickhouse]
-type = "clickhouse"
-inputs = ["filtered"]
-endpoint = "${CLICKHOUSE_URL:-http://clickhouse:8123}"
-database = "${CLICKHOUSE_DATABASE:-purl}"
-table = "logs"
-skip_unknown_fields = true
+[sinks.purl]
+type = "http"
+inputs = ["parse"]
+uri = "${PURL_URL}/api/logs"
+method = "post"
 compression = "gzip"
 
-# Auth (if enabled)
-auth.strategy = "basic"
-auth.user = "${CLICKHOUSE_USER:-default}"
-auth.password = "${CLICKHOUSE_PASSWORD:-}"
+[sinks.purl.encoding]
+codec = "json"
 
-# Batching
-batch.max_bytes = 10485760  # 10MB
-batch.max_events = 10000
-batch.timeout_secs = 5
+[sinks.purl.batch]
+max_bytes = 1048576
+max_events = 100
+timeout_secs = 5
 
-# Buffer to disk for reliability
-buffer.type = "disk"
-buffer.max_size = 268435488  # 256MB
-buffer.when_full = "block"
+[sinks.purl.buffer]
+type = "memory"
+max_events = 5000
+when_full = "block"
 
-# Retry on failure
-request.retry_attempts = 10
-request.retry_initial_backoff_secs = 1
-request.retry_max_duration_secs = 300
+[sinks.purl.request]
+concurrency = 10
+timeout_secs = 30
+rate_limit_duration_secs = 1
+rate_limit_num = 100
+retry_initial_backoff_secs = 1
+retry_max_duration_secs = 10
+headers.Content-Type = "application/json"
+headers.X-API-Key = "${PURL_API_KEY}"
 
-# Healthcheck
-healthcheck.enabled = true
+# Healthcheck for sink
+[sinks.purl.healthcheck]
+enabled = true
 
-# Option 2: Via Purl API (if ClickHouse not directly accessible)
-# [sinks.purl_api]
-# type = "http"
-# inputs = ["filtered"]
-# uri = "${PURL_SERVER_URL}/api/logs"
-# method = "post"
-# compression = "gzip"
-#
-# encoding.codec = "json"
-#
-# auth.strategy = "bearer"
-# auth.token = "${PURL_API_KEY}"
-#
-# batch.max_bytes = 1048576  # 1MB
-# batch.max_events = 1000
-# batch.timeout_secs = 5
-#
-# buffer.type = "disk"
-# buffer.max_size = 104857600  # 100MB
-#
-# request.headers.Content-Type = "application/json"
-# request.headers.X-API-Key = "${PURL_API_KEY}"
-
-# Console output for debugging
-# [sinks.console]
-# type = "console"
-# inputs = ["filtered"]
-# encoding.codec = "json"
-
-# ============================================
-# Metrics (optional - for monitoring Vector itself)
-# ============================================
+# =============================================================================
+# METRICS
+# =============================================================================
 
 [sources.internal_metrics]
 type = "internal_metrics"
+scrape_interval_secs = 15
 
 [sinks.prometheus]
 type = "prometheus_exporter"
 inputs = ["internal_metrics"]
 address = "0.0.0.0:9598"
+default_namespace = "vector"

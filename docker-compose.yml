@@ -85,12 +85,14 @@ services:
     restart: unless-stopped
     profiles:
       - vector
+    command: ["--config", "/etc/vector/vector.toml"]
     volumes:
       - ./deploy/vector/vector.toml:/etc/vector/vector.toml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/log:/var/log:ro
     environment:
       - PURL_URL=http://purl:3000
+      - PURL_API_KEY=${PURL_API_KEYS:-test-api-key-123}
     depends_on:
       purl:
         condition: service_healthy

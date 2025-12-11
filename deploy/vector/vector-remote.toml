@@ -7,244 +7,254 @@
 # O'rnatish:
 #   1. Vector o'rnating: curl -sSL https://sh.vector.dev | bash
 #   2. Bu faylni /etc/vector/vector.toml ga ko'chiring
-#   3. PURL_SERVER va PURL_API_KEY ni o'zgartiring
-#   4. systemctl restart vector
+#   3. Environment variables sozlang (pastda ko'rsatilgan)
+#   4. systemctl enable --now vector
 # =============================================================================
 
-# -----------------------------------------------------------------------------
-# Global Settings
-# -----------------------------------------------------------------------------
 data_dir = "/var/lib/vector"
 
-# Markaziy Purl server manzili (O'ZGARTIRING!)
-# Masalan: "http://192.168.1.100:3000" yoki "https://logs.example.com"
-[transforms.set_env]
-type = "remap"
-inputs = []
-source = '''
-# Bu faqat placeholder - haqiqiy URL pastda
-'''
+[api]
+enabled = true
+address = "0.0.0.0:8686"
 
-# -----------------------------------------------------------------------------
-# Sources - Log Manbalar
-# -----------------------------------------------------------------------------
+# =============================================================================
+# SOURCES - Log Manbalar
+# =============================================================================
 
-# Docker container loglarni yig'ish
+# Docker container logs
 [sources.docker_logs]
 type = "docker_logs"
 docker_host = "unix:///var/run/docker.sock"
-include_containers = []  # Bo'sh = hammasi
-exclude_containers = ["vector"]  # Vector o'zini exclude qiladi
+exclude_containers = ["vector", "*-vector"]
 
-# Systemd/Journald loglar
+# Journald/Systemd logs
 [sources.journald]
 type = "journald"
-include_units = []  # Bo'sh = hammasi
+current_boot_only = true
 exclude_units = ["vector.service"]
 
-# Fayl loglar
-[sources.file_logs]
-type = "file"
-include = [
-    "/var/log/syslog",
-    "/var/log/auth.log",
-    "/var/log/nginx/*.log",
-    "/var/log/apache2/*.log",
-    "/var/log/mysql/*.log",
-    "/var/log/postgresql/*.log",
-]
-ignore_older_secs = 86400  # 1 kundan eski fayllarni o'tkazib yuborish
+# File-based logs (optional - uncomment if needed)
+# [sources.file_logs]
+# type = "file"
+# include = [
+#     "/var/log/syslog",
+#     "/var/log/auth.log",
+#     "/var/log/nginx/*.log",
+#     "/var/log/apache2/*.log",
+# ]
+# ignore_older_secs = 86400
 
-# -----------------------------------------------------------------------------
-# Transforms - Log qayta ishlash
-# -----------------------------------------------------------------------------
+# =============================================================================
+# TRANSFORMS - Log Processing
+# =============================================================================
 
-# Docker loglarni normalize qilish
+# Docker logs transformation
 [transforms.docker_transform]
 type = "remap"
 inputs = ["docker_logs"]
 source = '''
-# Hostname (bu serverning nomi)
-.host = get_hostname!()
+# Server hostname
+.host = get_env_var("VECTOR_HOSTNAME") ?? get_hostname!()
 
 # Container name -> service
-.service = del(.container_name) ?? "docker"
+container = string!(.container_name)
+.service = replace(container, r'^/', "")
 
-# Timestamp
-.timestamp = del(.timestamp) ?? now()
+# Log level detection
+msg = string(.message) ?? ""
+level = "INFO"
 
-# Level detection
-msg = string!(.message)
-if contains(msg, "ERROR") || contains(msg, "error") || contains(msg, "Error") {
-    .level = "ERROR"
-} else if contains(msg, "WARN") || contains(msg, "warn") || contains(msg, "Warning") {
-    .level = "WARNING"
-} else if contains(msg, "DEBUG") || contains(msg, "debug") {
-    .level = "DEBUG"
-} else {
-    .level = "INFO"
+if match(msg, r'(?i)\b(fatal|panic|critical)\b') {
+    level = "FATAL"
+} else if match(msg, r'(?i)\b(error|err|exception|failed)\b') {
+    level = "ERROR"
+} else if match(msg, r'(?i)\b(warn|warning)\b') {
+    level = "WARN"
+} else if match(msg, r'(?i)\b(debug|trace)\b') {
+    level = "DEBUG"
 }
 
-# Raw message saqlash
+.level = level
 .raw = msg
 
-# Meta ma'lumotlar
-.meta = {
-    "container_id": del(.container_id) ?? "",
+# Metadata
+.meta = encode_json({
+    "container_id": string(.container_id) ?? "",
+    "image": string(.image) ?? "",
     "source": "docker",
-    "server": .host,
-}
+    "server": .host
+})
+
+# Cleanup
+del(.container_id)
+del(.container_name)
+del(.image)
+del(.stream)
+del(.source_type)
+del(.label)
 '''
 
-# Journald loglarni normalize qilish
+# Journald logs transformation
 [transforms.journald_transform]
 type = "remap"
 inputs = ["journald"]
 source = '''
-.host = get_hostname!()
-.service = del(._SYSTEMD_UNIT) ?? del(.SYSLOG_IDENTIFIER) ?? "systemd"
-.service = replace(.service, ".service", "")
+.host = get_env_var("VECTOR_HOSTNAME") ?? get_hostname!()
+
+# Service name from unit
+unit = string(._SYSTEMD_UNIT) ?? string(.SYSLOG_IDENTIFIER) ?? "systemd"
+.service = replace(unit, r'\.service$', "")
 
 # Syslog priority to level
-priority = to_int(del(.PRIORITY)) ?? 6
-if priority <= 3 {
+priority = to_int(.PRIORITY) ?? 6
+if priority <= 2 {
+    .level = "FATAL"
+} else if priority <= 3 {
     .level = "ERROR"
 } else if priority == 4 {
-    .level = "WARNING"
+    .level = "WARN"
 } else if priority >= 7 {
     .level = "DEBUG"
 } else {
     .level = "INFO"
 }
 
-.timestamp = del(.timestamp) ?? now()
-.raw = string!(.message)
-
-.meta = {
-    "pid": del(._PID) ?? "",
-    "source": "journald",
-    "server": .host,
-}
-'''
-
-# File loglarni normalize qilish
-[transforms.file_transform]
-type = "remap"
-inputs = ["file_logs"]
-source = '''
-.host = get_hostname!()
-
-# Fayl yo'lidan service nomini olish
-filepath = string!(.file)
-parts = split(filepath, "/")
-filename = parts[-1] ?? "unknown"
-.service = replace(filename, ".log", "")
-
-# Level detection
-msg = string!(.message)
-if contains(msg, "ERROR") || contains(msg, "error") {
-    .level = "ERROR"
-} else if contains(msg, "WARN") || contains(msg, "warn") {
-    .level = "WARNING"
-} else if contains(msg, "DEBUG") || contains(msg, "debug") {
-    .level = "DEBUG"
-} else {
-    .level = "INFO"
-}
-
-.timestamp = now()
+msg = string(.message) ?? ""
 .raw = msg
-del(.file)
-del(.source_type)
 
-.meta = {
-    "filepath": filepath,
-    "source": "file",
-    "server": .host,
-}
+.meta = encode_json({
+    "pid": string(._PID) ?? "",
+    "source": "journald",
+    "server": .host
+})
+
+# Cleanup journald fields
+del(._SYSTEMD_UNIT)
+del(.SYSLOG_IDENTIFIER)
+del(.PRIORITY)
+del(._PID)
+del(._UID)
+del(._GID)
+del(._COMM)
+del(._EXE)
+del(._CMDLINE)
+del(._CAP_EFFECTIVE)
+del(._SELINUX_CONTEXT)
+del(._AUDIT_SESSION)
+del(._AUDIT_LOGINUID)
+del(._MACHINE_ID)
+del(._HOSTNAME)
+del(._TRANSPORT)
+del(._STREAM_ID)
+del(.source_type)
 '''
 
-# Hammasini birlashtirish
+# Merge all sources
 [transforms.merged]
 type = "remap"
-inputs = ["docker_transform", "journald_transform", "file_transform"]
+inputs = ["docker_transform", "journald_transform"]
 source = '''
-# Ensure all required fields exist
+# Ensure required fields
 .timestamp = .timestamp ?? now()
 .level = .level ?? "INFO"
 .service = .service ?? "unknown"
 .host = .host ?? get_hostname!()
 .message = .message ?? ""
 .raw = .raw ?? .message
-.meta = .meta ?? {}
 '''
 
-# Bo'sh xabarlarni filter qilish
+# Filter empty messages
 [transforms.filtered]
 type = "filter"
 inputs = ["merged"]
-condition = 'length(.message) > 0'
+condition = 'length(string!(.message)) > 0'
 
-# -----------------------------------------------------------------------------
-# Sink - Purl API ga yuborish
-# -----------------------------------------------------------------------------
+# =============================================================================
+# SINK - Send to Purl API
+# =============================================================================
 
 [sinks.purl_api]
 type = "http"
 inputs = ["filtered"]
-uri = "${PURL_URL:-http://localhost:3000}/api/logs"
+uri = "${PURL_URL}/api/logs"
 method = "post"
-encoding.codec = "json"
+compression = "gzip"
 
-# Batch settings - optimal performance
-batch.max_events = 100
-batch.timeout_secs = 5
+[sinks.purl_api.encoding]
+codec = "json"
 
-# Authentication - API Key
-[sinks.purl_api.request]
-headers.X-API-Key = "${PURL_API_KEY:-}"
-headers.Content-Type = "application/json"
+[sinks.purl_api.batch]
+max_bytes = 1048576
+max_events = 100
+timeout_secs = 5
 
-# Retry policy
-[sinks.purl_api.request.retry]
-max_duration_secs = 300
-initial_backoff_secs = 1
-
-# Buffer - disk-based for reliability
 [sinks.purl_api.buffer]
 type = "disk"
-max_size = 268435488  # 256MB
+max_size = 268435488  # 256MB - survives restarts
 when_full = "block"
 
-# -----------------------------------------------------------------------------
-# Healthcheck endpoint
-# -----------------------------------------------------------------------------
-[api]
-enabled = true
-address = "0.0.0.0:8686"
+[sinks.purl_api.request]
+concurrency = 10
+timeout_secs = 30
+rate_limit_duration_secs = 1
+rate_limit_num = 100
+retry_initial_backoff_secs = 1
+retry_max_duration_secs = 300
+headers.Content-Type = "application/json"
+headers.X-API-Key = "${PURL_API_KEY}"
 
-# -----------------------------------------------------------------------------
-# O'rnatish qo'llanmasi:
-# -----------------------------------------------------------------------------
+[sinks.purl_api.healthcheck]
+enabled = true
+
+# =============================================================================
+# METRICS (optional)
+# =============================================================================
+
+[sources.internal_metrics]
+type = "internal_metrics"
+scrape_interval_secs = 30
+
+[sinks.prometheus]
+type = "prometheus_exporter"
+inputs = ["internal_metrics"]
+address = "0.0.0.0:9598"
+default_namespace = "vector"
+
+# =============================================================================
+# O'RNATISH QO'LLANMASI
+# =============================================================================
 #
 # 1. Vector o'rnating:
 #    curl -sSL https://sh.vector.dev | bash
 #
-# 2. Environment variables sozlang:
-#    export PURL_URL="http://your-purl-server:3000"
-#    export PURL_API_KEY="your-api-key"
-#
-# 3. Yoki /etc/default/vector fayliga qo'shing:
+# 2. Environment variables fayliga qo'shing:
+#    sudo tee /etc/default/vector > /dev/null << 'EOF'
 #    PURL_URL=http://your-purl-server:3000
-#    PURL_API_KEY=your-api-key
+#    PURL_API_KEY=your-api-key-here
+#    VECTOR_HOSTNAME=server-name
+#    EOF
 #
-# 4. Config ni ko'chiring:
-#    cp vector-remote.toml /etc/vector/vector.toml
+# 3. Config ni ko'chiring:
+#    sudo cp vector-remote.toml /etc/vector/vector.toml
 #
-# 5. Vector ni ishga tushiring:
-#    systemctl enable vector
-#    systemctl start vector
+# 4. Vector ni ishga tushiring:
+#    sudo systemctl enable --now vector
 #
-# 6. Loglarni tekshiring:
+# 5. Test qiling:
+#    curl -s http://localhost:8686/health
 #    journalctl -u vector -f
-# -----------------------------------------------------------------------------
+#
+# =============================================================================
+# TEKSHIRISH
+# =============================================================================
+#
+# Vector ishlayaptimi:
+#    systemctl status vector
+#
+# Loglar yuborilayaptimi:
+#    curl -s http://localhost:8686/health | jq
+#
+# Purl serverda ko'rish:
+#    curl -H "X-API-Key: your-key" http://your-purl-server:3000/api/logs
+#
+# =============================================================================
