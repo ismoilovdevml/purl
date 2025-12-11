@@ -6,10 +6,12 @@ use 5.024;
 use Moo::Role;
 
 # Get top patterns for a time range
+# Queries logs table directly for real-time pattern analysis
 sub get_patterns {
     my ($self, %params) = @_;
 
     my $db = $self->database;
+    my $table = $self->table;
     my $limit = $self->_validate_int($params{limit}, 1, 100) // 30;
     my @where;
 
@@ -29,39 +31,57 @@ sub get_patterns {
         }
     }
 
-    # Time range filter on last_seen (column in table, not aggregate)
+    # Time range filter on timestamp
     if ($params{from}) {
         my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
         if ($from_ts =~ /^[\d\-: \.]+$/) {
-            push @where, "last_seen >= " . $self->_quote_string($from_ts);
+            push @where, "timestamp >= " . $self->_quote_string($from_ts);
         }
     }
     if ($params{to}) {
         my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
         if ($to_ts =~ /^[\d\-: \.]+$/) {
-            push @where, "last_seen <= " . $self->_quote_string($to_ts);
+            push @where, "timestamp <= " . $self->_quote_string($to_ts);
         }
     }
 
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
 
-    # Query patterns - apply FINAL first, then aggregate
-    # This avoids aggregate function conflicts
-    # Cast pattern_hash to String to avoid JavaScript BigInt precision loss
+    # Query patterns directly from logs table for real-time results
+    # Pattern extraction uses same logic as MV
     my $sql = qq{
         SELECT
-            toString(pattern_hash) as pattern_hash,
-            pattern,
-            any(sample_message) as sample_message,
+            toString(cityHash64(
+                replaceRegexpAll(
+                    replaceRegexpAll(
+                        replaceRegexpAll(
+                            replaceRegexpAll(
+                                replaceRegexpAll(message,
+                                    '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<UUID>'),
+                                '[0-9]{1,3}\\\\.[0-9]{1,3}\\\\.[0-9]{1,3}\\\\.[0-9]{1,3}', '<IP>'),
+                            '[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}', '<DATETIME>'),
+                        '\\\\b[0-9]+\\\\b', '<NUM>'),
+                    '[a-fA-F0-9]{24,}', '<HEX>')
+            )) as pattern_hash,
+            replaceRegexpAll(
+                replaceRegexpAll(
+                    replaceRegexpAll(
+                        replaceRegexpAll(
+                            replaceRegexpAll(message,
+                                '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<UUID>'),
+                            '[0-9]{1,3}\\\\.[0-9]{1,3}\\\\.[0-9]{1,3}\\\\.[0-9]{1,3}', '<IP>'),
+                        '[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}', '<DATETIME>'),
+                    '\\\\b[0-9]+\\\\b', '<NUM>'),
+                '[a-fA-F0-9]{24,}', '<HEX>')
+            as pattern,
+            any(message) as sample_message,
             service,
             level,
-            min(first_seen) as first_seen,
-            max(last_seen) as last_seen,
-            sum(occurrence_count) as count
-        FROM (
-            SELECT * FROM ${db}.log_patterns FINAL
-            $where_sql
-        )
+            min(timestamp) as first_seen,
+            max(timestamp) as last_seen,
+            count() as count
+        FROM ${db}.${table}
+        $where_sql
         GROUP BY pattern_hash, pattern, service, level
         ORDER BY count DESC
         LIMIT $limit
