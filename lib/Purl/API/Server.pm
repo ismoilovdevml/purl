@@ -686,6 +686,126 @@ METRICS
         });
     });
 
+    # ============================================
+    # Server Configuration API
+    # ============================================
+
+    # Get current server configuration (read-only, from env)
+    $protected->get('/config' => sub ($c) {
+        my $storage_config = $config->{storage} // {};
+        my $ch_config = $storage_config->{clickhouse} // {};
+
+        $c->render(json => {
+            server => {
+                host => $ENV{PURL_HOST} // '0.0.0.0',
+                port => $ENV{PURL_PORT} // 3000,
+            },
+            clickhouse => {
+                host     => $ENV{PURL_CLICKHOUSE_HOST} // $ch_config->{host} // 'localhost',
+                port     => $ENV{PURL_CLICKHOUSE_PORT} // $ch_config->{port} // 8123,
+                database => $ENV{PURL_CLICKHOUSE_DATABASE} // $ch_config->{database} // 'purl',
+                user     => $ENV{PURL_CLICKHOUSE_USER} // $ch_config->{username} // 'default',
+                # password is masked for security
+                password_set => ($ENV{PURL_CLICKHOUSE_PASSWORD} || $ch_config->{password}) ? 1 : 0,
+            },
+            retention => {
+                days => $ENV{PURL_RETENTION_DAYS} // $storage_config->{retention_days} // 30,
+            },
+            auth => {
+                enabled  => $ENV{PURL_AUTH_ENABLED} // 0,
+                keys_set => $ENV{PURL_API_KEYS} ? 1 : 0,
+            },
+        });
+    });
+
+    # Get current retention settings
+    $protected->get('/config/retention' => sub ($c) {
+        my $days = $ENV{PURL_RETENTION_DAYS} // $config->{storage}{retention_days} // 30;
+        my $stats = eval { $storage->stats() } // {};
+
+        $c->render(json => {
+            retention_days => int($days),
+            oldest_log     => $stats->{oldest_log},
+            newest_log     => $stats->{newest_log},
+            total_logs     => $stats->{total_logs} // 0,
+            db_size_mb     => $stats->{db_size_mb} // 0,
+        });
+    });
+
+    # Update retention (triggers TTL modification)
+    $protected->put('/config/retention' => sub ($c) {
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body && $body->{days}) {
+            $c->render(json => { error => 'days required' }, status => 400);
+            return;
+        }
+
+        my $days = int($body->{days});
+        if ($days < 1 || $days > 365) {
+            $c->render(json => { error => 'days must be between 1 and 365' }, status => 400);
+            return;
+        }
+
+        # Update retention in storage
+        my $result = eval { $storage->update_retention($days) };
+        if ($@) {
+            $c->render(json => { error => "Failed to update retention: $@" }, status => 500);
+            return;
+        }
+
+        $c->render(json => {
+            status         => 'ok',
+            retention_days => $days,
+            message        => "Retention updated to $days days. Note: Set PURL_RETENTION_DAYS=$days in .env for persistence.",
+        });
+    });
+
+    # Test ClickHouse connection
+    $protected->post('/config/test-clickhouse' => sub ($c) {
+        my $body = eval { decode_json($c->req->body) };
+
+        # Use provided values or fall back to current config
+        my $host     = $body->{host} // $ENV{PURL_CLICKHOUSE_HOST} // 'localhost';
+        my $port     = $body->{port} // $ENV{PURL_CLICKHOUSE_PORT} // 8123;
+        my $database = $body->{database} // $ENV{PURL_CLICKHOUSE_DATABASE} // 'purl';
+        my $user     = $body->{user} // $ENV{PURL_CLICKHOUSE_USER} // 'default';
+        my $password = $body->{password} // $ENV{PURL_CLICKHOUSE_PASSWORD} // '';
+
+        # Try to connect
+        eval {
+            require HTTP::Tiny;
+            my $http = HTTP::Tiny->new(timeout => 5);
+            my $url = "http://$host:$port/?query=" . _url_encode("SELECT 1");
+
+            my %headers;
+            if ($user && $password) {
+                require MIME::Base64;
+                $headers{'Authorization'} = 'Basic ' . MIME::Base64::encode_base64("$user:$password", '');
+            }
+
+            my $response = $http->get($url, { headers => \%headers });
+
+            if ($response->{success}) {
+                $c->render(json => {
+                    success => 1,
+                    message => "Successfully connected to ClickHouse at $host:$port",
+                    version => $response->{headers}{'x-clickhouse-server-display-name'} // 'unknown',
+                });
+            } else {
+                $c->render(json => {
+                    success => 0,
+                    error   => "Connection failed: $response->{status} $response->{reason}",
+                }, status => 400);
+            }
+        };
+        if ($@) {
+            $c->render(json => {
+                success => 0,
+                error   => "Connection error: $@",
+            }, status => 500);
+        }
+    });
+
     # Configured sources
     $protected->get('/sources' => sub ($c) {
         my $sources = $config->{sources} // [];
@@ -942,6 +1062,12 @@ sub _epoch_to_iso {
     my @t = gmtime($epoch);
     return sprintf('%04d-%02d-%02dT%02d:%02d:%02dZ',
         $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0]);
+}
+
+sub _url_encode {
+    my ($str) = @_;
+    $str =~ s/([^A-Za-z0-9\-_.~])/sprintf("%%%02X", ord($1))/ge;
+    return $str;
 }
 
 # Start the server

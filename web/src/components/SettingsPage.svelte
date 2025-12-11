@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { setApiKey } from '../stores/logs.js';
+  import { setApiKey, apiKey as apiKeyStore } from '../stores/logs.js';
 
   let settings = {
     theme: 'dark',
@@ -26,16 +26,28 @@
   };
 
   let apiKey = '';
-  let activeSection = 'display';
+  let activeSection = 'auth';
   let testingNotification = null;
   let testResult = null;
   let saved = false;
   let systemInfo = null;
 
+  // Server config state
+  let serverConfig = null;
+  let retentionDays = 30;
+  let retentionStats = null;
+  let savingRetention = false;
+  let retentionMessage = null;
+
+  // ClickHouse test state
+  let testingClickHouse = false;
+  let clickHouseTestResult = null;
+
   const API_BASE = '/api';
 
   const sections = [
     { id: 'auth', label: 'Authentication', icon: 'key' },
+    { id: 'database', label: 'Database', icon: 'server' },
     { id: 'display', label: 'Display', icon: 'monitor' },
     { id: 'logs', label: 'Log Viewer', icon: 'file-text' },
     { id: 'notifications', label: 'Notifications', icon: 'bell' },
@@ -92,7 +104,93 @@
     apiKey = localStorage.getItem('purl_api_key') || '';
     checkNotificationStatus();
     fetchSystemInfo();
+    fetchServerConfig();
+    fetchRetentionStats();
   });
+
+  async function fetchServerConfig() {
+    try {
+      const headers = {};
+      const storedKey = localStorage.getItem('purl_api_key');
+      if (storedKey) headers['X-API-Key'] = storedKey;
+
+      const res = await fetch(`${API_BASE}/config`, { headers });
+      if (res.ok) {
+        serverConfig = await res.json();
+        retentionDays = serverConfig.retention?.days || 30;
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  async function fetchRetentionStats() {
+    try {
+      const headers = {};
+      const storedKey = localStorage.getItem('purl_api_key');
+      if (storedKey) headers['X-API-Key'] = storedKey;
+
+      const res = await fetch(`${API_BASE}/config/retention`, { headers });
+      if (res.ok) {
+        retentionStats = await res.json();
+        retentionDays = retentionStats.retention_days || 30;
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  async function saveRetention() {
+    savingRetention = true;
+    retentionMessage = null;
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      const storedKey = localStorage.getItem('purl_api_key');
+      if (storedKey) headers['X-API-Key'] = storedKey;
+
+      const res = await fetch(`${API_BASE}/config/retention`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ days: retentionDays })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        retentionMessage = { success: true, text: data.message };
+        fetchRetentionStats();
+      } else {
+        retentionMessage = { success: false, text: data.error };
+      }
+    } catch (err) {
+      retentionMessage = { success: false, text: err.message };
+    } finally {
+      savingRetention = false;
+    }
+  }
+
+  async function testClickHouseConnection() {
+    testingClickHouse = true;
+    clickHouseTestResult = null;
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      const storedKey = localStorage.getItem('purl_api_key');
+      if (storedKey) headers['X-API-Key'] = storedKey;
+
+      const res = await fetch(`${API_BASE}/config/test-clickhouse`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({})
+      });
+
+      clickHouseTestResult = await res.json();
+    } catch (err) {
+      clickHouseTestResult = { success: false, error: err.message };
+    } finally {
+      testingClickHouse = false;
+    }
+  }
 
   function saveApiKey() {
     setApiKey(apiKey);
@@ -251,6 +349,10 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
             </svg>
+          {:else if section.icon === 'server'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
+            </svg>
           {:else if section.icon === 'monitor'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
@@ -317,7 +419,160 @@
           <p>Multiple keys can be set separated by commas.</p>
         </div>
       </section>
-    {:else if activeSection === 'display'}
+    {/if}
+
+    {#if activeSection === 'database'}
+      <section class="settings-section">
+        <div class="section-header">
+          <h3>Database Configuration</h3>
+          <p>ClickHouse connection and data retention settings</p>
+        </div>
+
+        <!-- ClickHouse Connection -->
+        <div class="settings-group">
+          <div class="group-title">ClickHouse Connection</div>
+
+          {#if serverConfig}
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-label">Host</span>
+                <span class="setting-hint">ClickHouse server address</span>
+              </div>
+              <code class="config-value">{serverConfig.clickhouse?.host || 'localhost'}</code>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-label">Port</span>
+                <span class="setting-hint">HTTP interface port</span>
+              </div>
+              <code class="config-value">{serverConfig.clickhouse?.port || 8123}</code>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-label">Database</span>
+                <span class="setting-hint">Database name</span>
+              </div>
+              <code class="config-value">{serverConfig.clickhouse?.database || 'purl'}</code>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-label">User</span>
+                <span class="setting-hint">Database user</span>
+              </div>
+              <code class="config-value">{serverConfig.clickhouse?.user || 'default'}</code>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-label">Password</span>
+                <span class="setting-hint">Database password</span>
+              </div>
+              <span class="config-status" class:configured={serverConfig.clickhouse?.password_set}>
+                {serverConfig.clickhouse?.password_set ? 'Configured' : 'Not set'}
+              </span>
+            </div>
+
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-label">Test Connection</span>
+                <span class="setting-hint">Verify ClickHouse is reachable</span>
+              </div>
+              <button class="test-btn" on:click={testClickHouseConnection} disabled={testingClickHouse}>
+                {testingClickHouse ? 'Testing...' : 'Test'}
+              </button>
+            </div>
+
+            {#if clickHouseTestResult}
+              <div class="test-result-box" class:success={clickHouseTestResult.success}>
+                {#if clickHouseTestResult.success}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  {clickHouseTestResult.message}
+                {:else}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                  </svg>
+                  {clickHouseTestResult.error}
+                {/if}
+              </div>
+            {/if}
+          {:else}
+            <div class="loading-state">Loading configuration...</div>
+          {/if}
+        </div>
+
+        <!-- Retention Settings -->
+        <div class="settings-group" style="margin-top: 20px;">
+          <div class="group-title">Data Retention</div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <label for="retention-days">Retention Period</label>
+              <span class="setting-hint">How long to keep log data (TTL)</span>
+            </div>
+            <div class="retention-input">
+              <input
+                id="retention-days"
+                type="number"
+                min="1"
+                max="365"
+                bind:value={retentionDays}
+              />
+              <span class="retention-unit">days</span>
+              <button class="save-btn" on:click={saveRetention} disabled={savingRetention}>
+                {savingRetention ? 'Saving...' : 'Apply'}
+              </button>
+            </div>
+          </div>
+
+          {#if retentionMessage}
+            <div class="retention-message" class:success={retentionMessage.success}>
+              {retentionMessage.text}
+            </div>
+          {/if}
+
+          {#if retentionStats}
+            <div class="retention-stats">
+              <div class="stat-row">
+                <span>Total Logs</span>
+                <span>{retentionStats.total_logs?.toLocaleString() || 0}</span>
+              </div>
+              <div class="stat-row">
+                <span>Database Size</span>
+                <span>{retentionStats.db_size_mb || 0} MB</span>
+              </div>
+              <div class="stat-row">
+                <span>Oldest Log</span>
+                <span>{retentionStats.oldest_log ? new Date(retentionStats.oldest_log).toLocaleDateString() : 'N/A'}</span>
+              </div>
+              <div class="stat-row">
+                <span>Newest Log</span>
+                <span>{retentionStats.newest_log ? new Date(retentionStats.newest_log).toLocaleDateString() : 'N/A'}</span>
+              </div>
+            </div>
+          {/if}
+        </div>
+
+        <!-- Environment Variables Info -->
+        <div class="auth-info" style="margin-top: 20px;">
+          <h4>Configuration via Environment</h4>
+          <p>Database settings are configured via environment variables:</p>
+          <pre><code>PURL_CLICKHOUSE_HOST=your-clickhouse-host
+PURL_CLICKHOUSE_PORT=8123
+PURL_CLICKHOUSE_DATABASE=purl
+PURL_CLICKHOUSE_USER=purl
+PURL_CLICKHOUSE_PASSWORD=your-password
+PURL_RETENTION_DAYS=30</code></pre>
+          <p>You can connect to any ClickHouse instance - local, remote, or cloud.</p>
+        </div>
+      </section>
+    {/if}
+
+    {#if activeSection === 'display'}
       <section class="settings-section">
         <div class="section-header">
           <h3>Display Settings</h3>
@@ -1043,6 +1298,125 @@
   .toggle input:checked + .toggle-slider:before {
     transform: translateX(18px);
     background: #fff;
+  }
+
+  /* Database section styles */
+  .group-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 12px 16px 8px;
+    border-bottom: 1px solid #21262d;
+  }
+
+  .config-value {
+    background: #21262d;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.8125rem;
+    color: #58a6ff;
+  }
+
+  .config-status {
+    font-size: 0.8125rem;
+    color: #8b949e;
+    padding: 4px 10px;
+    background: #21262d;
+    border-radius: 12px;
+  }
+
+  .config-status.configured {
+    color: #3fb950;
+    background: #3fb95020;
+  }
+
+  .loading-state {
+    padding: 20px;
+    text-align: center;
+    color: #8b949e;
+    font-size: 0.875rem;
+  }
+
+  .test-result-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    margin: 0;
+    background: #f8514920;
+    color: #f85149;
+    font-size: 0.8125rem;
+    border-top: 1px solid #21262d;
+  }
+
+  .test-result-box.success {
+    background: #3fb95020;
+    color: #3fb950;
+  }
+
+  .retention-input {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .retention-input input {
+    width: 80px;
+    padding: 8px 12px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    font-size: 0.875rem;
+    text-align: center;
+  }
+
+  .retention-input input:focus {
+    outline: none;
+    border-color: #58a6ff;
+  }
+
+  .retention-unit {
+    font-size: 0.8125rem;
+    color: #8b949e;
+  }
+
+  .retention-message {
+    padding: 10px 16px;
+    font-size: 0.8125rem;
+    color: #f85149;
+    background: #f8514910;
+    border-top: 1px solid #21262d;
+  }
+
+  .retention-message.success {
+    color: #3fb950;
+    background: #3fb95010;
+  }
+
+  .retention-stats {
+    padding: 12px 16px;
+    background: #0d1117;
+    border-top: 1px solid #21262d;
+  }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 0.8125rem;
+  }
+
+  .stat-row span:first-child {
+    color: #8b949e;
+  }
+
+  .stat-row span:last-child {
+    color: #f0f6fc;
+    font-family: 'SF Mono', Monaco, monospace;
   }
 
   /* Notification Cards */

@@ -839,6 +839,23 @@ sub get_slow_queries {
     return $self->_query_json($sql);
 }
 
+# Update retention TTL
+sub update_retention {
+    my ($self, $days) = @_;
+
+    my $table = $self->database . '.' . $self->table;
+
+    # Modify TTL on the table
+    my $sql = qq{
+        ALTER TABLE $table
+        MODIFY TTL timestamp + INTERVAL $days DAY
+    };
+
+    $self->_query($sql);
+
+    return { success => 1, days => $days };
+}
+
 sub disconnect {
     my ($self) = @_;
     $self->flush();  # Flush any remaining logs
