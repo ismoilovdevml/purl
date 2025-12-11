@@ -698,7 +698,7 @@ sub histogram {
     # Query with level breakdown for stacked bars
     my $sql = qq{
         SELECT
-            formatDateTime($time_func, '%Y-%m-%dT%H:%i:%S') as time,
+            formatDateTime($time_func, '%Y-%m-%dT%H:%i:%S') || 'Z' as time,
             count() as count,
             countIf(level IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT')) as errors,
             countIf(level = 'WARNING') as warnings,
