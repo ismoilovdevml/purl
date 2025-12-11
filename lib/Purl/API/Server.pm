@@ -13,10 +13,12 @@ use Purl::Storage::ClickHouse;
 use Purl::Alert::Telegram;
 use Purl::Alert::Slack;
 use Purl::Alert::Webhook;
+use Purl::Config;
 
 # Package-level state
 my $storage;
 my $config = {};
+my $settings;  # Purl::Config instance
 my $websockets = [];
 my %notifiers;
 
@@ -66,30 +68,45 @@ sub _build_storage {
 sub _build_notifiers {
     %notifiers = ();
 
-    # Telegram
-    if ($ENV{PURL_TELEGRAM_BOT_TOKEN} && $ENV{PURL_TELEGRAM_CHAT_ID}) {
+    # Telegram - check ENV first, then settings
+    my $tg_token = $ENV{PURL_TELEGRAM_BOT_TOKEN}
+        // ($settings ? $settings->get_nested('notifications', 'telegram', 'bot_token') : undef);
+    my $tg_chat = $ENV{PURL_TELEGRAM_CHAT_ID}
+        // ($settings ? $settings->get_nested('notifications', 'telegram', 'chat_id') : undef);
+
+    if ($tg_token && $tg_chat) {
         $notifiers{telegram} = Purl::Alert::Telegram->new(
             name      => 'telegram',
-            bot_token => $ENV{PURL_TELEGRAM_BOT_TOKEN},
-            chat_id   => $ENV{PURL_TELEGRAM_CHAT_ID},
+            bot_token => $tg_token,
+            chat_id   => $tg_chat,
         );
     }
 
-    # Slack
-    if ($ENV{PURL_SLACK_WEBHOOK_URL}) {
+    # Slack - check ENV first, then settings
+    my $slack_webhook = $ENV{PURL_SLACK_WEBHOOK_URL}
+        // ($settings ? $settings->get_nested('notifications', 'slack', 'webhook_url') : undef);
+    my $slack_channel = $ENV{PURL_SLACK_CHANNEL}
+        // ($settings ? $settings->get_nested('notifications', 'slack', 'channel') : '');
+
+    if ($slack_webhook) {
         $notifiers{slack} = Purl::Alert::Slack->new(
             name        => 'slack',
-            webhook_url => $ENV{PURL_SLACK_WEBHOOK_URL},
-            channel     => $ENV{PURL_SLACK_CHANNEL} // '',
+            webhook_url => $slack_webhook,
+            channel     => $slack_channel,
         );
     }
 
-    # Custom webhook
-    if ($ENV{PURL_ALERT_WEBHOOK_URL}) {
+    # Custom webhook - check ENV first, then settings
+    my $webhook_url = $ENV{PURL_ALERT_WEBHOOK_URL}
+        // ($settings ? $settings->get_nested('notifications', 'webhook', 'url') : undef);
+    my $webhook_token = $ENV{PURL_ALERT_WEBHOOK_TOKEN}
+        // ($settings ? $settings->get_nested('notifications', 'webhook', 'auth_token') : '');
+
+    if ($webhook_url) {
         $notifiers{webhook} = Purl::Alert::Webhook->new(
             name       => 'webhook',
-            url        => $ENV{PURL_ALERT_WEBHOOK_URL},
-            auth_token => $ENV{PURL_ALERT_WEBHOOK_TOKEN} // '',
+            url        => $webhook_url,
+            auth_token => $webhook_token,
         );
     }
 
@@ -214,6 +231,9 @@ sub _check_auth {
 
 sub setup_routes {
     my ($self) = @_;
+
+    # Initialize config manager
+    $settings //= Purl::Config->new();
 
     $storage //= _build_storage();
     _build_notifiers();
@@ -810,6 +830,213 @@ METRICS
     $protected->get('/sources' => sub ($c) {
         my $sources = $config->{sources} // [];
         $c->render(json => { sources => $sources });
+    });
+
+    # ============================================
+    # Settings Management API
+    # ============================================
+
+    # Get all settings with source info (env/file/default)
+    $protected->get('/settings' => sub ($c) {
+        my $all = $settings->get_all();
+
+        # Add source info for each setting
+        my $result = {
+            clickhouse => {
+                host     => { value => $all->{clickhouse}{host}, from_env => $settings->is_from_env('clickhouse', 'host') },
+                port     => { value => $all->{clickhouse}{port}, from_env => $settings->is_from_env('clickhouse', 'port') },
+                database => { value => $all->{clickhouse}{database}, from_env => $settings->is_from_env('clickhouse', 'database') },
+                user     => { value => $all->{clickhouse}{user}, from_env => $settings->is_from_env('clickhouse', 'user') },
+                password_set => { value => ($all->{clickhouse}{password} ? 1 : 0), from_env => $settings->is_from_env('clickhouse', 'password') },
+            },
+            retention => {
+                days => { value => $all->{retention}{days}, from_env => $settings->is_from_env('retention', 'days') },
+            },
+            auth => {
+                enabled => { value => $all->{auth}{enabled}, from_env => $settings->is_from_env('auth', 'enabled') },
+            },
+            notifications => {
+                telegram => {
+                    enabled   => $settings->get_nested('notifications', 'telegram', 'enabled') // 0,
+                    bot_token => $settings->get_nested('notifications', 'telegram', 'bot_token') ? 1 : 0,
+                    chat_id   => $settings->get_nested('notifications', 'telegram', 'chat_id') ? 1 : 0,
+                    from_env  => $ENV{PURL_TELEGRAM_BOT_TOKEN} ? 1 : 0,
+                },
+                slack => {
+                    enabled     => $settings->get_nested('notifications', 'slack', 'enabled') // 0,
+                    webhook_set => $settings->get_nested('notifications', 'slack', 'webhook_url') ? 1 : 0,
+                    channel     => $settings->get_nested('notifications', 'slack', 'channel') // '',
+                    from_env    => $ENV{PURL_SLACK_WEBHOOK_URL} ? 1 : 0,
+                },
+                webhook => {
+                    enabled   => $settings->get_nested('notifications', 'webhook', 'enabled') // 0,
+                    url_set   => $settings->get_nested('notifications', 'webhook', 'url') ? 1 : 0,
+                    from_env  => $ENV{PURL_ALERT_WEBHOOK_URL} ? 1 : 0,
+                },
+            },
+        };
+
+        $c->render(json => $result);
+    });
+
+    # Update ClickHouse settings
+    $protected->put('/settings/clickhouse' => sub ($c) {
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body) {
+            $c->render(json => { error => 'Invalid JSON' }, status => 400);
+            return;
+        }
+
+        # Check which fields are from ENV (cannot modify)
+        my @from_env;
+        for my $key (qw(host port database user password)) {
+            if ($settings->is_from_env('clickhouse', $key) && exists $body->{$key}) {
+                push @from_env, $key;
+            }
+        }
+
+        if (@from_env) {
+            $c->render(json => {
+                error => "Cannot modify ENV-configured values: " . join(', ', @from_env),
+                from_env => \@from_env,
+            }, status => 400);
+            return;
+        }
+
+        # Update settings
+        my $current = $settings->get_section('clickhouse');
+        for my $key (qw(host port database user password)) {
+            $current->{$key} = $body->{$key} if exists $body->{$key};
+        }
+
+        if ($settings->set_section('clickhouse', $current)) {
+            # Rebuild storage with new settings
+            $storage = _build_storage();
+
+            $c->render(json => {
+                status  => 'ok',
+                message => 'ClickHouse settings updated. Restart may be required for full effect.',
+            });
+        } else {
+            $c->render(json => { error => 'Failed to save settings' }, status => 500);
+        }
+    });
+
+    # Update notification settings
+    $protected->put('/settings/notifications/:type' => sub ($c) {
+        my $type = $c->param('type');
+        my $body = eval { decode_json($c->req->body) };
+
+        unless ($body) {
+            $c->render(json => { error => 'Invalid JSON' }, status => 400);
+            return;
+        }
+
+        unless ($type =~ /^(telegram|slack|webhook)$/) {
+            $c->render(json => { error => 'Invalid notification type' }, status => 400);
+            return;
+        }
+
+        # Check ENV override
+        my %env_check = (
+            telegram => 'PURL_TELEGRAM_BOT_TOKEN',
+            slack    => 'PURL_SLACK_WEBHOOK_URL',
+            webhook  => 'PURL_ALERT_WEBHOOK_URL',
+        );
+
+        if ($ENV{$env_check{$type}}) {
+            $c->render(json => {
+                error    => "Cannot modify - configured via environment variable",
+                from_env => 1,
+            }, status => 400);
+            return;
+        }
+
+        # Get current notifications config
+        my $notifications = $settings->_config->{notifications} // {};
+        $notifications->{$type} = $body;
+
+        if ($settings->set_section('notifications', $notifications)) {
+            # Rebuild notifiers
+            _build_notifiers();
+
+            $c->render(json => {
+                status  => 'ok',
+                message => ucfirst($type) . ' notification settings updated.',
+            });
+        } else {
+            $c->render(json => { error => 'Failed to save settings' }, status => 500);
+        }
+    });
+
+    # Test notification
+    $protected->post('/settings/notifications/:type/test' => sub ($c) {
+        my $type = $c->param('type');
+
+        unless ($type =~ /^(telegram|slack|webhook)$/) {
+            $c->render(json => { error => 'Invalid notification type' }, status => 400);
+            return;
+        }
+
+        # Rebuild notifiers to pick up latest settings
+        _build_notifiers();
+
+        unless ($notifiers{$type}) {
+            $c->render(json => {
+                success => 0,
+                error   => ucfirst($type) . ' is not configured',
+            }, status => 400);
+            return;
+        }
+
+        my $result = eval { $notifiers{$type}->send_test() };
+        if ($@ || !$result) {
+            $c->render(json => {
+                success => 0,
+                error   => $@ // 'Test failed',
+            });
+        } else {
+            $c->render(json => {
+                success => 1,
+                message => 'Test notification sent successfully',
+            });
+        }
+    });
+
+    # Update retention settings
+    $protected->put('/settings/retention' => sub ($c) {
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body && $body->{days}) {
+            $c->render(json => { error => 'days required' }, status => 400);
+            return;
+        }
+
+        if ($settings->is_from_env('retention', 'days')) {
+            $c->render(json => {
+                error    => 'Cannot modify - configured via PURL_RETENTION_DAYS',
+                from_env => 1,
+            }, status => 400);
+            return;
+        }
+
+        my $days = int($body->{days});
+        if ($days < 1 || $days > 365) {
+            $c->render(json => { error => 'days must be between 1 and 365' }, status => 400);
+            return;
+        }
+
+        if ($settings->set('retention', 'days', $days)) {
+            # Update ClickHouse TTL
+            eval { $storage->update_retention($days) };
+
+            $c->render(json => {
+                status         => 'ok',
+                retention_days => $days,
+                message        => "Retention updated to $days days.",
+            });
+        } else {
+            $c->render(json => { error => 'Failed to save settings' }, status => 500);
+        }
     });
 
     # WebSocket for live tail

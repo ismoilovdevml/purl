@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { setApiKey, apiKey as apiKeyStore } from '../stores/logs.js';
+  import { setApiKey } from '../stores/logs.js';
 
   let settings = {
     theme: 'dark',
@@ -18,40 +18,56 @@
     autoScroll: true,
     soundAlerts: false,
     keyboardShortcuts: true,
-    notifications: {
-      telegram: { configured: false },
-      slack: { configured: false },
-      webhook: { configured: false }
-    }
   };
 
   let apiKey = '';
   let activeSection = 'auth';
-  let testingNotification = null;
-  let testResult = null;
   let saved = false;
   let systemInfo = null;
 
-  // Server config state
-  let serverConfig = null;
+  // Server settings state
+  let serverSettings = null;
+  let loadingSettings = true;
+
+  // Database form
+  let dbForm = {
+    host: 'localhost',
+    port: 8123,
+    database: 'purl',
+    user: 'default',
+    password: ''
+  };
+  let savingDb = false;
+  let dbMessage = null;
+  let testingDb = false;
+  let dbTestResult = null;
+
+  // Retention
   let retentionDays = 30;
   let retentionStats = null;
   let savingRetention = false;
   let retentionMessage = null;
 
-  // ClickHouse test state
-  let testingClickHouse = false;
-  let clickHouseTestResult = null;
+  // Notifications form
+  let notifications = {
+    telegram: { enabled: false, bot_token: '', chat_id: '' },
+    slack: { enabled: false, webhook_url: '', channel: '' },
+    webhook: { enabled: false, url: '', auth_token: '' }
+  };
+  let savingNotification = null;
+  let notificationMessage = {};
+  let testingNotification = null;
+  let notificationTestResult = {};
 
   const API_BASE = '/api';
 
   const sections = [
     { id: 'auth', label: 'Authentication', icon: 'key' },
     { id: 'database', label: 'Database', icon: 'server' },
+    { id: 'notifications', label: 'Notifications', icon: 'bell' },
     { id: 'display', label: 'Display', icon: 'monitor' },
     { id: 'logs', label: 'Log Viewer', icon: 'file-text' },
-    { id: 'notifications', label: 'Notifications', icon: 'bell' },
-    { id: 'keyboard', label: 'Shortcuts', icon: 'keyboard' },
+    { id: 'shortcuts', label: 'Shortcuts', icon: 'keyboard' },
     { id: 'data', label: 'Data', icon: 'database' },
     { id: 'about', label: 'About', icon: 'info' },
   ];
@@ -59,42 +75,20 @@
   const timeRangeOptions = [
     { value: '5m', label: '5 minutes' },
     { value: '15m', label: '15 minutes' },
-    { value: '30m', label: '30 minutes' },
     { value: '1h', label: '1 hour' },
-    { value: '4h', label: '4 hours' },
-    { value: '12h', label: '12 hours' },
     { value: '24h', label: '24 hours' },
     { value: '7d', label: '7 days' },
   ];
 
-  const refreshOptions = [
-    { value: 0, label: 'Off' },
-    { value: 5, label: '5 seconds' },
-    { value: 10, label: '10 seconds' },
-    { value: 30, label: '30 seconds' },
-    { value: 60, label: '1 minute' },
-    { value: 300, label: '5 minutes' },
-  ];
-
-  const fontSizeOptions = [
-    { value: 'small', label: 'Small (12px)' },
-    { value: 'medium', label: 'Medium (13px)' },
-    { value: 'large', label: 'Large (14px)' },
-  ];
-
-  const timestampOptions = [
-    { value: 'relative', label: 'Relative (2 min ago)' },
-    { value: 'absolute', label: 'Absolute (10:30:45)' },
-    { value: 'iso', label: 'ISO (2025-12-10T10:30:45Z)' },
-  ];
-
   const shortcuts = [
-    { key: '/', action: 'Focus search bar' },
-    { key: 'Esc', action: 'Clear search / Close modal' },
-    { key: 'R', action: 'Refresh logs' },
-    { key: 'J / K', action: 'Navigate up/down' },
-    { key: 'Enter', action: 'Expand selected log' },
-    { key: 'C', action: 'Copy selected log' },
+    { key: '/', action: 'Focus search' },
+    { key: 'Escape', action: 'Clear search / Close modal' },
+    { key: 'r', action: 'Refresh logs' },
+    { key: 'l', action: 'Toggle live mode' },
+    { key: 'e', action: 'Export logs' },
+    { key: 's', action: 'Open saved searches' },
+    { key: 'a', action: 'Open alerts' },
+    { key: ',', action: 'Open settings' },
     { key: '1-5', action: 'Switch time range' },
     { key: '?', action: 'Show shortcuts help' },
   ];
@@ -102,41 +96,94 @@
   onMount(() => {
     loadSettings();
     apiKey = localStorage.getItem('purl_api_key') || '';
-    checkNotificationStatus();
     fetchSystemInfo();
-    fetchServerConfig();
+    fetchServerSettings();
     fetchRetentionStats();
   });
 
-  async function fetchServerConfig() {
-    try {
-      const headers = {};
-      const storedKey = localStorage.getItem('purl_api_key');
-      if (storedKey) headers['X-API-Key'] = storedKey;
+  function getHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    const storedKey = localStorage.getItem('purl_api_key');
+    if (storedKey) headers['X-API-Key'] = storedKey;
+    return headers;
+  }
 
-      const res = await fetch(`${API_BASE}/config`, { headers });
+  async function fetchServerSettings() {
+    loadingSettings = true;
+    try {
+      const res = await fetch(`${API_BASE}/settings`, { headers: getHeaders() });
       if (res.ok) {
-        serverConfig = await res.json();
-        retentionDays = serverConfig.retention?.days || 30;
+        serverSettings = await res.json();
+
+        // Populate database form
+        dbForm.host = serverSettings.clickhouse?.host?.value || 'localhost';
+        dbForm.port = serverSettings.clickhouse?.port?.value || 8123;
+        dbForm.database = serverSettings.clickhouse?.database?.value || 'purl';
+        dbForm.user = serverSettings.clickhouse?.user?.value || 'default';
+        dbForm.password = '';
+
+        // Populate retention
+        retentionDays = serverSettings.retention?.days?.value || 30;
+      }
+    } catch {
+      // Ignore
+    } finally {
+      loadingSettings = false;
+    }
+  }
+
+  async function fetchRetentionStats() {
+    try {
+      const res = await fetch(`${API_BASE}/config/retention`, { headers: getHeaders() });
+      if (res.ok) {
+        retentionStats = await res.json();
       }
     } catch {
       // Ignore
     }
   }
 
-  async function fetchRetentionStats() {
-    try {
-      const headers = {};
-      const storedKey = localStorage.getItem('purl_api_key');
-      if (storedKey) headers['X-API-Key'] = storedKey;
+  async function saveDbSettings() {
+    savingDb = true;
+    dbMessage = null;
 
-      const res = await fetch(`${API_BASE}/config/retention`, { headers });
+    try {
+      const res = await fetch(`${API_BASE}/settings/clickhouse`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify(dbForm)
+      });
+
+      const data = await res.json();
       if (res.ok) {
-        retentionStats = await res.json();
-        retentionDays = retentionStats.retention_days || 30;
+        dbMessage = { success: true, text: data.message };
+        fetchServerSettings();
+      } else {
+        dbMessage = { success: false, text: data.error };
       }
-    } catch {
-      // Ignore
+    } catch (err) {
+      dbMessage = { success: false, text: err.message };
+    } finally {
+      savingDb = false;
+    }
+  }
+
+  async function testDbConnection() {
+    testingDb = true;
+    dbTestResult = null;
+
+    try {
+      const res = await fetch(`${API_BASE}/config/test-clickhouse`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(dbForm)
+      });
+
+      dbTestResult = await res.json();
+    } catch (err) {
+      dbTestResult = { success: false, error: err.message };
+    } finally {
+      testingDb = false;
     }
   }
 
@@ -145,13 +192,9 @@
     retentionMessage = null;
 
     try {
-      const headers = { 'Content-Type': 'application/json' };
-      const storedKey = localStorage.getItem('purl_api_key');
-      if (storedKey) headers['X-API-Key'] = storedKey;
-
-      const res = await fetch(`${API_BASE}/config/retention`, {
+      const res = await fetch(`${API_BASE}/settings/retention`, {
         method: 'PUT',
-        headers,
+        headers: getHeaders(),
         body: JSON.stringify({ days: retentionDays })
       });
 
@@ -169,44 +212,52 @@
     }
   }
 
-  async function testClickHouseConnection() {
-    testingClickHouse = true;
-    clickHouseTestResult = null;
+  async function saveNotification(type) {
+    savingNotification = type;
+    notificationMessage[type] = null;
 
     try {
-      const headers = { 'Content-Type': 'application/json' };
-      const storedKey = localStorage.getItem('purl_api_key');
-      if (storedKey) headers['X-API-Key'] = storedKey;
-
-      const res = await fetch(`${API_BASE}/config/test-clickhouse`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({})
+      const res = await fetch(`${API_BASE}/settings/notifications/${type}`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify(notifications[type])
       });
 
-      clickHouseTestResult = await res.json();
+      const data = await res.json();
+      if (res.ok) {
+        notificationMessage[type] = { success: true, text: data.message };
+      } else {
+        notificationMessage[type] = { success: false, text: data.error };
+      }
     } catch (err) {
-      clickHouseTestResult = { success: false, error: err.message };
+      notificationMessage[type] = { success: false, text: err.message };
     } finally {
-      testingClickHouse = false;
+      savingNotification = null;
     }
   }
 
-  function saveApiKey() {
-    setApiKey(apiKey);
-    saved = true;
-    setTimeout(() => saved = false, 2000);
+  async function testNotification(type) {
+    testingNotification = type;
+    notificationTestResult[type] = null;
+
+    try {
+      const res = await fetch(`${API_BASE}/settings/notifications/${type}/test`, {
+        method: 'POST',
+        headers: getHeaders()
+      });
+
+      notificationTestResult[type] = await res.json();
+    } catch (err) {
+      notificationTestResult[type] = { success: false, error: err.message };
+    } finally {
+      testingNotification = null;
+    }
   }
 
   function loadSettings() {
-    const stored = localStorage.getItem('purl_settings');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        settings = { ...settings, ...parsed };
-      } catch {
-        // Ignore
-      }
+    const saved = localStorage.getItem('purl_settings');
+    if (saved) {
+      settings = { ...settings, ...JSON.parse(saved) };
     }
   }
 
@@ -214,21 +265,13 @@
     localStorage.setItem('purl_settings', JSON.stringify(settings));
     saved = true;
     setTimeout(() => saved = false, 2000);
-    window.dispatchEvent(new CustomEvent('settings-changed', { detail: settings }));
   }
 
-  async function checkNotificationStatus() {
-    try {
-      const res = await fetch(`${API_BASE}/analytics/notifiers`);
-      if (res.ok) {
-        const data = await res.json();
-        settings.notifications.telegram.configured = !!data.notifiers?.telegram;
-        settings.notifications.slack.configured = !!data.notifiers?.slack;
-        settings.notifications.webhook.configured = !!data.notifiers?.webhook;
-      }
-    } catch {
-      // Ignore
-    }
+  function saveApiKey() {
+    setApiKey(apiKey);
+    saved = true;
+    setTimeout(() => saved = false, 2000);
+    fetchServerSettings();
   }
 
   async function fetchSystemInfo() {
@@ -242,103 +285,37 @@
     }
   }
 
-  async function testNotification(type) {
-    testingNotification = type;
-    testResult = null;
-
+  async function clearCache() {
     try {
-      const res = await fetch(`${API_BASE}/alerts/test-notification?type=${type}`, {
-        method: 'POST'
-      });
-      const data = await res.json();
-      testResult = {
-        type,
-        success: data.success,
-        message: data.success ? 'Test sent successfully!' : (data.error || 'Failed to send')
-      };
-    } catch (err) {
-      testResult = { type, success: false, message: err.message };
-    } finally {
-      testingNotification = null;
-    }
-  }
-
-  function clearCache() {
-    if (confirm('Clear application cache? This will reset temporary data.')) {
-      fetch(`${API_BASE}/cache`, { method: 'DELETE' });
-      localStorage.removeItem('purl_search_history');
+      await fetch(`${API_BASE}/cache`, { method: 'DELETE', headers: getHeaders() });
       alert('Cache cleared successfully');
+    } catch {
+      alert('Failed to clear cache');
     }
   }
 
-  function clearAllData() {
-    if (!confirm('Clear ALL local data? This includes settings, saved searches, and preferences.')) {
-      return;
-    }
-    localStorage.clear();
-    window.location.reload();
+  function formatUptime(seconds) {
+    if (!seconds) return '0s';
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const parts = [];
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0) parts.push(`${hours}h`);
+    if (mins > 0) parts.push(`${mins}m`);
+    return parts.join(' ') || '< 1m';
   }
 
-  function exportSettings() {
-    const data = {
-      settings,
-      columnConfig: localStorage.getItem('purl_column_config'),
-      savedSearches: localStorage.getItem('purl_saved_searches'),
-      searchHistory: localStorage.getItem('purl_search_history'),
-      exportDate: new Date().toISOString(),
-      version: '1.0.0'
-    };
-
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `purl-settings-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function importSettings(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = JSON.parse(e.target?.result);
-        if (data.settings) {
-          settings = { ...settings, ...data.settings };
-          saveSettings();
-        }
-        if (data.columnConfig) localStorage.setItem('purl_column_config', data.columnConfig);
-        if (data.savedSearches) localStorage.setItem('purl_saved_searches', data.savedSearches);
-        if (data.searchHistory) localStorage.setItem('purl_search_history', data.searchHistory);
-        alert('Settings imported successfully!');
-      } catch {
-        alert('Failed to import: Invalid file format');
-      }
-    };
-    reader.readAsText(file);
-    event.target.value = '';
-  }
-
-  function resetToDefaults() {
-    if (!confirm('Reset all settings to defaults?')) return;
-    localStorage.removeItem('purl_settings');
-    window.location.reload();
+  function isFromEnv(section, field) {
+    if (!serverSettings) return false;
+    return serverSettings[section]?.[field]?.from_env || false;
   }
 </script>
 
 <div class="settings-page">
-  <!-- Sidebar -->
-  <aside class="settings-sidebar">
-    <div class="sidebar-header">
-      <h2>Settings</h2>
-      {#if saved}
-        <span class="saved-badge">Saved</span>
-      {/if}
-    </div>
-    <nav class="sidebar-nav">
+  <aside class="settings-nav">
+    <h2>Settings</h2>
+    <nav>
       {#each sections as section}
         <button
           class="nav-item"
@@ -359,15 +336,15 @@
             </svg>
           {:else if section.icon === 'file-text'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
             </svg>
           {:else if section.icon === 'bell'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/>
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
             </svg>
           {:else if section.icon === 'keyboard'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/>
+              <rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M7 16h10"/>
             </svg>
           {:else if section.icon === 'database'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -378,13 +355,12 @@
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
             </svg>
           {/if}
-          <span>{section.label}</span>
+          {section.label}
         </button>
       {/each}
     </nav>
   </aside>
 
-  <!-- Main Content -->
   <main class="settings-content">
     {#if activeSection === 'auth'}
       <section class="settings-section">
@@ -399,13 +375,12 @@
               <label for="api-key">API Key</label>
               <span class="setting-hint">Required when authentication is enabled on the server</span>
             </div>
-            <div class="api-key-input">
+            <div class="setting-control api-key-control">
               <input
                 id="api-key"
                 type="password"
                 bind:value={apiKey}
                 placeholder="Enter your API key"
-                on:keydown={(e) => e.key === 'Enter' && saveApiKey()}
               />
               <button class="save-btn" on:click={saveApiKey}>Save</button>
             </div>
@@ -425,149 +400,360 @@
       <section class="settings-section">
         <div class="section-header">
           <h3>Database Configuration</h3>
-          <p>ClickHouse connection and data retention settings</p>
+          <p>Configure ClickHouse connection and data retention</p>
         </div>
 
-        <!-- ClickHouse Connection -->
-        <div class="settings-group">
-          <div class="group-title">ClickHouse Connection</div>
-
-          {#if serverConfig}
-            <div class="setting-item">
-              <div class="setting-info">
-                <span class="setting-label">Host</span>
-                <span class="setting-hint">ClickHouse server address</span>
-              </div>
-              <code class="config-value">{serverConfig.clickhouse?.host || 'localhost'}</code>
+        {#if loadingSettings}
+          <div class="loading-state">Loading configuration...</div>
+        {:else}
+          <!-- ClickHouse Connection -->
+          <div class="settings-group">
+            <div class="group-header">
+              <span class="group-title">ClickHouse Connection</span>
+              {#if serverSettings?.clickhouse?.host?.from_env}
+                <span class="env-badge">From Environment</span>
+              {/if}
             </div>
 
-            <div class="setting-item">
-              <div class="setting-info">
-                <span class="setting-label">Port</span>
-                <span class="setting-hint">HTTP interface port</span>
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="db-host">Host</label>
+                <input
+                  id="db-host"
+                  type="text"
+                  bind:value={dbForm.host}
+                  placeholder="localhost"
+                  disabled={isFromEnv('clickhouse', 'host')}
+                />
+                {#if isFromEnv('clickhouse', 'host')}
+                  <span class="field-hint env">Set via PURL_CLICKHOUSE_HOST</span>
+                {/if}
               </div>
-              <code class="config-value">{serverConfig.clickhouse?.port || 8123}</code>
+
+              <div class="form-field">
+                <label for="db-port">Port</label>
+                <input
+                  id="db-port"
+                  type="number"
+                  bind:value={dbForm.port}
+                  placeholder="8123"
+                  disabled={isFromEnv('clickhouse', 'port')}
+                />
+              </div>
+
+              <div class="form-field">
+                <label for="db-database">Database</label>
+                <input
+                  id="db-database"
+                  type="text"
+                  bind:value={dbForm.database}
+                  placeholder="purl"
+                  disabled={isFromEnv('clickhouse', 'database')}
+                />
+              </div>
+
+              <div class="form-field">
+                <label for="db-user">User</label>
+                <input
+                  id="db-user"
+                  type="text"
+                  bind:value={dbForm.user}
+                  placeholder="default"
+                  disabled={isFromEnv('clickhouse', 'user')}
+                />
+              </div>
+
+              <div class="form-field full-width">
+                <label for="db-password">Password</label>
+                <input
+                  id="db-password"
+                  type="password"
+                  bind:value={dbForm.password}
+                  placeholder={serverSettings?.clickhouse?.password_set?.value ? '********' : 'Enter password'}
+                  disabled={isFromEnv('clickhouse', 'password')}
+                />
+                {#if serverSettings?.clickhouse?.password_set?.value && !dbForm.password}
+                  <span class="field-hint">Password is already set. Leave empty to keep current.</span>
+                {/if}
+              </div>
             </div>
 
-            <div class="setting-item">
-              <div class="setting-info">
-                <span class="setting-label">Database</span>
-                <span class="setting-hint">Database name</span>
-              </div>
-              <code class="config-value">{serverConfig.clickhouse?.database || 'purl'}</code>
-            </div>
-
-            <div class="setting-item">
-              <div class="setting-info">
-                <span class="setting-label">User</span>
-                <span class="setting-hint">Database user</span>
-              </div>
-              <code class="config-value">{serverConfig.clickhouse?.user || 'default'}</code>
-            </div>
-
-            <div class="setting-item">
-              <div class="setting-info">
-                <span class="setting-label">Password</span>
-                <span class="setting-hint">Database password</span>
-              </div>
-              <span class="config-status" class:configured={serverConfig.clickhouse?.password_set}>
-                {serverConfig.clickhouse?.password_set ? 'Configured' : 'Not set'}
-              </span>
-            </div>
-
-            <div class="setting-item">
-              <div class="setting-info">
-                <span class="setting-label">Test Connection</span>
-                <span class="setting-hint">Verify ClickHouse is reachable</span>
-              </div>
-              <button class="test-btn" on:click={testClickHouseConnection} disabled={testingClickHouse}>
-                {testingClickHouse ? 'Testing...' : 'Test'}
+            <div class="form-actions">
+              <button class="test-btn" on:click={testDbConnection} disabled={testingDb}>
+                {testingDb ? 'Testing...' : 'Test Connection'}
+              </button>
+              <button class="save-btn" on:click={saveDbSettings} disabled={savingDb || isFromEnv('clickhouse', 'host')}>
+                {savingDb ? 'Saving...' : 'Save Settings'}
               </button>
             </div>
 
-            {#if clickHouseTestResult}
-              <div class="test-result-box" class:success={clickHouseTestResult.success}>
-                {#if clickHouseTestResult.success}
+            {#if dbTestResult}
+              <div class="result-box" class:success={dbTestResult.success}>
+                {#if dbTestResult.success}
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <polyline points="20 6 9 17 4 12"/>
                   </svg>
-                  {clickHouseTestResult.message}
+                  {dbTestResult.message}
                 {:else}
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
                   </svg>
-                  {clickHouseTestResult.error}
+                  {dbTestResult.error}
                 {/if}
               </div>
             {/if}
-          {:else}
-            <div class="loading-state">Loading configuration...</div>
-          {/if}
-        </div>
 
-        <!-- Retention Settings -->
-        <div class="settings-group" style="margin-top: 20px;">
-          <div class="group-title">Data Retention</div>
-
-          <div class="setting-item">
-            <div class="setting-info">
-              <label for="retention-days">Retention Period</label>
-              <span class="setting-hint">How long to keep log data (TTL)</span>
-            </div>
-            <div class="retention-input">
-              <input
-                id="retention-days"
-                type="number"
-                min="1"
-                max="365"
-                bind:value={retentionDays}
-              />
-              <span class="retention-unit">days</span>
-              <button class="save-btn" on:click={saveRetention} disabled={savingRetention}>
-                {savingRetention ? 'Saving...' : 'Apply'}
-              </button>
-            </div>
+            {#if dbMessage}
+              <div class="result-box" class:success={dbMessage.success}>
+                {dbMessage.text}
+              </div>
+            {/if}
           </div>
 
-          {#if retentionMessage}
-            <div class="retention-message" class:success={retentionMessage.success}>
-              {retentionMessage.text}
+          <!-- Retention Settings -->
+          <div class="settings-group" style="margin-top: 24px;">
+            <div class="group-header">
+              <span class="group-title">Data Retention</span>
+              {#if serverSettings?.retention?.days?.from_env}
+                <span class="env-badge">From Environment</span>
+              {/if}
             </div>
-          {/if}
 
-          {#if retentionStats}
-            <div class="retention-stats">
-              <div class="stat-row">
-                <span>Total Logs</span>
-                <span>{retentionStats.total_logs?.toLocaleString() || 0}</span>
+            <div class="setting-item">
+              <div class="setting-info">
+                <label for="retention-days">Retention Period</label>
+                <span class="setting-hint">How long to keep log data (ClickHouse TTL)</span>
               </div>
-              <div class="stat-row">
-                <span>Database Size</span>
-                <span>{retentionStats.db_size_mb || 0} MB</span>
-              </div>
-              <div class="stat-row">
-                <span>Oldest Log</span>
-                <span>{retentionStats.oldest_log ? new Date(retentionStats.oldest_log).toLocaleDateString() : 'N/A'}</span>
-              </div>
-              <div class="stat-row">
-                <span>Newest Log</span>
-                <span>{retentionStats.newest_log ? new Date(retentionStats.newest_log).toLocaleDateString() : 'N/A'}</span>
+              <div class="retention-control">
+                <input
+                  id="retention-days"
+                  type="number"
+                  min="1"
+                  max="365"
+                  bind:value={retentionDays}
+                  disabled={serverSettings?.retention?.days?.from_env}
+                />
+                <span class="unit">days</span>
+                <button class="save-btn" on:click={saveRetention} disabled={savingRetention || serverSettings?.retention?.days?.from_env}>
+                  {savingRetention ? 'Saving...' : 'Apply'}
+                </button>
               </div>
             </div>
-          {/if}
+
+            {#if retentionMessage}
+              <div class="result-box" class:success={retentionMessage.success}>
+                {retentionMessage.text}
+              </div>
+            {/if}
+
+            {#if retentionStats}
+              <div class="stats-grid">
+                <div class="stat-card">
+                  <span class="stat-value">{retentionStats.total_logs?.toLocaleString() || 0}</span>
+                  <span class="stat-label">Total Logs</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-value">{retentionStats.db_size_mb || 0} MB</span>
+                  <span class="stat-label">Database Size</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-value">{retentionStats.oldest_log ? new Date(retentionStats.oldest_log).toLocaleDateString() : 'N/A'}</span>
+                  <span class="stat-label">Oldest Log</span>
+                </div>
+                <div class="stat-card">
+                  <span class="stat-value">{retentionStats.newest_log ? new Date(retentionStats.newest_log).toLocaleDateString() : 'N/A'}</span>
+                  <span class="stat-label">Newest Log</span>
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </section>
+    {/if}
+
+    {#if activeSection === 'notifications'}
+      <section class="settings-section">
+        <div class="section-header">
+          <h3>Alert Notifications</h3>
+          <p>Configure notification channels for alerts</p>
         </div>
 
-        <!-- Environment Variables Info -->
-        <div class="auth-info" style="margin-top: 20px;">
-          <h4>Configuration via Environment</h4>
-          <p>Database settings are configured via environment variables:</p>
-          <pre><code>PURL_CLICKHOUSE_HOST=your-clickhouse-host
-PURL_CLICKHOUSE_PORT=8123
-PURL_CLICKHOUSE_DATABASE=purl
-PURL_CLICKHOUSE_USER=purl
-PURL_CLICKHOUSE_PASSWORD=your-password
-PURL_RETENTION_DAYS=30</code></pre>
-          <p>You can connect to any ClickHouse instance - local, remote, or cloud.</p>
+        <!-- Telegram -->
+        <div class="notification-card">
+          <div class="notification-header">
+            <div class="notification-icon telegram">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+              </svg>
+            </div>
+            <div class="notification-info">
+              <h4>Telegram</h4>
+              <p>Receive alerts via Telegram bot</p>
+            </div>
+            {#if serverSettings?.notifications?.telegram?.from_env}
+              <span class="env-badge">From Environment</span>
+            {/if}
+          </div>
+
+          <div class="notification-form">
+            <div class="form-field">
+              <label>Bot Token</label>
+              <input
+                type="password"
+                bind:value={notifications.telegram.bot_token}
+                placeholder="123456:ABC-DEF..."
+                disabled={serverSettings?.notifications?.telegram?.from_env}
+              />
+            </div>
+            <div class="form-field">
+              <label>Chat ID</label>
+              <input
+                type="text"
+                bind:value={notifications.telegram.chat_id}
+                placeholder="-1001234567890"
+                disabled={serverSettings?.notifications?.telegram?.from_env}
+              />
+            </div>
+            <div class="form-actions">
+              <button class="test-btn" on:click={() => testNotification('telegram')} disabled={testingNotification === 'telegram'}>
+                {testingNotification === 'telegram' ? 'Testing...' : 'Test'}
+              </button>
+              <button class="save-btn" on:click={() => saveNotification('telegram')} disabled={savingNotification === 'telegram' || serverSettings?.notifications?.telegram?.from_env}>
+                {savingNotification === 'telegram' ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+            {#if notificationTestResult.telegram}
+              <div class="result-box" class:success={notificationTestResult.telegram.success}>
+                {notificationTestResult.telegram.success ? notificationTestResult.telegram.message : notificationTestResult.telegram.error}
+              </div>
+            {/if}
+            {#if notificationMessage.telegram}
+              <div class="result-box" class:success={notificationMessage.telegram.success}>
+                {notificationMessage.telegram.text}
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        <!-- Slack -->
+        <div class="notification-card">
+          <div class="notification-header">
+            <div class="notification-icon slack">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/>
+              </svg>
+            </div>
+            <div class="notification-info">
+              <h4>Slack</h4>
+              <p>Post alerts to Slack channel</p>
+            </div>
+            {#if serverSettings?.notifications?.slack?.from_env}
+              <span class="env-badge">From Environment</span>
+            {/if}
+          </div>
+
+          <div class="notification-form">
+            <div class="form-field">
+              <label>Webhook URL</label>
+              <input
+                type="password"
+                bind:value={notifications.slack.webhook_url}
+                placeholder="https://hooks.slack.com/services/..."
+                disabled={serverSettings?.notifications?.slack?.from_env}
+              />
+            </div>
+            <div class="form-field">
+              <label>Channel (optional)</label>
+              <input
+                type="text"
+                bind:value={notifications.slack.channel}
+                placeholder="#alerts"
+                disabled={serverSettings?.notifications?.slack?.from_env}
+              />
+            </div>
+            <div class="form-actions">
+              <button class="test-btn" on:click={() => testNotification('slack')} disabled={testingNotification === 'slack'}>
+                {testingNotification === 'slack' ? 'Testing...' : 'Test'}
+              </button>
+              <button class="save-btn" on:click={() => saveNotification('slack')} disabled={savingNotification === 'slack' || serverSettings?.notifications?.slack?.from_env}>
+                {savingNotification === 'slack' ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+            {#if notificationTestResult.slack}
+              <div class="result-box" class:success={notificationTestResult.slack.success}>
+                {notificationTestResult.slack.success ? notificationTestResult.slack.message : notificationTestResult.slack.error}
+              </div>
+            {/if}
+            {#if notificationMessage.slack}
+              <div class="result-box" class:success={notificationMessage.slack.success}>
+                {notificationMessage.slack.text}
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        <!-- Webhook -->
+        <div class="notification-card">
+          <div class="notification-header">
+            <div class="notification-icon webhook">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+              </svg>
+            </div>
+            <div class="notification-info">
+              <h4>Webhook</h4>
+              <p>Send to custom HTTP endpoint</p>
+            </div>
+            {#if serverSettings?.notifications?.webhook?.from_env}
+              <span class="env-badge">From Environment</span>
+            {/if}
+          </div>
+
+          <div class="notification-form">
+            <div class="form-field">
+              <label>Webhook URL</label>
+              <input
+                type="text"
+                bind:value={notifications.webhook.url}
+                placeholder="https://your-server.com/webhook"
+                disabled={serverSettings?.notifications?.webhook?.from_env}
+              />
+            </div>
+            <div class="form-field">
+              <label>Auth Token (optional)</label>
+              <input
+                type="password"
+                bind:value={notifications.webhook.auth_token}
+                placeholder="Bearer token"
+                disabled={serverSettings?.notifications?.webhook?.from_env}
+              />
+            </div>
+            <div class="form-actions">
+              <button class="test-btn" on:click={() => testNotification('webhook')} disabled={testingNotification === 'webhook'}>
+                {testingNotification === 'webhook' ? 'Testing...' : 'Test'}
+              </button>
+              <button class="save-btn" on:click={() => saveNotification('webhook')} disabled={savingNotification === 'webhook' || serverSettings?.notifications?.webhook?.from_env}>
+                {savingNotification === 'webhook' ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+            {#if notificationTestResult.webhook}
+              <div class="result-box" class:success={notificationTestResult.webhook.success}>
+                {notificationTestResult.webhook.success ? notificationTestResult.webhook.message : notificationTestResult.webhook.error}
+              </div>
+            {/if}
+            {#if notificationMessage.webhook}
+              <div class="result-box" class:success={notificationMessage.webhook.success}>
+                {notificationMessage.webhook.text}
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        <div class="auth-info">
+          <h4>Settings Storage</h4>
+          <p>Notification settings are saved to <code>/app/config/settings.json</code> on the server.</p>
+          <p>Environment variables take precedence over UI settings and cannot be modified here.</p>
         </div>
       </section>
     {/if}
@@ -582,61 +768,50 @@ PURL_RETENTION_DAYS=30</code></pre>
         <div class="settings-group">
           <div class="setting-item">
             <div class="setting-info">
-              <label for="time-range">Default Time Range</label>
-              <span class="setting-hint">Initial time range when loading</span>
+              <span class="setting-label">Default Time Range</span>
+              <span class="setting-hint">Initial time range when opening logs</span>
             </div>
-            <select id="time-range" bind:value={settings.defaultTimeRange} on:change={saveSettings}>
-              {#each timeRangeOptions as opt}
-                <option value={opt.value}>{opt.label}</option>
+            <select bind:value={settings.defaultTimeRange} on:change={saveSettings}>
+              {#each timeRangeOptions as option}
+                <option value={option.value}>{option.label}</option>
               {/each}
             </select>
           </div>
 
           <div class="setting-item">
             <div class="setting-info">
-              <label for="auto-refresh">Auto Refresh</label>
-              <span class="setting-hint">Automatically refresh log data</span>
+              <span class="setting-label">Refresh Interval</span>
+              <span class="setting-hint">Auto-refresh interval in seconds (0 = disabled)</span>
             </div>
-            <select id="auto-refresh" bind:value={settings.refreshInterval} on:change={saveSettings}>
-              {#each refreshOptions as opt}
-                <option value={opt.value}>{opt.label}</option>
-              {/each}
-            </select>
+            <input type="number" min="0" max="300" bind:value={settings.refreshInterval} on:change={saveSettings} />
           </div>
 
           <div class="setting-item">
             <div class="setting-info">
-              <label for="max-results">Max Results</label>
-              <span class="setting-hint">Maximum logs per query</span>
+              <span class="setting-label">Max Results</span>
+              <span class="setting-hint">Maximum number of logs to display</span>
             </div>
-            <select id="max-results" bind:value={settings.maxResults} on:change={saveSettings}>
-              <option value={100}>100</option>
-              <option value={250}>250</option>
-              <option value={500}>500</option>
-              <option value={1000}>1,000</option>
-              <option value={2000}>2,000</option>
-            </select>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-info">
-              <label for="font-size">Font Size</label>
-              <span class="setting-hint">Log viewer text size</span>
-            </div>
-            <select id="font-size" bind:value={settings.fontSize} on:change={saveSettings}>
-              {#each fontSizeOptions as opt}
-                <option value={opt.value}>{opt.label}</option>
-              {/each}
-            </select>
+            <input type="number" min="50" max="5000" bind:value={settings.maxResults} on:change={saveSettings} />
           </div>
 
           <div class="setting-item">
             <div class="setting-info">
               <span class="setting-label">Compact Mode</span>
-              <span class="setting-hint">Reduce padding for more logs</span>
+              <span class="setting-hint">Reduce spacing in log list</span>
             </div>
             <label class="toggle">
-              <input type="checkbox" bind:checked={settings.compactMode} on:change={saveSettings}>
+              <input type="checkbox" bind:checked={settings.compactMode} on:change={saveSettings} />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-label">Line Wrap</span>
+              <span class="setting-hint">Wrap long log messages</span>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" bind:checked={settings.lineWrap} on:change={saveSettings} />
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -648,51 +823,28 @@ PURL_RETENTION_DAYS=30</code></pre>
       <section class="settings-section">
         <div class="section-header">
           <h3>Log Viewer Settings</h3>
-          <p>Configure how logs are displayed and formatted</p>
+          <p>Configure log display preferences</p>
         </div>
 
         <div class="settings-group">
           <div class="setting-item">
             <div class="setting-info">
-              <label for="timestamp-format">Timestamp Format</label>
-              <span class="setting-hint">How to display log timestamps</span>
-            </div>
-            <select id="timestamp-format" bind:value={settings.timestampFormat} on:change={saveSettings}>
-              {#each timestampOptions as opt}
-                <option value={opt.value}>{opt.label}</option>
-              {/each}
-            </select>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-info">
               <span class="setting-label">Show Host Column</span>
-              <span class="setting-hint">Display hostname in log table</span>
+              <span class="setting-hint">Display host information in log list</span>
             </div>
             <label class="toggle">
-              <input type="checkbox" bind:checked={settings.showHost} on:change={saveSettings}>
+              <input type="checkbox" bind:checked={settings.showHost} on:change={saveSettings} />
               <span class="toggle-slider"></span>
             </label>
           </div>
 
           <div class="setting-item">
             <div class="setting-info">
-              <span class="setting-label">Show Raw Logs</span>
-              <span class="setting-hint">Display raw log data column</span>
+              <span class="setting-label">Show Raw Messages</span>
+              <span class="setting-hint">Display raw log data by default</span>
             </div>
             <label class="toggle">
-              <input type="checkbox" bind:checked={settings.showRaw} on:change={saveSettings}>
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-info">
-              <span class="setting-label">Line Wrap</span>
-              <span class="setting-hint">Wrap long log messages</span>
-            </div>
-            <label class="toggle">
-              <input type="checkbox" bind:checked={settings.lineWrap} on:change={saveSettings}>
+              <input type="checkbox" bind:checked={settings.showRaw} on:change={saveSettings} />
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -700,10 +852,10 @@ PURL_RETENTION_DAYS=30</code></pre>
           <div class="setting-item">
             <div class="setting-info">
               <span class="setting-label">Highlight Errors</span>
-              <span class="setting-hint">Highlight error/critical logs</span>
+              <span class="setting-hint">Highlight ERROR and FATAL logs</span>
             </div>
             <label class="toggle">
-              <input type="checkbox" bind:checked={settings.highlightErrors} on:change={saveSettings}>
+              <input type="checkbox" bind:checked={settings.highlightErrors} on:change={saveSettings} />
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -711,154 +863,44 @@ PURL_RETENTION_DAYS=30</code></pre>
           <div class="setting-item">
             <div class="setting-info">
               <span class="setting-label">Auto Scroll</span>
-              <span class="setting-hint">Scroll to new logs in live mode</span>
+              <span class="setting-hint">Auto-scroll to new logs in live mode</span>
             </div>
             <label class="toggle">
-              <input type="checkbox" bind:checked={settings.autoScroll} on:change={saveSettings}>
+              <input type="checkbox" bind:checked={settings.autoScroll} on:change={saveSettings} />
               <span class="toggle-slider"></span>
             </label>
           </div>
-        </div>
-      </section>
-    {/if}
 
-    {#if activeSection === 'notifications'}
-      <section class="settings-section">
-        <div class="section-header">
-          <h3>Alert Notifications</h3>
-          <p>Configure notification channels for alerts. Set environment variables on the server.</p>
-        </div>
-
-        <div class="notification-grid">
-          <!-- Telegram -->
-          <div class="notification-card" class:configured={settings.notifications.telegram.configured}>
-            <div class="notification-icon telegram">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
-              </svg>
-            </div>
-            <div class="notification-content">
-              <h4>Telegram</h4>
-              <p>Receive alerts via Telegram bot</p>
-              <div class="env-vars">
-                <code>PURL_TELEGRAM_BOT_TOKEN</code>
-                <code>PURL_TELEGRAM_CHAT_ID</code>
-              </div>
-              {#if settings.notifications.telegram.configured}
-                <div class="notification-status configured">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  Configured
-                </div>
-                <button class="test-btn" on:click={() => testNotification('telegram')} disabled={testingNotification === 'telegram'}>
-                  {testingNotification === 'telegram' ? 'Sending...' : 'Send Test'}
-                </button>
-              {:else}
-                <div class="notification-status">Not configured</div>
-              {/if}
-              {#if testResult?.type === 'telegram'}
-                <div class="test-result" class:success={testResult.success}>{testResult.message}</div>
-              {/if}
-            </div>
-          </div>
-
-          <!-- Slack -->
-          <div class="notification-card" class:configured={settings.notifications.slack.configured}>
-            <div class="notification-icon slack">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/>
-              </svg>
-            </div>
-            <div class="notification-content">
-              <h4>Slack</h4>
-              <p>Post alerts to Slack channel</p>
-              <div class="env-vars">
-                <code>PURL_SLACK_WEBHOOK_URL</code>
-              </div>
-              {#if settings.notifications.slack.configured}
-                <div class="notification-status configured">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  Configured
-                </div>
-                <button class="test-btn" on:click={() => testNotification('slack')} disabled={testingNotification === 'slack'}>
-                  {testingNotification === 'slack' ? 'Sending...' : 'Send Test'}
-                </button>
-              {:else}
-                <div class="notification-status">Not configured</div>
-              {/if}
-              {#if testResult?.type === 'slack'}
-                <div class="test-result" class:success={testResult.success}>{testResult.message}</div>
-              {/if}
-            </div>
-          </div>
-
-          <!-- Webhook -->
-          <div class="notification-card" class:configured={settings.notifications.webhook.configured}>
-            <div class="notification-icon webhook">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
-                <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
-              </svg>
-            </div>
-            <div class="notification-content">
-              <h4>Webhook</h4>
-              <p>Send to custom HTTP endpoint</p>
-              <div class="env-vars">
-                <code>PURL_ALERT_WEBHOOK_URL</code>
-              </div>
-              {#if settings.notifications.webhook.configured}
-                <div class="notification-status configured">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  Configured
-                </div>
-                <button class="test-btn" on:click={() => testNotification('webhook')} disabled={testingNotification === 'webhook'}>
-                  {testingNotification === 'webhook' ? 'Sending...' : 'Send Test'}
-                </button>
-              {:else}
-                <div class="notification-status">Not configured</div>
-              {/if}
-              {#if testResult?.type === 'webhook'}
-                <div class="test-result" class:success={testResult.success}>{testResult.message}</div>
-              {/if}
-            </div>
-          </div>
-        </div>
-
-        <div class="settings-group" style="margin-top: 20px;">
           <div class="setting-item">
             <div class="setting-info">
-              <span class="setting-label">Sound Alerts</span>
-              <span class="setting-hint">Play sound for new alerts</span>
+              <span class="setting-label">Timestamp Format</span>
+              <span class="setting-hint">How to display timestamps</span>
             </div>
-            <label class="toggle">
-              <input type="checkbox" bind:checked={settings.soundAlerts} on:change={saveSettings}>
-              <span class="toggle-slider"></span>
-            </label>
+            <select bind:value={settings.timestampFormat} on:change={saveSettings}>
+              <option value="relative">Relative (5 min ago)</option>
+              <option value="absolute">Absolute (12:34:56)</option>
+              <option value="iso">ISO 8601</option>
+            </select>
           </div>
         </div>
       </section>
     {/if}
 
-    {#if activeSection === 'keyboard'}
+    {#if activeSection === 'shortcuts'}
       <section class="settings-section">
         <div class="section-header">
           <h3>Keyboard Shortcuts</h3>
-          <p>Quick access keys for common actions</p>
+          <p>Quick actions for power users</p>
         </div>
 
         <div class="settings-group">
           <div class="setting-item">
             <div class="setting-info">
               <span class="setting-label">Enable Keyboard Shortcuts</span>
-              <span class="setting-hint">Use keyboard shortcuts globally</span>
+              <span class="setting-hint">Turn keyboard shortcuts on/off</span>
             </div>
             <label class="toggle">
-              <input type="checkbox" bind:checked={settings.keyboardShortcuts} on:change={saveSettings}>
+              <input type="checkbox" bind:checked={settings.keyboardShortcuts} on:change={saveSettings} />
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -867,8 +909,8 @@ PURL_RETENTION_DAYS=30</code></pre>
         <div class="shortcuts-list">
           {#each shortcuts as shortcut}
             <div class="shortcut-item">
-              <kbd class="shortcut-key">{shortcut.key}</kbd>
-              <span class="shortcut-action">{shortcut.action}</span>
+              <kbd>{shortcut.key}</kbd>
+              <span>{shortcut.action}</span>
             </div>
           {/each}
         </div>
@@ -879,76 +921,24 @@ PURL_RETENTION_DAYS=30</code></pre>
       <section class="settings-section">
         <div class="section-header">
           <h3>Data Management</h3>
-          <p>Manage your application data and settings</p>
+          <p>Manage cache and stored data</p>
         </div>
 
-        <div class="data-actions">
-          <div class="data-card">
-            <div class="data-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-              </svg>
+        <div class="settings-group">
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-label">Clear Query Cache</span>
+              <span class="setting-hint">Clear server-side query cache</span>
             </div>
-            <div class="data-content">
-              <h4>Export Settings</h4>
-              <p>Download all settings and preferences as JSON</p>
-              <button class="data-btn" on:click={exportSettings}>Export</button>
-            </div>
+            <button class="danger-btn" on:click={clearCache}>Clear Cache</button>
           </div>
 
-          <div class="data-card">
-            <div class="data-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-              </svg>
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-label">Clear Local Storage</span>
+              <span class="setting-hint">Reset all client-side settings</span>
             </div>
-            <div class="data-content">
-              <h4>Import Settings</h4>
-              <p>Restore settings from a backup file</p>
-              <label class="data-btn">
-                Import
-                <input type="file" accept=".json" on:change={importSettings} hidden>
-              </label>
-            </div>
-          </div>
-
-          <div class="data-card">
-            <div class="data-icon warning">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 6h18M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
-              </svg>
-            </div>
-            <div class="data-content">
-              <h4>Clear Cache</h4>
-              <p>Remove temporary data and search history</p>
-              <button class="data-btn warning" on:click={clearCache}>Clear Cache</button>
-            </div>
-          </div>
-
-          <div class="data-card">
-            <div class="data-icon danger">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-              </svg>
-            </div>
-            <div class="data-content">
-              <h4>Reset to Defaults</h4>
-              <p>Restore all settings to factory defaults</p>
-              <button class="data-btn danger" on:click={resetToDefaults}>Reset</button>
-            </div>
-          </div>
-
-          <div class="data-card">
-            <div class="data-icon danger">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 6h18M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M10 11v6M14 11v6"/>
-              </svg>
-            </div>
-            <div class="data-content">
-              <h4>Clear All Data</h4>
-              <p>Delete all local data permanently</p>
-              <button class="data-btn danger" on:click={clearAllData}>Delete All</button>
-            </div>
+            <button class="danger-btn" on:click={() => { localStorage.clear(); location.reload(); }}>Reset</button>
           </div>
         </div>
       </section>
@@ -961,18 +951,21 @@ PURL_RETENTION_DAYS=30</code></pre>
           <p>Log aggregation and analysis platform</p>
         </div>
 
-        <div class="about-content">
+        <div class="about-card">
           <div class="about-logo">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-              <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="1.5">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <line x1="7" y1="8" x2="17" y2="8"/>
+              <line x1="7" y1="12" x2="14" y2="12"/>
+              <line x1="7" y1="16" x2="11" y2="16"/>
             </svg>
           </div>
+
           <h2>Purl</h2>
           <p class="about-tagline">Fast, Modern Log Aggregation</p>
-          <div class="about-version">Version 1.0.0</div>
+          <p class="about-version">Version 1.0.0</p>
 
-          <div class="about-tech">
+          <div class="tech-stack">
             <span class="tech-badge">Perl</span>
             <span class="tech-badge">ClickHouse</span>
             <span class="tech-badge">Svelte</span>
@@ -980,32 +973,32 @@ PURL_RETENTION_DAYS=30</code></pre>
           </div>
 
           {#if systemInfo}
-            <div class="system-info">
-              <div class="info-row">
+            <div class="system-status">
+              <div class="status-row">
                 <span>Status</span>
-                <span class="status-badge" class:healthy={systemInfo.status === 'ok'}>{systemInfo.status}</span>
+                <span class="status-badge" class:ok={systemInfo.status === 'ok'}>{systemInfo.status?.toUpperCase()}</span>
               </div>
-              <div class="info-row">
+              <div class="status-row">
                 <span>ClickHouse</span>
-                <span>{systemInfo.clickhouse}</span>
+                <span class="status-value">{systemInfo.clickhouse}</span>
               </div>
-              <div class="info-row">
+              <div class="status-row">
                 <span>Uptime</span>
-                <span>{Math.floor(systemInfo.uptime_secs / 60)} min</span>
+                <span class="status-value">{formatUptime(systemInfo.uptime_secs)}</span>
               </div>
             </div>
           {/if}
 
           <div class="about-links">
-            <a href="https://github.com" target="_blank" rel="noopener">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <a href="https://github.com/ismoilovdevml/purl" target="_blank" rel="noopener" class="about-link">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
               </svg>
               GitHub
             </a>
-            <a href="/api/metrics" target="_blank" rel="noopener">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 3v18h18"/><path d="M18 9l-5-6-4 8-3-2"/>
+            <a href="/api/metrics" target="_blank" class="about-link">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 20V10M12 20V4M6 20v-6"/>
               </svg>
               Metrics
             </a>
@@ -1013,75 +1006,55 @@ PURL_RETENTION_DAYS=30</code></pre>
         </div>
       </section>
     {/if}
+
+    {#if saved}
+      <div class="save-toast">Settings saved!</div>
+    {/if}
   </main>
 </div>
 
 <style>
   .settings-page {
     display: flex;
-    height: calc(100vh - 50px);
-    overflow: hidden;
+    min-height: 100%;
+    background: #0d1117;
+    color: #c9d1d9;
   }
 
-  /* Sidebar */
-  .settings-sidebar {
-    width: 200px;
+  .settings-nav {
+    width: 220px;
     background: #161b22;
-    border-right: 1px solid #30363d;
-    display: flex;
-    flex-direction: column;
+    border-right: 1px solid #21262d;
+    padding: 20px 0;
     flex-shrink: 0;
   }
 
-  .sidebar-header {
-    padding: 16px;
-    border-bottom: 1px solid #30363d;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .sidebar-header h2 {
+  .settings-nav h2 {
     font-size: 1rem;
     font-weight: 600;
-    color: #f0f6fc;
+    padding: 0 16px 16px;
     margin: 0;
+    border-bottom: 1px solid #21262d;
+    color: #f0f6fc;
   }
 
-  .saved-badge {
-    font-size: 0.625rem;
-    padding: 2px 6px;
-    background: #3fb95020;
-    color: #3fb950;
-    border-radius: 4px;
-    animation: fadeIn 0.2s;
-  }
-
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-
-  .sidebar-nav {
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+  .settings-nav nav {
+    padding: 8px 0;
   }
 
   .nav-item {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 12px;
-    background: transparent;
+    width: 100%;
+    padding: 10px 16px;
+    background: none;
     border: none;
-    border-radius: 6px;
     color: #8b949e;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     cursor: pointer;
-    text-align: left;
     transition: all 0.15s;
+    text-align: left;
   }
 
   .nav-item:hover {
@@ -1090,19 +1063,19 @@ PURL_RETENTION_DAYS=30</code></pre>
   }
 
   .nav-item.active {
-    background: #388bfd20;
+    background: #1f6feb20;
     color: #58a6ff;
+    border-left: 2px solid #58a6ff;
   }
 
-  /* Main Content */
   .settings-content {
     flex: 1;
+    padding: 24px 32px;
     overflow-y: auto;
-    padding: 24px;
   }
 
   .settings-section {
-    max-width: 700px;
+    max-width: 800px;
   }
 
   .section-header {
@@ -1110,31 +1083,56 @@ PURL_RETENTION_DAYS=30</code></pre>
   }
 
   .section-header h3 {
-    font-size: 1.125rem;
+    font-size: 1.25rem;
     font-weight: 600;
     color: #f0f6fc;
-    margin: 0 0 4px 0;
+    margin: 0 0 4px;
   }
 
   .section-header p {
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     color: #8b949e;
     margin: 0;
   }
 
-  /* Settings Group */
   .settings-group {
     background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 10px;
+    border: 1px solid #21262d;
+    border-radius: 8px;
     overflow: hidden;
+  }
+
+  .group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: #21262d30;
+    border-bottom: 1px solid #21262d;
+  }
+
+  .group-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .env-badge {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: #d29922;
+    background: #d2992220;
+    padding: 2px 8px;
+    border-radius: 10px;
   }
 
   .setting-item {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 14px 16px;
+    justify-content: space-between;
+    padding: 12px 16px;
     border-bottom: 1px solid #21262d;
   }
 
@@ -1148,11 +1146,9 @@ PURL_RETENTION_DAYS=30</code></pre>
     gap: 2px;
   }
 
-  .setting-info label,
-  .setting-info .setting-label {
+  .setting-label {
     font-size: 0.875rem;
-    color: #f0f6fc;
-    font-weight: 500;
+    color: #c9d1d9;
   }
 
   .setting-hint {
@@ -1160,86 +1156,311 @@ PURL_RETENTION_DAYS=30</code></pre>
     color: #8b949e;
   }
 
-  /* Select */
-  select {
-    padding: 8px 12px;
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    font-size: 0.8125rem;
-    min-width: 150px;
-    cursor: pointer;
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 16px;
   }
 
-  select:hover {
-    border-color: #58a6ff;
-  }
-
-  /* API Key Input */
-  .api-key-input {
+  .form-field {
     display: flex;
-    gap: 8px;
+    flex-direction: column;
+    gap: 6px;
   }
 
-  .api-key-input input {
+  .form-field.full-width {
+    grid-column: 1 / -1;
+  }
+
+  .form-field label {
+    font-size: 0.8125rem;
+    color: #8b949e;
+  }
+
+  .form-field input {
     padding: 8px 12px;
-    background: #21262d;
+    background: #0d1117;
     border: 1px solid #30363d;
     border-radius: 6px;
     color: #c9d1d9;
-    font-size: 0.8125rem;
-    min-width: 250px;
-    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.875rem;
   }
 
-  .api-key-input input:focus {
+  .form-field input:focus {
     outline: none;
     border-color: #58a6ff;
   }
 
-  .save-btn {
-    padding: 8px 16px;
-    background: #238636;
-    border: none;
-    border-radius: 6px;
-    color: #fff;
-    font-size: 0.8125rem;
-    cursor: pointer;
-    transition: background 0.2s;
+  .form-field input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
-  .save-btn:hover {
+  .field-hint {
+    font-size: 0.6875rem;
+    color: #8b949e;
+  }
+
+  .field-hint.env {
+    color: #d29922;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    background: #21262d30;
+    border-top: 1px solid #21262d;
+  }
+
+  .result-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    font-size: 0.8125rem;
+    color: #f85149;
+    background: #f8514915;
+    border-top: 1px solid #21262d;
+  }
+
+  .result-box.success {
+    color: #3fb950;
+    background: #3fb95015;
+  }
+
+  .save-btn, .test-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .save-btn {
+    background: #238636;
+    border: 1px solid #238636;
+    color: #fff;
+  }
+
+  .save-btn:hover:not(:disabled) {
     background: #2ea043;
   }
 
+  .save-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .test-btn {
+    background: transparent;
+    border: 1px solid #30363d;
+    color: #c9d1d9;
+  }
+
+  .test-btn:hover:not(:disabled) {
+    background: #21262d;
+    border-color: #8b949e;
+  }
+
+  .test-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .danger-btn {
+    padding: 8px 16px;
+    background: #21262d;
+    border: 1px solid #f85149;
+    border-radius: 6px;
+    color: #f85149;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .danger-btn:hover {
+    background: #f8514920;
+  }
+
+  .retention-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .retention-control input {
+    width: 80px;
+    padding: 8px 12px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    text-align: center;
+  }
+
+  .retention-control .unit {
+    font-size: 0.8125rem;
+    color: #8b949e;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    padding: 16px;
+    background: #0d1117;
+    border-top: 1px solid #21262d;
+  }
+
+  .stat-card {
+    text-align: center;
+    padding: 12px 8px;
+    background: #161b22;
+    border-radius: 6px;
+  }
+
+  .stat-value {
+    display: block;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #f0f6fc;
+    font-family: 'SF Mono', Monaco, monospace;
+  }
+
+  .stat-label {
+    display: block;
+    font-size: 0.6875rem;
+    color: #8b949e;
+    margin-top: 4px;
+  }
+
+  .notification-card {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+
+  .notification-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    border-bottom: 1px solid #21262d;
+  }
+
+  .notification-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .notification-icon.telegram {
+    background: #0088cc20;
+    color: #0088cc;
+  }
+
+  .notification-icon.slack {
+    background: #4a154b20;
+    color: #e01e5a;
+  }
+
+  .notification-icon.webhook {
+    background: #58a6ff20;
+    color: #58a6ff;
+  }
+
+  .notification-info {
+    flex: 1;
+  }
+
+  .notification-info h4 {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #f0f6fc;
+  }
+
+  .notification-info p {
+    margin: 2px 0 0;
+    font-size: 0.75rem;
+    color: #8b949e;
+  }
+
+  .notification-form {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .notification-form .form-field {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .notification-form .form-field label {
+    width: 120px;
+    flex-shrink: 0;
+  }
+
+  .notification-form .form-field input {
+    flex: 1;
+  }
+
+  .notification-form .form-actions {
+    padding: 0;
+    background: none;
+    border: none;
+    justify-content: flex-end;
+  }
+
+  .notification-form .result-box {
+    border: none;
+    border-radius: 6px;
+    margin: 0;
+  }
+
+  .loading-state {
+    padding: 40px;
+    text-align: center;
+    color: #8b949e;
+  }
+
   .auth-info {
-    margin-top: 20px;
+    margin-top: 24px;
     padding: 16px;
     background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 10px;
+    border: 1px solid #21262d;
+    border-radius: 8px;
   }
 
   .auth-info h4 {
+    margin: 0 0 8px;
     font-size: 0.875rem;
     color: #f0f6fc;
-    margin: 0 0 12px 0;
   }
 
   .auth-info p {
+    margin: 8px 0;
     font-size: 0.8125rem;
     color: #8b949e;
-    margin: 0 0 8px 0;
   }
 
   .auth-info code {
     background: #21262d;
     padding: 2px 6px;
     border-radius: 4px;
-    font-family: 'SF Mono', Monaco, monospace;
-    color: #58a6ff;
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
+    color: #f85149;
   }
 
   .auth-info pre {
@@ -1253,15 +1474,33 @@ PURL_RETENTION_DAYS=30</code></pre>
   .auth-info pre code {
     background: none;
     padding: 0;
-    font-size: 0.8125rem;
+    color: #7ee787;
   }
 
-  /* Toggle */
+  .api-key-control {
+    display: flex;
+    gap: 8px;
+  }
+
+  .api-key-control input {
+    width: 300px;
+    padding: 8px 12px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+  }
+
+  .api-key-control input:focus {
+    outline: none;
+    border-color: #58a6ff;
+  }
+
   .toggle {
     position: relative;
     display: inline-block;
-    width: 40px;
-    height: 22px;
+    width: 44px;
+    height: 24px;
   }
 
   .toggle input {
@@ -1273,17 +1512,20 @@ PURL_RETENTION_DAYS=30</code></pre>
   .toggle-slider {
     position: absolute;
     cursor: pointer;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     background: #21262d;
-    border-radius: 22px;
+    border-radius: 12px;
     transition: 0.2s;
   }
 
   .toggle-slider:before {
     position: absolute;
     content: "";
-    height: 16px;
-    width: 16px;
+    height: 18px;
+    width: 18px;
     left: 3px;
     bottom: 3px;
     background: #8b949e;
@@ -1296,256 +1538,51 @@ PURL_RETENTION_DAYS=30</code></pre>
   }
 
   .toggle input:checked + .toggle-slider:before {
-    transform: translateX(18px);
+    transform: translateX(20px);
     background: #fff;
   }
 
-  /* Database section styles */
-  .group-title {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #8b949e;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 12px 16px 8px;
-    border-bottom: 1px solid #21262d;
-  }
-
-  .config-value {
-    background: #21262d;
-    padding: 6px 12px;
+  select {
+    padding: 8px 12px;
+    background: #0d1117;
+    border: 1px solid #30363d;
     border-radius: 6px;
-    font-family: 'SF Mono', Monaco, monospace;
-    font-size: 0.8125rem;
-    color: #58a6ff;
-  }
-
-  .config-status {
-    font-size: 0.8125rem;
-    color: #8b949e;
-    padding: 4px 10px;
-    background: #21262d;
-    border-radius: 12px;
-  }
-
-  .config-status.configured {
-    color: #3fb950;
-    background: #3fb95020;
-  }
-
-  .loading-state {
-    padding: 20px;
-    text-align: center;
-    color: #8b949e;
+    color: #c9d1d9;
     font-size: 0.875rem;
   }
 
-  .test-result-box {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 16px;
-    margin: 0;
-    background: #f8514920;
-    color: #f85149;
-    font-size: 0.8125rem;
-    border-top: 1px solid #21262d;
-  }
-
-  .test-result-box.success {
-    background: #3fb95020;
-    color: #3fb950;
-  }
-
-  .retention-input {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .retention-input input {
+  input[type="number"] {
     width: 80px;
     padding: 8px 12px;
-    background: #21262d;
+    background: #0d1117;
     border: 1px solid #30363d;
     border-radius: 6px;
     color: #c9d1d9;
-    font-size: 0.875rem;
     text-align: center;
   }
 
-  .retention-input input:focus {
-    outline: none;
-    border-color: #58a6ff;
-  }
-
-  .retention-unit {
-    font-size: 0.8125rem;
-    color: #8b949e;
-  }
-
-  .retention-message {
-    padding: 10px 16px;
-    font-size: 0.8125rem;
-    color: #f85149;
-    background: #f8514910;
-    border-top: 1px solid #21262d;
-  }
-
-  .retention-message.success {
-    color: #3fb950;
-    background: #3fb95010;
-  }
-
-  .retention-stats {
-    padding: 12px 16px;
-    background: #0d1117;
-    border-top: 1px solid #21262d;
-  }
-
-  .stat-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 6px 0;
-    font-size: 0.8125rem;
-  }
-
-  .stat-row span:first-child {
-    color: #8b949e;
-  }
-
-  .stat-row span:last-child {
-    color: #f0f6fc;
-    font-family: 'SF Mono', Monaco, monospace;
-  }
-
-  /* Notification Cards */
-  .notification-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 16px;
-  }
-
-  .notification-card {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 10px;
-    padding: 16px;
-    display: flex;
-    gap: 14px;
-  }
-
-  .notification-card.configured {
-    border-color: #3fb95040;
-  }
-
-  .notification-icon {
-    width: 44px;
-    height: 44px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #21262d;
-    color: #8b949e;
-    flex-shrink: 0;
-  }
-
-  .notification-icon.telegram { background: #0088cc20; color: #0088cc; }
-  .notification-icon.slack { background: #4a154b20; color: #e01e5a; }
-  .notification-icon.webhook { background: #58a6ff20; color: #58a6ff; }
-
-  .notification-content h4 {
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: #f0f6fc;
-    margin: 0 0 4px 0;
-  }
-
-  .notification-content p {
-    font-size: 0.75rem;
-    color: #8b949e;
-    margin: 0 0 10px 0;
-  }
-
-  .env-vars {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    margin-bottom: 10px;
-  }
-
-  .env-vars code {
-    font-size: 0.625rem;
-    padding: 2px 6px;
-    background: #21262d;
-    border-radius: 4px;
-    color: #58a6ff;
-    font-family: 'SF Mono', Monaco, monospace;
-  }
-
-  .notification-status {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 0.75rem;
-    color: #8b949e;
-    margin-bottom: 8px;
-  }
-
-  .notification-status.configured {
-    color: #3fb950;
-  }
-
-  .test-btn {
-    padding: 6px 12px;
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    font-size: 0.75rem;
-    cursor: pointer;
-    width: 100%;
-  }
-
-  .test-btn:hover:not(:disabled) {
-    background: #30363d;
-  }
-
-  .test-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .test-result {
-    margin-top: 8px;
-    font-size: 0.75rem;
-    color: #f85149;
-  }
-
-  .test-result.success {
-    color: #3fb950;
-  }
-
-  /* Shortcuts */
   .shortcuts-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 8px;
     margin-top: 16px;
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    overflow: hidden;
   }
 
   .shortcut-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
+    gap: 16px;
+    padding: 10px 16px;
+    border-bottom: 1px solid #21262d;
   }
 
-  .shortcut-key {
+  .shortcut-item:last-child {
+    border-bottom: none;
+  }
+
+  .shortcut-item kbd {
+    min-width: 50px;
     padding: 4px 8px;
     background: #21262d;
     border: 1px solid #30363d;
@@ -1553,234 +1590,142 @@ PURL_RETENTION_DAYS=30</code></pre>
     font-family: 'SF Mono', Monaco, monospace;
     font-size: 0.75rem;
     color: #f0f6fc;
-    min-width: 40px;
     text-align: center;
   }
 
-  .shortcut-action {
-    font-size: 0.8125rem;
-    color: #8b949e;
-  }
-
-  /* Data Actions */
-  .data-actions {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 12px;
-  }
-
-  .data-card {
-    display: flex;
-    gap: 14px;
-    padding: 16px;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 10px;
-  }
-
-  .data-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #21262d;
-    color: #8b949e;
-    flex-shrink: 0;
-  }
-
-  .data-icon.warning { background: #d2992220; color: #d29922; }
-  .data-icon.danger { background: #f8514920; color: #f85149; }
-
-  .data-content h4 {
+  .shortcut-item span {
     font-size: 0.875rem;
-    font-weight: 600;
-    color: #f0f6fc;
-    margin: 0 0 4px 0;
-  }
-
-  .data-content p {
-    font-size: 0.75rem;
     color: #8b949e;
-    margin: 0 0 10px 0;
   }
 
-  .data-btn {
-    display: inline-block;
-    padding: 6px 14px;
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    font-size: 0.75rem;
-    cursor: pointer;
-    text-align: center;
-  }
-
-  .data-btn:hover {
-    background: #30363d;
-  }
-
-  .data-btn.warning {
-    border-color: #d29922;
-    color: #d29922;
-  }
-
-  .data-btn.warning:hover {
-    background: #d2992220;
-  }
-
-  .data-btn.danger {
-    border-color: #f85149;
-    color: #f85149;
-  }
-
-  .data-btn.danger:hover {
-    background: #f8514920;
-  }
-
-  /* About */
-  .about-content {
-    text-align: center;
-    padding: 40px 20px;
+  .about-card {
     background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 10px;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 32px;
+    text-align: center;
   }
 
   .about-logo {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 80px;
-    height: 80px;
-    background: linear-gradient(135deg, #388bfd20, #a371f720);
-    border-radius: 20px;
-    color: #58a6ff;
     margin-bottom: 16px;
   }
 
-  .about-content h2 {
+  .about-card h2 {
+    margin: 0;
     font-size: 1.5rem;
     font-weight: 700;
     color: #f0f6fc;
-    margin: 0 0 4px 0;
   }
 
   .about-tagline {
-    font-size: 0.875rem;
+    margin: 4px 0 0;
+    font-size: 0.9375rem;
     color: #8b949e;
-    margin: 0 0 8px 0;
   }
 
   .about-version {
-    font-size: 0.75rem;
+    margin: 8px 0 16px;
+    font-size: 0.8125rem;
     color: #6e7681;
     font-family: 'SF Mono', Monaco, monospace;
-    margin-bottom: 20px;
   }
 
-  .about-tech {
+  .tech-stack {
     display: flex;
     justify-content: center;
     gap: 8px;
     margin-bottom: 24px;
-    flex-wrap: wrap;
   }
 
   .tech-badge {
-    padding: 4px 10px;
+    padding: 4px 12px;
     background: #21262d;
-    border-radius: 12px;
+    border-radius: 16px;
     font-size: 0.75rem;
     color: #c9d1d9;
   }
 
-  .system-info {
-    display: inline-flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 16px 24px;
+  .system-status {
     background: #0d1117;
     border-radius: 8px;
+    padding: 12px 16px;
     margin-bottom: 24px;
     text-align: left;
   }
 
-  .info-row {
+  .status-row {
     display: flex;
     justify-content: space-between;
-    gap: 32px;
+    padding: 6px 0;
     font-size: 0.8125rem;
-    color: #8b949e;
   }
 
-  .info-row span:last-child {
-    color: #f0f6fc;
-    font-family: 'SF Mono', Monaco, monospace;
+  .status-row span:first-child {
+    color: #8b949e;
   }
 
   .status-badge {
     padding: 2px 8px;
     border-radius: 10px;
     font-size: 0.6875rem;
-    text-transform: uppercase;
-    background: #8b949e20;
+    font-weight: 600;
+    background: #f8514920;
+    color: #f85149;
   }
 
-  .status-badge.healthy {
+  .status-badge.ok {
     background: #3fb95020;
     color: #3fb950;
+  }
+
+  .status-value {
+    color: #f0f6fc;
+    font-family: 'SF Mono', Monaco, monospace;
   }
 
   .about-links {
     display: flex;
     justify-content: center;
-    gap: 16px;
+    gap: 12px;
   }
 
-  .about-links a {
+  .about-link {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
+    gap: 8px;
+    padding: 10px 20px;
     background: #21262d;
     border-radius: 6px;
     color: #c9d1d9;
     text-decoration: none;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
+    transition: background 0.15s;
   }
 
-  .about-links a:hover {
+  .about-link:hover {
     background: #30363d;
   }
 
-  /* Responsive */
-  @media (max-width: 768px) {
-    .settings-page {
-      flex-direction: column;
-      height: auto;
-    }
+  .save-toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 12px 20px;
+    background: #238636;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 0.875rem;
+    animation: slideIn 0.2s ease;
+  }
 
-    .settings-sidebar {
-      width: 100%;
-      border-right: none;
-      border-bottom: 1px solid #30363d;
+  @keyframes slideIn {
+    from {
+      transform: translateY(20px);
+      opacity: 0;
     }
-
-    .sidebar-nav {
-      flex-direction: row;
-      overflow-x: auto;
-      padding: 8px 12px;
-    }
-
-    .nav-item {
-      flex-shrink: 0;
-    }
-
-    .settings-content {
-      min-height: calc(100vh - 150px);
+    to {
+      transform: translateY(0);
+      opacity: 1;
     }
   }
 </style>
