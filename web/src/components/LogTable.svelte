@@ -8,12 +8,27 @@
   let searchQuery = '';
   query.subscribe(v => searchQuery = v);
 
-  // Highlight matching text in a string
+  // Escape HTML to prevent XSS
+  function escapeHtml(text) {
+    if (!text) return '';
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // Highlight matching text in a string (XSS-safe)
   function highlightText(text, query) {
-    if (!query || !text) return text;
-    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!query || !text) return escapeHtml(text);
+    // First escape HTML in the text
+    const safeText = escapeHtml(text);
+    const safeQuery = escapeHtml(query);
+    // Escape regex special characters in query
+    const escaped = safeQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(`(${escaped})`, 'gi');
-    return text.replace(regex, '<mark class="search-highlight">$1</mark>');
+    return safeText.replace(regex, '<mark class="search-highlight">$1</mark>');
   }
 
   let selectedLog = null;

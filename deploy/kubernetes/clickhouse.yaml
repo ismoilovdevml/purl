@@ -1,13 +1,15 @@
----
+# ClickHouse StatefulSet for persistent storage
 apiVersion: v1
-kind: Secret
+kind: PersistentVolumeClaim
 metadata:
-  name: clickhouse-secret
+  name: clickhouse-data
   namespace: purl
-type: Opaque
-stringData:
-  password: purl_password
-
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -18,6 +20,13 @@ data:
   users.xml: |
     <?xml version="1.0"?>
     <clickhouse>
+      <profiles>
+        <default>
+          <max_memory_usage>2000000000</max_memory_usage>
+          <max_execution_time>60</max_execution_time>
+          <log_queries>0</log_queries>
+        </default>
+      </profiles>
       <users>
         <purl>
           <password from_env="CLICKHOUSE_PASSWORD"/>
@@ -28,14 +37,25 @@ data:
           <quota>default</quota>
         </purl>
       </users>
+      <quotas>
+        <default>
+          <interval>
+            <duration>3600</duration>
+            <queries>0</queries>
+            <errors>0</errors>
+          </interval>
+        </default>
+      </quotas>
     </clickhouse>
-
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: clickhouse
   namespace: purl
+  labels:
+    app.kubernetes.io/name: clickhouse
+    app.kubernetes.io/part-of: purl
 spec:
   serviceName: clickhouse
   replicas: 1
@@ -49,25 +69,23 @@ spec:
     spec:
       containers:
         - name: clickhouse
-          image: clickhouse/clickhouse-server:25.11-alpine
+          image: clickhouse/clickhouse-server:24.8-alpine
           ports:
             - containerPort: 8123
               name: http
             - containerPort: 9000
               name: native
           env:
-            - name: CLICKHOUSE_DB
-              value: purl
             - name: CLICKHOUSE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: clickhouse-secret
-                  key: password
+                  name: purl-secrets
+                  key: PURL_CLICKHOUSE_PASSWORD
           volumeMounts:
             - name: data
               mountPath: /var/lib/clickhouse
             - name: config
-              mountPath: /etc/clickhouse-server/users.d/custom.xml
+              mountPath: /etc/clickhouse-server/users.d/users.xml
               subPath: users.xml
           resources:
             requests:
@@ -89,30 +107,28 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
       volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: clickhouse-data
         - name: config
           configMap:
             name: clickhouse-config
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 10Gi
-
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: clickhouse
   namespace: purl
+  labels:
+    app.kubernetes.io/name: clickhouse
 spec:
   selector:
     app: clickhouse
   ports:
-    - port: 8123
-      name: http
-    - port: 9000
-      name: native
+    - name: http
+      port: 8123
+      targetPort: 8123
+    - name: native
+      port: 9000
+      targetPort: 9000
   clusterIP: None

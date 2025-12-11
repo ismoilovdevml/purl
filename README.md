@@ -80,9 +80,9 @@ Purl provides:
               │  └──────────┘  └────────────┘  │
               │                                │
               │  - Authentication (API Key)    │
-              │  - Rate Limiting              │
-              │  - Input Validation           │
-              │  - WebSocket Broadcasting     │
+              │  - Rate Limiting               │
+              │  - Input Validation            │
+              │  - WebSocket Broadcasting      │
               └────────────────────────────────┘
 ```
 
@@ -95,14 +95,79 @@ Purl provides:
 | Validation | None | Full |
 | Real-time | No | WebSocket |
 
+### Kubernetes
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Kubernetes Cluster                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │   Pod: App1 │  │   Pod: App2 │  │   Pod: App3 │  │   Pod: AppN │     │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘     │
+│         │                │                │                │            │
+│         └────────────────┼────────────────┼────────────────┘            │
+│                          ▼                                              │
+│         ┌────────────────────────────────────────────────┐              │
+│         │        Vector DaemonSet (every node)           │              │
+│         │                                                │              │
+│         │  - kubernetes_logs source                      │              │
+│         │  - Parse & enrich logs                         │              │
+│         │  - Disk buffer (survives restarts)             │              │
+│         │  - HTTP POST to Purl API                       │              │
+│         └────────────────────────┬───────────────────────┘              │
+│                                  │                                      │
+│                                  ▼                                      │
+│         ┌────────────────────────────────────────────────┐              │
+│         │           Purl Deployment (2 replicas)         │              │
+│         │                                                │              │
+│         │  - API Key authentication                      │              │
+│         │  - Rate limiting (1000 req/min)                │              │
+│         │  - Input validation                            │              │
+│         │  - WebSocket live tail broadcast               │              │
+│         │  - Graceful shutdown with buffer flush         │              │
+│         └────────────────────────┬───────────────────────┘              │
+│                                  │                                      │
+│                                  ▼                                      │
+│         ┌────────────────────────────────────────────────┐              │
+│         │         ClickHouse StatefulSet (1 replica)     │              │
+│         │                                                │              │
+│         │  - MergeTree engine                            │              │
+│         │  - ZSTD compression                            │              │
+│         │  - TTL-based retention (30 days)               │              │
+│         │  - PersistentVolume (10Gi)                     │              │
+│         └────────────────────────────────────────────────┘              │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │                         Services                                 │   │
+│  ├──────────────────────────────────────────────────────────────────┤   │
+│  │  purl (ClusterIP:80) ──► Ingress ──► purl.example.com            │   │
+│  │  clickhouse (Headless:8123,9000)                                 │   │
+│  │  vector (Headless:8686,9598)                                     │   │
+│  └──────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-username/purl.git
+git clone https://github.com/ismoilovdevml/purl.git
 cd purl
 
-# Copy and edit environment
+# Copy environment template
 cp .env.example .env
+
+# Generate secure credentials
+CLICKHOUSE_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
+API_KEY=$(openssl rand -base64 32 | tr -d '/+=')
+
+# Update .env with new credentials
+sed -i '' "s/CHANGE_ME_GENERATE_SECURE_PASSWORD/$CLICKHOUSE_PASSWORD/" .env
+sed -i '' "s/CHANGE_ME_GENERATE_SECURE_API_KEY/$API_KEY/" .env
+
+# Also update ClickHouse config
+sed -i '' "s/npJCZy1eKK6sHLmqt5tXVl08/$CLICKHOUSE_PASSWORD/" docker/clickhouse/users.xml
 
 # Start with auto log collection
 docker-compose --profile vector up -d
@@ -147,20 +212,45 @@ systemctl daemon-reload
 systemctl enable --now clickhouse-server purl vector
 ```
 
-### 3. Kubernetes / Helm
+### 3. Kubernetes
 
 ```bash
-# Add Helm repo (if published)
-helm repo add purl https://your-repo/charts
+# Generate secure credentials
+CLICKHOUSE_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
+API_KEY=$(openssl rand -base64 32 | tr -d '/+=')
 
-# Install with custom values
-helm install purl purl/purl \
-  --set clickhouse.password=secret \
-  --set purl.auth.enabled=true \
-  --set purl.auth.apiKey=your-key
+# Update secrets
+sed -i "s/PURL_CLICKHOUSE_PASSWORD: \"CHANGE_ME\"/PURL_CLICKHOUSE_PASSWORD: \"$CLICKHOUSE_PASSWORD\"/" deploy/kubernetes/secret.yaml
+sed -i "s/PURL_API_KEYS: \"CHANGE_ME\"/PURL_API_KEYS: \"$API_KEY\"/" deploy/kubernetes/secret.yaml
 
-# Or use manifests directly
-kubectl apply -f deploy/kubernetes/
+# Update Ingress host (change purl.example.com to your domain)
+vim deploy/kubernetes/purl.yaml
+
+# Deploy all resources
+kubectl apply -k deploy/kubernetes/
+```
+
+**Resources created:**
+
+| Resource | Type | Description |
+|----------|------|-------------|
+| `purl` | Deployment | API server (2 replicas) |
+| `clickhouse` | StatefulSet | Log storage with PVC |
+| `vector` | DaemonSet | Log collector on every node |
+| `purl` | Service + Ingress | External access |
+| `clickhouse` | Headless Service | Internal DB access |
+
+**Verify deployment:**
+
+```bash
+# Check all pods are running
+kubectl get pods -n purl
+
+# Check Vector is collecting logs
+kubectl logs -n purl -l app.kubernetes.io/name=vector --tail=50
+
+# Check Purl API health
+kubectl exec -n purl deploy/purl -- curl -s localhost:3000/api/health
 ```
 
 ## Multi-Server Setup
@@ -179,7 +269,7 @@ PURL_CLICKHOUSE_USER=purl
 PURL_CLICKHOUSE_PASSWORD=purl_password
 ```
 
-Expose port 3000 (not 8123!):
+Expose port 3000
 
 ```bash
 ufw allow 3000/tcp
@@ -236,10 +326,13 @@ journalctl -u vector -f
 
 ### Security
 
-- API Key authentication
+- API Key authentication (Sec-Fetch-Site header based for web UI)
 - Rate limiting (1000 req/min per IP)
 - SQL injection protection (parameterized queries)
 - Input validation and sanitization
+- XSS protection (HTML escaping in search highlights)
+- Graceful shutdown with buffer flush
+
 
 ## Configuration
 

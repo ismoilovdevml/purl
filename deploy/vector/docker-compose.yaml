@@ -3,7 +3,7 @@
 
 services:
   vector:
-    image: timberio/vector:0.51.1-alpine
+    image: timberio/vector:0.43.1-alpine
     container_name: purl-vector
     restart: unless-stopped
     hostname: ${HOSTNAME:-vector}

@@ -4,3 +4,4 @@ metadata:
   name: purl
   labels:
     app.kubernetes.io/name: purl
+    app.kubernetes.io/part-of: purl

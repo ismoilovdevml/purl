@@ -202,20 +202,10 @@ sub _check_auth {
     return 1 unless $auth_enabled;
 
     # Skip auth for requests from the web UI (same origin)
-    # Check if request comes from the same host (web dashboard)
-    my $referer = $c->req->headers->referrer // '';
-    my $origin = $c->req->headers->origin // '';
-    my $host = $c->req->url->to_abs->host_port;
-
-    # If request has Referer or Origin from same host, skip auth (web UI request)
-    if ($referer =~ m{^https?://\Q$host\E}i || $origin =~ m{^https?://\Q$host\E}i) {
-        return 1;
-    }
-
-    # Also allow if X-Requested-With header indicates AJAX from same origin
-    my $xhr = $c->req->headers->header('X-Requested-With') // '';
+    # Sec-Fetch-Site is set by the browser and cannot be spoofed by JavaScript
+    # This is safer than Referer-based checks which can be manipulated
     my $sec_fetch = $c->req->headers->header('Sec-Fetch-Site') // '';
-    if ($sec_fetch eq 'same-origin') {
+    if ($sec_fetch eq 'same-origin' || $sec_fetch eq 'same-site') {
         return 1;
     }
 
@@ -255,6 +245,16 @@ sub setup_routes {
 
     $storage //= _build_storage();
     _build_notifiers();
+
+    # Periodic buffer flush timer (every 2 seconds)
+    Mojo::IOLoop->recurring(2 => sub {
+        if ($storage && $storage->can('maybe_flush')) {
+            eval { $storage->maybe_flush(); };
+            if ($@) {
+                app->log->error("Periodic buffer flush failed: $@");
+            }
+        }
+    });
 
     # Serve static files from web/public
     app->static->paths->[0] = '/app/web/public';
@@ -322,7 +322,14 @@ sub setup_routes {
 
     # Health check (no auth required)
     $api->get('/health' => sub ($c) {
-        my $ch_ok = eval { $storage->stats(); 1 } // 0;
+        my $ch_ok = eval { $storage->stats(); 1 };
+        my $ch_error = $@;
+        $ch_ok //= 0;
+
+        if ($ch_error) {
+            app->log->warn("Health check - ClickHouse error: $ch_error");
+        }
+
         my $status = $ch_ok ? 'ok' : 'degraded';
         my $code = $ch_ok ? 200 : 503;
 
@@ -332,6 +339,7 @@ sub setup_routes {
             version     => $Purl::VERSION // '0.1.0',
             clickhouse  => $ch_ok ? 'connected' : 'disconnected',
             uptime_secs => int(time() - $metrics{start_time}),
+            ($ch_error ? (error => substr($ch_error, 0, 200)) : ()),
         }, status => $code);
     });
 
@@ -1347,6 +1355,36 @@ sub run {
 
     app->log->level('info');
     app->log->info("Starting Purl server on http://$host:$port");
+
+    # Graceful shutdown handler
+    my $shutdown = sub {
+        my $sig = shift;
+        app->log->info("Received $sig signal, shutting down gracefully...");
+
+        # Flush any pending logs in buffer
+        if ($storage && $storage->can('flush')) {
+            app->log->info("Flushing log buffer...");
+            eval { $storage->flush(); };
+            app->log->error("Buffer flush failed: $@") if $@;
+        }
+
+        # Close WebSocket connections
+        if (@$websockets) {
+            app->log->info("Closing " . scalar(@$websockets) . " WebSocket connections...");
+            for my $tx (@$websockets) {
+                eval { $tx->finish(1001 => 'Server shutting down'); };
+            }
+        }
+
+        app->log->info("Shutdown complete");
+        exit 0;
+    };
+
+    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    # These signal handlers need to be global for graceful shutdown
+    $SIG{TERM} = sub { $shutdown->('SIGTERM') };
+    $SIG{INT}  = sub { $shutdown->('SIGINT') };
+    ## use critic
 
     app->start('daemon', '-l', "http://$host:$port");
 }

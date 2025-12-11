@@ -51,11 +51,13 @@
     </profiles>
 
     <users>
-        <!-- Default user (admin) -->
+        <!-- Default user (admin) - CHANGE PASSWORD IN PRODUCTION -->
         <default>
-            <password></password>
+            <password>4mE2OdbJEfWHpu9bwJGSamST</password>
             <networks>
-                <ip>::/0</ip>
+                <!-- Restrict to internal Docker network only -->
+                <ip>172.16.0.0/12</ip>
+                <ip>127.0.0.1</ip>
             </networks>
             <profile>default</profile>
             <quota>default</quota>
