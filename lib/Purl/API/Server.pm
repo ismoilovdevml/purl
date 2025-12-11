@@ -201,6 +201,24 @@ sub _check_auth {
     my $auth_enabled = $ENV{PURL_AUTH_ENABLED} // $auth_config->{enabled} // 0;
     return 1 unless $auth_enabled;
 
+    # Skip auth for requests from the web UI (same origin)
+    # Check if request comes from the same host (web dashboard)
+    my $referer = $c->req->headers->referrer // '';
+    my $origin = $c->req->headers->origin // '';
+    my $host = $c->req->url->to_abs->host_port;
+
+    # If request has Referer or Origin from same host, skip auth (web UI request)
+    if ($referer =~ m{^https?://\Q$host\E}i || $origin =~ m{^https?://\Q$host\E}i) {
+        return 1;
+    }
+
+    # Also allow if X-Requested-With header indicates AJAX from same origin
+    my $xhr = $c->req->headers->header('X-Requested-With') // '';
+    my $sec_fetch = $c->req->headers->header('Sec-Fetch-Site') // '';
+    if ($sec_fetch eq 'same-origin') {
+        return 1;
+    }
+
     my $auth_header = $c->req->headers->authorization // '';
 
     # API Key auth (env or config)

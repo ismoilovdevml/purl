@@ -1,6 +1,5 @@
 <script>
   import { onMount } from 'svelte';
-  import { setApiKey } from '../stores/logs.js';
 
   let settings = {
     theme: 'dark',
@@ -20,8 +19,7 @@
     keyboardShortcuts: true,
   };
 
-  let apiKey = '';
-  let activeSection = 'auth';
+  let activeSection = 'database';
   let saved = false;
   let systemInfo = null;
 
@@ -62,7 +60,6 @@
   const API_BASE = '/api';
 
   const sections = [
-    { id: 'auth', label: 'Authentication', icon: 'key' },
     { id: 'database', label: 'Database', icon: 'server' },
     { id: 'notifications', label: 'Notifications', icon: 'bell' },
     { id: 'display', label: 'Display', icon: 'monitor' },
@@ -95,17 +92,13 @@
 
   onMount(() => {
     loadSettings();
-    apiKey = localStorage.getItem('purl_api_key') || '';
     fetchSystemInfo();
     fetchServerSettings();
     fetchRetentionStats();
   });
 
   function getHeaders() {
-    const headers = { 'Content-Type': 'application/json' };
-    const storedKey = localStorage.getItem('purl_api_key');
-    if (storedKey) headers['X-API-Key'] = storedKey;
-    return headers;
+    return { 'Content-Type': 'application/json' };
   }
 
   async function fetchServerSettings() {
@@ -267,13 +260,6 @@
     setTimeout(() => saved = false, 2000);
   }
 
-  function saveApiKey() {
-    setApiKey(apiKey);
-    saved = true;
-    setTimeout(() => saved = false, 2000);
-    fetchServerSettings();
-  }
-
   async function fetchSystemInfo() {
     try {
       const res = await fetch(`${API_BASE}/health`);
@@ -322,11 +308,7 @@
           class:active={activeSection === section.id}
           on:click={() => activeSection = section.id}
         >
-          {#if section.icon === 'key'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-            </svg>
-          {:else if section.icon === 'server'}
+          {#if section.icon === 'server'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
             </svg>
@@ -362,40 +344,6 @@
   </aside>
 
   <main class="settings-content">
-    {#if activeSection === 'auth'}
-      <section class="settings-section">
-        <div class="section-header">
-          <h3>Authentication</h3>
-          <p>Configure API key for accessing the Purl server</p>
-        </div>
-
-        <div class="settings-group">
-          <div class="setting-item">
-            <div class="setting-info">
-              <label for="api-key">API Key</label>
-              <span class="setting-hint">Required when authentication is enabled on the server</span>
-            </div>
-            <div class="setting-control api-key-control">
-              <input
-                id="api-key"
-                type="password"
-                bind:value={apiKey}
-                placeholder="Enter your API key"
-              />
-              <button class="save-btn" on:click={saveApiKey}>Save</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="auth-info">
-          <h4>How to get an API key</h4>
-          <p>API keys are configured on the server via the <code>PURL_API_KEYS</code> environment variable.</p>
-          <pre><code>PURL_API_KEYS=your-secret-key-here</code></pre>
-          <p>Multiple keys can be set separated by commas.</p>
-        </div>
-      </section>
-    {/if}
-
     {#if activeSection === 'database'}
       <section class="settings-section">
         <div class="section-header">

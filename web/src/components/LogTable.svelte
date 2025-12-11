@@ -240,23 +240,26 @@
                     <span class="field-value mono">{log.message}</span>
                   </div>
 
-                  {#if log.meta && Object.keys(log.meta).length > 0}
-                    <div class="detail-section">
-                      <h5>
-                        <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 3h8v1H2V3Zm0 2h8v1H2V5Zm0 2h6v1H2V7Zm0 2h4v1H2V9Z"/></svg>
-                        Meta Fields
-                      </h5>
-                      <div class="meta-grid">
-                        {#each Object.entries(log.meta) as [key, value]}
-                          <button class="meta-field" on:click|stopPropagation={() => copyToClipboard(String(value))} title="Click to copy">
-                            <span class="meta-key">{key}</span>
-                            <span class="meta-value">
-                              {typeof value === 'object' ? JSON.stringify(value) : value}
-                            </span>
-                          </button>
-                        {/each}
+                  {#if log.meta}
+                    {@const parsedMeta = typeof log.meta === 'string' ? (() => { try { return JSON.parse(log.meta); } catch { return null; } })() : log.meta}
+                    {#if parsedMeta && typeof parsedMeta === 'object' && Object.keys(parsedMeta).length > 0}
+                      <div class="detail-section">
+                        <h5>
+                          <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 3h8v1H2V3Zm0 2h8v1H2V5Zm0 2h6v1H2V7Zm0 2h4v1H2V9Z"/></svg>
+                          Meta Fields
+                        </h5>
+                        <div class="meta-grid">
+                          {#each Object.entries(parsedMeta) as [key, value]}
+                            <button class="meta-field" on:click|stopPropagation={() => copyToClipboard(String(value))} title="Click to copy">
+                              <span class="meta-key">{key}</span>
+                              <span class="meta-value">
+                                {typeof value === 'object' ? JSON.stringify(value) : value}
+                              </span>
+                            </button>
+                          {/each}
+                        </div>
                       </div>
-                    </div>
+                    {/if}
                   {/if}
 
                   <div class="detail-section">
