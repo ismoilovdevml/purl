@@ -6,6 +6,7 @@ export const loading = writable(false);
 export const error = writable(null);
 export const query = writable('');
 export const timeRange = writable('15m');
+export const customTimeRange = writable({ from: null, to: null });
 export const total = writable(0);
 
 // Field statistics
@@ -51,14 +52,21 @@ export async function searchLogs() {
   try {
     let currentQuery;
     let currentRange;
+    let currentCustom;
 
     query.subscribe(v => currentQuery = v)();
     timeRange.subscribe(v => currentRange = v)();
+    customTimeRange.subscribe(v => currentCustom = v)();
 
-    const params = new URLSearchParams({
-      range: currentRange,
-      limit: 500,
-    });
+    const params = new URLSearchParams({ limit: 500 });
+
+    // Use custom range if set, otherwise use preset range
+    if (currentRange === 'custom' && currentCustom.from && currentCustom.to) {
+      params.set('from', currentCustom.from);
+      params.set('to', currentCustom.to);
+    } else {
+      params.set('range', currentRange);
+    }
 
     if (currentQuery) {
       params.set('q', currentQuery);
@@ -120,12 +128,18 @@ export const debouncedSearch = debounce(searchLogs, 300);
 export async function fetchFieldStats(field, signal = null) {
   try {
     let currentRange;
+    let currentCustom;
     timeRange.subscribe(v => currentRange = v)();
+    customTimeRange.subscribe(v => currentCustom = v)();
 
-    const params = new URLSearchParams({
-      range: currentRange,
-      limit: 10,
-    });
+    const params = new URLSearchParams({ limit: 10 });
+
+    if (currentRange === 'custom' && currentCustom.from && currentCustom.to) {
+      params.set('from', currentCustom.from);
+      params.set('to', currentCustom.to);
+    } else {
+      params.set('range', currentRange);
+    }
 
     const response = await fetch(`${API_BASE}/stats/fields/${field}?${params}`, { signal });
     const data = await response.json();
@@ -140,23 +154,42 @@ export async function fetchFieldStats(field, signal = null) {
   }
 }
 
+// Calculate interval based on time range duration
+function getIntervalForRange(range, customFrom, customTo) {
+  if (range === 'custom' && customFrom && customTo) {
+    const diffMs = new Date(customTo) - new Date(customFrom);
+    const diffHours = diffMs / (1000 * 60 * 60);
+    if (diffHours <= 1) return '1 minute';
+    if (diffHours <= 6) return '1 minute';
+    if (diffHours <= 48) return '1 hour';
+    return '1 day';
+  }
+
+  if (range === '5m' || range === '15m' || range === '30m') return '1 minute';
+  if (range === '1h' || range === '3h' || range === '4h' || range === '6h') return '1 minute';
+  if (range === '12h' || range === '24h') return '1 hour';
+  if (range === '7d') return '1 hour';
+  if (range === '30d') return '1 day';
+  return '1 hour';
+}
+
 // Fetch histogram with abort signal
 export async function fetchHistogram(signal = null) {
   try {
     let currentRange;
+    let currentCustom;
     timeRange.subscribe(v => currentRange = v)();
+    customTimeRange.subscribe(v => currentCustom = v)();
 
-    // Choose interval based on range
-    let interval = '1 minute';
-    if (currentRange === '1h' || currentRange === '3h' || currentRange === '6h') interval = '1 minute';
-    if (currentRange === '12h' || currentRange === '24h') interval = '1 hour';
-    if (currentRange === '7d') interval = '1 hour';
-    if (currentRange === '30d') interval = '1 day';
+    const interval = getIntervalForRange(currentRange, currentCustom.from, currentCustom.to);
+    const params = new URLSearchParams({ interval });
 
-    const params = new URLSearchParams({
-      range: currentRange,
-      interval,
-    });
+    if (currentRange === 'custom' && currentCustom.from && currentCustom.to) {
+      params.set('from', currentCustom.from);
+      params.set('to', currentCustom.to);
+    } else {
+      params.set('range', currentRange);
+    }
 
     const response = await fetch(`${API_BASE}/stats/histogram?${params}`, { signal });
     const data = await response.json();
@@ -395,12 +428,18 @@ export async function fetchPatterns() {
 
   try {
     let currentRange;
+    let currentCustom;
     timeRange.subscribe(v => currentRange = v)();
+    customTimeRange.subscribe(v => currentCustom = v)();
 
-    const params = new URLSearchParams({
-      range: currentRange,
-      limit: '30',
-    });
+    const params = new URLSearchParams({ limit: '30' });
+
+    if (currentRange === 'custom' && currentCustom.from && currentCustom.to) {
+      params.set('from', currentCustom.from);
+      params.set('to', currentCustom.to);
+    } else {
+      params.set('range', currentRange);
+    }
 
     const response = await fetch(`${API_BASE}/patterns?${params}`, { signal });
 

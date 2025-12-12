@@ -10,7 +10,7 @@
   import AnalyticsPage from './components/AnalyticsPage.svelte';
   import SettingsPage from './components/SettingsPage.svelte';
   import PatternsSidebar from './components/PatternsSidebar.svelte';
-  import { logs, loading, query, timeRange, total, searchLogs, connectWebSocket } from './stores/logs.js';
+  import { logs, loading, query, timeRange, customTimeRange, total, searchLogs, connectWebSocket } from './stores/logs.js';
 
   let ws;
   let liveMode = false;
@@ -56,7 +56,13 @@
   }
 
   function handleTimeRangeChange(event) {
-    $timeRange = event.detail;
+    const { range, from, to } = event.detail;
+    $timeRange = range;
+    if (range === 'custom' && from && to) {
+      $customTimeRange = { from, to };
+    } else {
+      $customTimeRange = { from: null, to: null };
+    }
     searchLogs();
   }
 
