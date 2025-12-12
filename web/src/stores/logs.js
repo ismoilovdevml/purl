@@ -31,18 +31,19 @@ export function debounce(fn, delay = 300) {
   };
 }
 
-// Request deduplication
-let currentRequest = null;
+// AbortController for request cancellation
+let searchController = null;
+let statsController = null;
 
-// Search logs with request deduplication
+// Search logs with proper request cancellation
 export async function searchLogs() {
-  // Cancel previous request
-  if (currentRequest) {
-    currentRequest.cancelled = true;
+  // Abort previous request properly
+  if (searchController) {
+    searchController.abort();
   }
 
-  const thisRequest = { cancelled: false };
-  currentRequest = thisRequest;
+  searchController = new AbortController();
+  const signal = searchController.signal;
 
   loading.set(true);
   error.set(null);
@@ -63,11 +64,7 @@ export async function searchLogs() {
       params.set('q', currentQuery);
     }
 
-    const response = await fetch(`${API_BASE}/logs?${params}`);
-
-    // Check if request was cancelled
-    if (thisRequest.cancelled) return;
-
+    const response = await fetch(`${API_BASE}/logs?${params}`, { signal });
     const data = await response.json();
 
     // Add unique IDs to logs for selection tracking
@@ -78,23 +75,40 @@ export async function searchLogs() {
     logs.set(logsWithIds);
     total.set(data.total || 0);
 
-    // Fetch stats in parallel (non-blocking)
-    Promise.all([
-      fetchFieldStats('level'),
-      fetchFieldStats('service'),
-      fetchFieldStats('host'),
-      fetchHistogram(),
-      fetchMetrics(),
-    ]).catch(console.error);
+    // Fetch stats in parallel (non-blocking) with separate controller
+    fetchAllStats();
 
   } catch (err) {
-    if (!thisRequest.cancelled) {
+    // Ignore abort errors - they are expected when cancelling
+    if (err.name !== 'AbortError') {
       error.set(err.message);
       console.error('Search error:', err);
     }
   } finally {
-    if (!thisRequest.cancelled) {
-      loading.set(false);
+    loading.set(false);
+  }
+}
+
+// Fetch all stats with cancellation support
+async function fetchAllStats() {
+  // Abort previous stats requests
+  if (statsController) {
+    statsController.abort();
+  }
+  statsController = new AbortController();
+  const signal = statsController.signal;
+
+  try {
+    await Promise.all([
+      fetchFieldStats('level', signal),
+      fetchFieldStats('service', signal),
+      fetchFieldStats('host', signal),
+      fetchHistogram(signal),
+      fetchMetrics(signal),
+    ]);
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error('Stats fetch error:', err);
     }
   }
 }
@@ -102,8 +116,8 @@ export async function searchLogs() {
 // Debounced search for typing
 export const debouncedSearch = debounce(searchLogs, 300);
 
-// Fetch field statistics
-export async function fetchFieldStats(field) {
+// Fetch field statistics with abort signal
+export async function fetchFieldStats(field, signal = null) {
   try {
     let currentRange;
     timeRange.subscribe(v => currentRange = v)();
@@ -113,26 +127,30 @@ export async function fetchFieldStats(field) {
       limit: 10,
     });
 
-    const response = await fetch(`${API_BASE}/stats/fields/${field}?${params}`);
+    const response = await fetch(`${API_BASE}/stats/fields/${field}?${params}`, { signal });
     const data = await response.json();
 
     if (field === 'level') levelStats.set(data.values || []);
     if (field === 'service') serviceStats.set(data.values || []);
     if (field === 'host') hostStats.set(data.values || []);
   } catch (err) {
-    console.error(`Failed to fetch ${field} stats:`, err);
+    if (err.name !== 'AbortError') {
+      console.error(`Failed to fetch ${field} stats:`, err);
+    }
   }
 }
 
-// Fetch histogram
-export async function fetchHistogram() {
+// Fetch histogram with abort signal
+export async function fetchHistogram(signal = null) {
   try {
     let currentRange;
     timeRange.subscribe(v => currentRange = v)();
 
     // Choose interval based on range
     let interval = '1 minute';
-    if (currentRange === '24h' || currentRange === '7d') interval = '1 hour';
+    if (currentRange === '1h' || currentRange === '3h' || currentRange === '6h') interval = '1 minute';
+    if (currentRange === '12h' || currentRange === '24h') interval = '1 hour';
+    if (currentRange === '7d') interval = '1 hour';
     if (currentRange === '30d') interval = '1 day';
 
     const params = new URLSearchParams({
@@ -140,23 +158,27 @@ export async function fetchHistogram() {
       interval,
     });
 
-    const response = await fetch(`${API_BASE}/stats/histogram?${params}`);
+    const response = await fetch(`${API_BASE}/stats/histogram?${params}`, { signal });
     const data = await response.json();
 
     histogram.set(data.buckets || []);
   } catch (err) {
-    console.error('Failed to fetch histogram:', err);
+    if (err.name !== 'AbortError') {
+      console.error('Failed to fetch histogram:', err);
+    }
   }
 }
 
-// Fetch metrics for dashboard
-export async function fetchMetrics() {
+// Fetch metrics for dashboard with abort signal
+export async function fetchMetrics(signal = null) {
   try {
-    const response = await fetch(`${API_BASE}/metrics/json`);
+    const response = await fetch(`${API_BASE}/metrics/json`, { signal });
     const data = await response.json();
     metrics.set(data);
   } catch (err) {
-    console.error('Failed to fetch metrics:', err);
+    if (err.name !== 'AbortError') {
+      console.error('Failed to fetch metrics:', err);
+    }
   }
 }
 
@@ -356,8 +378,18 @@ export const patterns = writable([]);
 export const patternsLoading = writable(false);
 export const patternsError = writable(null);
 
-// Fetch patterns
+// AbortController for patterns
+let patternsController = null;
+
+// Fetch patterns with abort support
 export async function fetchPatterns() {
+  // Abort previous request
+  if (patternsController) {
+    patternsController.abort();
+  }
+  patternsController = new AbortController();
+  const signal = patternsController.signal;
+
   patternsLoading.set(true);
   patternsError.set(null);
 
@@ -370,7 +402,7 @@ export async function fetchPatterns() {
       limit: '30',
     });
 
-    const response = await fetch(`${API_BASE}/patterns?${params}`);
+    const response = await fetch(`${API_BASE}/patterns?${params}`, { signal });
 
     if (!response.ok) {
       const err = await response.json();
@@ -380,8 +412,10 @@ export async function fetchPatterns() {
     const data = await response.json();
     patterns.set(data.patterns || []);
   } catch (err) {
-    patternsError.set(err.message);
-    console.error('Failed to fetch patterns:', err);
+    if (err.name !== 'AbortError') {
+      patternsError.set(err.message);
+      console.error('Failed to fetch patterns:', err);
+    }
   } finally {
     patternsLoading.set(false);
   }

@@ -32,8 +32,11 @@
     const padding = { left: 50, right: 20, top: 10, bottom: 30 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
-    const barWidth = Math.max(3, chartWidth / $histogram.length - 2);
+    const barCount = $histogram.length || 1;
     const gap = 2;
+    // Calculate bar width to fit exactly within chart area
+    const totalGapWidth = (barCount - 1) * gap;
+    const barWidth = Math.max(2, (chartWidth - totalGapWidth) / barCount);
     return { width, height, padding, chartWidth, chartHeight, barWidth, gap };
   }
 

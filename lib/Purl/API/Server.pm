@@ -718,6 +718,11 @@ METRICS
         my $from  = $c->param('from');
         my $to    = $c->param('to');
 
+        # Parse range parameter (e.g., 15m, 1h, 24h)
+        if (my $range = $c->param('range')) {
+            ($from, $to) = _parse_time_range($range);
+        }
+
         unless ($field =~ /^(level|service|host)$/) {
             $c->render(json => { error => 'Invalid field' }, status => 400);
             return;
@@ -754,6 +759,11 @@ METRICS
         my $to       = $c->param('to');
         my $level    = $c->param('level');
         my $service  = $c->param('service');
+
+        # Parse range parameter (e.g., 15m, 1h, 24h)
+        if (my $range = $c->param('range')) {
+            ($from, $to) = _parse_time_range($range);
+        }
 
         my %params = (interval => $interval);
         $params{from}    = $from if $from;
