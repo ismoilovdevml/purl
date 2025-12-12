@@ -1,6 +1,6 @@
 <script>
-  import { createEventDispatcher, onMount } from 'svelte';
-  import { levelStats, serviceStats, hostStats } from '../stores/logs.js';
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import { levelStats, serviceStats, hostStats, connectWebSocket, isLive } from '../stores/logs.js';
 
   export let value = '';
 
@@ -16,6 +16,9 @@
   let searchHistory = [];
   let showHistory = false;
   const MAX_HISTORY = 10;
+  
+  // Live mode
+  let ws = null;
 
   // KQL operators and fields
   const OPERATORS = ['AND', 'OR', 'NOT'];
@@ -28,6 +31,30 @@
     }
   });
 
+  onDestroy(() => {
+    if (ws) {
+      ws.close();
+      isLive.set(false);
+    }
+  });
+
+  function toggleLive() {
+    if ($isLive) {
+      if (ws) ws.close();
+      ws = null;
+      isLive.set(false);
+    } else {
+      ws = connectWebSocket();
+      isLive.set(true);
+      
+      // Clear current search when going live
+      if (value) {
+        value = '';
+        dispatch('search'); 
+      }
+    }
+  }
+
   function saveToHistory(query) {
     if (!query.trim()) return;
     searchHistory = [query, ...searchHistory.filter(h => h !== query)].slice(0, MAX_HISTORY);
@@ -35,6 +62,11 @@
   }
 
   function handleKeydown(event) {
+    // Disable live mode on search
+    if (event.key === 'Enter' && $isLive) {
+      toggleLive();
+    }
+    
     if (showSuggestions && suggestions.length > 0) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
@@ -189,9 +221,15 @@
 </script>
 
 <div class="search-bar" role="search">
-  <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-    <path fill="currentColor" d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z"/>
-  </svg>
+  <button class="live-btn" class:active={$isLive} on:click={toggleLive} title="Toggle Live Mode">
+    <span class="live-indicator"></span>
+    Live
+  </button>
+
+  <div class="search-con">
+    <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <path fill="currentColor" d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z"/>
+    </svg>
 
   <input
     bind:this={inputEl}
@@ -248,7 +286,6 @@
     </div>
   {/if}
 
-  <!-- Search history dropdown -->
   {#if showHistory && searchHistory.length > 0}
     <div class="suggestions history">
       <div class="history-header">
@@ -268,6 +305,7 @@
       {/each}
     </div>
   {/if}
+  </div>
 </div>
 
 <style>
@@ -277,6 +315,53 @@
     position: relative;
     display: flex;
     align-items: center;
+  }
+
+  .search-con {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  
+  .live-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    height: 38px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #8b949e;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-right: 12px;
+    transition: all 0.15s;
+  }
+
+  .live-btn:hover {
+    border-color: #8b949e;
+    color: #c9d1d9;
+  }
+
+  .live-btn.active {
+    background: #3fb95020;
+    border-color: #3fb950;
+    color: #3fb950;
+  }
+
+  .live-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #8b949e;
+  }
+
+  .live-btn.active .live-indicator {
+    background: #3fb950;
+    box-shadow: 0 0 6px #3fb95060;
   }
 
   .search-icon {

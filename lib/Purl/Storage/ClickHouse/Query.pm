@@ -93,18 +93,21 @@ sub _sanitize_trace_id {
 sub _build_where_clause {
     my ($self, %params) = @_;
     my @where;
+    my %bind_params;
 
     # Time range
     if ($params{from}) {
         my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
         if ($from_ts =~ /^[\d\-: \.]+$/) {
-            push @where, "timestamp >= " . $self->_quote_string($from_ts);
+            push @where, "timestamp >= {p_from:DateTime64(3)}";
+            $bind_params{p_from} = $from_ts;
         }
     }
     if ($params{to}) {
         my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
         if ($to_ts =~ /^[\d\-: \.]+$/) {
-            push @where, "timestamp <= " . $self->_quote_string($to_ts);
+            push @where, "timestamp <= {p_to:DateTime64(3)}";
+            $bind_params{p_to} = $to_ts;
         }
     }
 
@@ -113,13 +116,22 @@ sub _build_where_clause {
         if (ref $params{level} eq 'ARRAY') {
             my @valid_levels = grep { defined } map { $self->_validate_level($_) } @{$params{level}};
             if (@valid_levels) {
-                my $levels = join(',', map { $self->_quote_string($_) } @valid_levels);
-                push @where, "level IN ($levels)";
+                # ClickHouse doesn't support array parameters in IN clause easily via HTTP API in older versions
+                # checking if we can use an array param or just multiple ORs or separate params
+                # For safety and simple HTTP API compatibility, let's use creating multiple params
+                my @level_placeholders;
+                for my $i (0 .. $#valid_levels) {
+                    my $pname = "p_level_$i";
+                    push @level_placeholders, "{${pname}:String}";
+                    $bind_params{$pname} = $valid_levels[$i];
+                }
+                push @where, "level IN (" . join(', ', @level_placeholders) . ")";
             }
         } else {
             my $valid_level = $self->_validate_level($params{level});
             if ($valid_level) {
-                push @where, "level = " . $self->_quote_string($valid_level);
+                push @where, "level = {p_level:String}";
+                $bind_params{p_level} = $valid_level;
             }
         }
     }
@@ -131,9 +143,11 @@ sub _build_where_clause {
             if ($service =~ /\*/) {
                 my $pattern = $service;
                 $pattern =~ s/\*/%/g;
-                push @where, "service LIKE " . $self->_quote_string($pattern);
+                push @where, "service LIKE {p_service_pattern:String}";
+                $bind_params{p_service_pattern} = $pattern;
             } else {
-                push @where, "service = " . $self->_quote_string($service);
+                push @where, "service = {p_service:String}";
+                $bind_params{p_service} = $service;
             }
         }
     }
@@ -142,20 +156,23 @@ sub _build_where_clause {
     if ($params{host}) {
         my $host = $self->_sanitize_identifier($params{host});
         if ($host) {
-            push @where, "host = " . $self->_quote_string($host);
+            push @where, "host = {p_host:String}";
+            $bind_params{p_host} = $host;
         }
     }
 
     # Full-text search
     if ($params{query}) {
-        push @where, "position(message, " . $self->_quote_string($params{query}) . ") > 0";
+        push @where, "position(message, {p_query:String}) > 0";
+        $bind_params{p_query} = $params{query};
     }
 
     # Trace ID filter
     if ($params{trace_id}) {
         my $trace_id = $self->_sanitize_trace_id($params{trace_id});
         if ($trace_id) {
-            push @where, "trace_id = " . $self->_quote_string($trace_id);
+            push @where, "trace_id = {p_trace_id:String}";
+            $bind_params{p_trace_id} = $trace_id;
         }
     }
 
@@ -163,7 +180,8 @@ sub _build_where_clause {
     if ($params{request_id}) {
         my $request_id = $self->_sanitize_trace_id($params{request_id});
         if ($request_id) {
-            push @where, "request_id = " . $self->_quote_string($request_id);
+            push @where, "request_id = {p_request_id:String}";
+            $bind_params{p_request_id} = $request_id;
         }
     }
 
@@ -171,11 +189,13 @@ sub _build_where_clause {
     if ($params{span_id}) {
         my $span_id = $self->_sanitize_trace_id($params{span_id});
         if ($span_id) {
-            push @where, "span_id = " . $self->_quote_string($span_id);
+            push @where, "span_id = {p_span_id:String}";
+            $bind_params{p_span_id} = $span_id;
         }
     }
 
-    return @where ? 'WHERE ' . join(' AND ', @where) : '';
+    my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
+    return ($where_sql, \%bind_params);
 }
 
 1;

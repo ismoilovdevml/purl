@@ -12,8 +12,6 @@
   import SettingsPage from './components/SettingsPage.svelte';
   import { logs, loading, error, query, timeRange, customTimeRange, total, searchLogs, connectWebSocket } from './stores/logs.js';
 
-  let ws;
-  let liveMode = false;
   let savedSearchesRef;
   let currentPage = 'logs'; // 'logs' | 'analytics' | 'settings'
 
@@ -46,15 +44,7 @@
     window.location.hash = page;
   }
 
-  function toggleLiveMode() {
-    liveMode = !liveMode;
-    if (liveMode) {
-      ws = connectWebSocket();
-    } else if (ws) {
-      ws.close();
-      ws = null;
-    }
-  }
+
 
   function handleSearch() {
     searchLogs();
@@ -175,13 +165,7 @@
       <div class="header-actions">
         <TimeRangePicker value={$timeRange} on:change={handleTimeRangeChange} />
 
-        <button class="btn" class:active={liveMode} on:click={toggleLiveMode} title={liveMode ? 'Stop live tail' : 'Start live tail'}>
-          {#if liveMode}
-            <span class="live-dot"></span> Live
-          {:else}
-            Live Tail
-          {/if}
-        </button>
+
 
         <button class="btn" on:click={saveCurrentSearch} title="Save current search">
           <svg width="14" height="14" viewBox="0 0 14 14">
@@ -410,23 +394,7 @@
     cursor: not-allowed;
   }
 
-  .btn.active {
-    background: #238636;
-    border-color: #238636;
-  }
 
-  .live-dot {
-    width: 8px;
-    height: 8px;
-    background: #3fb950;
-    border-radius: 50%;
-    animation: pulse 1.5s infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
 
   .spinner {
     width: 14px;

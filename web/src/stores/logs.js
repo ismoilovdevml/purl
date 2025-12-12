@@ -19,6 +19,7 @@ export const histogram = writable([]);
 
 // Performance metrics
 export const metrics = writable(null);
+export const isLive = writable(false);
 
 // API base URL
 const API_BASE = '/api';

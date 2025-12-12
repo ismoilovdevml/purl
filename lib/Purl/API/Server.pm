@@ -18,6 +18,13 @@ use Purl::Alert::Slack;
 use Purl::Alert::Webhook;
 use Purl::Config;
 
+# Contollers
+use Purl::API::Controller::Logs;
+use Purl::API::Controller::Traces;
+use Purl::API::Controller::System;
+use Purl::API::Controller::Analytics;
+use Purl::API::Controller::Auth;
+
 # Package-level state
 my $storage;
 my $config = {};
@@ -301,6 +308,15 @@ sub setup_routes {
     $storage //= _build_storage();
     _build_notifiers();
 
+    # Instantiate Controllers
+    my %c_args = (storage => $storage, config => $config, cache => \%cache);
+    
+    my $sys_c    = Purl::API::Controller::System->new(%c_args);
+    my $auth_c   = Purl::API::Controller::Auth->new(%c_args);
+    my $traces_c = Purl::API::Controller::Traces->new(%c_args);
+    my $analytics_c = Purl::API::Controller::Analytics->new(%c_args, notifier_list => \%notifiers);
+    my $logs_c   = Purl::API::Controller::Logs->new(%c_args, websockets => $websockets);
+
     # Periodic buffer flush timer (every 2 seconds)
     Mojo::IOLoop->recurring(2 => sub {
         if ($storage && $storage->can('maybe_flush')) {
@@ -423,399 +439,42 @@ sub setup_routes {
     });
 
     # CSRF token endpoint (no auth required, for browser clients)
-    $api->get('/csrf-token' => sub ($c) {
-        my $token = _generate_csrf_token();
-        $c->render(json => { csrf_token => $token });
-    });
+    $api->get('/csrf-token' => sub ($c) { $auth_c->csrf_token($c) });
 
     # Health check (no auth required)
-    $api->get('/health' => sub ($c) {
-        my $ch_ok = eval { $storage->stats(); 1 };
-        my $ch_error = $@;
-        $ch_ok //= 0;
-
-        if ($ch_error) {
-            app->log->warn("Health check - ClickHouse error: $ch_error");
-        }
-
-        my $status = $ch_ok ? 'ok' : 'degraded';
-        my $code = $ch_ok ? 200 : 503;
-
-        $c->render(json => {
-            status      => $status,
-            timestamp   => time(),
-            version     => $Purl::VERSION // '0.1.0',
-            clickhouse  => $ch_ok ? 'connected' : 'disconnected',
-            uptime_secs => int(time() - $metrics{start_time}),
-            ($ch_error ? (error => substr($ch_error, 0, 200)) : ()),
-        }, status => $code);
-    });
+    $api->get('/health' => sub ($c) { $sys_c->health($c) });
 
     # Prometheus metrics (no auth required)
-    $api->get('/metrics' => sub ($c) {
-        my $stats = eval { $storage->stats() } // {};
-        my $uptime = int(time() - $metrics{start_time});
-        my $avg_duration = $metrics{query_count} > 0
-            ? $metrics{query_duration_sum} / $metrics{query_count}
-            : 0;
-
-        my $output = <<"METRICS";
-# HELP purl_info Purl server information
-# TYPE purl_info gauge
-purl_info{version="0.1.0"} 1
-
-# HELP purl_uptime_seconds Server uptime in seconds
-# TYPE purl_uptime_seconds counter
-purl_uptime_seconds $uptime
-
-# HELP purl_requests_total Total HTTP requests
-# TYPE purl_requests_total counter
-purl_requests_total $metrics{requests_total}
-
-# HELP purl_errors_total Total errors
-# TYPE purl_errors_total counter
-purl_errors_total $metrics{errors_total}
-
-# HELP purl_logs_ingested_total Total logs ingested
-# TYPE purl_logs_ingested_total counter
-purl_logs_ingested_total $metrics{logs_ingested}
-
-# HELP purl_logs_stored Total logs in storage
-# TYPE purl_logs_stored gauge
-purl_logs_stored $stats->{total_logs}
-
-# HELP purl_db_size_bytes Database size in bytes
-# TYPE purl_db_size_bytes gauge
-purl_db_size_bytes $stats->{db_size_bytes}
-
-# HELP purl_query_duration_seconds_avg Average query duration
-# TYPE purl_query_duration_seconds_avg gauge
-purl_query_duration_seconds_avg $avg_duration
-
-# HELP purl_cache_size Cache entries count
-# TYPE purl_cache_size gauge
-purl_cache_size @{[scalar keys %cache]}
-
-# HELP purl_rate_limit_max Max requests per window
-# TYPE purl_rate_limit_max gauge
-purl_rate_limit_max $rate_limit_max
-METRICS
-
-        $c->render(text => $output, format => 'txt');
-    });
+    $api->get('/metrics' => sub ($c) { $sys_c->metrics($c) });
 
     # JSON metrics endpoint (for dashboard)
-    $api->get('/metrics/json' => sub ($c) {
-        my $stats = eval { $storage->stats() } // {};
-        my $ch_metrics = eval { $storage->get_metrics() } // {};
-        my $uptime = int(time() - $metrics{start_time});
-        my $avg_duration = $metrics{query_count} > 0
-            ? sprintf('%.3f', $metrics{query_duration_sum} / $metrics{query_count})
-            : 0;
-
-        $c->render(json => {
-            server => {
-                version       => '0.1.0',
-                uptime_secs   => $uptime,
-                uptime_human  => _format_duration($uptime),
-            },
-            requests => {
-                total         => $metrics{requests_total},
-                errors        => $metrics{errors_total},
-                avg_duration  => $avg_duration,
-                by_path       => $metrics{requests_by_path},
-            },
-            storage => {
-                total_logs    => $stats->{total_logs} // 0,
-                db_size_mb    => $stats->{db_size_mb} // 0,
-                oldest_log    => $stats->{oldest_log},
-                newest_log    => $stats->{newest_log},
-            },
-            clickhouse => {
-                queries_total   => $ch_metrics->{queries_total} // 0,
-                queries_cached  => $ch_metrics->{queries_cached} // 0,
-                cache_hit_rate  => $ch_metrics->{cache_hit_rate} // '0%',
-                avg_query_time  => $ch_metrics->{avg_query_time} // '0s',
-                inserts_total   => $ch_metrics->{inserts_total} // 0,
-                bytes_inserted  => $ch_metrics->{bytes_inserted} // 0,
-                buffer_size     => $ch_metrics->{buffer_size} // 0,
-                errors_total    => $ch_metrics->{errors_total} // 0,
-            },
-            ingestion => {
-                logs_ingested => $metrics{logs_ingested},
-            },
-            cache => {
-                entries       => scalar keys %cache,
-                ttl_seconds   => $cache_ttl,
-            },
-        });
-    });
+    $api->get('/metrics/json' => sub ($c) { $sys_c->metrics_json($c) });
 
     # Search logs (with caching)
-    $protected->get('/logs' => sub ($c) {
-        my $query   = $c->param('q') // '';
-        my $from    = $c->param('from');
-        my $to      = $c->param('to');
-        my $level   = $c->param('level');
-        my $service = $c->param('service');
-        my $host    = $c->param('host');
-        my $limit   = $c->param('limit') // 500;
-        my $offset  = $c->param('offset') // 0;
-        my $order   = $c->param('order') // 'DESC';
-
-        if (my $range = $c->param('range')) {
-            ($from, $to) = _parse_time_range($range);
-        }
-
-        my %params = (
-            limit  => int($limit),
-            offset => int($offset),
-            order  => $order,
-        );
-
-        $params{from}    = $from if $from;
-        $params{to}      = $to if $to;
-        $params{level}   = $level if $level;
-        $params{service} = $service if $service;
-        $params{host}    = $host if $host;
-
-        # Parse KQL query
-        if ($query) {
-            if ($query =~ /^(\w+):(.+)$/) {
-                my ($field, $value) = ($1, $2);
-                $field = lc($field);
-                $value =~ s/^["']|["']$//g;
-
-                if ($field eq 'level') {
-                    $params{level} = uc($value);
-                } elsif ($field eq 'service') {
-                    $params{service} = $value;
-                } elsif ($field eq 'host') {
-                    $params{host} = $value;
-                } else {
-                    $params{query} = $value;
-                }
-            } else {
-                $params{query} = $query;
-            }
-        }
-
-        # Check cache
-        my $cache_key = md5_hex(encode_json(\%params));
-        if (my $cached = _cache_get($cache_key)) {
-            $c->res->headers->header('X-Cache' => 'HIT');
-            $c->render(json => $cached);
-            return;
-        }
-
-        my $results = $storage->search(%params);
-        my $total = $storage->count(%params);
-
-        my $response = {
-            hits  => $results,
-            total => $total,
-            query => $query,
-        };
-
-        # Cache results (shorter TTL for real-time data)
-        _cache_set($cache_key, $response, 10);
-        $c->res->headers->header('X-Cache' => 'MISS');
-
-        $c->render(json => $response);
-    });
+    $protected->get('/logs' => sub ($c) { $logs_c->search($c) });
 
     # Ingest logs (POST)
-    $protected->post('/logs' => sub ($c) {
-        my $raw_body = $c->req->body;
-        my $logs = [];
-
-        # Try parsing as JSON array first
-        my $body = eval { decode_json($raw_body) };
-        if ($body) {
-            $logs = ref $body eq 'ARRAY' ? $body : [$body];
-        } else {
-            # Try parsing as NDJSON (newline-delimited JSON) - Vector format
-            for my $line (split /\n/, $raw_body) {
-                next unless $line =~ /\S/;  # Skip empty lines
-                my $log = eval { decode_json($line) };
-                push @$logs, $log if $log;
-            }
-        }
-
-        unless (@$logs) {
-            $metrics{errors_total}++;
-            $c->render(json => { error => 'Invalid JSON or NDJSON' }, status => 400);
-            return;
-        }
-        my $count = 0;
-
-        for my $log (@$logs) {
-            $log->{timestamp} //= _epoch_to_iso(time());
-            $log->{level} //= 'INFO';
-            $log->{service} //= 'unknown';
-            $log->{host} //= 'unknown';
-            $log->{message} //= $log->{msg} // $log->{log} // '';
-            $log->{raw} //= $log->{message};
-            $log->{meta} //= {};
-
-            $storage->insert($log);
-            $count++;
-        }
-
-        $storage->flush() if $storage->can('flush');
-
-        $metrics{logs_ingested} += $count;
-
-        # Invalidate search cache on new data
-        _cache_clear();
-
-        # Broadcast to WebSocket subscribers
-        _broadcast_logs($logs);
-
-        $c->render(json => {
-            status => 'ok',
-            inserted => $count
-        });
-    });
+    $protected->post('/logs' => sub ($c) { $logs_c->ingest($c) });
 
     # Get log context (surrounding logs)
-    $protected->get('/logs/:id/context' => sub ($c) {
-        my $id     = $c->param('id');
-        my $before = $c->param('before') // 50;
-        my $after  = $c->param('after') // 50;
-
-        # Validate UUID format
-        unless ($id && $id =~ /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i) {
-            $c->render(json => { error => 'Invalid log ID format' }, status => 400);
-            return;
-        }
-
-        my $context = $storage->get_context($id,
-            before => int($before),
-            after  => int($after),
-        );
-
-        unless ($context->{reference}) {
-            $c->render(json => { error => 'Log not found' }, status => 404);
-            return;
-        }
-
-        $c->render(json => {
-            reference    => $context->{reference},
-            before_logs  => $context->{before},
-            after_logs   => $context->{after},
-            before_count => scalar(@{$context->{before}}),
-            after_count  => scalar(@{$context->{after}}),
-        });
-    });
+    $protected->get('/logs/:id/context' => sub ($c) { $logs_c->context($c) });
 
     # ============================================
     # Trace Correlation API
     # ============================================
 
     # Get logs by trace ID
-    $protected->get('/traces/:trace_id' => sub ($c) {
-        my $trace_id = $c->param('trace_id');
-        my $limit    = $c->param('limit') // 200;
-
-        # Validate trace_id format (hex + dashes, 8-36 chars)
-        unless ($trace_id && $trace_id =~ /^[a-fA-F0-9\-]{8,36}$/) {
-            $c->render(json => { error => 'Invalid trace ID format' }, status => 400);
-            return;
-        }
-
-        my $result = $storage->search_by_trace($trace_id, limit => int($limit));
-
-        unless ($result->{total} > 0) {
-            $c->render(json => { error => 'Trace not found' }, status => 404);
-            return;
-        }
-
-        $c->render(json => {
-            trace_id => lc($trace_id),
-            hits     => $result->{hits},
-            total    => $result->{total},
-        });
-    });
+    $protected->get('/traces/:trace_id' => sub ($c) { $traces_c->get_trace($c) });
 
     # Get trace timeline (service spans)
-    $protected->get('/traces/:trace_id/timeline' => sub ($c) {
-        my $trace_id = $c->param('trace_id');
-
-        # Validate trace_id format
-        unless ($trace_id && $trace_id =~ /^[a-fA-F0-9\-]{8,36}$/) {
-            $c->render(json => { error => 'Invalid trace ID format' }, status => 400);
-            return;
-        }
-
-        my $timeline = $storage->get_trace_timeline($trace_id);
-
-        unless (@$timeline) {
-            $c->render(json => { error => 'Trace not found' }, status => 404);
-            return;
-        }
-
-        # Calculate total duration
-        my $first_start = $timeline->[0]{start_time};
-        my $last_end = $timeline->[-1]{end_time};
-
-        $c->render(json => {
-            trace_id   => lc($trace_id),
-            services   => $timeline,
-            start_time => $first_start,
-            end_time   => $last_end,
-        });
-    });
+    $protected->get('/traces/:trace_id/timeline' => sub ($c) { $traces_c->get_trace_timeline($c) });
 
     # Get logs by request ID
-    $protected->get('/requests/:request_id' => sub ($c) {
-        my $request_id = $c->param('request_id');
-        my $limit      = $c->param('limit') // 200;
-
-        # Validate request_id format
-        unless ($request_id && $request_id =~ /^[a-fA-F0-9\-]{8,36}$/) {
-            $c->render(json => { error => 'Invalid request ID format' }, status => 400);
-            return;
-        }
-
-        my $result = $storage->search_by_request($request_id, limit => int($limit));
-
-        unless ($result->{total} > 0) {
-            $c->render(json => { error => 'Request not found' }, status => 404);
-            return;
-        }
-
-        $c->render(json => {
-            request_id => lc($request_id),
-            hits       => $result->{hits},
-            total      => $result->{total},
-        });
-    });
+    $protected->get('/requests/:request_id' => sub ($c) { $traces_c->get_request($c) });
 
     # KQL query endpoint (POST)
-    $protected->post('/query' => sub ($c) {
-        my $body = decode_json($c->req->body);
-
-        my $query = $body->{query} // '';
-        my $from  = $body->{from};
-        my $to    = $body->{to};
-        my $limit = $body->{limit} // 500;
-
-        my %params = (limit => int($limit));
-        $params{from} = $from if $from;
-        $params{to}   = $to if $to;
-
-        if ($query) {
-            $params{query} = $query;
-        }
-
-        my $results = $storage->search(%params);
-
-        $c->render(json => {
-            hits  => $results,
-            total => scalar(@$results),
-        });
-    });
+    # KQL query endpoint (POST)
+    $protected->post('/query' => sub ($c) { $logs_c->query($c) });
 
     # Field statistics (with caching)
     $protected->get('/stats/fields/:field' => sub ($c) {
@@ -924,58 +583,13 @@ METRICS
     # ============================================
 
     # Table statistics
-    $protected->get('/analytics/tables' => sub ($c) {
-        my $cache_key = 'analytics_tables';
-        if (my $cached = _cache_get($cache_key)) {
-            $c->res->headers->header('X-Cache' => 'HIT');
-            $c->render(json => $cached);
-            return;
-        }
-
-        my $tables = $storage->get_table_stats();
-        my $response = { tables => $tables };
-
-        _cache_set($cache_key, $response, 60);
-        $c->res->headers->header('X-Cache' => 'MISS');
-
-        $c->render(json => $response);
-    });
+    $protected->get('/analytics/tables' => sub ($c) { $analytics_c->tables($c) });
 
     # Recent slow queries
-    $protected->get('/analytics/queries' => sub ($c) {
-        my $limit = $c->param('limit') // 10;
-
-        my $cache_key = "analytics_queries:$limit";
-        if (my $cached = _cache_get($cache_key)) {
-            $c->res->headers->header('X-Cache' => 'HIT');
-            $c->render(json => $cached);
-            return;
-        }
-
-        my $queries = $storage->get_slow_queries(int($limit));
-        my $response = { queries => $queries };
-
-        _cache_set($cache_key, $response, 30);
-        $c->res->headers->header('X-Cache' => 'MISS');
-
-        $c->render(json => $response);
-    });
+    $protected->get('/analytics/queries' => sub ($c) { $analytics_c->queries($c) });
 
     # Notifier status
-    $protected->get('/analytics/notifiers' => sub ($c) {
-        my %status;
-        for my $type (keys %notifiers) {
-            $status{$type} = {
-                configured => 1,
-                name       => $notifiers{$type}->name,
-            };
-        }
-
-        $c->render(json => {
-            notifiers => \%status,
-            available => [qw(telegram slack webhook)],
-        });
-    });
+    $protected->get('/analytics/notifiers' => sub ($c) { $analytics_c->notifiers($c) });
 
     # ============================================
     # Server Configuration API
@@ -1542,65 +1156,7 @@ METRICS
     return app;
 }
 
-# Broadcast logs to WebSocket subscribers (with server-side filtering)
-sub _broadcast_logs {
-    my ($logs) = @_;
 
-    for my $ws (@$websockets) {
-        next unless $ws;
-        eval {
-            my $filter = $ws->{filter} // {};
-
-            for my $log (@$logs) {
-                # Apply all filters server-side to reduce bandwidth
-
-                # Level filter (exact match or array)
-                if ($filter->{level}) {
-                    if (ref $filter->{level} eq 'ARRAY') {
-                        my %allowed = map { uc($_) => 1 } @{$filter->{level}};
-                        next unless $allowed{uc($log->{level} // '')};
-                    } else {
-                        next if uc($log->{level} // '') ne uc($filter->{level});
-                    }
-                }
-
-                # Service filter (exact match or wildcard)
-                if ($filter->{service}) {
-                    my $service = $log->{service} // '';
-                    my $pattern = $filter->{service};
-                    if ($pattern =~ /\*/) {
-                        # Convert wildcard to regex
-                        $pattern =~ s/\./\\./g;
-                        $pattern =~ s/\*/.*/g;
-                        next unless $service =~ /^$pattern$/i;
-                    } else {
-                        next if lc($service) ne lc($pattern);
-                    }
-                }
-
-                # Host filter
-                if ($filter->{host}) {
-                    next if lc($log->{host} // '') ne lc($filter->{host});
-                }
-
-                # Message contains filter (case-insensitive)
-                if ($filter->{query}) {
-                    my $message = $log->{message} // '';
-                    next unless index(lc($message), lc($filter->{query})) >= 0;
-                }
-
-                $ws->send(encode_json({
-                    type => 'log',
-                    data => $log,
-                }));
-            }
-        };
-        if ($@) {
-            # Remove dead connections
-            $websockets = [grep { $_ != $ws } @$websockets];
-        }
-    }
-}
 
 # Format duration in human readable format
 sub _format_duration {

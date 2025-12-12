@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import Chart from 'chart.js/auto';
 
   let stats = null;
   let clickhouseMetrics = null;
@@ -10,6 +11,15 @@
   let refreshInterval;
   let selectedTab = 'overview';
   let timeRange = '1h';
+  let lastUpdated = new Date();
+  
+  // Charts
+  let ingestionChart;
+  let ingestionCanvas;
+  let storageChart;
+  let storageCanvas;
+  let endpointsChart;
+  let endpointsCanvas;
 
   const API_BASE = '/api';
 
@@ -36,12 +46,105 @@
       }
 
       error = null;
+      lastUpdated = new Date();
+      updateCharts();
     } catch (err) {
       error = err.message;
     } finally {
       loading = false;
     }
   }
+
+  function updateCharts() {
+    // Ingestion Chart
+    if (ingestionCanvas && clickhouseMetrics?.ingestion?.history) {
+      const ctx = ingestionCanvas.getContext('2d');
+      const data = clickhouseMetrics.ingestion.history;
+      
+      if (ingestionChart) ingestionChart.destroy();
+      
+      ingestionChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: data.map(d => new Date(d.time).toLocaleTimeString()),
+          datasets: [{
+            label: 'Ingestion Rate (logs/sec)',
+            data: data.map(d => d.count),
+            backgroundColor: '#3fb950',
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
+            x: { display: false }
+          }
+        }
+      });
+    }
+
+    // Storage Chart
+    if (storageCanvas && tableStats.length > 0) {
+      const ctx = storageCanvas.getContext('2d');
+      if (storageChart) storageChart.destroy();
+
+      storageChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: tableStats.map(t => t.table),
+          datasets: [{
+            data: tableStats.map(t => t.bytes),
+            backgroundColor: ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f85149'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'right', labels: { color: '#c9d1d9' } } }
+        }
+      });
+    }
+
+    // Endpoints Chart
+    if (endpointsCanvas && clickhouseMetrics?.requests?.by_path) {
+      const ctx = endpointsCanvas.getContext('2d');
+      const paths = Object.entries(clickhouseMetrics.requests.by_path)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8);
+
+      if (endpointsChart) endpointsChart.destroy();
+
+      endpointsChart = new Chart(ctx, {
+        type: 'bar',
+        indexAxis: 'y',
+        data: {
+          labels: paths.map(p => p[0]),
+          datasets: [{
+            label: 'Requests',
+            data: paths.map(p => p[1]),
+            backgroundColor: '#a371f7',
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
+            y: { grid: { display: false }, ticks: { color: '#c9d1d9' } }
+          }
+        }
+      });
+    }
+  }
+
+  // Handle tab changes to ensure charts render on visible canvas
+  $: if (selectedTab) setTimeout(updateCharts, 0);
 
   onMount(() => {
     fetchAnalytics();
@@ -50,6 +153,9 @@
 
   onDestroy(() => {
     if (refreshInterval) clearInterval(refreshInterval);
+    if (ingestionChart) ingestionChart.destroy();
+    if (storageChart) storageChart.destroy();
+    if (endpointsChart) endpointsChart.destroy();
   });
 
   function formatBytes(bytes) {
@@ -101,7 +207,9 @@
         <button class:active={selectedTab === 'queries'} on:click={() => selectedTab = 'queries'}>Queries</button>
       </div>
     </div>
+
     <div class="header-right">
+      <span class="last-updated">Updated: {lastUpdated.toLocaleTimeString()}</span>
       <select bind:value={timeRange} class="time-select">
         <option value="15m">15m</option>
         <option value="1h">1h</option>
@@ -187,12 +295,8 @@
         <div class="card">
           <div class="card-head"><h3>Storage</h3></div>
           <div class="storage-grid">
-            <div class="storage-ring">
-              <svg viewBox="0 0 36 36">
-                <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-                <path class="ring-fill" stroke-dasharray="75, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-              </svg>
-              <div class="ring-text"><span>{stats?.db_size_mb || 0}</span><small>MB</small></div>
+            <div class="storage-chart-container">
+              <canvas bind:this={storageCanvas}></canvas>
             </div>
             <div class="storage-info">
               <div><span>Rows</span><span class="mono">{formatNumber(stats?.total_rows)}</span></div>
@@ -206,11 +310,14 @@
         <!-- Ingestion -->
         <div class="card">
           <div class="card-head"><h3>Ingestion</h3><span class="badge live">Live</span></div>
+          <div class="chart-container">
+            <canvas bind:this={ingestionCanvas}></canvas>
+          </div>
           <div class="stats-grid">
-            <div><span class="stat-val">{formatNumber(clickhouseMetrics?.ingestion?.total)}</span><span class="stat-lbl">Ingested</span></div>
-            <div><span class="stat-val">{formatBytes(clickhouseMetrics?.clickhouse?.bytes_inserted)}</span><span class="stat-lbl">Written</span></div>
-            <div><span class="stat-val">{clickhouseMetrics?.clickhouse?.buffer_size || 0}</span><span class="stat-lbl">Buffer</span></div>
-            <div><span class="stat-val">{formatNumber(clickhouseMetrics?.clickhouse?.inserts_total)}</span><span class="stat-lbl">Inserts</span></div>
+            <div title="Total logs ingested in selected time range"><span class="stat-val">{formatNumber(clickhouseMetrics?.ingestion?.total)}</span><span class="stat-lbl">Ingested</span></div>
+            <div title="Total data written to disk"><span class="stat-val">{formatBytes(clickhouseMetrics?.clickhouse?.bytes_inserted)}</span><span class="stat-lbl">Written</span></div>
+            <div title="Current rows in memory buffer before flush"><span class="stat-val">{clickhouseMetrics?.clickhouse?.buffer_size || 0}</span><span class="stat-lbl">Buffer</span></div>
+            <div title="Total insert operations"><span class="stat-val">{formatNumber(clickhouseMetrics?.clickhouse?.inserts_total)}</span><span class="stat-lbl">Inserts</span></div>
           </div>
         </div>
 
@@ -227,23 +334,13 @@
     {/if}
 
     {#if selectedTab === 'performance'}
-      <!-- Endpoints -->
-      <div class="card wide">
-        <div class="card-head"><h3>Endpoints</h3></div>
-        <div class="endpoint-list">
-          {#if clickhouseMetrics?.requests?.by_path}
-            {#each Object.entries(clickhouseMetrics.requests.by_path).sort((a, b) => b[1] - a[1]).slice(0, 8) as [path, count]}
-              <div class="endpoint-row">
-                <code>{path}</code>
-                <div class="endpoint-bar"><div style="width: {Math.min(count / Math.max(...Object.values(clickhouseMetrics.requests.by_path)) * 100, 100)}%"></div></div>
-                <span>{formatNumber(count)}</span>
-              </div>
-            {/each}
-          {:else}
-            <div class="no-data">No data</div>
-          {/if}
+        <!-- Endpoints -->
+        <div class="card wide">
+          <div class="card-head"><h3>Endpoints</h3></div>
+          <div class="endpoint-chart-container">
+            <canvas bind:this={endpointsCanvas}></canvas>
+          </div>
         </div>
-      </div>
 
       <div class="grid cols-2">
         <div class="card">
@@ -290,10 +387,11 @@
         <div class="card">
           <div class="card-head"><h3>Distribution</h3></div>
           <div class="dist-list">
+            <!-- Reuse Storage Chart here if desired, or keep list -->
             {#each tableStats.slice(0, 4) as t}
               <div class="dist-row">
                 <span>{t.table}</span>
-                <div class="dist-bar"><div style="width: {t.bytes / Math.max(...tableStats.map(x => x.bytes)) * 100}%"></div></div>
+                <div class="dist-bar"><div style="width: {t.bytes / Math.max(...tableStats.map(x => x.bytes), 1) * 100}%"></div></div>
                 <span class="mono">{formatBytes(t.bytes)}</span>
               </div>
             {/each}
@@ -412,6 +510,12 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .last-updated {
+    font-size: 0.75rem;
+    color: #8b949e;
+    margin-right: 8px;
   }
 
   .time-select {
@@ -607,6 +711,24 @@
   .badge.live { background: #3fb95020; color: #3fb950; }
   .badge.warn { background: #d2992220; color: #d29922; }
 
+  /* Chart Containers */
+  .chart-container {
+    height: 120px;
+    padding: 0 16px;
+    margin-bottom: 12px;
+  }
+
+  .endpoint-chart-container {
+    height: 200px;
+    padding: 16px;
+  }
+
+  .storage-chart-container {
+    width: 120px;
+    height: 120px;
+    position: relative;
+  }
+
   /* Perf List */
   .perf-list {
     padding: 14px 18px;
@@ -629,42 +751,7 @@
     gap: 20px;
   }
 
-  .storage-ring {
-    position: relative;
-    width: 80px;
-    height: 80px;
-    flex-shrink: 0;
-  }
 
-  .storage-ring svg {
-    width: 100%;
-    height: 100%;
-    transform: rotate(-90deg);
-  }
-
-  .ring-bg { fill: none; stroke: #21262d; stroke-width: 3; }
-  .ring-fill { fill: none; stroke: #3fb950; stroke-width: 3; stroke-linecap: round; }
-
-  .ring-text {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
-    line-height: 1;
-  }
-
-  .ring-text span {
-    display: block;
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: #f0f6fc;
-  }
-
-  .ring-text small {
-    font-size: 0.625rem;
-    color: #8b949e;
-  }
 
   .storage-info {
     flex: 1;
@@ -737,47 +824,7 @@
   }
 
   /* Endpoint List */
-  .endpoint-list {
-    padding: 14px 18px;
-  }
 
-  .endpoint-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 0;
-  }
-
-  .endpoint-row code {
-    width: 180px;
-    font-size: 0.8125rem;
-    color: #58a6ff;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .endpoint-bar {
-    flex: 1;
-    height: 6px;
-    background: #21262d;
-    border-radius: 3px;
-    overflow: hidden;
-  }
-
-  .endpoint-bar div {
-    height: 100%;
-    background: linear-gradient(90deg, #388bfd, #a371f7);
-    border-radius: 3px;
-  }
-
-  .endpoint-row > span {
-    width: 50px;
-    text-align: right;
-    font-size: 0.8125rem;
-    font-family: 'SF Mono', Monaco, monospace;
-    color: #f0f6fc;
-  }
 
   /* Time List */
   .time-list {

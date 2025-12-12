@@ -174,6 +174,14 @@ sub _query {
         $url .= '&default_format=' . $opts{format};
     }
 
+    # Add bind parameters to URL
+    if (my $params = $opts{params}) {
+        for my $key (keys %$params) {
+            # ClickHouse param syntax: param_NAME=VALUE
+            $url .= '&param_' . uri_escape($key) . '=' . uri_escape($params->{$key});
+        }
+    }
+
     my $response = $self->_http->post($url, {
         content => $sql,
         headers => {
@@ -202,14 +210,16 @@ sub _query_json {
     # Check cache for read queries
     my $cache_key;
     my $is_select = $sql =~ /^\s*SELECT/i;
+    # Add params to cache key to ensure uniqueness
     if ($is_select && !$opts{no_cache}) {
-        $cache_key = $self->_get_cache_key($sql);
+        my $param_str = $opts{params} ? join(',', sort keys %{$opts{params}}) . join(',', sort values %{$opts{params}}) : '';
+        $cache_key = $self->_get_cache_key($sql . $param_str);
         if (my $cached = $self->_get_cached($cache_key)) {
             return $cached;
         }
     }
 
-    my $result = $self->_query($sql, format => 'JSONEachRow');
+    my $result = $self->_query($sql, format => 'JSONEachRow', params => $opts{params});
 
     return [] unless $result && length($result);
 
@@ -568,67 +578,8 @@ sub search {
     my ($self, %params) = @_;
 
     my $table = $self->database . '.' . $self->table;
-    my @where;
-
-    # Time range - convert ISO format to ClickHouse format
-    if ($params{from}) {
-        my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
-        if ($from_ts =~ /^[\d\-: \.]+$/) {  # Validate timestamp format
-            push @where, "timestamp >= " . $self->_quote_string($from_ts);
-        }
-    }
-    if ($params{to}) {
-        my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
-        if ($to_ts =~ /^[\d\-: \.]+$/) {  # Validate timestamp format
-            push @where, "timestamp <= " . $self->_quote_string($to_ts);
-        }
-    }
-
-    # Level filter (validated against whitelist)
-    if ($params{level}) {
-        if (ref $params{level} eq 'ARRAY') {
-            my @valid_levels = grep { defined } map { $self->_validate_level($_) } @{$params{level}};
-            if (@valid_levels) {
-                my $levels = join(',', map { $self->_quote_string($_) } @valid_levels);
-                push @where, "level IN ($levels)";
-            }
-        } else {
-            my $valid_level = $self->_validate_level($params{level});
-            if ($valid_level) {
-                push @where, "level = " . $self->_quote_string($valid_level);
-            }
-        }
-    }
-
-    # Service filter (sanitized)
-    if ($params{service}) {
-        my $service = $self->_sanitize_identifier($params{service});
-        if ($service) {
-            if ($service =~ /\*/) {
-                my $pattern = $service;
-                $pattern =~ s/\*/%/g;
-                push @where, "service LIKE " . $self->_quote_string($pattern);
-            } else {
-                push @where, "service = " . $self->_quote_string($service);
-            }
-        }
-    }
-
-    # Host filter (sanitized)
-    if ($params{host}) {
-        my $host = $self->_sanitize_identifier($params{host});
-        if ($host) {
-            push @where, "host = " . $self->_quote_string($host);
-        }
-    }
-
-    # Full-text search in message (properly escaped)
-    if ($params{query}) {
-        push @where, "position(message, " . $self->_quote_string($params{query}) . ") > 0";
-    }
-
-    # Build query
-    my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
+    # Use shared builder for secure parameter handling
+    my ($where_sql, $bind_params) = $self->_build_where_clause(%params);
 
     my $order = $self->_validate_order($params{order});
     my $limit = $self->_validate_int($params{limit}, 1, 10000) // 500;
@@ -636,7 +587,7 @@ sub search {
 
     my $sql = qq{SELECT toString(id) as id, formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts, level, service, host, message, raw, meta as meta_json FROM $table $where_sql ORDER BY timestamp $order LIMIT $limit OFFSET $offset};
 
-    my $results = $self->_query_json($sql);
+    my $results = $self->_query_json($sql, params => $bind_params);
 
     # Rename ts back to timestamp for API response
     for my $row (@$results) {
@@ -657,37 +608,10 @@ sub count {
     my ($self, %params) = @_;
 
     my $table = $self->database . '.' . $self->table;
-    my @where;
-
-    if ($params{from}) {
-        my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
-        if ($from_ts =~ /^[\d\-: \.]+$/) {
-            push @where, "timestamp >= " . $self->_quote_string($from_ts);
-        }
-    }
-    if ($params{to}) {
-        my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
-        if ($to_ts =~ /^[\d\-: \.]+$/) {
-            push @where, "timestamp <= " . $self->_quote_string($to_ts);
-        }
-    }
-    if ($params{level}) {
-        my $valid_level = $self->_validate_level($params{level});
-        if ($valid_level) {
-            push @where, "level = " . $self->_quote_string($valid_level);
-        }
-    }
-    if ($params{service}) {
-        my $service = $self->_sanitize_identifier($params{service});
-        if ($service) {
-            push @where, "service = " . $self->_quote_string($service);
-        }
-    }
-
-    my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
+    my ($where_sql, $bind_params) = $self->_build_where_clause(%params);
 
     my $sql = "SELECT count() as cnt FROM $table $where_sql";
-    my $result = $self->_query_json($sql);
+    my $result = $self->_query_json($sql, params => $bind_params);
 
     return $result->[0]{cnt} // 0;
 }
@@ -705,21 +629,7 @@ sub field_stats {
     my $table = $self->database . '.' . $self->table;
     my $limit = $self->_validate_int($params{limit}, 1, 1000) // 10;
 
-    my @where;
-    if ($params{from}) {
-        my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
-        if ($from_ts =~ /^[\d\-: \.]+$/) {
-            push @where, "timestamp >= " . $self->_quote_string($from_ts);
-        }
-    }
-    if ($params{to}) {
-        my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
-        if ($to_ts =~ /^[\d\-: \.]+$/) {
-            push @where, "timestamp <= " . $self->_quote_string($to_ts);
-        }
-    }
-
-    my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
+    my ($where_sql, $bind_params) = $self->_build_where_clause(%params);
 
     my $sql = qq{
         SELECT $valid_field as value, count() as count
@@ -730,7 +640,7 @@ sub field_stats {
         LIMIT $limit
     };
 
-    return $self->_query_json($sql);
+    return $self->_query_json($sql, params => $bind_params);
 }
 
 # Time histogram with level breakdown (SQL injection protected)
@@ -752,33 +662,9 @@ sub histogram {
         $time_func = "toStartOfHour(timestamp)";
     }
 
-    my @where;
-    if ($params{from}) {
-        my $from_ts = $self->_convert_to_clickhouse_ts($params{from});
-        if ($from_ts =~ /^[\d\-: \.]+$/) {
-            push @where, "timestamp >= " . $self->_quote_string($from_ts);
-        }
-    }
-    if ($params{to}) {
-        my $to_ts = $self->_convert_to_clickhouse_ts($params{to});
-        if ($to_ts =~ /^[\d\-: \.]+$/) {
-            push @where, "timestamp <= " . $self->_quote_string($to_ts);
-        }
-    }
-    if ($params{level}) {
-        my $valid_level = $self->_validate_level($params{level});
-        if ($valid_level) {
-            push @where, "level = " . $self->_quote_string($valid_level);
-        }
-    }
-    if ($params{service}) {
-        my $service = $self->_sanitize_identifier($params{service});
-        if ($service) {
-            push @where, "service = " . $self->_quote_string($service);
-        }
-    }
 
-    my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
+
+    my ($where_sql, $bind_params) = $self->_build_where_clause(%params);
 
     # Query with level breakdown for stacked bars
     my $sql = qq{
@@ -795,7 +681,7 @@ sub histogram {
         ORDER BY time ASC
     };
 
-    return $self->_query_json($sql);
+    return $self->_query_json($sql, params => $bind_params);
 }
 
 # Get available fields
@@ -1105,7 +991,7 @@ sub get_table_stats {
             count() as partitions,
             max(modification_time) as last_modified
         FROM system.parts
-        WHERE database = $db_quoted AND active
+        WHERE database = $db_quoted AND active AND table NOT LIKE '.%' AND table NOT LIKE 'system.%'
         GROUP BY table
         ORDER BY bytes DESC
     };
