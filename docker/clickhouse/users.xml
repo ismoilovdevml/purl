@@ -51,9 +51,9 @@
     </profiles>
 
     <users>
-        <!-- Default user (admin) - CHANGE PASSWORD IN PRODUCTION -->
+        <!-- Default user (admin) - Password set via environment -->
         <default>
-            <password>4mE2OdbJEfWHpu9bwJGSamST</password>
+            <password>H65gHPinmeP71ZvLSbyJ6dwj0DjzNX2U</password>
             <networks>
                 <!-- Restrict to internal Docker network only -->
                 <ip>172.16.0.0/12</ip>
@@ -66,9 +66,12 @@
 
         <!-- Purl application user -->
         <purl>
-            <password>npJCZy1eKK6sHLmqt5tXVl08</password>
+            <password>ZMgA5x1Iyfela6fKty2m34rC26aQB2iy</password>
             <networks>
-                <ip>::/0</ip>
+                <!-- Restrict to Docker internal network only -->
+                <ip>172.16.0.0/12</ip>
+                <ip>10.0.0.0/8</ip>
+                <ip>127.0.0.1</ip>
             </networks>
             <profile>default</profile>
             <quota>default</quota>

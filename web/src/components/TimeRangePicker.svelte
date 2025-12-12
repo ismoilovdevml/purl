@@ -75,6 +75,23 @@
     if (!showDropdown) showCustom = false;
   }
 
+  function handleKeydown(event) {
+    if (event.key === 'Escape') {
+      showDropdown = false;
+      showCustom = false;
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      if (!showDropdown) {
+        event.preventDefault();
+        showDropdown = true;
+      }
+    } else if (event.key === 'ArrowDown' && showDropdown) {
+      event.preventDefault();
+      // Focus first item in dropdown
+      const firstItem = document.querySelector('.dropdown-item');
+      if (firstItem) firstItem.focus();
+    }
+  }
+
   function handleClickOutside(event) {
     if (!event.target.closest('.time-picker')) {
       showDropdown = false;
@@ -97,19 +114,26 @@
 
 <svelte:window on:click={handleClickOutside} />
 
-<div class="time-picker">
-  <button class="picker-btn" on:click|stopPropagation={toggleDropdown}>
-    <svg width="16" height="16" viewBox="0 0 16 16">
+<div class="time-picker" role="group" aria-label="Time range selector">
+  <button
+    class="picker-btn"
+    on:click|stopPropagation={toggleDropdown}
+    on:keydown={handleKeydown}
+    aria-haspopup="listbox"
+    aria-expanded={showDropdown}
+    aria-label="Select time range: {currentLabel}"
+  >
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
       <path fill="currentColor" d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0Zm0 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM8 3a.75.75 0 0 1 .75.75v3.69l2.28 2.28a.75.75 0 0 1-1.06 1.06L7.22 8.03A.75.75 0 0 1 7 7.5v-3.75A.75.75 0 0 1 8 3Z"/>
     </svg>
     <span class="label-text">{currentLabel}</span>
-    <svg class="chevron" width="12" height="12" viewBox="0 0 12 12">
+    <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
       <path fill="currentColor" d="M6 8.825a.5.5 0 0 1-.354-.146l-4-4a.5.5 0 0 1 .708-.708L6 7.617l3.646-3.646a.5.5 0 0 1 .708.708l-4 4A.5.5 0 0 1 6 8.825Z"/>
     </svg>
   </button>
 
   {#if showDropdown}
-    <div class="dropdown">
+    <div class="dropdown" role="listbox" aria-label="Time range options">
       {#if showCustom}
         <div class="custom-range">
           <div class="custom-header">
@@ -144,6 +168,8 @@
               class="dropdown-item"
               class:active={value === range.value}
               on:click={() => selectRange(range.value)}
+              role="option"
+              aria-selected={value === range.value}
             >
               {range.label}
             </button>

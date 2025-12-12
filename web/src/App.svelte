@@ -7,14 +7,20 @@
   import Histogram from './components/Histogram.svelte';
   import SavedSearches from './components/SavedSearches.svelte';
   import AlertsPanel from './components/AlertsPanel.svelte';
+  import PatternsSidebar from './components/PatternsSidebar.svelte';
   import AnalyticsPage from './components/AnalyticsPage.svelte';
   import SettingsPage from './components/SettingsPage.svelte';
-  import { logs, loading, query, timeRange, customTimeRange, total, searchLogs, connectWebSocket } from './stores/logs.js';
+  import { logs, loading, error, query, timeRange, customTimeRange, total, searchLogs, connectWebSocket } from './stores/logs.js';
 
   let ws;
   let liveMode = false;
   let savedSearchesRef;
   let currentPage = 'logs'; // 'logs' | 'analytics' | 'settings'
+
+  // Dismiss error
+  function dismissError() {
+    error.set(null);
+  }
 
   onMount(async () => {
     // Check URL hash for navigation
@@ -213,6 +219,20 @@
     {/if}
   </header>
 
+  {#if $error}
+    <div class="error-banner" role="alert">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <path fill="currentColor" d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-2.75a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V6a.75.75 0 0 1 .75-.75Zm0 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/>
+      </svg>
+      <span>{$error}</span>
+      <button class="dismiss-btn" on:click={dismissError} aria-label="Dismiss error">
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+          <path fill="currentColor" d="M7 5.586 3.707 2.293a1 1 0 0 0-1.414 1.414L5.586 7 2.293 10.293a1 1 0 1 0 1.414 1.414L7 8.414l3.293 3.293a1 1 0 0 0 1.414-1.414L8.414 7l3.293-3.293a1 1 0 0 0-1.414-1.414L7 5.586Z"/>
+        </svg>
+      </button>
+    </div>
+  {/if}
+
   {#if currentPage === 'logs'}
     <div class="stats-bar">
       <span>{$total.toLocaleString()} logs</span>
@@ -235,6 +255,10 @@
         <Histogram />
         <LogTable logs={$logs} />
       </div>
+
+      <aside class="patterns-aside">
+        <PatternsSidebar />
+      </aside>
     </div>
   {:else if currentPage === 'analytics'}
     <AnalyticsPage />
@@ -439,6 +463,12 @@
     overflow: auto;
   }
 
+  .patterns-aside {
+    padding: 16px;
+    padding-left: 0;
+    flex-shrink: 0;
+  }
+
   .export-dropdown {
     position: relative;
   }
@@ -483,5 +513,41 @@
 
   .export-menu button svg {
     color: #8b949e;
+  }
+
+  /* Error banner */
+  .error-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: rgba(248, 81, 73, 0.1);
+    border-bottom: 1px solid #f85149;
+    color: #f85149;
+    font-size: 13px;
+  }
+
+  .error-banner svg {
+    flex-shrink: 0;
+  }
+
+  .error-banner span {
+    flex: 1;
+  }
+
+  .dismiss-btn {
+    padding: 4px;
+    background: none;
+    border: none;
+    color: #f85149;
+    cursor: pointer;
+    border-radius: 4px;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+  }
+
+  .dismiss-btn:hover {
+    opacity: 1;
+    background: rgba(248, 81, 73, 0.2);
   }
 </style>

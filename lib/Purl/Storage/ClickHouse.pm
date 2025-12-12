@@ -850,12 +850,14 @@ sub stats {
     };
     my $range_result = $self->_query_json($range_sql);
 
+    my $db_quoted = $self->_quote_string($self->database);
+    my $table_quoted = $self->_quote_string($self->table);
     my $size_sql = qq{
         SELECT
             sum(bytes) as bytes,
             sum(rows) as rows
         FROM system.parts
-        WHERE database = '$self->{database}' AND table = '$self->{table}' AND active
+        WHERE database = $db_quoted AND table = $table_quoted AND active
     };
     my $size_result = $self->_query_json($size_sql);
 
@@ -1094,6 +1096,7 @@ sub ping {
 sub get_table_stats {
     my ($self) = @_;
 
+    my $db_quoted = $self->_quote_string($self->database);
     my $sql = qq{
         SELECT
             table,
@@ -1102,7 +1105,7 @@ sub get_table_stats {
             count() as partitions,
             max(modification_time) as last_modified
         FROM system.parts
-        WHERE database = '$self->{database}' AND active
+        WHERE database = $db_quoted AND active
         GROUP BY table
         ORDER BY bytes DESC
     };

@@ -23,12 +23,99 @@ export const metrics = writable(null);
 // API base URL
 const API_BASE = '/api';
 
+// CSRF token cache
+let csrfToken = null;
+
+// XSS sanitization - escape HTML entities
+export function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// Safe HTML with specific allowed tags only
+export function sanitizeHtml(html) {
+  if (!html) return '';
+  // First escape everything
+  let safe = escapeHtml(html);
+  // Then allow only specific safe patterns back
+  safe = safe
+    .replace(/&lt;span class=&quot;([a-z-]+)&quot;&gt;/g, '<span class="$1">')
+    .replace(/&lt;\/span&gt;/g, '</span>');
+  return safe;
+}
+
+// Fetch CSRF token
+export async function fetchCsrfToken() {
+  if (csrfToken) return csrfToken;
+  try {
+    const response = await fetch(`${API_BASE}/csrf-token`);
+    const data = await response.json();
+    csrfToken = data.csrf_token;
+    // Refresh token every 30 minutes
+    setTimeout(() => { csrfToken = null; }, 30 * 60 * 1000);
+    return csrfToken;
+  } catch {
+    return null;
+  }
+}
+
+// Get headers with CSRF token for POST/PUT/DELETE
+export async function getSecureHeaders() {
+  const token = await fetchCsrfToken();
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { 'X-CSRF-Token': token } : {})
+  };
+}
+
 // Debounce utility
 let debounceTimer = null;
 export function debounce(fn, delay = 300) {
   return (...args) => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => fn(...args), delay);
+  };
+}
+
+// Throttle utility - limit calls to once per interval
+let throttleTimers = {};
+export function throttle(fn, limit = 1000, key = 'default') {
+  return (...args) => {
+    if (!throttleTimers[key]) {
+      fn(...args);
+      throttleTimers[key] = setTimeout(() => {
+        throttleTimers[key] = null;
+      }, limit);
+    }
+  };
+}
+
+// Simple memoization cache
+const memoCache = new Map();
+const MEMO_MAX_SIZE = 100;
+const MEMO_TTL = 60000; // 1 minute
+
+export function memoize(fn, keyFn = (...args) => JSON.stringify(args)) {
+  return (...args) => {
+    const key = keyFn(...args);
+    const cached = memoCache.get(key);
+
+    if (cached && Date.now() - cached.time < MEMO_TTL) {
+      return cached.value;
+    }
+
+    const value = fn(...args);
+
+    // Evict oldest entries if cache is full
+    if (memoCache.size >= MEMO_MAX_SIZE) {
+      const oldest = memoCache.keys().next().value;
+      memoCache.delete(oldest);
+    }
+
+    memoCache.set(key, { value, time: Date.now() });
+    return value;
   };
 }
 
@@ -487,13 +574,16 @@ export async function fetchPatternLogs(patternHash) {
   }
 }
 
-// Highlight placeholders in pattern text
+// Highlight placeholders in pattern text (XSS-safe)
 export function highlightPattern(pattern) {
   if (!pattern) return '';
-  return pattern
-    .replace(/<UUID>/g, '<span class="placeholder uuid">&lt;UUID&gt;</span>')
-    .replace(/<IP>/g, '<span class="placeholder ip">&lt;IP&gt;</span>')
-    .replace(/<NUM>/g, '<span class="placeholder num">&lt;NUM&gt;</span>')
-    .replace(/<DATETIME>/g, '<span class="placeholder datetime">&lt;DATETIME&gt;</span>')
-    .replace(/<HEX>/g, '<span class="placeholder hex">&lt;HEX&gt;</span>');
+  // First escape HTML to prevent XSS
+  let safe = escapeHtml(pattern);
+  // Then restore our safe placeholder spans
+  return safe
+    .replace(/&lt;UUID&gt;/g, '<span class="placeholder uuid">&lt;UUID&gt;</span>')
+    .replace(/&lt;IP&gt;/g, '<span class="placeholder ip">&lt;IP&gt;</span>')
+    .replace(/&lt;NUM&gt;/g, '<span class="placeholder num">&lt;NUM&gt;</span>')
+    .replace(/&lt;DATETIME&gt;/g, '<span class="placeholder datetime">&lt;DATETIME&gt;</span>')
+    .replace(/&lt;HEX&gt;/g, '<span class="placeholder hex">&lt;HEX&gt;</span>');
 }

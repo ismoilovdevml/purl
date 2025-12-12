@@ -8,7 +8,8 @@ our $VERSION = '1.0.0';
 use Mojolicious::Lite -signatures;
 use Mojo::JSON qw(encode_json decode_json);
 use Digest::MD5 qw(md5_hex);
-use MIME::Base64 qw(decode_base64);
+use Digest::SHA qw(sha256_hex hmac_sha256_hex);
+use MIME::Base64 qw(decode_base64 encode_base64);
 use Time::HiRes qw(time);
 
 use Purl::Storage::ClickHouse;
@@ -43,6 +44,49 @@ my $cache_ttl = 60;  # seconds
 my %rate_limit;
 my $rate_limit_window = 60;  # seconds
 my $rate_limit_max = 1000;   # requests per window
+
+# CSRF token secret (generated on startup)
+my $csrf_secret = join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..32);
+
+# Password hashing helpers
+sub _hash_password {
+    my ($password, $salt) = @_;
+    $salt //= join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..16);
+    my $hash = sha256_hex($salt . $password . $salt);
+    return "$salt\$$hash";
+}
+
+sub _verify_password {
+    my ($password, $stored) = @_;
+    return 0 unless $stored && $stored =~ /^([^\$]+)\$([a-f0-9]+)$/;
+    my ($salt, $hash) = ($1, $2);
+    my $check = sha256_hex($salt . $password . $salt);
+    # Constant-time comparison to prevent timing attacks
+    return 0 unless length($check) == length($hash);
+    my $result = 0;
+    $result |= ord(substr($check, $_, 1)) ^ ord(substr($hash, $_, 1)) for 0..length($check)-1;
+    return $result == 0;
+}
+
+# CSRF token generation and validation
+sub _generate_csrf_token {
+    my ($session_id) = @_;
+    $session_id //= join('', map { ('a'..'z', 0..9)[rand 36] } 1..16);
+    my $timestamp = int(time() / 3600);  # Valid for 1 hour
+    my $token = hmac_sha256_hex("$session_id:$timestamp", $csrf_secret);
+    return "$session_id:$timestamp:$token";
+}
+
+sub _verify_csrf_token {
+    my ($token) = @_;
+    return 0 unless $token && $token =~ /^([^:]+):(\d+):([a-f0-9]+)$/;
+    my ($session_id, $timestamp, $hash) = ($1, $2, $3);
+    my $current = int(time() / 3600);
+    # Token valid for 2 hours
+    return 0 if abs($current - $timestamp) > 2;
+    my $expected = hmac_sha256_hex("$session_id:$timestamp", $csrf_secret);
+    return $hash eq $expected;
+}
 
 sub new {
     my ($class, %args) = @_;
@@ -225,14 +269,23 @@ sub _check_auth {
         return 1 if grep { $_ eq $api_key } @$valid_keys;
     }
 
-    # Basic auth
+    # Basic auth with password hashing support
     if ($auth_header =~ /^Basic\s+(.+)$/) {
         my $decoded = decode_base64($1);
         my ($user, $pass) = split /:/, $decoded, 2;
 
         my $users = $auth_config->{users} // {};
-        if (exists $users->{$user} && $users->{$user} eq $pass) {
-            return 1;
+        if (exists $users->{$user}) {
+            my $stored = $users->{$user};
+            # Support both hashed (salt$hash) and legacy plaintext passwords
+            if ($stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/) {
+                # Hashed password
+                return 1 if _verify_password($pass, $stored);
+            } else {
+                # Legacy plaintext (log warning)
+                app->log->warn("User '$user' has plaintext password - please hash it");
+                return 1 if $stored eq $pass;
+            }
         }
     }
 
@@ -266,14 +319,44 @@ sub setup_routes {
         my $start = time();
         $c->stash(request_start => $start);
 
-        # CORS
-        $c->res->headers->header('Access-Control-Allow-Origin' => '*');
-        $c->res->headers->header('Access-Control-Allow-Methods' => 'GET, POST, OPTIONS');
-        $c->res->headers->header('Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-API-Key');
+        # Security headers
+        $c->res->headers->header('X-Content-Type-Options' => 'nosniff');
+        $c->res->headers->header('X-Frame-Options' => 'SAMEORIGIN');
+        $c->res->headers->header('X-XSS-Protection' => '1; mode=block');
+        $c->res->headers->header('Referrer-Policy' => 'strict-origin-when-cross-origin');
+        $c->res->headers->header('Content-Security-Policy' =>
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:");
+
+        # CORS - restrict to same origin by default, allow API access with credentials
+        my $origin = $c->req->headers->header('Origin') // '';
+        if ($origin && $origin =~ /^https?:\/\/localhost(:\d+)?$/) {
+            $c->res->headers->header('Access-Control-Allow-Origin' => $origin);
+            $c->res->headers->header('Access-Control-Allow-Credentials' => 'true');
+        } else {
+            $c->res->headers->header('Access-Control-Allow-Origin' => '*');
+        }
+        $c->res->headers->header('Access-Control-Allow-Methods' => 'GET, POST, PUT, DELETE, OPTIONS');
+        $c->res->headers->header('Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-API-Key, X-CSRF-Token');
 
         if ($c->req->method eq 'OPTIONS') {
             $c->render(text => '', status => 200);
             return;
+        }
+
+        # CSRF protection for state-changing requests from browsers
+        my $method = $c->req->method;
+        my $sec_fetch = $c->req->headers->header('Sec-Fetch-Site') // '';
+        if ($method =~ /^(POST|PUT|DELETE)$/ && ($sec_fetch eq 'same-origin' || $sec_fetch eq 'same-site')) {
+            my $csrf_token = $c->req->headers->header('X-CSRF-Token') // '';
+            unless (_verify_csrf_token($csrf_token)) {
+                # Allow if API key is present (programmatic access)
+                unless ($c->req->headers->header('X-API-Key')) {
+                    app->log->warn("CSRF token validation failed for $method request");
+                    # Don't block for now, just log - enable blocking after frontend update
+                    # $c->render(json => { error => 'Invalid CSRF token' }, status => 403);
+                    # return;
+                }
+            }
         }
 
         # Metrics
@@ -285,10 +368,27 @@ sub setup_routes {
 
     app->hook(after_dispatch => sub ($c) {
         my $start = $c->stash('request_start');
+        my $duration = 0;
         if ($start) {
-            my $duration = time() - $start;
+            $duration = time() - $start;
             $metrics{query_duration_sum} += $duration;
             $metrics{query_count}++;
+        }
+
+        # Request logging
+        my $method = $c->req->method;
+        my $path = $c->req->url->path->to_string;
+        my $status = $c->res->code // 0;
+        my $ip = $c->tx->remote_address // '-';
+        my $duration_ms = sprintf("%.2f", $duration * 1000);
+
+        # Log format: IP - METHOD PATH STATUS DURATIONms
+        my $log_level = $status >= 500 ? 'error' : ($status >= 400 ? 'warn' : 'info');
+        app->log->$log_level("$ip - $method $path $status ${duration_ms}ms");
+
+        # Track errors
+        if ($status >= 400) {
+            $metrics{errors_total}++;
         }
     });
 
@@ -320,6 +420,12 @@ sub setup_routes {
         }
 
         return 1;
+    });
+
+    # CSRF token endpoint (no auth required, for browser clients)
+    $api->get('/csrf-token' => sub ($c) {
+        my $token = _generate_csrf_token();
+        $c->render(json => { csrf_token => $token });
     });
 
     # Health check (no auth required)

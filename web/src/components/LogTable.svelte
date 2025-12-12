@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { formatTimestamp, formatFullTimestamp, getLevelColor, query, fetchLogContext, filterByTrace, filterByRequest } from '../stores/logs.js';
 
   export let logs = [];
@@ -10,7 +10,12 @@
 
   // Current search query for highlighting
   let searchQuery = '';
-  query.subscribe(v => searchQuery = v);
+  const unsubscribeQuery = query.subscribe(v => searchQuery = v);
+
+  // Cleanup subscriptions on destroy
+  onDestroy(() => {
+    unsubscribeQuery();
+  });
 
   // Escape HTML to prevent XSS
   function escapeHtml(text) {

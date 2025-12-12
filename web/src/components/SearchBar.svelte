@@ -188,8 +188,8 @@
   }
 </script>
 
-<div class="search-bar">
-  <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16">
+<div class="search-bar" role="search">
+  <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
     <path fill="currentColor" d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z"/>
   </svg>
 
@@ -203,11 +203,14 @@
     on:blur={handleBlur}
     placeholder="Search logs... level:ERROR AND service:api*"
     autocomplete="off"
+    aria-label="Search logs"
+    aria-autocomplete="list"
+    aria-controls={showSuggestions ? 'search-suggestions' : undefined}
   />
 
   {#if value}
-    <button class="clear-btn" on:click={handleClear} title="Clear search">
-      <svg width="14" height="14" viewBox="0 0 14 14">
+    <button class="clear-btn" on:click={handleClear} title="Clear search" aria-label="Clear search">
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
         <path fill="currentColor" d="M7 5.586 3.707 2.293a1 1 0 0 0-1.414 1.414L5.586 7 2.293 10.293a1 1 0 1 0 1.414 1.414L7 8.414l3.293 3.293a1 1 0 0 0 1.414-1.414L8.414 7l3.293-3.293a1 1 0 0 0-1.414-1.414L7 5.586Z"/>
       </svg>
     </button>
@@ -215,12 +218,14 @@
 
   <!-- Autocomplete dropdown -->
   {#if showSuggestions && suggestions.length > 0}
-    <div class="suggestions">
+    <div class="suggestions" id="search-suggestions" role="listbox" aria-label="Search suggestions">
       {#each suggestions as suggestion, i}
         <button
           class="suggestion-item"
           class:selected={i === selectedIndex}
           on:mousedown|preventDefault={() => applySuggestion(suggestion)}
+          role="option"
+          aria-selected={i === selectedIndex}
         >
           <span class="suggestion-icon">
             {#if suggestion.type === 'field'}

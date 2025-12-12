@@ -45,8 +45,11 @@ COPY lib/ ./lib/
 # Copy built web assets from builder stage
 COPY --from=web-builder /app/web/public ./web/public
 
-# Create data directory
-RUN mkdir -p /app/data
+# Create non-root user for security
+RUN groupadd -r purl && useradd -r -g purl purl
+
+# Create data directory with proper permissions
+RUN mkdir -p /app/data && chown -R purl:purl /app
 
 # Set environment variables
 ENV PURL_HOST=0.0.0.0
@@ -56,6 +59,9 @@ ENV PURL_CLICKHOUSE_PORT=8123
 ENV PERL5LIB=/app/lib
 
 EXPOSE 3000
+
+# Switch to non-root user
+USER purl
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/api/health || exit 1
