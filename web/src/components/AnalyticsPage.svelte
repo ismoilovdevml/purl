@@ -1,150 +1,40 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
-  import Chart from 'chart.js/auto';
+  import { onMount, onDestroy } from "svelte";
 
   let stats = null;
-  let clickhouseMetrics = null;
-  let queryStats = [];
+  let metrics = null;
   let tableStats = [];
   let loading = true;
   let error = null;
   let refreshInterval;
-  let selectedTab = 'overview';
-  let timeRange = '1h';
-  let lastUpdated = new Date();
-  
-  // Charts
-  let ingestionChart;
-  let ingestionCanvas;
-  let storageChart;
-  let storageCanvas;
-  let endpointsChart;
-  let endpointsCanvas;
+  let lastUpdated = null;
 
-  const API_BASE = '/api';
+  const API_BASE = "/api";
 
   async function fetchAnalytics() {
     try {
-      const [statsRes, metricsRes, queryRes, tableRes] = await Promise.all([
+      const [statsRes, metricsRes, tableRes] = await Promise.all([
         fetch(`${API_BASE}/stats`),
         fetch(`${API_BASE}/metrics/json`),
-        fetch(`${API_BASE}/analytics/queries`),
-        fetch(`${API_BASE}/analytics/tables`)
+        fetch(`${API_BASE}/analytics/tables`),
       ]);
 
       stats = await statsRes.json();
-      clickhouseMetrics = await metricsRes.json();
-
-      if (queryRes.ok) {
-        const qData = await queryRes.json();
-        queryStats = qData.queries || [];
-      }
+      metrics = await metricsRes.json();
 
       if (tableRes.ok) {
         const tData = await tableRes.json();
         tableStats = tData.tables || [];
       }
 
-      error = null;
       lastUpdated = new Date();
-      updateCharts();
+      error = null;
     } catch (err) {
       error = err.message;
     } finally {
       loading = false;
     }
   }
-
-  function updateCharts() {
-    // Ingestion Chart
-    if (ingestionCanvas && clickhouseMetrics?.ingestion?.history) {
-      const ctx = ingestionCanvas.getContext('2d');
-      const data = clickhouseMetrics.ingestion.history;
-      
-      if (ingestionChart) ingestionChart.destroy();
-      
-      ingestionChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: data.map(d => new Date(d.time).toLocaleTimeString()),
-          datasets: [{
-            label: 'Ingestion Rate (logs/sec)',
-            data: data.map(d => d.count),
-            backgroundColor: '#3fb950',
-            borderRadius: 4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            y: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
-            x: { display: false }
-          }
-        }
-      });
-    }
-
-    // Storage Chart
-    if (storageCanvas && tableStats.length > 0) {
-      const ctx = storageCanvas.getContext('2d');
-      if (storageChart) storageChart.destroy();
-
-      storageChart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: tableStats.map(t => t.table),
-          datasets: [{
-            data: tableStats.map(t => t.bytes),
-            backgroundColor: ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f85149'],
-            borderWidth: 0
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { position: 'right', labels: { color: '#c9d1d9' } } }
-        }
-      });
-    }
-
-    // Endpoints Chart
-    if (endpointsCanvas && clickhouseMetrics?.requests?.by_path) {
-      const ctx = endpointsCanvas.getContext('2d');
-      const paths = Object.entries(clickhouseMetrics.requests.by_path)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 8);
-
-      if (endpointsChart) endpointsChart.destroy();
-
-      endpointsChart = new Chart(ctx, {
-        type: 'bar',
-        indexAxis: 'y',
-        data: {
-          labels: paths.map(p => p[0]),
-          datasets: [{
-            label: 'Requests',
-            data: paths.map(p => p[1]),
-            backgroundColor: '#a371f7',
-            borderRadius: 4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
-            y: { grid: { display: false }, ticks: { color: '#c9d1d9' } }
-          }
-        }
-      });
-    }
-  }
-
-  // Handle tab changes to ensure charts render on visible canvas
-  $: if (selectedTab) setTimeout(updateCharts, 0);
 
   onMount(() => {
     fetchAnalytics();
@@ -153,72 +43,74 @@
 
   onDestroy(() => {
     if (refreshInterval) clearInterval(refreshInterval);
-    if (ingestionChart) ingestionChart.destroy();
-    if (storageChart) storageChart.destroy();
-    if (endpointsChart) endpointsChart.destroy();
   });
 
   function formatBytes(bytes) {
-    if (!bytes) return '0 B';
+    if (!bytes) return "0 B";
     const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const sizes = ["B", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return (bytes / Math.pow(k, i)).toFixed(1) + " " + sizes[i];
   }
 
   function formatNumber(num) {
-    if (!num) return '0';
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    if (!num) return "0";
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
+    if (num >= 1000) return (num / 1000).toFixed(1) + "K";
     return num.toLocaleString();
   }
 
-  function formatDuration(ms) {
-    if (!ms) return '0ms';
-    if (ms < 1000) return ms.toFixed(0) + 'ms';
-    if (ms < 60000) return (ms / 1000).toFixed(2) + 's';
-    return (ms / 60000).toFixed(1) + 'm';
+  function formatTime(date) {
+    if (!date) return "-";
+    return date.toLocaleTimeString();
   }
 
-  function getUptimeStatus() {
-    const uptime = clickhouseMetrics?.server?.uptime_secs || 0;
-    if (uptime < 300) return 'warning';
-    return 'healthy';
+  $: errorRate = metrics?.clickhouse?.queries_total > 0
+    ? ((metrics?.clickhouse?.errors_total || 0) / metrics.clickhouse.queries_total * 100).toFixed(2)
+    : "0.00";
+
+  $: cacheHitRate = metrics?.cache?.hit_rate || "0%";
+  $: avgQueryTime = metrics?.clickhouse?.avg_query_time || "0s";
+  $: totalStorage = tableStats.reduce((acc, t) => acc + (t.bytes || 0), 0);
+
+  // Enterprise metrics
+  $: requestsPerSec = metrics?.requests?.per_second || 0;
+  $: p95Latency = metrics?.requests?.p95_latency || "0ms";
+  $: p99Latency = metrics?.requests?.p99_latency || "0ms";
+  $: slaCompliance = parseFloat(errorRate) < 1 ? 99.9 : (100 - parseFloat(errorRate)).toFixed(1);
+  $: healthScore = calculateHealthScore();
+
+  function calculateHealthScore() {
+    let score = 100;
+    if (parseFloat(errorRate) > 0) score -= parseFloat(errorRate) * 10;
+    if (cacheHitRate === "0%") score -= 5;
+    if (!metrics?.server?.uptime_human) score -= 10;
+    return Math.max(0, Math.min(100, score)).toFixed(0);
   }
 
-  $: errorRate = clickhouseMetrics?.clickhouse?.queries_total > 0
-    ? ((clickhouseMetrics?.clickhouse?.errors_total || 0) / clickhouseMetrics.clickhouse.queries_total * 100).toFixed(2)
-    : 0;
-
-  $: cacheHitRate = parseFloat(clickhouseMetrics?.cache?.hit_rate || '0%') || 0;
-
-  $: avgQueryTime = parseFloat(clickhouseMetrics?.clickhouse?.avg_query_time || '0') || 0;
+  function getHealthColor(score) {
+    if (score >= 90) return "#3fb950";
+    if (score >= 70) return "#d29922";
+    return "#f85149";
+  }
 </script>
 
-<div class="analytics-page">
-  <!-- Compact Header -->
-  <header class="header">
+<div class="analytics">
+  <!-- Header -->
+  <header>
     <div class="header-left">
       <h1>Analytics</h1>
-      <div class="tabs">
-        <button class:active={selectedTab === 'overview'} on:click={() => selectedTab = 'overview'}>Overview</button>
-        <button class:active={selectedTab === 'performance'} on:click={() => selectedTab = 'performance'}>Performance</button>
-        <button class:active={selectedTab === 'storage'} on:click={() => selectedTab = 'storage'}>Storage</button>
-        <button class:active={selectedTab === 'queries'} on:click={() => selectedTab = 'queries'}>Queries</button>
+      <div class="health-badge" style="--health-color: {getHealthColor(healthScore)}">
+        <span class="health-score">{healthScore}</span>
+        <span class="health-label">Health</span>
       </div>
     </div>
-
     <div class="header-right">
-      <span class="last-updated">Updated: {lastUpdated.toLocaleTimeString()}</span>
-      <select bind:value={timeRange} class="time-select">
-        <option value="15m">15m</option>
-        <option value="1h">1h</option>
-        <option value="6h">6h</option>
-        <option value="24h">24h</option>
-      </select>
-      <button class="refresh-btn" aria-label="Refresh analytics" on:click={fetchAnalytics} disabled={loading}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class:spinning={loading}>
-          <path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+      <span class="updated">Updated: {formatTime(lastUpdated)}</span>
+      <button class="refresh-btn" on:click={fetchAnalytics} disabled={loading} aria-label="Refresh">
+        <svg class:spinning={loading} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 4v6h-6M1 20v-6h6"/>
+          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
         </svg>
       </button>
     </div>
@@ -226,248 +118,204 @@
 
   {#if error}
     <div class="error-banner">{error}</div>
-  {/if}
-
-  {#if loading && !stats}
-    <div class="loading"><div class="spinner"></div></div>
+  {:else if loading && !stats}
+    <div class="loading">
+      <div class="spinner"></div>
+    </div>
   {:else}
     <!-- Status Bar -->
     <div class="status-bar">
-      <span class:ok={getUptimeStatus() === 'healthy'} class:warn={getUptimeStatus() === 'warning'}><i></i>System</span>
-      <span class:ok={errorRate < 1} class:warn={errorRate >= 1}><i></i>Errors: {errorRate}%</span>
-      <span class:ok={cacheHitRate > 50} class:warn={cacheHitRate <= 50}><i></i>Cache: {clickhouseMetrics?.cache?.hit_rate || '0%'}</span>
-      <span class="ok"><i></i>ClickHouse</span>
+      <div class="status-item">
+        <span class="dot green"></span>
+        <span>System</span>
+      </div>
+      <div class="status-item">
+        <span class="dot {parseFloat(errorRate) > 1 ? 'red' : 'green'}"></span>
+        <span>Errors: {errorRate}%</span>
+      </div>
+      <div class="status-item">
+        <span class="dot {cacheHitRate === '0%' ? 'yellow' : 'green'}"></span>
+        <span>Cache: {cacheHitRate}</span>
+      </div>
+      <div class="status-item">
+        <span class="dot green"></span>
+        <span>ClickHouse</span>
+      </div>
+      <div class="status-item sla">
+        <span>SLA: {slaCompliance}%</span>
+      </div>
     </div>
 
-    {#if selectedTab === 'overview'}
-      <!-- Metrics Row -->
-      <div class="metrics-row">
-        <div class="metric">
-          <div class="metric-main">
-            <span class="metric-val">{formatNumber(stats?.total_logs)}</span>
-            <span class="metric-lbl">Logs</span>
+    <!-- Main Grid - 6 columns -->
+    <div class="main-grid">
+      <!-- Row 1: Key Metrics -->
+      <div class="metric-card">
+        <div class="metric-value">{formatNumber(stats?.total_logs)}</div>
+        <div class="metric-label">Total Logs</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">{formatBytes(totalStorage)}</div>
+        <div class="metric-label">Storage</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">{metrics?.server?.uptime_human || "-"}</div>
+        <div class="metric-label">Uptime</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">{formatNumber(metrics?.requests?.total)}</div>
+        <div class="metric-label">Requests</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">{avgQueryTime}</div>
+        <div class="metric-label">Avg Response</div>
+      </div>
+      <div class="metric-card accent">
+        <div class="metric-value">{errorRate}%</div>
+        <div class="metric-label">Error Rate</div>
+      </div>
+    </div>
+
+    <!-- Three Column Layout -->
+    <div class="three-columns">
+      <!-- Query Performance -->
+      <div class="card">
+        <h2>Query Performance</h2>
+        <div class="mini-stats">
+          <div class="mini-stat">
+            <span class="label">Avg Time</span>
+            <span class="value">{avgQueryTime}</span>
           </div>
-          <span class="metric-trend">+{formatNumber(clickhouseMetrics?.ingestion?.total || 0)}</span>
-        </div>
-        <div class="metric">
-          <div class="metric-main">
-            <span class="metric-val">{stats?.db_size_mb || 0} MB</span>
-            <span class="metric-lbl">Storage</span>
+          <div class="mini-stat">
+            <span class="label">Cache Hit</span>
+            <span class="value">{cacheHitRate}</span>
           </div>
-        </div>
-        <div class="metric">
-          <div class="metric-main">
-            <span class="metric-val">{clickhouseMetrics?.server?.uptime_human || '-'}</span>
-            <span class="metric-lbl">Uptime</span>
+          <div class="mini-stat">
+            <span class="label">Total</span>
+            <span class="value">{formatNumber(metrics?.clickhouse?.queries_total)}</span>
           </div>
-        </div>
-        <div class="metric">
-          <div class="metric-main">
-            <span class="metric-val">{formatNumber(clickhouseMetrics?.requests?.total || 0)}</span>
-            <span class="metric-lbl">Requests</span>
+          <div class="mini-stat">
+            <span class="label">Cached</span>
+            <span class="value">{formatNumber(metrics?.clickhouse?.cached_queries)}</span>
           </div>
-          <span class="metric-err">{clickhouseMetrics?.requests?.errors || 0} err</span>
         </div>
       </div>
 
-      <!-- Grid -->
-      <div class="grid">
-        <!-- Query Performance -->
-        <div class="card">
-          <div class="card-head"><h3>Query Performance</h3><span class="badge">{formatNumber(clickhouseMetrics?.clickhouse?.queries_total)}</span></div>
-          <div class="perf-list">
-            <div class="perf-row">
-              <span>Avg Response</span>
-              <span class="mono">{clickhouseMetrics?.clickhouse?.avg_query_time || '0s'}</span>
+      <!-- Ingestion -->
+      <div class="card">
+        <h2>Ingestion <span class="live-badge">Live</span></h2>
+        <div class="mini-stats">
+          <div class="mini-stat">
+            <span class="label">Buffer</span>
+            <span class="value">{metrics?.clickhouse?.buffer_size || 0}</span>
+          </div>
+          <div class="mini-stat">
+            <span class="label">Inserts</span>
+            <span class="value">{formatNumber(metrics?.clickhouse?.inserts_total)}</span>
+          </div>
+          <div class="mini-stat">
+            <span class="label">Written</span>
+            <span class="value">{formatBytes(metrics?.clickhouse?.bytes_written)}</span>
+          </div>
+          <div class="mini-stat">
+            <span class="label">Rows</span>
+            <span class="value">{formatNumber(metrics?.clickhouse?.rows_ingested)}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Latency -->
+      <div class="card">
+        <h2>Latency</h2>
+        <div class="mini-stats">
+          <div class="mini-stat">
+            <span class="label">P50</span>
+            <span class="value">{avgQueryTime}</span>
+          </div>
+          <div class="mini-stat">
+            <span class="label">P95</span>
+            <span class="value">{p95Latency}</span>
+          </div>
+          <div class="mini-stat">
+            <span class="label">P99</span>
+            <span class="value">{p99Latency}</span>
+          </div>
+          <div class="mini-stat">
+            <span class="label">Max</span>
+            <span class="value">{metrics?.requests?.max_latency || "0ms"}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Section: Tables + Cache + Throughput -->
+    <div class="bottom-grid">
+      <!-- Tables -->
+      <div class="card tables-card">
+        <h2>Tables <span class="count">{tableStats.length}</span></h2>
+        <div class="tables-list">
+          {#each tableStats as t}
+            <div class="table-row">
+              <span class="table-name">{t.table}</span>
+              <span class="table-info">{formatNumber(t.rows)} rows</span>
+              <span class="table-size">{formatBytes(t.bytes)}</span>
             </div>
-            <div class="perf-row">
-              <span>Cache Hit</span>
-              <span class="mono">{clickhouseMetrics?.cache?.hit_rate || '0%'}</span>
-            </div>
-            <div class="perf-row">
-              <span>Error Rate</span>
-              <span class="mono">{errorRate}%</span>
-            </div>
-          </div>
+          {/each}
         </div>
+      </div>
 
-        <!-- Storage -->
-        <div class="card">
-          <div class="card-head"><h3>Storage</h3></div>
-          <div class="storage-grid">
-            <div class="storage-chart-container">
-              <canvas bind:this={storageCanvas}></canvas>
-            </div>
-            <div class="storage-info">
-              <div><span>Rows</span><span class="mono">{formatNumber(stats?.total_rows)}</span></div>
-              <div><span>Oldest</span><span class="mono">{stats?.oldest_log?.split(' ')[0] || '-'}</span></div>
-              <div><span>Newest</span><span class="mono">{stats?.newest_log?.split(' ')[0] || '-'}</span></div>
-              <div><span>TTL</span><span class="mono">30d</span></div>
-            </div>
+      <!-- Cache -->
+      <div class="card">
+        <h2>Cache</h2>
+        <div class="cache-grid">
+          <div class="cache-item">
+            <span class="cache-value">{cacheHitRate}</span>
+            <span class="cache-label">Hit Rate</span>
           </div>
-        </div>
-
-        <!-- Ingestion -->
-        <div class="card">
-          <div class="card-head"><h3>Ingestion</h3><span class="badge live">Live</span></div>
-          <div class="chart-container">
-            <canvas bind:this={ingestionCanvas}></canvas>
+          <div class="cache-item">
+            <span class="cache-value">{metrics?.cache?.entries || 0}</span>
+            <span class="cache-label">Entries</span>
           </div>
-          <div class="stats-grid">
-            <div title="Total logs ingested in selected time range"><span class="stat-val">{formatNumber(clickhouseMetrics?.ingestion?.total)}</span><span class="stat-lbl">Ingested</span></div>
-            <div title="Total data written to disk"><span class="stat-val">{formatBytes(clickhouseMetrics?.clickhouse?.bytes_inserted)}</span><span class="stat-lbl">Written</span></div>
-            <div title="Current rows in memory buffer before flush"><span class="stat-val">{clickhouseMetrics?.clickhouse?.buffer_size || 0}</span><span class="stat-lbl">Buffer</span></div>
-            <div title="Total insert operations"><span class="stat-val">{formatNumber(clickhouseMetrics?.clickhouse?.inserts_total)}</span><span class="stat-lbl">Inserts</span></div>
-          </div>
-        </div>
-
-        <!-- Cache -->
-        <div class="card">
-          <div class="card-head"><h3>Cache</h3></div>
-          <div class="cache-row">
-            <div><span class="cache-val">{clickhouseMetrics?.cache?.hit_rate || '0%'}</span><span class="cache-lbl">Hit Rate</span></div>
-            <div><span class="cache-val">{clickhouseMetrics?.cache?.entries || 0}</span><span class="cache-lbl">Entries</span></div>
-            <div><span class="cache-val">{clickhouseMetrics?.cache?.ttl_seconds || 60}s</span><span class="cache-lbl">TTL</span></div>
+          <div class="cache-item">
+            <span class="cache-value">{metrics?.cache?.ttl || "60s"}</span>
+            <span class="cache-label">TTL</span>
           </div>
         </div>
       </div>
-    {/if}
 
-    {#if selectedTab === 'performance'}
-        <!-- Endpoints -->
-        <div class="card wide">
-          <div class="card-head"><h3>Endpoints</h3></div>
-          <div class="endpoint-chart-container">
-            <canvas bind:this={endpointsCanvas}></canvas>
+      <!-- Throughput -->
+      <div class="card">
+        <h2>Throughput</h2>
+        <div class="cache-grid">
+          <div class="cache-item">
+            <span class="cache-value">{requestsPerSec}/s</span>
+            <span class="cache-label">Req/sec</span>
           </div>
-        </div>
-
-      <div class="grid cols-2">
-        <div class="card">
-          <div class="card-head"><h3>Response Times</h3></div>
-          <div class="time-list">
-            <div><span>Average</span><span class="mono">{clickhouseMetrics?.requests?.avg_duration || '0'}s</span></div>
-            <div><span>Total Time</span><span class="mono">{formatDuration((clickhouseMetrics?.clickhouse?.queries_total || 0) * avgQueryTime * 1000)}</span></div>
+          <div class="cache-item">
+            <span class="cache-value">{formatBytes(metrics?.requests?.bytes_in || 0)}</span>
+            <span class="cache-label">In</span>
           </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Throughput</h3></div>
-          <div class="throughput">
-            <div><span class="tp-val">{formatNumber(clickhouseMetrics?.requests?.total || 0)}</span><span class="tp-lbl">Requests</span></div>
-            <div><span class="tp-val">{formatBytes(clickhouseMetrics?.clickhouse?.bytes_inserted || 0)}</span><span class="tp-lbl">Processed</span></div>
+          <div class="cache-item">
+            <span class="cache-value">{formatBytes(metrics?.requests?.bytes_out || 0)}</span>
+            <span class="cache-label">Out</span>
           </div>
         </div>
       </div>
-    {/if}
-
-    {#if selectedTab === 'storage'}
-      <div class="card wide">
-        <div class="card-head"><h3>Tables</h3><span class="badge">{tableStats.length}</span></div>
-        {#if tableStats.length > 0}
-          <table class="data-table">
-            <thead><tr><th>Table</th><th>Rows</th><th>Size</th><th>Parts</th><th>Comp</th></tr></thead>
-            <tbody>
-              {#each tableStats as t}
-                <tr>
-                  <td><code>{t.table}</code></td>
-                  <td class="mono">{formatNumber(t.rows)}</td>
-                  <td class="mono">{formatBytes(t.bytes)}</td>
-                  <td class="mono">{t.partitions || '-'}</td>
-                  <td>ZSTD</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {:else}
-          <div class="no-data">No tables</div>
-        {/if}
-      </div>
-
-      <div class="grid cols-2">
-        <div class="card">
-          <div class="card-head"><h3>Distribution</h3></div>
-          <div class="dist-list">
-            <!-- Reuse Storage Chart here if desired, or keep list -->
-            {#each tableStats.slice(0, 4) as t}
-              <div class="dist-row">
-                <span>{t.table}</span>
-                <div class="dist-bar"><div style="width: {t.bytes / Math.max(...tableStats.map(x => x.bytes), 1) * 100}%"></div></div>
-                <span class="mono">{formatBytes(t.bytes)}</span>
-              </div>
-            {/each}
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Retention</h3></div>
-          <div class="retention">
-            <div><span>Policy</span><span>30 days</span></div>
-            <div><span>Cleanup</span><span class="ok-text">Enabled</span></div>
-            <div><span>Compression</span><span>ZSTD L3</span></div>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    {#if selectedTab === 'queries'}
-      <div class="card wide">
-        <div class="card-head"><h3>Slow Queries</h3><span class="badge warn">&gt;100ms</span></div>
-        {#if queryStats.length > 0}
-          <table class="data-table">
-            <thead><tr><th>Query</th><th>Time</th><th>Rows</th><th>Mem</th></tr></thead>
-            <tbody>
-              {#each queryStats as q}
-                <tr>
-                  <td><code class="query-text">{q.query?.substring(0, 60)}...</code></td>
-                  <td class="mono" class:slow={q.duration_ms > 500}>{formatDuration(q.duration_ms)}</td>
-                  <td class="mono">{formatNumber(q.read_rows)}</td>
-                  <td class="mono">{formatBytes(q.memory_usage)}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {:else}
-          <div class="no-data">No slow queries</div>
-        {/if}
-      </div>
-
-      <div class="grid cols-2">
-        <div class="card">
-          <div class="card-head"><h3>Query Stats</h3></div>
-          <div class="query-stats">
-            <div><span>Total</span><span class="mono">{formatNumber(clickhouseMetrics?.clickhouse?.queries_total)}</span></div>
-            <div><span>Cached</span><span class="mono">{formatNumber(clickhouseMetrics?.clickhouse?.queries_cached)}</span></div>
-            <div><span>Failed</span><span class="mono err">{formatNumber(clickhouseMetrics?.clickhouse?.errors_total)}</span></div>
-            <div><span>Avg Time</span><span class="mono">{clickhouseMetrics?.clickhouse?.avg_query_time || '0s'}</span></div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Tips</h3></div>
-          <div class="tips">
-            <p>Use time filters to reduce scans</p>
-            <p>Leverage indexed columns</p>
-            <p>Use LIMIT clause</p>
-          </div>
-        </div>
-      </div>
-    {/if}
+    </div>
   {/if}
 </div>
 
 <style>
-  .analytics-page {
-    padding: 20px 24px;
-    max-width: 100%;
-    margin: 0;
+  .analytics {
+    padding: 16px 20px;
+    overflow-y: auto;
+    height: calc(100vh - 60px);
   }
 
-  /* Header */
-  .header {
+  header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
-    gap: 16px;
-    flex-wrap: wrap;
+    margin-bottom: 12px;
   }
 
   .header-left {
@@ -476,96 +324,95 @@
     gap: 16px;
   }
 
-  .header h1 {
+  h1 {
     font-size: 1.25rem;
     font-weight: 600;
     color: #f0f6fc;
     margin: 0;
   }
 
-  .tabs {
+  .health-badge {
     display: flex;
-    gap: 2px;
-    background: #161b22;
-    padding: 3px;
-    border-radius: 8px;
-    border: 1px solid #30363d;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: rgba(63, 185, 80, 0.1);
+    border: 1px solid var(--health-color);
+    border-radius: 20px;
   }
 
-  .tabs button {
-    padding: 8px 16px;
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    color: #8b949e;
+  .health-score {
     font-size: 0.875rem;
-    cursor: pointer;
-    transition: all 0.15s;
+    font-weight: 700;
+    color: var(--health-color);
   }
 
-  .tabs button:hover { color: #c9d1d9; background: #21262d50; }
-  .tabs button.active { background: #21262d; color: #f0f6fc; }
+  .health-label {
+    font-size: 0.6875rem;
+    color: #8b949e;
+    text-transform: uppercase;
+  }
+
+  h2 {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #8b949e;
+    margin: 0 0 10px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
 
   .header-right {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
   }
 
-  .last-updated {
-    font-size: 0.75rem;
-    color: #8b949e;
-    margin-right: 8px;
-  }
-
-  .time-select {
-    padding: 8px 12px;
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    font-size: 0.875rem;
+  .updated {
+    font-size: 0.6875rem;
+    color: #6e7681;
   }
 
   .refresh-btn {
-    width: 36px;
-    height: 36px;
+    padding: 6px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #c9d1d9;
+    cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    cursor: pointer;
-    transition: all 0.15s;
   }
 
   .refresh-btn:hover { background: #30363d; }
-  .spinning { animation: spin 1s linear infinite; }
+  .refresh-btn:disabled { opacity: 0.6; }
+  .refresh-btn svg.spinning { animation: spin 1s linear infinite; }
+
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* Error */
   .error-banner {
-    background: #f8514915;
+    background: rgba(248, 81, 73, 0.1);
     border: 1px solid #f85149;
     color: #f85149;
-    padding: 6px 10px;
-    border-radius: 4px;
-    margin-bottom: 10px;
-    font-size: 0.75rem;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.8125rem;
   }
 
-  /* Loading */
   .loading {
     display: flex;
+    align-items: center;
     justify-content: center;
-    padding: 40px;
+    flex: 1;
   }
 
   .spinner {
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
     border: 2px solid #30363d;
     border-top-color: #58a6ff;
     border-radius: 50%;
@@ -575,422 +422,216 @@
   /* Status Bar */
   .status-bar {
     display: flex;
-    gap: 16px;
-    padding: 10px 16px;
+    gap: 20px;
+    padding: 8px 14px;
     background: #161b22;
     border: 1px solid #30363d;
-    border-radius: 8px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
+    border-radius: 6px;
+    margin-bottom: 12px;
   }
 
-  .status-bar span {
+  .status-item {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     color: #8b949e;
   }
 
-  .status-bar i {
-    width: 8px;
-    height: 8px;
+  .status-item.sla {
+    margin-left: auto;
+    font-weight: 600;
+    color: #3fb950;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
-    background: #484f58;
   }
 
-  .status-bar .ok i { background: #3fb950; }
-  .status-bar .warn i { background: #d29922; }
+  .dot.green { background: #3fb950; }
+  .dot.yellow { background: #d29922; }
+  .dot.red { background: #f85149; }
 
-  /* Metrics Row */
-  .metrics-row {
+  /* Main Grid - 6 columns */
+  .main-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin-bottom: 16px;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
   }
 
-  @media (max-width: 1000px) {
-    .metrics-row { grid-template-columns: repeat(2, 1fr); }
-  }
-
-  .metric {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 20px 24px;
+  .metric-card {
     background: #161b22;
     border: 1px solid #30363d;
     border-radius: 8px;
+    padding: 14px 16px;
   }
 
-  .metric-main {
-    display: flex;
-    flex-direction: column;
+  .metric-card.accent {
+    border-color: #238636;
   }
 
-  .metric-val {
-    font-size: 1.75rem;
+  .metric-value {
+    font-size: 1.5rem;
     font-weight: 600;
     color: #f0f6fc;
     line-height: 1.2;
   }
 
-  .metric-lbl {
-    font-size: 0.75rem;
+  .metric-label {
+    font-size: 0.6875rem;
     color: #8b949e;
     text-transform: uppercase;
-    margin-top: 4px;
+    margin-top: 2px;
   }
 
-  .metric-trend {
-    font-size: 0.75rem;
-    color: #3fb950;
-  }
-
-  .metric-err {
-    font-size: 0.75rem;
-    color: #f85149;
-  }
-
-  /* Grid */
-  .grid {
+  /* Three Columns */
+  .three-columns {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
   }
 
-  .grid.cols-2 {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  @media (max-width: 1200px) {
-    .grid { grid-template-columns: repeat(2, 1fr); }
-  }
-
-  @media (max-width: 700px) {
-    .grid, .grid.cols-2 { grid-template-columns: 1fr; }
-  }
-
-  /* Card */
   .card {
     background: #161b22;
     border: 1px solid #30363d;
     border-radius: 8px;
+    padding: 14px 16px;
+  }
+
+  .mini-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .mini-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .mini-stat .label {
+    font-size: 0.75rem;
+    color: #8b949e;
+  }
+
+  .mini-stat .value {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #f0f6fc;
+  }
+
+  .live-badge {
+    background: #238636;
+    color: #fff;
+    font-size: 0.5625rem;
+    padding: 2px 6px;
+    border-radius: 8px;
+    font-weight: 500;
+  }
+
+  /* Bottom Grid */
+  .bottom-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 12px;
+  }
+
+  .tables-card {
     overflow: hidden;
   }
 
-  .card.wide {
-    grid-column: 1 / -1;
-    margin-bottom: 16px;
-  }
-
-  .card-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 14px 18px;
-    border-bottom: 1px solid #21262d;
-  }
-
-  .card-head h3 {
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: #f0f6fc;
-    margin: 0;
-  }
-
-  .badge {
-    font-size: 0.6875rem;
-    padding: 4px 10px;
+  .count {
     background: #21262d;
-    border-radius: 10px;
     color: #8b949e;
+    font-size: 0.625rem;
+    padding: 2px 6px;
+    border-radius: 8px;
   }
 
-  .badge.live { background: #3fb95020; color: #3fb950; }
-  .badge.warn { background: #d2992220; color: #d29922; }
-
-  /* Chart Containers */
-  .chart-container {
-    height: 120px;
-    padding: 0 16px;
-    margin-bottom: 12px;
-  }
-
-  .endpoint-chart-container {
-    height: 200px;
-    padding: 16px;
-  }
-
-  .storage-chart-container {
-    width: 120px;
-    height: 120px;
-    position: relative;
-  }
-
-  /* Perf List */
-  .perf-list {
-    padding: 14px 18px;
-  }
-
-  .perf-row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.875rem;
-    color: #8b949e;
-    padding: 6px 0;
-  }
-
-  .perf-row .mono { color: #f0f6fc; }
-
-  /* Storage Grid */
-  .storage-grid {
-    display: flex;
-    padding: 18px;
-    gap: 20px;
-  }
-
-
-
-  .storage-info {
-    flex: 1;
+  .tables-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
   }
 
-  .storage-info div {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.8125rem;
-    color: #8b949e;
-  }
-
-  .storage-info .mono { color: #f0f6fc; font-family: 'SF Mono', Monaco, monospace; }
-
-  /* Stats Grid */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1px;
-    background: #21262d;
-  }
-
-  .stats-grid > div {
-    display: flex;
-    flex-direction: column;
-    padding: 14px 18px;
-    background: #161b22;
-  }
-
-  .stat-val {
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: #f0f6fc;
-  }
-
-  .stat-lbl {
-    font-size: 0.6875rem;
-    color: #8b949e;
-    text-transform: uppercase;
-    margin-top: 4px;
-  }
-
-  /* Cache Row */
-  .cache-row {
-    display: flex;
-    padding: 18px;
-    gap: 16px;
-  }
-
-  .cache-row > div {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .cache-val {
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: #f0f6fc;
-  }
-
-  .cache-lbl {
-    font-size: 0.6875rem;
-    color: #8b949e;
-    margin-top: 4px;
-  }
-
-  /* Endpoint List */
-
-
-  /* Time List */
-  .time-list {
-    padding: 14px 18px;
-  }
-
-  .time-list div {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.875rem;
-    color: #8b949e;
-    padding: 8px 0;
-  }
-
-  .time-list .mono { color: #f0f6fc; font-family: 'SF Mono', Monaco, monospace; }
-
-  /* Throughput */
-  .throughput {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1px;
-    background: #21262d;
-  }
-
-  .throughput > div {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 20px;
-    background: #161b22;
-  }
-
-  .tp-val {
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: #f0f6fc;
-  }
-
-  .tp-lbl {
-    font-size: 0.6875rem;
-    color: #8b949e;
-    text-transform: uppercase;
-    margin-top: 6px;
-  }
-
-  /* Data Table */
-  .data-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-  }
-
-  .data-table th,
-  .data-table td {
-    padding: 12px 18px;
-    text-align: left;
-    border-bottom: 1px solid #21262d;
-  }
-
-  .data-table th {
-    background: #0d1117;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: #8b949e;
-    text-transform: uppercase;
-  }
-
-  .data-table td { color: #c9d1d9; }
-  .data-table td code { color: #58a6ff; font-size: 0.8125rem; }
-  .data-table .mono { font-family: 'SF Mono', Monaco, monospace; }
-  .data-table .slow { color: #d29922; }
-
-  .query-text {
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    display: inline-block;
-  }
-
-  /* Distribution */
-  .dist-list {
-    padding: 14px 18px;
-  }
-
-  .dist-row {
+  .table-row {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 8px 0;
+    padding: 8px 12px;
+    background: #0d1117;
+    border-radius: 6px;
+  }
+
+  .table-name {
+    color: #58a6ff;
+    font-family: "SFMono-Regular", Consolas, monospace;
     font-size: 0.8125rem;
-    color: #8b949e;
-  }
-
-  .dist-row span:first-child {
-    width: 100px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .dist-bar {
+    font-weight: 500;
     flex: 1;
-    height: 6px;
-    background: #21262d;
-    border-radius: 3px;
-    overflow: hidden;
   }
 
-  .dist-bar div {
-    height: 100%;
-    background: #3fb950;
-    border-radius: 3px;
+  .table-info {
+    font-size: 0.75rem;
+    color: #8b949e;
   }
 
-  .dist-row .mono { color: #f0f6fc; width: 80px; text-align: right; }
-
-  /* Retention */
-  .retention {
-    padding: 14px 18px;
+  .table-size {
+    font-size: 0.75rem;
+    color: #6e7681;
+    min-width: 70px;
+    text-align: right;
   }
 
-  .retention div {
+  /* Cache Grid */
+  .cache-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .cache-item {
     display: flex;
     justify-content: space-between;
-    font-size: 0.875rem;
-    color: #8b949e;
-    padding: 8px 0;
+    align-items: center;
   }
 
-  .retention span:last-child { color: #f0f6fc; }
-  .ok-text { color: #3fb950 !important; }
-
-  /* Query Stats */
-  .query-stats {
-    padding: 14px 18px;
+  .cache-value {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #f0f6fc;
   }
 
-  .query-stats div {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.875rem;
-    color: #8b949e;
-    padding: 8px 0;
+  .cache-label {
+    font-size: 0.6875rem;
+    color: #6e7681;
+    text-transform: uppercase;
   }
 
-  .query-stats .mono { color: #f0f6fc; font-family: 'SF Mono', Monaco, monospace; }
-  .query-stats .err { color: #f85149; }
-
-  /* Tips */
-  .tips {
-    padding: 14px 18px;
+  /* Responsive */
+  @media (max-width: 1200px) {
+    .main-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .bottom-grid {
+      grid-template-columns: 1fr 1fr;
+    }
   }
 
-  .tips p {
-    font-size: 0.8125rem;
-    color: #8b949e;
-    margin: 0;
-    padding: 6px 0;
-  }
-
-  /* No Data */
-  .no-data {
-    padding: 40px;
-    text-align: center;
-    color: #8b949e;
-    font-size: 0.9375rem;
+  @media (max-width: 800px) {
+    .main-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .three-columns {
+      grid-template-columns: 1fr;
+    }
+    .bottom-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

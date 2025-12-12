@@ -29,14 +29,21 @@ condition = '''
 container = string!(.container_name)
 msg = string(.message) ?? ""
 
-# Skip ClickHouse stack trace lines (memory addresses like @ 0x...)
+# Skip all ClickHouse internal noise
 if contains(container, "clickhouse") {
-    # Skip stack trace lines with memory addresses
-    if match(msg, r'^\d+\. .+ @ 0x[0-9a-fA-F]+$') { return false }
+    # Skip stack trace lines (number. something @ 0x...)
+    if match(msg, r'^\d+\.\s') { return false }
     # Skip empty lines
     if msg == "" { return false }
     # Skip version-only lines
-    if match(msg, r'^\s*\(version .+\)$') { return false }
+    if contains(msg, "(version ") { return false }
+    # Skip connection/buffer errors
+    if contains(msg, "Connection reset by peer") { return false }
+    if contains(msg, "Write buffer has been canceled") { return false }
+    if contains(msg, "WriteBufferFromHTTPServerResponse") { return false }
+    if contains(msg, "StaticRequestHandler") { return false }
+    if contains(msg, "DB::Exception") { return false }
+    if contains(msg, "DB::NetException") { return false }
 }
 
 true
@@ -106,7 +113,7 @@ if err == null {
         level_val, lv_err = get(parsed, ["severity"])
     }
     if lv_err == null && level_val != null {
-        parsed_level = upcase!(to_string!(level_val))
+        parsed_level = upcase(to_string!(level_val))
         if parsed_level != "" {
             level = parsed_level
         }
