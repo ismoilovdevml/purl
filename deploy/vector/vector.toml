@@ -21,9 +21,30 @@ exclude_containers = ["vector", "purl-vector", "*-vector"]
 # TRANSFORMS
 # =============================================================================
 
+# Filter out ClickHouse stack traces (noisy internal errors)
+[transforms.filter_clickhouse_noise]
+type = "filter"
+inputs = ["docker"]
+condition = '''
+container = string!(.container_name)
+msg = string(.message) ?? ""
+
+# Skip ClickHouse stack trace lines (memory addresses like @ 0x...)
+if contains(container, "clickhouse") {
+    # Skip stack trace lines with memory addresses
+    if match(msg, r'^\d+\. .+ @ 0x[0-9a-fA-F]+$') { return false }
+    # Skip empty lines
+    if msg == "" { return false }
+    # Skip version-only lines
+    if match(msg, r'^\s*\(version .+\)$') { return false }
+}
+
+true
+'''
+
 [transforms.parse]
 type = "remap"
-inputs = ["docker"]
+inputs = ["filter_clickhouse_noise"]
 source = '''
 # Extract service name from container name (remove leading slash)
 container = string!(.container_name)
