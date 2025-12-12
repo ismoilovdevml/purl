@@ -117,18 +117,18 @@
           </div>
 
           <div class="datetime-group">
-            <label>From</label>
+            <label for="from-date">From</label>
             <div class="datetime-inputs">
-              <input type="date" bind:value={fromDate} />
-              <input type="time" bind:value={fromTime} />
+              <input id="from-date" type="date" bind:value={fromDate} />
+              <input id="from-time" type="time" bind:value={fromTime} aria-label="From time" />
             </div>
           </div>
 
           <div class="datetime-group">
-            <label>To</label>
+            <label for="to-date">To</label>
             <div class="datetime-inputs">
-              <input type="date" bind:value={toDate} />
-              <input type="time" bind:value={toTime} />
+              <input id="to-date" type="date" bind:value={toDate} />
+              <input id="to-time" type="time" bind:value={toTime} aria-label="To time" />
             </div>
           </div>
 
