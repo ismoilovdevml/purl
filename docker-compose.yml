@@ -1,7 +1,4 @@
 services:
-  # ============================================================
-  # Purl - Log Parser & Dashboard (ClickHouse mode)
-  # ============================================================
   purl:
     image: ismoilovdev/purl:latest
     container_name: purl
@@ -18,10 +15,8 @@ services:
       - PURL_CLICKHOUSE_USER=${PURL_CLICKHOUSE_USER:-purl}
       - PURL_CLICKHOUSE_PASSWORD=${PURL_CLICKHOUSE_PASSWORD:-purl_password}
       - PURL_RETENTION_DAYS=${PURL_RETENTION_DAYS:-30}
-      # Authentication - enabled by default for security
       - PURL_AUTH_ENABLED=${PURL_AUTH_ENABLED:-1}
       - PURL_API_KEYS=${PURL_API_KEYS:-}
-      # Alert Notifications
       - PURL_TELEGRAM_BOT_TOKEN=${PURL_TELEGRAM_BOT_TOKEN:-}
       - PURL_TELEGRAM_CHAT_ID=${PURL_TELEGRAM_CHAT_ID:-}
       - PURL_SLACK_WEBHOOK_URL=${PURL_SLACK_WEBHOOK_URL:-}
@@ -42,9 +37,6 @@ services:
       retries: 3
       start_period: 15s
 
-  # ============================================================
-  # ClickHouse - Column-oriented DBMS for logs
-  # ============================================================
   clickhouse:
     image: clickhouse/clickhouse-server:25.11-alpine
     container_name: purl-clickhouse
@@ -74,9 +66,6 @@ services:
       retries: 10
       start_period: 10s
 
-  # ============================================================
-  # Vector - Log Collector (optional, use --profile vector)
-  # ============================================================
   vector:
     image: timberio/vector:0.51.1-alpine
     container_name: purl-vector
@@ -104,6 +93,4 @@ networks:
 
 volumes:
   clickhouse_data:
-    driver: local
   clickhouse_logs:
-    driver: local

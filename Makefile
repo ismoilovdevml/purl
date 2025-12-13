@@ -1,56 +1,48 @@
-.PHONY: help build up down logs shell restart up-vector lint lint-perl lint-perlcritic lint-js clean prune clickhouse-client web-dev web-build test
+.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test clean
 
-# Default target
+# Variables
+PERL5LIB := lib
+DOCKER := docker compose
+PERLCRITIC := $(shell which perlcritic 2>/dev/null || find /opt/homebrew -name perlcritic 2>/dev/null | head -1 || echo perlcritic)
+
 help:
-	@echo "Purl - Log Aggregation Dashboard"
+	@echo "Purl - Lightweight Log Aggregation System"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
-	@echo "Docker targets:"
-	@echo "  build           Build Docker images"
-	@echo "  up              Start services (Purl + ClickHouse)"
-	@echo "  up-vector       Start with Vector log collector"
-	@echo "  down            Stop all services"
-	@echo "  logs            View container logs"
-	@echo "  shell           Open shell in purl container"
-	@echo "  restart         Restart all services"
+	@echo "Docker:"
+	@echo "  up            Start services (Purl + ClickHouse)"
+	@echo "  up-vector     Start with Vector log collector"
+	@echo "  down          Stop all services"
+	@echo "  logs          View container logs"
+	@echo "  restart       Restart all services"
 	@echo ""
-	@echo "Development targets:"
-	@echo "  lint            Run all linters (syntax + perlcritic + eslint)"
-	@echo "  lint-perl       Check Perl syntax only"
-	@echo "  lint-perlcritic Run Perl::Critic analysis"
-	@echo "  lint-js         Run ESLint on JavaScript/Svelte"
-	@echo "  web-dev         Start web development server"
-	@echo "  web-build       Build web assets"
-	@echo "  test            Run tests"
+	@echo "Development:"
+	@echo "  lint          Run all linters"
+	@echo "  web-dev       Start frontend dev server"
+	@echo "  web-build     Build frontend assets"
+	@echo "  test          Run tests"
 	@echo ""
-	@echo "Maintenance targets:"
-	@echo "  clean           Remove containers and volumes"
-	@echo "  prune           Deep clean (removes images too)"
+	@echo "Maintenance:"
+	@echo "  clean         Remove containers and volumes"
 
-# Docker targets
-build:
-	docker-compose build
-
+# Docker
 up:
-	docker-compose up -d
+	$(DOCKER) up -d
 
 up-vector:
-	docker-compose --profile vector up -d
+	$(DOCKER) --profile vector up -d
 
 down:
-	docker-compose down
+	$(DOCKER) down
 
 logs:
-	docker-compose logs -f
-
-shell:
-	docker-compose exec purl /bin/bash
+	$(DOCKER) logs -f
 
 restart:
-	docker-compose restart
+	$(DOCKER) restart
 
-# Web development
+# Development
 web-dev:
 	cd web && npm install && npm run dev
 
@@ -58,19 +50,13 @@ web-build:
 	cd web && npm install && npm run build
 
 # Linting
-PERL5LIB := lib
-PERLCRITIC := $(shell which perlcritic 2>/dev/null || echo /opt/homebrew/Cellar/perl/5.40.2/bin/perlcritic)
-
-lint: lint-perl lint-perlcritic lint-js
+lint: lint-perl lint-js
 
 lint-perl:
 	@echo "Checking Perl syntax..."
 	@for f in $$(find lib -name '*.pm'); do \
 		PERL5LIB=$(PERL5LIB) perl -c $$f 2>&1 || exit 1; \
 	done
-	@echo "All Perl files syntax OK"
-
-lint-perlcritic:
 	@echo "Running Perl::Critic..."
 	@PERL5LIB=$(PERL5LIB) $(PERLCRITIC) --profile .perlcriticrc lib/
 
@@ -80,17 +66,13 @@ lint-js:
 
 # Testing
 test:
-	@echo "Running tests..."
-	@PERL5LIB=lib prove -r t/ 2>/dev/null || echo "No tests found in t/"
+	@PERL5LIB=lib prove -r t/ 2>/dev/null || echo "No tests found"
 
 # Maintenance
 clean:
-	docker-compose down -v
-
-prune: clean
-	docker-compose down --rmi local -v
+	$(DOCKER) down -v
 	docker system prune -f
 
-# ClickHouse client
+# ClickHouse
 clickhouse-client:
-	docker-compose exec clickhouse clickhouse-client
+	$(DOCKER) exec clickhouse clickhouse-client
