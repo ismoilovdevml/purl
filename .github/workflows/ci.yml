@@ -26,6 +26,9 @@ jobs:
         with:
           perl-version: '5.38'
 
+      - name: Install dependencies
+        run: cpanm --notest --installdeps .
+
       - name: Install Perl::Critic
         run: cpanm --notest Perl::Critic
 

@@ -1,15 +1,15 @@
 <script>
-  import { onMount } from "svelte";
-  import SearchBar from "./components/SearchBar.svelte";
-  import TimeRangePicker from "./components/TimeRangePicker.svelte";
-  import FieldsSidebar from "./components/FieldsSidebar.svelte";
-  import LogTable from "./components/LogTable.svelte";
-  import Histogram from "./components/Histogram.svelte";
-  import SavedSearches from "./components/SavedSearches.svelte";
-  import AlertsPanel from "./components/AlertsPanel.svelte";
-  import PatternsSidebar from "./components/PatternsSidebar.svelte";
-  import AnalyticsPage from "./components/AnalyticsPage.svelte";
-  import SettingsPage from "./components/SettingsPage.svelte";
+  import { onMount } from 'svelte';
+  import SearchBar from './components/SearchBar.svelte';
+  import TimeRangePicker from './components/TimeRangePicker.svelte';
+  import FieldsSidebar from './components/FieldsSidebar.svelte';
+  import LogTable from './components/LogTable.svelte';
+  import Histogram from './components/Histogram.svelte';
+  import SavedSearches from './components/SavedSearches.svelte';
+  import AlertsPanel from './components/AlertsPanel.svelte';
+  import PatternsSidebar from './components/PatternsSidebar.svelte';
+  import AnalyticsPage from './components/AnalyticsPage.svelte';
+  import SettingsPage from './components/SettingsPage.svelte';
   import {
     logs,
     loading,
@@ -19,11 +19,10 @@
     customTimeRange,
     total,
     searchLogs,
-    connectWebSocket,
-  } from "./stores/logs.js";
+  } from './stores/logs.js';
 
   let savedSearchesRef;
-  let currentPage = "logs"; // 'logs' | 'analytics' | 'settings'
+  let currentPage = 'logs'; // 'logs' | 'analytics' | 'settings'
 
   // Dismiss error
   function dismissError() {
@@ -33,18 +32,18 @@
   onMount(async () => {
     // Check URL hash for navigation
     handleHashChange();
-    window.addEventListener("hashchange", handleHashChange);
+    window.addEventListener('hashchange', handleHashChange);
 
-    if (currentPage === "logs") {
+    if (currentPage === 'logs') {
       await searchLogs();
     }
 
-    return () => window.removeEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
   });
 
   function handleHashChange() {
-    const hash = window.location.hash.slice(1) || "logs";
-    if (["logs", "analytics", "settings"].includes(hash)) {
+    const hash = window.location.hash.slice(1) || 'logs';
+    if (['logs', 'analytics', 'settings'].includes(hash)) {
       currentPage = hash;
     }
   }
@@ -61,7 +60,7 @@
   function handleTimeRangeChange(event) {
     const { range, from, to } = event.detail;
     $timeRange = range;
-    if (range === "custom" && from && to) {
+    if (range === 'custom' && from && to) {
       $customTimeRange = { from, to };
     } else {
       $customTimeRange = { from: null, to: null };
@@ -89,20 +88,20 @@
   function exportCSV() {
     if ($logs.length === 0) return;
 
-    const headers = ["timestamp", "level", "service", "host", "message"];
-    const csvRows = [headers.join(",")];
+    const headers = ['timestamp', 'level', 'service', 'host', 'message'];
+    const csvRows = [headers.join(',')];
 
     for (const log of $logs) {
       const row = headers.map((h) => {
-        const val = log[h] || "";
+        const val = log[h] || '';
         const escaped = String(val).replace(/"/g, '""');
         return /[,\n"]/.test(escaped) ? `"${escaped}"` : escaped;
       });
-      csvRows.push(row.join(","));
+      csvRows.push(row.join(','));
     }
 
-    const blob = new Blob([csvRows.join("\n")], {
-      type: "text/csv;charset=utf-8;",
+    const blob = new Blob([csvRows.join('\n')], {
+      type: 'text/csv;charset=utf-8;',
     });
     downloadBlob(blob, `purl-logs-${Date.now()}.csv`);
   }
@@ -120,14 +119,14 @@
     }));
 
     const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: "application/json",
+      type: 'application/json',
     });
     downloadBlob(blob, `purl-logs-${Date.now()}.json`);
   }
 
   function downloadBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const a = document.createElement('a');
     a.href = url;
     a.download = filename;
     document.body.appendChild(a);
@@ -139,7 +138,7 @@
 
 <main>
   <header>
-    <button class="logo" on:click={() => navigate("logs")}>
+    <button class="logo" on:click={() => navigate('logs')}>
       <svg width="32" height="32" viewBox="0 0 32 32">
         <circle
           cx="16"
@@ -161,8 +160,8 @@
 
     <nav class="nav-tabs">
       <button
-        class:active={currentPage === "logs"}
-        on:click={() => navigate("logs")}
+        class:active={currentPage === 'logs'}
+        on:click={() => navigate('logs')}
       >
         <svg
           width="16"
@@ -178,8 +177,8 @@
         Logs
       </button>
       <button
-        class:active={currentPage === "analytics"}
-        on:click={() => navigate("analytics")}
+        class:active={currentPage === 'analytics'}
+        on:click={() => navigate('analytics')}
       >
         <svg
           width="16"
@@ -195,8 +194,8 @@
         Analytics
       </button>
       <button
-        class:active={currentPage === "settings"}
-        on:click={() => navigate("settings")}
+        class:active={currentPage === 'settings'}
+        on:click={() => navigate('settings')}
       >
         <svg
           width="16"
@@ -215,7 +214,7 @@
       </button>
     </nav>
 
-    {#if currentPage === "logs"}
+    {#if currentPage === 'logs'}
       <SearchBar bind:value={$query} on:search={handleSearch} />
 
       <div class="header-actions">
@@ -301,7 +300,7 @@
     </div>
   {/if}
 
-  {#if currentPage === "logs"}
+  {#if currentPage === 'logs'}
     <div class="stats-bar">
       <span>{$total.toLocaleString()} logs</span>
       <span class="separator">|</span>
@@ -331,9 +330,9 @@
         <PatternsSidebar />
       </aside>
     </div>
-  {:else if currentPage === "analytics"}
+  {:else if currentPage === 'analytics'}
     <AnalyticsPage />
-  {:else if currentPage === "settings"}
+  {:else if currentPage === 'settings'}
     <SettingsPage />
   {/if}
 </main>

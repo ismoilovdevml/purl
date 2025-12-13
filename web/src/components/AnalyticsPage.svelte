@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy } from 'svelte';
 
   let stats = null;
   let metrics = null;
@@ -9,7 +9,7 @@
   let refreshInterval;
   let lastUpdated = null;
 
-  const API_BASE = "/api";
+  const API_BASE = '/api';
 
   async function fetchAnalytics() {
     try {
@@ -46,52 +46,52 @@
   });
 
   function formatBytes(bytes) {
-    if (!bytes) return "0 B";
+    if (!bytes) return '0 B';
     const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
+    const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return (bytes / Math.pow(k, i)).toFixed(1) + " " + sizes[i];
+    return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
   }
 
   function formatNumber(num) {
-    if (!num) return "0";
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
-    if (num >= 1000) return (num / 1000).toFixed(1) + "K";
+    if (!num) return '0';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
     return num.toLocaleString();
   }
 
   function formatTime(date) {
-    if (!date) return "-";
+    if (!date) return '-';
     return date.toLocaleTimeString();
   }
 
   $: errorRate = metrics?.clickhouse?.queries_total > 0
     ? ((metrics?.clickhouse?.errors_total || 0) / metrics.clickhouse.queries_total * 100).toFixed(2)
-    : "0.00";
+    : '0.00';
 
-  $: cacheHitRate = metrics?.cache?.hit_rate || "0%";
-  $: avgQueryTime = metrics?.clickhouse?.avg_query_time || "0s";
+  $: cacheHitRate = metrics?.cache?.hit_rate || '0%';
+  $: avgQueryTime = metrics?.clickhouse?.avg_query_time || '0s';
   $: totalStorage = tableStats.reduce((acc, t) => acc + (t.bytes || 0), 0);
 
   // Enterprise metrics
   $: requestsPerSec = metrics?.requests?.per_second || 0;
-  $: p95Latency = metrics?.requests?.p95_latency || "0ms";
-  $: p99Latency = metrics?.requests?.p99_latency || "0ms";
+  $: p95Latency = metrics?.requests?.p95_latency || '0ms';
+  $: p99Latency = metrics?.requests?.p99_latency || '0ms';
   $: slaCompliance = parseFloat(errorRate) < 1 ? 99.9 : (100 - parseFloat(errorRate)).toFixed(1);
   $: healthScore = calculateHealthScore();
 
   function calculateHealthScore() {
     let score = 100;
     if (parseFloat(errorRate) > 0) score -= parseFloat(errorRate) * 10;
-    if (cacheHitRate === "0%") score -= 5;
+    if (cacheHitRate === '0%') score -= 5;
     if (!metrics?.server?.uptime_human) score -= 10;
     return Math.max(0, Math.min(100, score)).toFixed(0);
   }
 
   function getHealthColor(score) {
-    if (score >= 90) return "#3fb950";
-    if (score >= 70) return "#d29922";
-    return "#f85149";
+    if (score >= 90) return '#3fb950';
+    if (score >= 70) return '#d29922';
+    return '#f85149';
   }
 </script>
 
@@ -158,7 +158,7 @@
         <div class="metric-label">Storage</div>
       </div>
       <div class="metric-card">
-        <div class="metric-value">{metrics?.server?.uptime_human || "-"}</div>
+        <div class="metric-value">{metrics?.server?.uptime_human || '-'}</div>
         <div class="metric-label">Uptime</div>
       </div>
       <div class="metric-card">
@@ -241,7 +241,7 @@
           </div>
           <div class="mini-stat">
             <span class="label">Max</span>
-            <span class="value">{metrics?.requests?.max_latency || "0ms"}</span>
+            <span class="value">{metrics?.requests?.max_latency || '0ms'}</span>
           </div>
         </div>
       </div>
@@ -276,7 +276,7 @@
             <span class="cache-label">Entries</span>
           </div>
           <div class="cache-item">
-            <span class="cache-value">{metrics?.cache?.ttl || "60s"}</span>
+            <span class="cache-value">{metrics?.cache?.ttl || '60s'}</span>
             <span class="cache-label">TTL</span>
           </div>
         </div>
