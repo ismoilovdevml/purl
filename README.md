@@ -162,15 +162,17 @@ cp .env.example .env
 CLICKHOUSE_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
 API_KEY=$(openssl rand -base64 32 | tr -d '/+=')
 
-# Update .env with new credentials
-sed -i '' "s/CHANGE_ME_GENERATE_SECURE_PASSWORD/$CLICKHOUSE_PASSWORD/" .env
-sed -i '' "s/CHANGE_ME_GENERATE_SECURE_API_KEY/$API_KEY/" .env
+# Update .env with new credentials (Linux)
+sed -i "s/CHANGE_ME_GENERATE_SECURE_PASSWORD/$CLICKHOUSE_PASSWORD/" .env
+sed -i "s/CHANGE_ME_GENERATE_SECURE_API_KEY/$API_KEY/" .env
 
 # Also update ClickHouse config
-sed -i '' "s/npJCZy1eKK6sHLmqt5tXVl08/$CLICKHOUSE_PASSWORD/" docker/clickhouse/users.xml
+sed -i "s/CHANGE_ME_GENERATE_SECURE_PASSWORD/$CLICKHOUSE_PASSWORD/g" docker/clickhouse/users.xml
+
+# macOS users: use sed -i '' instead of sed -i
 
 # Start with auto log collection
-docker-compose --profile vector up -d
+docker compose --profile vector up -d
 
 # Open dashboard
 open http://localhost:3000
@@ -184,10 +186,10 @@ Vector automatically collects logs from **all Docker containers**.
 
 ```bash
 # Development
-docker-compose up -d
+docker compose up -d
 
 # With Vector log collector
-docker-compose --profile vector up -d
+docker compose --profile vector up -d
 ```
 
 ### 2. Systemd (Bare metal / VM)
@@ -332,7 +334,6 @@ journalctl -u vector -f
 - Input validation and sanitization
 - XSS protection (HTML escaping in search highlights)
 - Graceful shutdown with buffer flush
-
 
 ## Configuration
 

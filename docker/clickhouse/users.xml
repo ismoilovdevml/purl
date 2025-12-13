@@ -53,7 +53,7 @@
     <users>
         <!-- Default user (admin) - Password set via environment -->
         <default>
-            <password>H65gHPinmeP71ZvLSbyJ6dwj0DjzNX2U</password>
+            <password>CHANGE_ME_GENERATE_SECURE_PASSWORD</password>
             <networks>
                 <!-- Restrict to internal Docker network only -->
                 <ip>172.16.0.0/12</ip>
@@ -66,7 +66,7 @@
 
         <!-- Purl application user -->
         <purl>
-            <password>ZMgA5x1Iyfela6fKty2m34rC26aQB2iy</password>
+            <password>CHANGE_ME_GENERATE_SECURE_PASSWORD</password>
             <networks>
                 <!-- Restrict to Docker internal network only -->
                 <ip>172.16.0.0/12</ip>

@@ -256,10 +256,21 @@ sub _check_auth {
 
     # Skip auth for requests from the web UI (same origin)
     # Sec-Fetch-Site is set by the browser and cannot be spoofed by JavaScript
-    # This is safer than Referer-based checks which can be manipulated
     my $sec_fetch = $c->req->headers->header('Sec-Fetch-Site') // '';
     if ($sec_fetch eq 'same-origin' || $sec_fetch eq 'same-site') {
         return 1;
+    }
+
+    # Fallback for browsers that don't send Sec-Fetch-Site (HTTP contexts)
+    # Check if Origin header matches the Host
+    my $origin = $c->req->headers->header('Origin') // '';
+    my $host = $c->req->headers->host // '';
+    if ($origin && $host) {
+        # Extract host from origin (e.g., http://localhost:3000 -> localhost:3000)
+        my ($origin_host) = $origin =~ m{^https?://([^/]+)};
+        if ($origin_host && $origin_host eq $host) {
+            return 1;
+        }
     }
 
     my $auth_header = $c->req->headers->authorization // '';
