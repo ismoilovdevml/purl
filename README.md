@@ -154,18 +154,25 @@ Purl provides:
 ### One-Line Install (Recommended)
 
 ```bash
-# Full installation (interactive)
+# Auto install with secure defaults
 curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash
 
-# Agent only (for remote servers)
-curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash -s -- --agent
+# Interactive install (customize settings)
+curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash -s -- -i
+
+# Agent only (for remote servers sending logs to Purl)
+curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash -s -- --agent -i
 ```
 
-The installer will:
-- Check requirements (Docker, etc.)
-- Ask for configuration (or generate secure defaults)
-- Set up ClickHouse and Purl
-- Show credentials at the end
+**Auto mode** - installs with secure generated credentials, shows them at the end.
+
+**Interactive mode (`-i`)** - prompts for custom configuration:
+
+- ClickHouse password
+- API key
+- Port number
+- Retention days
+- Vector installation
 
 ### Manual Installation
 

@@ -2,8 +2,10 @@
 # =============================================================================
 # Purl Installation Script
 # =============================================================================
-# Usage: curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | bash
-# Or: curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | bash -s -- --agent
+# Usage:
+#   Interactive: curl -fsSL https://purl.sh/install | bash -s -- -i
+#   Auto:        curl -fsSL https://purl.sh/install | bash
+#   Agent:       curl -fsSL https://purl.sh/install | bash -s -- --agent -i
 # =============================================================================
 
 set -e
@@ -22,6 +24,7 @@ PURL_VERSION="latest"
 INSTALL_DIR="/opt/purl"
 CONFIG_DIR="/etc/purl"
 DATA_DIR="/var/lib/purl"
+INTERACTIVE=false
 
 # =============================================================================
 # Helper Functions
@@ -36,7 +39,8 @@ print_banner() {
  |  __/| |_| | | | |
  |_|    \__,_|_| |_|
 
- Log Aggregation Dashboard
+ Lightweight Log Aggregation System
+ Collect, Search, Analyze & Alert
 EOF
     echo -e "${NC}"
 }
@@ -51,21 +55,34 @@ prompt() {
     local default="$2"
     local result
 
-    if [ -n "$default" ]; then
-        read -p "$(echo -e "${CYAN}$message${NC} [${default}]: ")" result
-        echo "${result:-$default}"
+    if [ "$INTERACTIVE" = true ]; then
+        if [ -n "$default" ]; then
+            echo -en "${CYAN}$message${NC} [${default}]: " > /dev/tty
+            read result < /dev/tty
+            echo "${result:-$default}"
+        else
+            echo -en "${CYAN}$message${NC}: " > /dev/tty
+            read result < /dev/tty
+            echo "$result"
+        fi
     else
-        read -p "$(echo -e "${CYAN}$message${NC}: ")" result
-        echo "$result"
+        echo "$default"
     fi
 }
 
 prompt_password() {
     local message="$1"
+    local default="$2"
     local result
-    read -sp "$(echo -e "${CYAN}$message${NC}: ")" result
-    echo
-    echo "$result"
+
+    if [ "$INTERACTIVE" = true ]; then
+        echo -en "${CYAN}$message${NC}: " > /dev/tty
+        read -s result < /dev/tty
+        echo > /dev/tty
+        echo "${result:-$default}"
+    else
+        echo "$default"
+    fi
 }
 
 prompt_yes_no() {
@@ -73,15 +90,20 @@ prompt_yes_no() {
     local default="${2:-y}"
     local result
 
-    if [ "$default" = "y" ]; then
-        read -p "$(echo -e "${CYAN}$message${NC} [Y/n]: ")" result
-        result="${result:-y}"
+    if [ "$INTERACTIVE" = true ]; then
+        if [ "$default" = "y" ]; then
+            echo -en "${CYAN}$message${NC} [Y/n]: " > /dev/tty
+            read result < /dev/tty
+            result="${result:-y}"
+        else
+            echo -en "${CYAN}$message${NC} [y/N]: " > /dev/tty
+            read result < /dev/tty
+            result="${result:-n}"
+        fi
+        [[ "$result" =~ ^[Yy] ]]
     else
-        read -p "$(echo -e "${CYAN}$message${NC} [y/N]: ")" result
-        result="${result:-n}"
+        [ "$default" = "y" ]
     fi
-
-    [[ "$result" =~ ^[Yy] ]]
 }
 
 generate_password() {
@@ -192,20 +214,22 @@ install_purl_docker() {
     # Generate credentials
     local ch_password=$(generate_password 24)
     local api_key=$(generate_api_key)
+    local purl_port="3000"
+    local retention_days="30"
 
-    # Ask for custom values or use generated
-    echo
-    log_step "Configuration"
-    echo -e "${YELLOW}Leave blank to use auto-generated secure values${NC}"
-    echo
+    if [ "$INTERACTIVE" = true ]; then
+        echo
+        log_step "Configuration"
+        echo -e "${YELLOW}Leave blank to use auto-generated secure values${NC}"
+        echo
 
-    local custom_ch_pass=$(prompt "ClickHouse password" "$ch_password")
-    local custom_api_key=$(prompt "API Key" "$api_key")
-    local purl_port=$(prompt "Purl port" "3000")
-    local retention_days=$(prompt "Log retention (days)" "30")
-
-    ch_password="${custom_ch_pass:-$ch_password}"
-    api_key="${custom_api_key:-$api_key}"
+        ch_password=$(prompt "ClickHouse password" "$ch_password")
+        api_key=$(prompt "API Key" "$api_key")
+        purl_port=$(prompt "Purl port" "$purl_port")
+        retention_days=$(prompt "Log retention (days)" "$retention_days")
+    else
+        log_info "Using auto-generated secure credentials"
+    fi
 
     # Create .env file
     cat > .env << EOF
@@ -612,8 +636,6 @@ EOF
 # =============================================================================
 
 main() {
-    print_banner
-
     # Parse arguments
     INSTALL_AGENT=false
     while [[ $# -gt 0 ]]; do
@@ -622,12 +644,27 @@ main() {
                 INSTALL_AGENT=true
                 shift
                 ;;
+            --interactive|-i)
+                INTERACTIVE=true
+                shift
+                ;;
             --help|-h)
                 echo "Usage: $0 [OPTIONS]"
                 echo
                 echo "Options:"
-                echo "  --agent, -a    Install Vector agent only"
-                echo "  --help, -h     Show this help"
+                echo "  --agent, -a       Install Vector agent only"
+                echo "  --interactive, -i Enable interactive prompts"
+                echo "  --help, -h        Show this help"
+                echo
+                echo "Examples:"
+                echo "  # Auto install with defaults:"
+                echo "  curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash"
+                echo
+                echo "  # Interactive install:"
+                echo "  curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash -s -- -i"
+                echo
+                echo "  # Agent install (interactive):"
+                echo "  curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash -s -- --agent -i"
                 exit 0
                 ;;
             *)
@@ -636,8 +673,15 @@ main() {
         esac
     done
 
+    print_banner
+
     # Agent installation
     if [ "$INSTALL_AGENT" = true ]; then
+        if [ "$INTERACTIVE" = false ]; then
+            log_error "Agent installation requires interactive mode. Use: --agent -i"
+            log_info "Example: curl ... | sudo bash -s -- --agent -i"
+            exit 1
+        fi
         check_root
         check_curl
         install_agent
@@ -650,23 +694,30 @@ main() {
     check_curl
     check_openssl
 
-    echo
-    echo -e "${BOLD}Installation Options:${NC}"
-    echo "  1) Docker (recommended)"
-    echo "  2) Systemd (bare metal)"
-    echo "  3) Agent only (Vector)"
-    echo
-    local choice=$(prompt "Choose installation type [1/2/3]" "1")
+    if [ "$INTERACTIVE" = true ]; then
+        echo
+        echo -e "${BOLD}Installation Options:${NC}"
+        echo "  1) Docker (recommended)"
+        echo "  2) Systemd (bare metal)"
+        echo "  3) Agent only (Vector)"
+        echo
+        local choice=$(prompt "Choose installation type [1/2/3]" "1")
+    else
+        log_info "Auto-install mode (use -i for interactive)"
+        local choice="1"
+    fi
 
     case $choice in
         1)
             if ! check_docker; then
-                if prompt_yes_no "Docker not found. Install Docker?" "y"; then
-                    install_docker
-                else
-                    log_error "Docker is required for this installation type"
-                    exit 1
-                fi
+                log_error "Docker is not installed!"
+                echo
+                echo -e "${BOLD}Install Docker first:${NC}"
+                echo "  curl -fsSL https://get.docker.com | sh"
+                echo "  systemctl enable --now docker"
+                echo
+                echo "Then run this script again."
+                exit 1
             fi
             install_purl_docker
             ;;
