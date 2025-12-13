@@ -501,9 +501,12 @@ type = "remap"
 inputs = ["docker_logs", "journald"]
 source = '''
 .host = "$hostname_label"
-.service = .container_name ?? ._SYSTEMD_UNIT ?? "unknown"
-.service = replace(string!(.service), r'^/', "")
-.service = replace(string!(.service), r'\.service\$', "")
+
+# Get service name from container or systemd unit
+service_name = string(.container_name) ?? string(._SYSTEMD_UNIT) ?? "unknown"
+service_name = replace(service_name, r'^/', "")
+service_name = replace(service_name, r'\.service$', "")
+.service = service_name
 
 msg = string(.message) ?? ""
 .raw = msg
@@ -578,7 +581,8 @@ EOF
             -v /var/run/docker.sock:/var/run/docker.sock:ro \
             -v /var/log:/var/log:ro \
             -v purl-vector-data:/var/lib/vector \
-            timberio/vector:0.51.1-alpine
+            timberio/vector:0.51.1-alpine \
+            --config /etc/vector/vector.toml
 
         log_info "Vector container started"
 

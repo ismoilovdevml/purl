@@ -8,6 +8,7 @@ use namespace::clean;
 use Mojo::JSON qw(decode_json encode_json);
 use Digest::MD5 qw(md5_hex);
 use Time::HiRes qw(time);
+use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 
 extends 'Purl::API::Controller::Base';
 
@@ -218,10 +219,21 @@ sub search {
 
 sub ingest {
     my ($self, $c) = @_;
-    
+
     $self->safe_execute($c, sub {
         my $raw_body = $c->req->body;
         my $logs = [];
+
+        # Handle gzip-compressed requests (from Vector with compression = "gzip")
+        my $content_encoding = $c->req->headers->content_encoding // '';
+        if ($content_encoding eq 'gzip') {
+            my $decompressed;
+            unless (gunzip(\$raw_body => \$decompressed)) {
+                $self->render_error($c, "Gzip decompression failed: $GunzipError", 400);
+                return;
+            }
+            $raw_body = $decompressed;
+        }
 
         my $body = eval { decode_json($raw_body) };
         if ($body) {
