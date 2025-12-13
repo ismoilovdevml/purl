@@ -273,6 +273,16 @@ sub _check_auth {
         }
     }
 
+    # Fallback: Check Referer header for same-origin requests
+    # Browsers always send Referer for XHR/fetch requests from same page
+    my $referer = $c->req->headers->header('Referer') // '';
+    if ($referer && $host) {
+        my ($referer_host) = $referer =~ m{^https?://([^/]+)};
+        if ($referer_host && $referer_host eq $host) {
+            return 1;
+        }
+    }
+
     my $auth_header = $c->req->headers->authorization // '';
 
     # API Key auth (env or config)

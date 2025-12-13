@@ -3,9 +3,7 @@ services:
   # Purl - Log Parser & Dashboard (ClickHouse mode)
   # ============================================================
   purl:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ismoilovdev/purl:latest
     container_name: purl
     restart: unless-stopped
     ports:

@@ -151,6 +151,24 @@ Purl provides:
 
 ## Quick Start
 
+### One-Line Install (Recommended)
+
+```bash
+# Full installation (interactive)
+curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash
+
+# Agent only (for remote servers)
+curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash -s -- --agent
+```
+
+The installer will:
+- Check requirements (Docker, etc.)
+- Ask for configuration (or generate secure defaults)
+- Set up ClickHouse and Purl
+- Show credentials at the end
+
+### Manual Installation
+
 ```bash
 git clone https://github.com/ismoilovdevml/purl.git
 cd purl
@@ -176,6 +194,9 @@ docker compose --profile vector up -d
 
 # Open dashboard
 open http://localhost:3000
+
+# Show your API key
+echo "API Key: $API_KEY"
 ```
 
 Vector automatically collects logs from **all Docker containers**.

@@ -46,6 +46,9 @@ nytprof.out
 .env.local
 .env.*.local
 
+# Local development
+docker-compose.local.yml
+
 # Docker
 docker/clickhouse/data/
 docker/clickhouse/logs/
