@@ -67,4 +67,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/api/health || exit 1
 
 # Run server using Mojolicious directly
-CMD ["perl", "-I/app/lib", "-MPurl::API::Server", "-e", "Purl::API::Server->new->run"]
+CMD ["perl", "-I/app/lib", "-MPurl::API::Server", "-e", "Purl::API::Server->create->run"]

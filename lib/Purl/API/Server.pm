@@ -95,7 +95,7 @@ sub _verify_csrf_token {
     return $hash eq $expected;
 }
 
-sub new {
+sub create {
     my ($class, %args) = @_;
     $config = $args{config} // {};
     $cache_ttl = $config->{cache}{ttl} // 60;
@@ -1308,7 +1308,7 @@ Purl::API::Server - Mojolicious REST API server for Purl
 
     use Purl::API::Server;
 
-    my $server = Purl::API::Server->new(
+    my $server = Purl::API::Server->create(
         config => $config,
     );
 
