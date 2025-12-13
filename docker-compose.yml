@@ -91,6 +91,7 @@ services:
     environment:
       - PURL_URL=http://purl:3000
       - PURL_API_KEY=${PURL_API_KEYS:-test-api-key-123}
+      - VECTOR_HOSTNAME=${VECTOR_HOSTNAME:-${HOSTNAME:-purl-server}}
     depends_on:
       purl:
         condition: service_healthy

@@ -154,25 +154,20 @@ Purl provides:
 ### One-Line Install (Recommended)
 
 ```bash
-# Auto install with secure defaults
-curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash
-
-# Interactive install (customize settings)
+# Install Purl server (Docker)
 curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash -s -- -i
 
-# Agent only (for remote servers sending logs to Purl)
+# Install Vector agent only (for remote servers)
 curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash -s -- --agent -i
 ```
 
-**Auto mode** - installs with secure generated credentials, shows them at the end.
-
-**Interactive mode (`-i`)** - prompts for custom configuration:
-
+The installer will prompt for:
+- Installation type (Docker/Systemd/Agent)
 - ClickHouse password
 - API key
 - Port number
-- Retention days
-- Vector installation
+- Log retention days
+- Vector log collector
 
 ### Manual Installation
 
