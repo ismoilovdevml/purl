@@ -1,6 +1,4 @@
 # Vector Configuration for Purl
-# Collects Docker container logs and sends to Purl API
-# Version: 1.0.0
 
 data_dir = "/var/lib/vector"
 
