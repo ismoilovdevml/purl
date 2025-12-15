@@ -26,7 +26,8 @@ sub setup_stats_routes {
         my $from  = $c->param('from');
         my $to    = $c->param('to');
 
-        unless ($field =~ /^(level|service|host)$/) {
+        # Support both top-level fields and meta.* fields for K8s
+        unless ($field =~ /^(level|service|host|meta\.(namespace|pod|container|node|cluster))$/) {
             $c->render(json => { error => 'Invalid field' }, status => 400);
             return;
         }

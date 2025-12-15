@@ -14,6 +14,11 @@ export const levelStats = writable([]);
 export const serviceStats = writable([]);
 export const hostStats = writable([]);
 
+// K8s field statistics
+export const namespaceStats = writable([]);
+export const podStats = writable([]);
+export const nodeStats = writable([]);
+
 // Histogram data
 export const histogram = writable([]);
 
@@ -199,6 +204,9 @@ async function fetchAllStats() {
       fetchFieldStats('level', signal),
       fetchFieldStats('service', signal),
       fetchFieldStats('host', signal),
+      fetchFieldStats('meta.namespace', signal),
+      fetchFieldStats('meta.pod', signal),
+      fetchFieldStats('meta.node', signal),
       fetchHistogram(signal),
       fetchMetrics(signal),
     ]);
@@ -232,9 +240,15 @@ export async function fetchFieldStats(field, signal = null) {
     const response = await fetch(`${API_BASE}/stats/fields/${field}?${params}`, { signal });
     const data = await response.json();
 
+    // Standard fields
     if (field === 'level') levelStats.set(data.values || []);
     if (field === 'service') serviceStats.set(data.values || []);
     if (field === 'host') hostStats.set(data.values || []);
+
+    // K8s meta fields
+    if (field === 'meta.namespace') namespaceStats.set(data.values || []);
+    if (field === 'meta.pod') podStats.set(data.values || []);
+    if (field === 'meta.node') nodeStats.set(data.values || []);
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error(`Failed to fetch ${field} stats:`, err);

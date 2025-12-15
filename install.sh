@@ -338,7 +338,7 @@ address = "0.0.0.0:8686"
 [sources.docker_logs]
 type = "docker_logs"
 docker_host = "unix:///var/run/docker.sock"
-exclude_containers = ["vector", "*-vector"]
+exclude_containers = ["vector", "*-vector", "purl"]
 EOF
 
     if [ "$has_journald" = true ]; then

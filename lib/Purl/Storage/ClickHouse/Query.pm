@@ -11,6 +11,11 @@ my %ALLOWED_FIELDS = map { $_ => 1 } qw(
     trace_id request_id span_id parent_span_id
 );
 
+# Allowed meta sub-fields for K8s support
+my %ALLOWED_META_FIELDS = map { $_ => 1 } qw(
+    namespace pod container node cluster source
+);
+
 # Allowed level values
 my %ALLOWED_LEVELS = map { $_ => 1 } qw(
     TRACE DEBUG INFO NOTICE WARNING WARN ERROR CRITICAL ALERT EMERGENCY FATAL
@@ -35,6 +40,13 @@ sub _validate_field {
     my ($self, $field) = @_;
     return undef unless defined $field;
     $field = lc($field);
+
+    # Check for meta.* fields (K8s support)
+    if ($field =~ /^meta\.(\w+)$/) {
+        my $sub_field = $1;
+        return $ALLOWED_META_FIELDS{$sub_field} ? $field : undef;
+    }
+
     return $ALLOWED_FIELDS{$field} ? $field : undef;
 }
 

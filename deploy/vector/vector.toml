@@ -10,10 +10,10 @@ address = "0.0.0.0:8686"
 # SOURCES
 # =============================================================================
 
-# Docker container logs (excludes Vector itself to prevent loops)
+# Docker container logs (excludes Vector and Purl itself to prevent loops)
 [sources.docker]
 type = "docker_logs"
-exclude_containers = ["vector", "purl-vector", "*-vector"]
+exclude_containers = ["vector", "purl-vector", "*-vector", "purl"]
 
 # =============================================================================
 # TRANSFORMS

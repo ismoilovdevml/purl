@@ -631,11 +631,30 @@ sub field_stats {
 
     my ($where_sql, $bind_params) = $self->_build_where_clause(%params);
 
+    # Handle meta.* fields (K8s support) using JSONExtractString
+    my $select_field;
+    if ($valid_field =~ /^meta\.(\w+)$/) {
+        my $sub_field = $1;
+        $select_field = "JSONExtractString(meta, '$sub_field')";
+    } else {
+        $select_field = $valid_field;
+    }
+
+    # Build proper WHERE clause for meta fields
+    my $where_clause = $where_sql;
+    if ($valid_field =~ /^meta\./) {
+        if ($where_clause) {
+            $where_clause .= " AND $select_field != ''";
+        } else {
+            $where_clause = "WHERE $select_field != ''";
+        }
+    }
+
     my $sql = qq{
-        SELECT $valid_field as value, count() as count
+        SELECT $select_field as value, count() as count
         FROM $table
-        $where_sql
-        GROUP BY $valid_field
+        $where_clause
+        GROUP BY value
         ORDER BY count DESC
         LIMIT $limit
     };
