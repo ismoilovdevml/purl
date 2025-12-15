@@ -904,7 +904,7 @@
 
           <h2>Purl</h2>
           <p class="about-tagline">Fast, Modern Log Aggregation</p>
-          <p class="about-version">Version 1.0.0</p>
+          <p class="about-version">Version {systemInfo?.version || '...'}</p>
 
           <div class="tech-stack">
             <span class="tech-badge">Perl</span>
