@@ -14,45 +14,81 @@ data:
     [sources.kubernetes]
     type = "kubernetes_logs"
     auto_partial_merge = true
-    exclude_paths_glob_patterns = ["**/kube-system/**", "**/purl/**vector**", "**/purl/**/purl-*"]
+    exclude_paths_glob_patterns = ["**/kube-system_*/**", "**/purl_vector-*/**", "**/purl_purl-*/**"]
+
+    [transforms.exclude_internal]
+    type = "filter"
+    inputs = ["kubernetes"]
+    condition = '''
+    ns = string(.kubernetes.pod_namespace) ?? ""
+    pod = string(.kubernetes.pod_name) ?? ""
+    !(ns == "kube-system" || (ns == "purl" && (starts_with(pod, "purl-") || starts_with(pod, "vector-"))))
+    '''
 
     [transforms.parsed]
     type = "remap"
-    inputs = ["kubernetes"]
+    inputs = ["exclude_internal"]
     source = '''
-    .service = .kubernetes.pod_labels.app ?? .kubernetes.pod_labels."app.kubernetes.io/name" ?? .kubernetes.pod_name
-    .host = .kubernetes.pod_node_name ?? "unknown"
-    .raw = .message
-    .timestamp = .timestamp ?? now()
+    svc, svc_err = get(.kubernetes.pod_labels, ["app"])
+    if svc_err != null || svc == null {
+      svc, svc_err = get(.kubernetes.pod_labels, ["app.kubernetes.io/name"])
+    }
+    if svc_err != null || svc == null {
+      svc = .kubernetes.pod_name
+    }
+    .service = to_string!(svc)
 
+    host_val = .kubernetes.pod_node_name
+    .host = if host_val != null { to_string!(host_val) } else { "unknown" }
+
+    .raw = .message
+    .timestamp = now()
+
+    pod_str = to_string(.kubernetes.pod_name) ?? ""
+    ns_str = to_string(.kubernetes.pod_namespace) ?? ""
+    cont_str = to_string(.kubernetes.container_name) ?? ""
+    node_str = to_string(.kubernetes.pod_node_name) ?? ""
+    cluster_str = get_env_var("CLUSTER_NAME") ?? "default"
     .meta = encode_json({
-      "pod": .kubernetes.pod_name,
-      "namespace": .kubernetes.pod_namespace,
-      "container": .kubernetes.container_name,
-      "node": .kubernetes.pod_node_name,
-      "cluster": get_env_var("CLUSTER_NAME") ?? "default",
+      "pod": pod_str,
+      "namespace": ns_str,
+      "container": cont_str,
+      "node": node_str,
+      "cluster": cluster_str,
       "source": "kubernetes"
     })
 
     msg = upcase(string!(.message))
-    if contains(msg, "FATAL") || contains(msg, "PANIC") { .level = "FATAL" }
-    else if contains(msg, "ERROR") { .level = "ERROR" }
-    else if contains(msg, "WARN") { .level = "WARN" }
-    else if contains(msg, "DEBUG") { .level = "DEBUG" }
-    else { .level = "INFO" }
+    level = "INFO"
+    if contains(msg, "FATAL") || contains(msg, "PANIC") { level = "FATAL" }
+    if contains(msg, "ERROR") { level = "ERROR" }
+    if contains(msg, "WARN") { level = "WARN" }
+    if contains(msg, "DEBUG") { level = "DEBUG" }
+    .level = level
+
+    .trace_id = ""
+    .request_id = ""
+    .span_id = ""
+    .parent_span_id = ""
 
     parsed, err = parse_json(.message)
     if err == null {
-      .message = parsed.msg ?? parsed.message ?? .message
-      .level = upcase(parsed.level ?? parsed.severity ?? .level)
-      .trace_id = string(parsed.trace_id ?? parsed.traceId ?? "") ?? ""
-      .request_id = string(parsed.request_id ?? parsed.requestId ?? "") ?? ""
-    }
+      msg_val, msg_err = get(parsed, ["msg"])
+      if msg_err != null { msg_val, msg_err = get(parsed, ["message"]) }
+      if msg_err == null && msg_val != null { .message = to_string!(msg_val) }
 
-    .trace_id = .trace_id ?? ""
-    .request_id = .request_id ?? ""
-    .span_id = ""
-    .parent_span_id = ""
+      lvl_val, lvl_err = get(parsed, ["level"])
+      if lvl_err != null { lvl_val, lvl_err = get(parsed, ["severity"]) }
+      if lvl_err == null && lvl_val != null { .level = upcase(to_string!(lvl_val)) }
+
+      trace_val, t_err = get(parsed, ["trace_id"])
+      if t_err != null { trace_val, t_err = get(parsed, ["traceId"]) }
+      if t_err == null && trace_val != null { .trace_id = to_string!(trace_val) }
+
+      req_val, r_err = get(parsed, ["request_id"])
+      if r_err != null { req_val, r_err = get(parsed, ["requestId"]) }
+      if r_err == null && req_val != null { .request_id = to_string!(req_val) }
+    }
 
     del(.kubernetes); del(.file); del(.stream)
     '''
@@ -60,7 +96,7 @@ data:
     [transforms.filtered]
     type = "filter"
     inputs = ["parsed"]
-    condition = 'length(.message) > 0 && !contains(string!(.message), "/health")'
+    condition = 'length(string!(.message)) > 0 && !contains(string!(.message), "/health")'
 
     [sinks.purl]
     type = "http"
