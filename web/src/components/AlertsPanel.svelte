@@ -1,5 +1,15 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import {
+    fetchAlerts,
+    createAlert,
+    updateAlert,
+    deleteAlert as apiDeleteAlert,
+    toggleAlertEnabled,
+    checkAlerts as apiCheckAlerts
+  } from '../lib/api.js';
+  import Modal from './ui/Modal.svelte';
+  import Button from './ui/Button.svelte';
 
   let alerts = [];
   let showModal = false;
@@ -14,12 +24,11 @@
     notify_target: ''
   };
 
-  const API_BASE = '/api';
   let checkInterval;
 
   onMount(() => {
     loadAlerts();
-    checkInterval = setInterval(checkAlerts, 60000);
+    checkInterval = setInterval(runAlertCheck, 60000);
   });
 
   onDestroy(() => {
@@ -28,18 +37,16 @@
 
   async function loadAlerts() {
     try {
-      const res = await fetch(`${API_BASE}/alerts`);
-      const data = await res.json();
+      const data = await fetchAlerts();
       alerts = data.alerts || [];
     } catch (err) {
       console.error('Failed to load alerts:', err);
     }
   }
 
-  async function checkAlerts() {
+  async function runAlertCheck() {
     try {
-      const res = await fetch(`${API_BASE}/alerts/check`, { method: 'POST' });
-      const data = await res.json();
+      const data = await apiCheckAlerts();
       if (data.triggered && data.triggered.length > 0) {
         for (const alert of data.triggered) {
           showNotification(alert);
@@ -85,24 +92,29 @@
     showModal = true;
   }
 
+  function closeModal() {
+    showModal = false;
+    editingAlert = null;
+    form = {
+      name: '',
+      query: '',
+      threshold: 10,
+      window_minutes: 5,
+      notify_type: 'webhook',
+      notify_target: ''
+    };
+  }
+
   async function saveAlert() {
     if (!form.name) return;
 
     try {
       if (editingAlert) {
-        await fetch(`${API_BASE}/alerts/${editingAlert.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form)
-        });
+        await updateAlert(editingAlert.id, form);
       } else {
-        await fetch(`${API_BASE}/alerts`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form)
-        });
+        await createAlert(form);
       }
-      showModal = false;
+      closeModal();
       await loadAlerts();
     } catch (err) {
       console.error('Failed to save alert:', err);
@@ -111,21 +123,17 @@
 
   async function toggleAlert(alert) {
     try {
-      await fetch(`${API_BASE}/alerts/${alert.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: alert.enabled ? 0 : 1 })
-      });
+      await toggleAlertEnabled(alert.id, alert.enabled ? 0 : 1);
       await loadAlerts();
     } catch (err) {
       console.error('Failed to toggle alert:', err);
     }
   }
 
-  async function deleteAlert(id) {
+  async function handleDelete(id) {
     if (!confirm('Delete this alert?')) return;
     try {
-      await fetch(`${API_BASE}/alerts/${id}`, { method: 'DELETE' });
+      await apiDeleteAlert(id);
       await loadAlerts();
     } catch (err) {
       console.error('Failed to delete alert:', err);
@@ -171,7 +179,7 @@
               <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="#6e7681" stroke-width="1.5"/></svg>
             {/if}
           </button>
-          <button class="btn-delete" aria-label="Delete alert" on:click|stopPropagation={() => deleteAlert(alert.id)}>
+          <button class="btn-delete" aria-label="Delete alert" on:click|stopPropagation={() => handleDelete(alert.id)}>
             <svg width="12" height="12" viewBox="0 0 12 12">
               <path fill="currentColor" d="M9.5 3L3 9.5M3 3l6.5 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
@@ -182,57 +190,49 @@
   {/if}
 </div>
 
-{#if showModal}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" on:click={() => showModal = false} on:keydown={(e) => e.key === 'Escape' && (showModal = false)}>
-    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-    <div class="modal" role="document" on:click|stopPropagation on:keydown|stopPropagation>
-      <h3>{editingAlert ? 'Edit Alert' : 'Create Alert'}</h3>
+<Modal show={showModal} title={editingAlert ? 'Edit Alert' : 'Create Alert'} width="450px" on:close={closeModal}>
+  <div class="form-group">
+    <label for="alert-name">Name</label>
+    <input id="alert-name" type="text" bind:value={form.name} placeholder="High error rate" />
+  </div>
 
-      <label>
-        Name
-        <input type="text" bind:value={form.name} placeholder="High error rate" />
-      </label>
+  <div class="form-group">
+    <label for="alert-query">Query (optional)</label>
+    <input id="alert-query" type="text" bind:value={form.query} placeholder="level:ERROR" />
+  </div>
 
-      <label>
-        Query (optional)
-        <input type="text" bind:value={form.query} placeholder="level:ERROR" />
-      </label>
-
-      <div class="row">
-        <label>
-          Threshold
-          <input type="number" bind:value={form.threshold} min="1" />
-        </label>
-        <label>
-          Window (minutes)
-          <input type="number" bind:value={form.window_minutes} min="1" />
-        </label>
-      </div>
-
-      <label>
-        Notification Type
-        <select bind:value={form.notify_type}>
-          <option value="browser">Browser</option>
-          <option value="webhook">Webhook</option>
-          <option value="slack">Slack</option>
-        </select>
-      </label>
-
-      {#if form.notify_type !== 'browser'}
-        <label>
-          {form.notify_type === 'slack' ? 'Slack Webhook URL' : 'Webhook URL'}
-          <input type="url" bind:value={form.notify_target} placeholder="https://..." />
-        </label>
-      {/if}
-
-      <div class="actions">
-        <button class="btn" on:click={() => showModal = false}>Cancel</button>
-        <button class="btn primary" on:click={saveAlert}>Save</button>
-      </div>
+  <div class="form-row">
+    <div class="form-group">
+      <label for="alert-threshold">Threshold</label>
+      <input id="alert-threshold" type="number" bind:value={form.threshold} min="1" />
+    </div>
+    <div class="form-group">
+      <label for="alert-window">Window (minutes)</label>
+      <input id="alert-window" type="number" bind:value={form.window_minutes} min="1" />
     </div>
   </div>
-{/if}
+
+  <div class="form-group">
+    <label for="alert-notify-type">Notification Type</label>
+    <select id="alert-notify-type" bind:value={form.notify_type}>
+      <option value="browser">Browser</option>
+      <option value="webhook">Webhook</option>
+      <option value="slack">Slack</option>
+    </select>
+  </div>
+
+  {#if form.notify_type !== 'browser'}
+    <div class="form-group">
+      <label for="alert-notify-target">{form.notify_type === 'slack' ? 'Slack Webhook URL' : 'Webhook URL'}</label>
+      <input id="alert-notify-target" type="url" bind:value={form.notify_target} placeholder="https://..." />
+    </div>
+  {/if}
+
+  <svelte:fragment slot="footer">
+    <Button on:click={closeModal}>Cancel</Button>
+    <Button variant="primary" on:click={saveAlert}>Save</Button>
+  </svelte:fragment>
+</Modal>
 
 <style>
   .alerts-panel {
@@ -314,6 +314,7 @@
     border: 1px solid #30363d;
     border-radius: 6px;
     cursor: pointer;
+    text-align: left;
   }
 
   .alert-info:hover {
@@ -348,50 +349,22 @@
     background: rgba(248, 81, 73, 0.1);
   }
 
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .modal {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 20px;
-    width: 450px;
-  }
-
-  .modal h3 {
-    font-size: 16px;
-    color: #c9d1d9;
-    text-transform: none;
+  /* Form styles */
+  .form-group {
     margin-bottom: 16px;
   }
 
-  label {
+  .form-group label {
     display: block;
-    margin-bottom: 12px;
+    margin-bottom: 6px;
     color: #8b949e;
     font-size: 12px;
+    font-weight: 500;
   }
 
-  .row {
-    display: flex;
-    gap: 12px;
-  }
-
-  .row label {
-    flex: 1;
-  }
-
-  input, select {
+  .form-group input,
+  .form-group select {
     width: 100%;
-    margin-top: 4px;
     padding: 8px 12px;
     background: #0d1117;
     border: 1px solid #30363d;
@@ -400,38 +373,18 @@
     font-size: 14px;
   }
 
-  input:focus, select:focus {
+  .form-group input:focus,
+  .form-group select:focus {
     outline: none;
     border-color: #58a6ff;
   }
 
-  .actions {
+  .form-row {
     display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 16px;
+    gap: 12px;
   }
 
-  .btn {
-    padding: 8px 16px;
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  .btn:hover {
-    background: #30363d;
-  }
-
-  .btn.primary {
-    background: #238636;
-    border-color: #238636;
-  }
-
-  .btn.primary:hover {
-    background: #2ea043;
+  .form-row .form-group {
+    flex: 1;
   }
 </style>

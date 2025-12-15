@@ -4,6 +4,8 @@ use warnings;
 use 5.024;
 
 use Moo::Role;
+use HTTP::Tiny;
+use JSON::XS ();
 use namespace::clean;
 
 requires 'deliver';
@@ -26,6 +28,25 @@ has 'throttle_seconds' => (
 has '_last_sent' => (
     is      => 'rw',
     default => 0,
+);
+
+# Common HTTP client for all alert notifiers
+has '_http' => (
+    is      => 'ro',
+    lazy    => 1,
+    default => sub {
+        HTTP::Tiny->new(
+            timeout => 10,
+            agent   => 'Purl-Alert/1.0',
+        )
+    },
+);
+
+# Common JSON encoder for all alert notifiers
+has '_json' => (
+    is      => 'ro',
+    lazy    => 1,
+    default => sub { JSON::XS->new->utf8 },
 );
 
 sub can_send {
@@ -68,6 +89,22 @@ sub format_message {
         time      => scalar localtime(),
         severity  => $count >= $threshold * 2 ? 'critical' : 'warning',
     };
+}
+
+# Common test message sender
+sub send_test {
+    my ($self) = @_;
+
+    return $self->deliver({
+        title     => 'Test Alert',
+        alert     => 'Test Connection',
+        query     => 'level:ERROR',
+        count     => 5,
+        threshold => 10,
+        window    => 5,
+        time      => scalar localtime(),
+        severity  => 'warning',
+    });
 }
 
 1;

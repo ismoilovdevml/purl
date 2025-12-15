@@ -204,6 +204,30 @@ sub _query {
 
 # Note: Cache management methods are provided by Purl::Storage::ClickHouse::Cache role
 
+# Common result processing helper - normalizes log rows from ClickHouse
+# Handles: ts -> timestamp rename, meta_json parsing, raw_ts cleanup
+sub _process_log_results {
+    my ($self, $results) = @_;
+
+    return $results unless $results && @$results;
+
+    for my $row (@$results) {
+        # Rename ts to timestamp if present
+        $row->{timestamp} = delete $row->{ts} if exists $row->{ts};
+
+        # Parse meta JSON if present
+        if (exists $row->{meta_json}) {
+            $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
+            delete $row->{meta_json};
+        }
+
+        # Remove raw_ts helper field if present
+        delete $row->{raw_ts} if exists $row->{raw_ts};
+    }
+
+    return $results;
+}
+
 sub _query_json {
     my ($self, $sql, %opts) = @_;
 
@@ -589,18 +613,7 @@ sub search {
 
     my $results = $self->_query_json($sql, params => $bind_params);
 
-    # Rename ts back to timestamp for API response
-    for my $row (@$results) {
-        $row->{timestamp} = delete $row->{ts};
-    }
-
-    # Parse meta JSON
-    for my $row (@$results) {
-        $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
-        delete $row->{meta_json};
-    }
-
-    return $results;
+    return $self->_process_log_results($results);
 }
 
 # Count logs (SQL injection protected)
@@ -844,27 +857,15 @@ sub get_context {
 
     my $after_result = $self->_query_json($after_sql, no_cache => 1);
 
-    # Process results - rename ts to timestamp and parse meta
-    my $process_logs = sub {
-        my ($logs) = @_;
-        for my $row (@$logs) {
-            $row->{timestamp} = delete $row->{ts};
-            $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
-            delete $row->{meta_json};
-        }
-        return $logs;
-    };
-
-    # Process reference log
-    $ref_log->{timestamp} = delete $ref_log->{ts};
-    $ref_log->{meta} = eval { $self->_json->decode($ref_log->{meta_json} // '{}') } // {};
-    delete $ref_log->{meta_json};
-    delete $ref_log->{raw_ts};
+    # Process all results using helper
+    $self->_process_log_results([$ref_log]);
+    $self->_process_log_results($before_result);
+    $self->_process_log_results($after_result);
 
     return {
         reference => $ref_log,
-        before    => [ reverse @{ $process_logs->($before_result) } ],  # Chronological order
-        after     => $process_logs->($after_result),
+        before    => [ reverse @$before_result ],  # Chronological order
+        after     => $after_result,
     };
 }
 
@@ -893,13 +894,7 @@ sub search_by_trace {
     };
 
     my $results = $self->_query_json($sql, no_cache => 1);
-
-    # Process results
-    for my $row (@$results) {
-        $row->{timestamp} = delete $row->{ts};
-        $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
-        delete $row->{meta_json};
-    }
+    $self->_process_log_results($results);
 
     # Get count
     my $count_sql = qq{
@@ -974,13 +969,7 @@ sub search_by_request {
     };
 
     my $results = $self->_query_json($sql, no_cache => 1);
-
-    # Process results
-    for my $row (@$results) {
-        $row->{timestamp} = delete $row->{ts};
-        $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
-        delete $row->{meta_json};
-    }
+    $self->_process_log_results($results);
 
     return {
         hits  => $results,

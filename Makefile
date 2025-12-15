@@ -66,7 +66,11 @@ lint-js:
 
 # Testing
 test:
-	@PERL5LIB=lib prove -r t/ 2>/dev/null || echo "No tests found"
+	@echo "Running Perl tests..."
+	@PERL5LIB=lib prove -lv t/
+
+test-quick:
+	@PERL5LIB=lib prove -l t/
 
 # Maintenance
 clean:

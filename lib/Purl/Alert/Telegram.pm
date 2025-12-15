@@ -5,9 +5,6 @@ use 5.024;
 
 use Moo;
 use namespace::clean;
-use HTTP::Tiny;
-use JSON::XS ();
-use URI::Escape qw(uri_escape);
 
 with 'Purl::Alert::Base';
 
@@ -26,22 +23,7 @@ has 'parse_mode' => (
     default => 'HTML',
 );
 
-has '_http' => (
-    is      => 'ro',
-    lazy    => 1,
-    default => sub {
-        HTTP::Tiny->new(
-            timeout => 10,
-            agent   => 'Purl-Alert/1.0',
-        )
-    },
-);
-
-has '_json' => (
-    is      => 'ro',
-    lazy    => 1,
-    default => sub { JSON::XS->new->utf8 },
-);
+# Note: _http and _json attributes inherited from Purl::Alert::Base
 
 sub deliver {
     my ($self, $message) = @_;
@@ -109,21 +91,7 @@ sub test {
     return 0;
 }
 
-# Send test message
-sub send_test {
-    my ($self) = @_;
-
-    return $self->deliver({
-        title     => 'Test Alert',
-        alert     => 'Test Connection',
-        query     => 'level:ERROR',
-        count     => 5,
-        threshold => 10,
-        window    => 5,
-        time      => scalar localtime(),
-        severity  => 'warning',
-    });
-}
+# Note: send_test method inherited from Purl::Alert::Base
 
 1;
 

@@ -1,5 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { formatBytes, formatNumber, formatTime } from '../lib/utils.js';
+  import { fetchStats, fetchMetrics, fetchTableAnalytics } from '../lib/api.js';
 
   let stats = null;
   let metrics = null;
@@ -9,23 +11,17 @@
   let refreshInterval;
   let lastUpdated = null;
 
-  const API_BASE = '/api';
-
   async function fetchAnalytics() {
     try {
-      const [statsRes, metricsRes, tableRes] = await Promise.all([
-        fetch(`${API_BASE}/stats`),
-        fetch(`${API_BASE}/metrics/json`),
-        fetch(`${API_BASE}/analytics/tables`),
+      const [statsData, metricsData, tablesData] = await Promise.all([
+        fetchStats(),
+        fetchMetrics(),
+        fetchTableAnalytics().catch(() => ({ tables: [] })),
       ]);
 
-      stats = await statsRes.json();
-      metrics = await metricsRes.json();
-
-      if (tableRes.ok) {
-        const tData = await tableRes.json();
-        tableStats = tData.tables || [];
-      }
+      stats = statsData;
+      metrics = metricsData;
+      tableStats = tablesData.tables || [];
 
       lastUpdated = new Date();
       error = null;
@@ -45,25 +41,7 @@
     if (refreshInterval) clearInterval(refreshInterval);
   });
 
-  function formatBytes(bytes) {
-    if (!bytes) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
-  }
-
-  function formatNumber(num) {
-    if (!num) return '0';
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toLocaleString();
-  }
-
-  function formatTime(date) {
-    if (!date) return '-';
-    return date.toLocaleTimeString();
-  }
+  // Note: formatBytes, formatNumber, formatTime are now in lib/utils.js
 
   $: errorRate = metrics?.clickhouse?.queries_total > 0
     ? ((metrics?.clickhouse?.errors_total || 0) / metrics.clickhouse.queries_total * 100).toFixed(2)

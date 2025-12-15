@@ -8,38 +8,27 @@ use Mojo::JSON qw(decode_json);
 
 our @EXPORT_OK = qw(setup_saved_search_routes);
 
-# ============================================
-# Saved Searches Routes Setup
-# ============================================
-
 sub setup_saved_search_routes {
-    my ($protected, $storage) = @_;
+    my ($protected, $args) = @_;
 
-    # List saved searches
+    my $storage = $args->{storage};
+
     $protected->get('/saved-searches' => sub {
         my ($c) = @_;
-        my $searches = $storage->get_saved_searches();
-        $c->render(json => { searches => $searches });
+        $c->render(json => { searches => $storage->get_saved_searches() });
     });
 
-    # Create saved search
     $protected->post('/saved-searches' => sub {
         my ($c) = @_;
         my $body = eval { decode_json($c->req->body) };
-        unless ($body && $body->{name} && $body->{query}) {
-            $c->render(json => { error => 'Name and query required' }, status => 400);
-            return;
-        }
-
+        return $c->render(json => { error => 'Name and query required' }, status => 400) unless $body && $body->{name} && $body->{query};
         $storage->create_saved_search($body->{name}, $body->{query}, $body->{time_range});
         $c->render(json => { status => 'ok' });
     });
 
-    # Delete saved search
     $protected->delete('/saved-searches/:id' => sub {
         my ($c) = @_;
-        my $id = $c->param('id');
-        $storage->delete_saved_search($id);
+        $storage->delete_saved_search($c->param('id'));
         $c->render(json => { status => 'ok' });
     });
 }

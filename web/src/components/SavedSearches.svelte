@@ -1,5 +1,8 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
+  import { fetchSavedSearches, createSavedSearch, deleteSavedSearch } from '../lib/api.js';
+  import Modal from './ui/Modal.svelte';
+  import Button from './ui/Button.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -9,14 +12,11 @@
   let newQuery = '';
   let newTimeRange = '15m';
 
-  const API_BASE = '/api';
-
   onMount(loadSearches);
 
   async function loadSearches() {
     try {
-      const res = await fetch(`${API_BASE}/saved-searches`);
-      const data = await res.json();
+      const data = await fetchSavedSearches();
       searches = data.searches || [];
     } catch (err) {
       console.error('Failed to load saved searches:', err);
@@ -27,27 +27,21 @@
     if (!newName || !newQuery) return;
 
     try {
-      await fetch(`${API_BASE}/saved-searches`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newName,
-          query: newQuery,
-          time_range: newTimeRange
-        })
+      await createSavedSearch({
+        name: newName,
+        query: newQuery,
+        time_range: newTimeRange
       });
-      showModal = false;
-      newName = '';
-      newQuery = '';
+      closeModal();
       await loadSearches();
     } catch (err) {
       console.error('Failed to save search:', err);
     }
   }
 
-  async function deleteSearch(id) {
+  async function handleDelete(id) {
     try {
-      await fetch(`${API_BASE}/saved-searches/${id}`, { method: 'DELETE' });
+      await deleteSavedSearch(id);
       await loadSearches();
     } catch (err) {
       console.error('Failed to delete search:', err);
@@ -56,6 +50,12 @@
 
   function applySearch(search) {
     dispatch('apply', { query: search.query, timeRange: search.time_range });
+  }
+
+  function closeModal() {
+    showModal = false;
+    newName = '';
+    newQuery = '';
   }
 
   export function openSaveModal(query, timeRange) {
@@ -85,7 +85,7 @@
             <span class="name">{search.name}</span>
             <span class="query">{search.query}</span>
           </button>
-          <button class="btn-delete" aria-label="Delete saved search" on:click|stopPropagation={() => deleteSearch(search.id)}>
+          <button class="btn-delete" aria-label="Delete saved search" on:click|stopPropagation={() => handleDelete(search.id)}>
             <svg width="12" height="12" viewBox="0 0 12 12">
               <path fill="currentColor" d="M9.5 3L3 9.5M3 3l6.5 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
@@ -96,37 +96,30 @@
   {/if}
 </div>
 
-{#if showModal}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" on:click={() => showModal = false} on:keydown={(e) => e.key === 'Escape' && (showModal = false)}>
-    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-    <div class="modal" role="document" on:click|stopPropagation on:keydown|stopPropagation>
-      <h3>Save Search</h3>
-      <label>
-        Name
-        <input type="text" bind:value={newName} placeholder="Error logs" />
-      </label>
-      <label>
-        Query
-        <input type="text" bind:value={newQuery} placeholder="level:ERROR" />
-      </label>
-      <label>
-        Time Range
-        <select bind:value={newTimeRange}>
-          <option value="5m">5 minutes</option>
-          <option value="15m">15 minutes</option>
-          <option value="1h">1 hour</option>
-          <option value="24h">24 hours</option>
-          <option value="7d">7 days</option>
-        </select>
-      </label>
-      <div class="actions">
-        <button class="btn" on:click={() => showModal = false}>Cancel</button>
-        <button class="btn primary" on:click={saveSearch}>Save</button>
-      </div>
-    </div>
+<Modal show={showModal} title="Save Search" on:close={closeModal}>
+  <div class="form-group">
+    <label for="search-name">Name</label>
+    <input id="search-name" type="text" bind:value={newName} placeholder="Error logs" />
   </div>
-{/if}
+  <div class="form-group">
+    <label for="search-query">Query</label>
+    <input id="search-query" type="text" bind:value={newQuery} placeholder="level:ERROR" />
+  </div>
+  <div class="form-group">
+    <label for="search-time-range">Time Range</label>
+    <select id="search-time-range" bind:value={newTimeRange}>
+      <option value="5m">5 minutes</option>
+      <option value="15m">15 minutes</option>
+      <option value="1h">1 hour</option>
+      <option value="24h">24 hours</option>
+      <option value="7d">7 days</option>
+    </select>
+  </div>
+  <svelte:fragment slot="footer">
+    <Button on:click={closeModal}>Cancel</Button>
+    <Button variant="primary" on:click={saveSearch}>Save</Button>
+  </svelte:fragment>
+</Modal>
 
 <style>
   .saved-searches {
@@ -220,41 +213,22 @@
     background: rgba(248, 81, 73, 0.1);
   }
 
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .modal {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 20px;
-    width: 400px;
-  }
-
-  .modal h3 {
-    font-size: 16px;
-    color: #c9d1d9;
-    text-transform: none;
+  /* Form styles */
+  .form-group {
     margin-bottom: 16px;
   }
 
-  label {
+  .form-group label {
     display: block;
-    margin-bottom: 12px;
+    margin-bottom: 6px;
     color: #8b949e;
     font-size: 12px;
+    font-weight: 500;
   }
 
-  input, select {
+  .form-group input,
+  .form-group select {
     width: 100%;
-    margin-top: 4px;
     padding: 8px 12px;
     background: #0d1117;
     border: 1px solid #30363d;
@@ -263,38 +237,9 @@
     font-size: 14px;
   }
 
-  input:focus, select:focus {
+  .form-group input:focus,
+  .form-group select:focus {
     outline: none;
     border-color: #58a6ff;
-  }
-
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 16px;
-  }
-
-  .btn {
-    padding: 8px 16px;
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  .btn:hover {
-    background: #30363d;
-  }
-
-  .btn.primary {
-    background: #238636;
-    border-color: #238636;
-  }
-
-  .btn.primary:hover {
-    background: #2ea043;
   }
 </style>
