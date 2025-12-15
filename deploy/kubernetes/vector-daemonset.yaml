@@ -1,14 +1,8 @@
-# Vector DaemonSet for Kubernetes
-# Collects logs from all pods and sends to Purl API
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: vector-config
   namespace: purl
-  labels:
-    app.kubernetes.io/name: vector
-    app.kubernetes.io/part-of: purl
 data:
   vector.toml: |
     data_dir = "/var/lib/vector"
@@ -17,133 +11,80 @@ data:
     enabled = true
     address = "0.0.0.0:8686"
 
-    # Kubernetes Pod Logs
     [sources.kubernetes]
     type = "kubernetes_logs"
     auto_partial_merge = true
-    exclude_paths_glob_patterns = [
-      "**/kube-system/**",
-      "**/purl/**vector**"
-    ]
+    exclude_paths_glob_patterns = ["**/kube-system/**", "**/purl/**vector**"]
 
-    # Parse and enrich logs
     [transforms.parsed]
     type = "remap"
     inputs = ["kubernetes"]
     source = '''
-    # Extract Kubernetes metadata
     .service = .kubernetes.pod_labels.app ?? .kubernetes.pod_labels."app.kubernetes.io/name" ?? .kubernetes.pod_name
     .host = .kubernetes.pod_node_name ?? "unknown"
-
-    .meta.pod = .kubernetes.pod_name
-    .meta.namespace = .kubernetes.pod_namespace
-    .meta.container = .kubernetes.container_name
-    .meta.node = .kubernetes.pod_node_name
-    .meta.source = "kubernetes"
-
-    # Add labels as meta
-    if exists(.kubernetes.pod_labels) {
-      for_each(object!(.kubernetes.pod_labels)) -> |key, value| {
-        .meta = set!(.meta, [key], value)
-      }
-    }
-
-    .timestamp = to_timestamp(.timestamp) ?? now()
     .raw = .message
+    .timestamp = .timestamp ?? now()
 
-    # Detect log level
-    msg_upper = upcase(string!(.message))
-    if contains(msg_upper, "FATAL") || contains(msg_upper, "PANIC") {
-      .level = "FATAL"
-    } else if contains(msg_upper, "ERROR") || contains(msg_upper, "ERR ") {
-      .level = "ERROR"
-    } else if contains(msg_upper, "WARN") {
-      .level = "WARN"
-    } else if contains(msg_upper, "DEBUG") {
-      .level = "DEBUG"
-    } else {
-      .level = "INFO"
-    }
+    .meta = encode_json({
+      "pod": .kubernetes.pod_name,
+      "namespace": .kubernetes.pod_namespace,
+      "container": .kubernetes.container_name,
+      "node": .kubernetes.pod_node_name,
+      "cluster": get_env_var("CLUSTER_NAME") ?? "default",
+      "source": "kubernetes"
+    })
 
-    # Try to parse JSON logs
+    msg = upcase(string!(.message))
+    if contains(msg, "FATAL") || contains(msg, "PANIC") { .level = "FATAL" }
+    else if contains(msg, "ERROR") { .level = "ERROR" }
+    else if contains(msg, "WARN") { .level = "WARN" }
+    else if contains(msg, "DEBUG") { .level = "DEBUG" }
+    else { .level = "INFO" }
+
     parsed, err = parse_json(.message)
     if err == null {
       .message = parsed.msg ?? parsed.message ?? .message
       .level = upcase(parsed.level ?? parsed.severity ?? .level)
+      .trace_id = string(parsed.trace_id ?? parsed.traceId ?? "") ?? ""
+      .request_id = string(parsed.request_id ?? parsed.requestId ?? "") ?? ""
     }
 
-    # Extract trace/request IDs
-    .trace_id = ""
-    .request_id = ""
+    .trace_id = .trace_id ?? ""
+    .request_id = .request_id ?? ""
     .span_id = ""
     .parent_span_id = ""
 
-    if err == null {
-      # JSON log - extract trace fields (multiple naming conventions)
-      .trace_id = string(parsed.trace_id ?? parsed.traceId ?? parsed.traceid ?? parsed."X-Trace-Id" ?? "") ?? ""
-      .request_id = string(parsed.request_id ?? parsed.requestId ?? parsed.reqId ?? parsed.req_id ?? parsed."X-Request-Id" ?? "") ?? ""
-      .span_id = string(parsed.span_id ?? parsed.spanId ?? parsed.spanid ?? "") ?? ""
-      .parent_span_id = string(parsed.parent_span_id ?? parsed.parentSpanId ?? parsed.parent_id ?? parsed.parentId ?? "") ?? ""
-    }
-
-    # Fallback: extract from message using regex
-    raw_msg = string!(.raw)
-    if .trace_id == "" {
-      trace_match, trace_err = parse_regex(raw_msg, r'(?i)(?:trace[-_]?id|traceid)[=:\s]+["\']?(?P<trace>[a-f0-9-]{16,36})["\']?')
-      if trace_err == null {
-        .trace_id = trace_match.trace ?? ""
-      }
-    }
-    if .request_id == "" {
-      req_match, req_err = parse_regex(raw_msg, r'(?i)(?:request[-_]?id|requestid|req[-_]?id)[=:\s]+["\']?(?P<req>[a-f0-9-]{8,36})["\']?')
-      if req_err == null {
-        .request_id = req_match.req ?? ""
-      }
-    }
-
-    # Add cluster label
-    .meta.cluster = get_env_var("CLUSTER_NAME") ?? "default"
-
-    # Clean up
-    del(.kubernetes)
-    del(.file)
-    del(.stream)
+    del(.kubernetes); del(.file); del(.stream)
     '''
 
-    # Filter noise
     [transforms.filtered]
     type = "filter"
     inputs = ["parsed"]
-    condition = '''
-    length(.message) > 0 &&
-    !contains(string!(.message), "health") &&
-    !contains(string!(.message), "/healthz") &&
-    !contains(string!(.message), "/readyz")
-    '''
+    condition = 'length(.message) > 0 && !contains(string!(.message), "/health")'
 
-    # Send to Purl API
     [sinks.purl]
     type = "http"
     inputs = ["filtered"]
     uri = "http://purl.purl.svc.cluster.local/api/logs"
     method = "post"
-    encoding.codec = "json"
+    compression = "gzip"
 
-    batch.max_events = 100
-    batch.timeout_secs = 5
+    [sinks.purl.encoding]
+    codec = "json"
 
-    buffer.type = "disk"
-    buffer.max_size = 268435488
-    buffer.when_full = "block"
+    [sinks.purl.batch]
+    max_events = 100
+    timeout_secs = 5
 
-    request.retry_attempts = 10
-    healthcheck.enabled = false
+    [sinks.purl.buffer]
+    type = "disk"
+    max_size = 268435488
+    when_full = "block"
 
     [sinks.purl.request]
     headers.X-API-Key = "${PURL_API_KEY}"
     headers.Content-Type = "application/json"
 
-    # Vector metrics
     [sources.internal_metrics]
     type = "internal_metrics"
 
@@ -157,16 +98,11 @@ kind: ServiceAccount
 metadata:
   name: vector
   namespace: purl
-  labels:
-    app.kubernetes.io/name: vector
-    app.kubernetes.io/part-of: purl
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: vector
-  labels:
-    app.kubernetes.io/name: vector
 rules:
   - apiGroups: [""]
     resources: ["namespaces", "nodes", "pods"]
@@ -176,8 +112,6 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: vector
-  labels:
-    app.kubernetes.io/name: vector
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -192,35 +126,21 @@ kind: DaemonSet
 metadata:
   name: vector
   namespace: purl
-  labels:
-    app.kubernetes.io/name: vector
-    app.kubernetes.io/component: agent
-    app.kubernetes.io/part-of: purl
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: vector
-  updateStrategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 1
+      app: vector
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: vector
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "9598"
+        app: vector
     spec:
       serviceAccountName: vector
       tolerations:
         - operator: Exists
-          effect: NoSchedule
-        - operator: Exists
-          effect: NoExecute
       containers:
         - name: vector
-          image: timberio/vector:0.43.1-alpine
+          image: timberio/vector:0.51.1-alpine
           args: ["--config-dir", "/etc/vector"]
           env:
             - name: VECTOR_SELF_NODE_NAME
@@ -235,12 +155,8 @@ spec:
             - name: CLUSTER_NAME
               value: "default"
           ports:
-            - name: api
-              containerPort: 8686
-              protocol: TCP
-            - name: metrics
-              containerPort: 9598
-              protocol: TCP
+            - containerPort: 8686
+            - containerPort: 9598
           resources:
             requests:
               cpu: 50m
@@ -257,14 +173,9 @@ spec:
             - name: var-log
               mountPath: /var/log
               readOnly: true
-            - name: var-lib-docker
-              mountPath: /var/lib/docker
-              readOnly: true
             - name: pods-logs
               mountPath: /var/log/pods
               readOnly: true
-          securityContext:
-            readOnlyRootFilesystem: true
       volumes:
         - name: config
           configMap:
@@ -276,30 +187,21 @@ spec:
         - name: var-log
           hostPath:
             path: /var/log
-        - name: var-lib-docker
-          hostPath:
-            path: /var/lib/docker
         - name: pods-logs
           hostPath:
             path: /var/log/pods
-      terminationGracePeriodSeconds: 60
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: vector
   namespace: purl
-  labels:
-    app.kubernetes.io/name: vector
-    app.kubernetes.io/part-of: purl
 spec:
   selector:
-    app.kubernetes.io/name: vector
+    app: vector
   ports:
     - name: api
       port: 8686
-      targetPort: 8686
     - name: metrics
       port: 9598
-      targetPort: 9598
   clusterIP: None

@@ -1,4 +1,3 @@
-# ClickHouse StatefulSet for persistent storage
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -24,15 +23,12 @@ data:
         <default>
           <max_memory_usage>2000000000</max_memory_usage>
           <max_execution_time>60</max_execution_time>
-          <log_queries>0</log_queries>
         </default>
       </profiles>
       <users>
         <purl>
           <password from_env="CLICKHOUSE_PASSWORD"/>
-          <networks>
-            <ip>::/0</ip>
-          </networks>
+          <networks><ip>::/0</ip></networks>
           <profile>default</profile>
           <quota>default</quota>
         </purl>
@@ -53,9 +49,6 @@ kind: StatefulSet
 metadata:
   name: clickhouse
   namespace: purl
-  labels:
-    app.kubernetes.io/name: clickhouse
-    app.kubernetes.io/part-of: purl
 spec:
   serviceName: clickhouse
   replicas: 1
@@ -69,7 +62,7 @@ spec:
     spec:
       containers:
         - name: clickhouse
-          image: clickhouse/clickhouse-server:24.8-alpine
+          image: clickhouse/clickhouse-server:25.11-alpine
           ports:
             - containerPort: 8123
               name: http
@@ -119,16 +112,12 @@ kind: Service
 metadata:
   name: clickhouse
   namespace: purl
-  labels:
-    app.kubernetes.io/name: clickhouse
 spec:
   selector:
     app: clickhouse
   ports:
     - name: http
       port: 8123
-      targetPort: 8123
     - name: native
       port: 9000
-      targetPort: 9000
   clusterIP: None
