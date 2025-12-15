@@ -101,8 +101,19 @@
     selectedLog = selectedLog?.id === log.id ? null : log;
   }
 
-  function copyToClipboard(text) {
+  // Copy feedback state
+  let copiedField = null;
+  let copiedTimeout = null;
+
+  function copyToClipboard(text, fieldId = null) {
     navigator.clipboard.writeText(text);
+
+    // Show "Copied!" feedback
+    if (copiedTimeout) clearTimeout(copiedTimeout);
+    copiedField = fieldId || text;
+    copiedTimeout = setTimeout(() => {
+      copiedField = null;
+    }, 700);
   }
 
   async function loadContext(logId) {
@@ -325,35 +336,41 @@
                   </div>
 
                   <div class="detail-lines">
-                    <button type="button" class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.timestamp)}>
+                    <button type="button" class="detail-line" class:copied={copiedField === `${log.id}-timestamp`} on:click|stopPropagation={() => copyToClipboard(log.timestamp, `${log.id}-timestamp`)}>
                       <span class="line-key">timestamp</span>
                       <span class="line-value mono">{log.timestamp}</span>
+                      <span class="copy-feedback">{copiedField === `${log.id}-timestamp` ? 'Copied!' : ''}</span>
                     </button>
-                    <button type="button" class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.level)}>
+                    <button type="button" class="detail-line" class:copied={copiedField === `${log.id}-level`} on:click|stopPropagation={() => copyToClipboard(log.level, `${log.id}-level`)}>
                       <span class="line-key">level</span>
                       <span class="line-value" style="color: {getLevelColor(log.level)}">{log.level}</span>
+                      <span class="copy-feedback">{copiedField === `${log.id}-level` ? 'Copied!' : ''}</span>
                     </button>
-                    <button type="button" class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.service)}>
+                    <button type="button" class="detail-line" class:copied={copiedField === `${log.id}-service`} on:click|stopPropagation={() => copyToClipboard(log.service, `${log.id}-service`)}>
                       <span class="line-key">service</span>
                       <span class="line-value blue">{log.service}</span>
+                      <span class="copy-feedback">{copiedField === `${log.id}-service` ? 'Copied!' : ''}</span>
                     </button>
-                    <button type="button" class="detail-line" on:click|stopPropagation={() => copyToClipboard(log.host)}>
+                    <button type="button" class="detail-line" class:copied={copiedField === `${log.id}-host`} on:click|stopPropagation={() => copyToClipboard(log.host, `${log.id}-host`)}>
                       <span class="line-key">host</span>
                       <span class="line-value purple">{log.host}</span>
+                      <span class="copy-feedback">{copiedField === `${log.id}-host` ? 'Copied!' : ''}</span>
                     </button>
-                    <button type="button" class="detail-line msg" on:click|stopPropagation={() => copyToClipboard(log.message)}>
+                    <button type="button" class="detail-line msg" class:copied={copiedField === `${log.id}-message`} on:click|stopPropagation={() => copyToClipboard(log.message, `${log.id}-message`)}>
                       <span class="line-key">message</span>
                       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                       <span class="line-value mono">{@html highlightText(log.message, searchQuery)}</span>
+                      <span class="copy-feedback">{copiedField === `${log.id}-message` ? 'Copied!' : ''}</span>
                     </button>
 
                     {#if log.meta}
                       {@const parsedMeta = typeof log.meta === 'string' ? (() => { try { return JSON.parse(log.meta); } catch { return null; } })() : log.meta}
                       {#if parsedMeta && typeof parsedMeta === 'object' && Object.keys(parsedMeta).length > 0}
                         {#each Object.entries(parsedMeta) as [key, value]}
-                          <button type="button" class="detail-line meta" on:click|stopPropagation={() => copyToClipboard(String(value))}>
+                          <button type="button" class="detail-line meta" class:copied={copiedField === `${log.id}-${key}`} on:click|stopPropagation={() => copyToClipboard(String(value), `${log.id}-${key}`)}>
                             <span class="line-key">{key}</span>
                             <span class="line-value mono">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
+                            <span class="copy-feedback">{copiedField === `${log.id}-${key}` ? 'Copied!' : ''}</span>
                           </button>
                         {/each}
                       {/if}
@@ -820,6 +837,26 @@
 
   .detail-line:hover {
     background: #161b22;
+  }
+
+  .detail-line.copied {
+    background: rgba(35, 134, 54, 0.2) !important;
+    border-left: 3px solid #3fb950;
+  }
+
+  .copy-feedback {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: #3fb950;
+    font-weight: 600;
+    margin-left: auto;
+    padding: 2px 8px;
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+
+  .detail-line.copied .copy-feedback {
+    opacity: 1;
   }
 
   .detail-line.msg {

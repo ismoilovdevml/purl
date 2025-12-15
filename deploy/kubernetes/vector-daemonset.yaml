@@ -72,22 +72,34 @@ data:
     .parent_span_id = ""
 
     parsed, err = parse_json(.message)
-    if err == null {
-      msg_val, msg_err = get(parsed, ["msg"])
-      if msg_err != null { msg_val, msg_err = get(parsed, ["message"]) }
-      if msg_err == null && msg_val != null { .message = to_string!(msg_val) }
+    if err == null && is_object(parsed) {
+      # Extract message from JSON using dot notation
+      if exists(parsed.msg) {
+        .message = string!(parsed.msg)
+      } else if exists(parsed.message) {
+        .message = string!(parsed.message)
+      }
 
-      lvl_val, lvl_err = get(parsed, ["level"])
-      if lvl_err != null { lvl_val, lvl_err = get(parsed, ["severity"]) }
-      if lvl_err == null && lvl_val != null { .level = upcase(to_string!(lvl_val)) }
+      # Extract level from JSON
+      if exists(parsed.level) {
+        .level = upcase(string!(parsed.level))
+      } else if exists(parsed.severity) {
+        .level = upcase(string!(parsed.severity))
+      }
 
-      trace_val, t_err = get(parsed, ["trace_id"])
-      if t_err != null { trace_val, t_err = get(parsed, ["traceId"]) }
-      if t_err == null && trace_val != null { .trace_id = to_string!(trace_val) }
+      # Extract trace_id
+      if exists(parsed.trace_id) {
+        .trace_id = string!(parsed.trace_id)
+      } else if exists(parsed.traceId) {
+        .trace_id = string!(parsed.traceId)
+      }
 
-      req_val, r_err = get(parsed, ["request_id"])
-      if r_err != null { req_val, r_err = get(parsed, ["requestId"]) }
-      if r_err == null && req_val != null { .request_id = to_string!(req_val) }
+      # Extract request_id
+      if exists(parsed.request_id) {
+        .request_id = string!(parsed.request_id)
+      } else if exists(parsed.requestId) {
+        .request_id = string!(parsed.requestId)
+      }
     }
 
     del(.kubernetes); del(.file); del(.stream)
