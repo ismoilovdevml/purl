@@ -66,7 +66,7 @@
 
         <!-- Purl application user -->
         <purl>
-            <password>CHANGE_ME_GENERATE_SECURE_PASSWORD</password>
+            <password>purl_password</password>
             <networks>
                 <!-- Restrict to Docker internal network only -->
                 <ip>172.16.0.0/12</ip>

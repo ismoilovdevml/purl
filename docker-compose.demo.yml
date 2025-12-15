@@ -1,0 +1,115 @@
+# Demo containers for testing Purl
+# Usage: docker compose -f docker-compose.demo.yml up -d
+
+services:
+  # Simple web app that generates logs
+  demo-api:
+    image: nginx:alpine
+    container_name: demo-api
+    labels:
+      - "purl.service=demo-api"
+      - "purl.collect=true"
+    networks:
+      - purl_purl-local-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # App that generates distributed trace logs
+  log-generator:
+    image: alpine:latest
+    container_name: log-generator
+    labels:
+      - "purl.service=log-generator"
+      - "purl.collect=true"
+    command:
+      - sh
+      - -c
+      - |
+        # Generate hex string
+        hex() { cat /dev/urandom | tr -dc 'a-f0-9' | head -c $$1; }
+
+        while true; do
+          # Generate trace ID (shared across related logs)
+          TRACE_ID=$$(hex 32)
+
+          # Simulate a distributed request flow
+          TS=$$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # 1. API Gateway receives request
+          SPAN1=$$(hex 16)
+          echo "{\"timestamp\":\"$$TS\",\"level\":\"INFO\",\"service\":\"api-gateway\",\"message\":\"Received POST /api/orders\",\"trace_id\":\"$$TRACE_ID\",\"span_id\":\"$$SPAN1\"}"
+          sleep 0.1
+
+          # 2. User service validates token
+          TS=$$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          SPAN2=$$(hex 16)
+          echo "{\"timestamp\":\"$$TS\",\"level\":\"INFO\",\"service\":\"user-service\",\"message\":\"JWT token validated for user_123\",\"trace_id\":\"$$TRACE_ID\",\"span_id\":\"$$SPAN2\",\"parent_span_id\":\"$$SPAN1\"}"
+          sleep 0.1
+
+          # 3. Order service creates order
+          TS=$$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          SPAN3=$$(hex 16)
+          echo "{\"timestamp\":\"$$TS\",\"level\":\"INFO\",\"service\":\"order-service\",\"message\":\"Order ORD-$$(hex 8) created\",\"trace_id\":\"$$TRACE_ID\",\"span_id\":\"$$SPAN3\",\"parent_span_id\":\"$$SPAN1\"}"
+          sleep 0.1
+
+          # 4. Payment service (sometimes fails)
+          TS=$$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          SPAN4=$$(hex 16)
+          if [ $$(( RANDOM % 5 )) -eq 0 ]; then
+            echo "{\"timestamp\":\"$$TS\",\"level\":\"ERROR\",\"service\":\"payment-service\",\"message\":\"Payment failed: insufficient funds\",\"trace_id\":\"$$TRACE_ID\",\"span_id\":\"$$SPAN4\",\"parent_span_id\":\"$$SPAN3\"}"
+          else
+            echo "{\"timestamp\":\"$$TS\",\"level\":\"INFO\",\"service\":\"payment-service\",\"message\":\"Payment processed successfully\",\"trace_id\":\"$$TRACE_ID\",\"span_id\":\"$$SPAN4\",\"parent_span_id\":\"$$SPAN3\"}"
+          fi
+          sleep 0.1
+
+          # 5. Inventory service updates stock
+          TS=$$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          SPAN5=$$(hex 16)
+          echo "{\"timestamp\":\"$$TS\",\"level\":\"INFO\",\"service\":\"inventory-service\",\"message\":\"Stock updated for SKU-$$(hex 4)\",\"trace_id\":\"$$TRACE_ID\",\"span_id\":\"$$SPAN5\",\"parent_span_id\":\"$$SPAN3\"}"
+          sleep 0.1
+
+          # 6. Notification service
+          TS=$$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          SPAN6=$$(hex 16)
+          if [ $$(( RANDOM % 10 )) -eq 0 ]; then
+            echo "{\"timestamp\":\"$$TS\",\"level\":\"WARNING\",\"service\":\"notification-service\",\"message\":\"Email delivery delayed\",\"trace_id\":\"$$TRACE_ID\",\"span_id\":\"$$SPAN6\",\"parent_span_id\":\"$$SPAN3\"}"
+          else
+            echo "{\"timestamp\":\"$$TS\",\"level\":\"INFO\",\"service\":\"notification-service\",\"message\":\"Order confirmation sent\",\"trace_id\":\"$$TRACE_ID\",\"span_id\":\"$$SPAN6\",\"parent_span_id\":\"$$SPAN3\"}"
+          fi
+
+          # 7. API Gateway response
+          TS=$$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "{\"timestamp\":\"$$TS\",\"level\":\"INFO\",\"service\":\"api-gateway\",\"message\":\"Response sent 200 OK in 245ms\",\"trace_id\":\"$$TRACE_ID\",\"span_id\":\"$$SPAN1\"}"
+
+          # Wait before next trace
+          sleep $$(( RANDOM % 3 + 2 ))
+        done
+    networks:
+      - purl_purl-local-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis for testing service dependencies
+  demo-redis:
+    image: redis:alpine
+    container_name: demo-redis
+    labels:
+      - "purl.service=demo-redis"
+      - "purl.collect=true"
+    networks:
+      - purl_purl-local-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  purl_purl-local-network:
+    external: true

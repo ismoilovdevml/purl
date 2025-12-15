@@ -77,8 +77,8 @@ sub get_patterns {
             any(message) as sample_message,
             service,
             level,
-            min(timestamp) as first_seen,
-            max(timestamp) as last_seen,
+            formatDateTime(min(timestamp), '%Y-%m-%dT%H:%i:%S') || 'Z' as first_seen,
+            formatDateTime(max(timestamp), '%Y-%m-%dT%H:%i:%S') || 'Z' as last_seen,
             count() as count
         FROM ${db}.${table}
         $where_sql
@@ -89,13 +89,8 @@ sub get_patterns {
 
     my $results = $self->_query_json($sql, no_cache => 1);
 
-    # Format timestamps and ensure pattern_hash is string (avoid JS BigInt issues)
+    # Ensure pattern_hash is string (avoid JS BigInt issues)
     for my $row (@$results) {
-        $row->{first_seen} =~ s/ /T/;
-        $row->{first_seen} .= 'Z' unless $row->{first_seen} =~ /Z$/;
-        $row->{last_seen} =~ s/ /T/;
-        $row->{last_seen} .= 'Z' unless $row->{last_seen} =~ /Z$/;
-        # Force string type for JSON encoding
         $row->{pattern_hash} = "$row->{pattern_hash}";
     }
 

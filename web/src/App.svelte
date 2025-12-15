@@ -10,6 +10,8 @@
   import PatternsSidebar from './components/PatternsSidebar.svelte';
   import AnalyticsPage from './components/AnalyticsPage.svelte';
   import SettingsPage from './components/SettingsPage.svelte';
+  import TraceView from './components/TraceView.svelte';
+  import ServiceMap from './components/ServiceMap.svelte';
   import {
     logs,
     loading,
@@ -22,7 +24,7 @@
   } from './stores/logs.js';
 
   let savedSearchesRef;
-  let currentPage = 'logs'; // 'logs' | 'analytics' | 'settings'
+  let currentPage = 'logs'; // 'logs' | 'traces' | 'services' | 'analytics' | 'settings'
 
   // Dismiss error
   function dismissError() {
@@ -43,7 +45,7 @@
 
   function handleHashChange() {
     const hash = window.location.hash.slice(1) || 'logs';
-    if (['logs', 'analytics', 'settings'].includes(hash)) {
+    if (['logs', 'traces', 'services', 'analytics', 'settings'].includes(hash)) {
       currentPage = hash;
     }
   }
@@ -175,6 +177,43 @@
           <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
         </svg>
         Logs
+      </button>
+      <button
+        class:active={currentPage === 'traces'}
+        on:click={() => navigate('traces')}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+        </svg>
+        Traces
+      </button>
+      <button
+        class:active={currentPage === 'services'}
+        on:click={() => navigate('services')}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <circle cx="12" cy="12" r="3" />
+          <circle cx="19" cy="5" r="2" />
+          <circle cx="5" cy="5" r="2" />
+          <circle cx="19" cy="19" r="2" />
+          <circle cx="5" cy="19" r="2" />
+          <path d="M12 9V6M12 15v3M9 12H6M15 12h3M14.5 9.5l2-2M9.5 14.5l-2 2M14.5 14.5l2 2M9.5 9.5l-2-2" />
+        </svg>
+        Services
       </button>
       <button
         class:active={currentPage === 'analytics'}
@@ -329,6 +368,14 @@
       <aside class="patterns-aside">
         <PatternsSidebar />
       </aside>
+    </div>
+  {:else if currentPage === 'traces'}
+    <div class="page-content">
+      <TraceView />
+    </div>
+  {:else if currentPage === 'services'}
+    <div class="page-content service-map-page">
+      <ServiceMap />
     </div>
   {:else if currentPage === 'analytics'}
     <AnalyticsPage />
@@ -626,5 +673,17 @@
   .dismiss-btn:hover {
     opacity: 1;
     background: rgba(248, 81, 73, 0.2);
+  }
+
+  /* Page content wrapper */
+  .page-content {
+    flex: 1;
+    padding: 16px;
+    overflow: auto;
+  }
+
+  .service-map-page {
+    padding: 0;
+    height: calc(100vh - 60px);
   }
 </style>

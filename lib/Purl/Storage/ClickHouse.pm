@@ -17,6 +17,7 @@ with 'Purl::Storage::ClickHouse::Cache';
 with 'Purl::Storage::ClickHouse::Alerts';
 with 'Purl::Storage::ClickHouse::SavedSearches';
 with 'Purl::Storage::ClickHouse::Patterns';
+with 'Purl::Storage::ClickHouse::ServiceMap';
 
 # Configuration
 has 'host' => (
@@ -433,6 +434,9 @@ sub _init_schema {
         FROM $table
         GROUP BY pattern_hash, pattern, service, level
     });
+
+    # Create service map tables (from ServiceMap role)
+    $self->_create_service_map_tables();
 }
 
 # Insert single log
@@ -585,7 +589,7 @@ sub search {
     my $limit = $self->_validate_int($params{limit}, 1, 10000) // 500;
     my $offset = $self->_validate_int($params{offset}, 0, 1000000) // 0;
 
-    my $sql = qq{SELECT toString(id) as id, formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts, level, service, host, message, raw, meta as meta_json FROM $table $where_sql ORDER BY timestamp $order LIMIT $limit OFFSET $offset};
+    my $sql = qq{SELECT toString(id) as id, formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts, level, service, host, message, raw, meta as meta_json, trace_id, request_id, span_id, parent_span_id FROM $table $where_sql ORDER BY timestamp $order LIMIT $limit OFFSET $offset};
 
     my $results = $self->_query_json($sql, params => $bind_params);
 

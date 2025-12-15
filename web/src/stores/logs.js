@@ -417,78 +417,8 @@ export async function fetchLogContext(logId, before = 50, after = 50) {
 }
 
 // ============================================
-// Trace Correlation
+// Trace/Request Filtering (uses query store)
 // ============================================
-
-// Trace data store
-export const traceData = writable(null);
-export const traceLoading = writable(false);
-export const traceError = writable(null);
-
-// Fetch logs by trace ID
-export async function fetchTrace(traceId) {
-  if (!traceId) return null;
-
-  traceLoading.set(true);
-  traceError.set(null);
-
-  try {
-    const response = await fetch(`${API_BASE}/traces/${traceId}`);
-
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || 'Failed to fetch trace');
-    }
-
-    const data = await response.json();
-    traceData.set(data);
-    return data;
-  } catch (err) {
-    traceError.set(err.message);
-    console.error('Failed to fetch trace:', err);
-    return null;
-  } finally {
-    traceLoading.set(false);
-  }
-}
-
-// Fetch trace timeline (service spans)
-export async function fetchTraceTimeline(traceId) {
-  if (!traceId) return null;
-
-  try {
-    const response = await fetch(`${API_BASE}/traces/${traceId}/timeline`);
-
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || 'Failed to fetch timeline');
-    }
-
-    return await response.json();
-  } catch (err) {
-    console.error('Failed to fetch trace timeline:', err);
-    return null;
-  }
-}
-
-// Fetch logs by request ID
-export async function fetchRequest(requestId) {
-  if (!requestId) return null;
-
-  try {
-    const response = await fetch(`${API_BASE}/requests/${requestId}`);
-
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || 'Failed to fetch request');
-    }
-
-    return await response.json();
-  } catch (err) {
-    console.error('Failed to fetch request:', err);
-    return null;
-  }
-}
 
 // Filter logs by trace ID (sets query and searches)
 export function filterByTrace(traceId) {

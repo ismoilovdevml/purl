@@ -8,7 +8,6 @@ our $VERSION = '1.2.0';
 use Mojolicious::Lite -signatures;
 use Mojo::JSON qw(encode_json decode_json);
 use Digest::MD5 qw(md5_hex);
-use Digest::SHA qw(sha256_hex hmac_sha256_hex);
 use MIME::Base64 qw(decode_base64 encode_base64);
 use Time::HiRes qw(time);
 
@@ -18,12 +17,19 @@ use Purl::Alert::Slack;
 use Purl::Alert::Webhook;
 use Purl::Config;
 
-# Contollers
+# Utils
+use Purl::Utils::Time qw(parse_time_range epoch_to_iso format_duration);
+use Purl::Utils::Security qw(hash_password verify_password generate_csrf_token verify_csrf_token url_encode generate_random_string);
+use Purl::Utils::Cache qw(make_cache_helpers);
+use Purl::Utils::RateLimit qw(make_rate_limiter);
+
+# Controllers
 use Purl::API::Controller::Logs;
 use Purl::API::Controller::Traces;
 use Purl::API::Controller::System;
 use Purl::API::Controller::Analytics;
 use Purl::API::Controller::Auth;
+use Purl::API::Controller::ServiceMap;
 
 # Package-level state
 my $storage;
@@ -53,47 +59,7 @@ my $rate_limit_window = 60;  # seconds
 my $rate_limit_max = 1000;   # requests per window
 
 # CSRF token secret (generated on startup)
-my $csrf_secret = join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..32);
-
-# Password hashing helpers
-sub _hash_password {
-    my ($password, $salt) = @_;
-    $salt //= join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..16);
-    my $hash = sha256_hex($salt . $password . $salt);
-    return "$salt\$$hash";
-}
-
-sub _verify_password {
-    my ($password, $stored) = @_;
-    return 0 unless $stored && $stored =~ /^([^\$]+)\$([a-f0-9]+)$/;
-    my ($salt, $hash) = ($1, $2);
-    my $check = sha256_hex($salt . $password . $salt);
-    # Constant-time comparison to prevent timing attacks
-    return 0 unless length($check) == length($hash);
-    my $result = 0;
-    $result |= ord(substr($check, $_, 1)) ^ ord(substr($hash, $_, 1)) for 0..length($check)-1;
-    return $result == 0;
-}
-
-# CSRF token generation and validation
-sub _generate_csrf_token {
-    my ($session_id) = @_;
-    $session_id //= join('', map { ('a'..'z', 0..9)[rand 36] } 1..16);
-    my $timestamp = int(time() / 3600);  # Valid for 1 hour
-    my $token = hmac_sha256_hex("$session_id:$timestamp", $csrf_secret);
-    return "$session_id:$timestamp:$token";
-}
-
-sub _verify_csrf_token {
-    my ($token) = @_;
-    return 0 unless $token && $token =~ /^([^:]+):(\d+):([a-f0-9]+)$/;
-    my ($session_id, $timestamp, $hash) = ($1, $2, $3);
-    my $current = int(time() / 3600);
-    # Token valid for 2 hours
-    return 0 if abs($current - $timestamp) > 2;
-    my $expected = hmac_sha256_hex("$session_id:$timestamp", $csrf_secret);
-    return $hash eq $expected;
-}
+my $csrf_secret = generate_random_string(32);
 
 sub create {
     my ($class, %args) = @_;
@@ -308,7 +274,7 @@ sub _check_auth {
             # Support both hashed (salt$hash) and legacy plaintext passwords
             if ($stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/) {
                 # Hashed password
-                return 1 if _verify_password($pass, $stored);
+                return 1 if verify_password($pass, $stored);
             } else {
                 # Legacy plaintext (log warning)
                 app->log->warn("User '$user' has plaintext password - please hash it");
@@ -331,12 +297,13 @@ sub setup_routes {
 
     # Instantiate Controllers
     my %c_args = (storage => $storage, config => $config, cache => \%cache);
-    
+
     my $sys_c    = Purl::API::Controller::System->new(%c_args);
     my $auth_c   = Purl::API::Controller::Auth->new(%c_args);
     my $traces_c = Purl::API::Controller::Traces->new(%c_args);
     my $analytics_c = Purl::API::Controller::Analytics->new(%c_args, notifier_list => \%notifiers);
     my $logs_c   = Purl::API::Controller::Logs->new(%c_args, websockets => $websockets);
+    my $service_map_c = Purl::API::Controller::ServiceMap->new(%c_args);
 
     # Periodic buffer flush timer (every 2 seconds)
     Mojo::IOLoop->recurring(2 => sub {
@@ -385,7 +352,7 @@ sub setup_routes {
         my $sec_fetch = $c->req->headers->header('Sec-Fetch-Site') // '';
         if ($method =~ /^(POST|PUT|DELETE)$/ && ($sec_fetch eq 'same-origin' || $sec_fetch eq 'same-site')) {
             my $csrf_token = $c->req->headers->header('X-CSRF-Token') // '';
-            unless (_verify_csrf_token($csrf_token)) {
+            unless (verify_csrf_token($csrf_token, $csrf_secret)) {
                 # Allow if API key is present (programmatic access)
                 unless ($c->req->headers->header('X-API-Key')) {
                     app->log->warn("CSRF token validation failed for $method request");
@@ -507,7 +474,7 @@ sub setup_routes {
 
         # Parse range parameter (e.g., 15m, 1h, 24h)
         if (my $range = $c->param('range')) {
-            ($from, $to) = _parse_time_range($range);
+            ($from, $to) = parse_time_range($range);
         }
 
         # Allow standard fields and meta.* fields (K8s support)
@@ -550,7 +517,7 @@ sub setup_routes {
 
         # Parse range parameter (e.g., 15m, 1h, 24h)
         if (my $range = $c->param('range')) {
-            ($from, $to) = _parse_time_range($range);
+            ($from, $to) = parse_time_range($range);
         }
 
         my %params = (interval => $interval);
@@ -600,6 +567,28 @@ sub setup_routes {
 
         $c->render(json => $stats);
     });
+
+    # ============================================
+    # Service Map API
+    # ============================================
+
+    # List all services with health status
+    $protected->get('/services' => sub ($c) { $service_map_c->list_services($c) });
+
+    # Get service dependency graph
+    $protected->get('/services/dependencies' => sub ($c) { $service_map_c->get_dependencies($c) });
+
+    # Get service health overview
+    $protected->get('/services/health' => sub ($c) { $service_map_c->get_health($c) });
+
+    # Get specific service details
+    $protected->get('/services/:name' => sub ($c) { $service_map_c->get_service($c) });
+
+    # Get upstream services (services that call this service)
+    $protected->get('/services/:name/upstream' => sub ($c) { $service_map_c->get_upstream($c) });
+
+    # Get downstream services (services this service calls)
+    $protected->get('/services/:name/downstream' => sub ($c) { $service_map_c->get_downstream($c) });
 
     # ============================================
     # Analytics API
@@ -703,7 +692,7 @@ sub setup_routes {
         eval {
             require HTTP::Tiny;
             my $http = HTTP::Tiny->new(timeout => 5);
-            my $url = "http://$host:$port/?query=" . _url_encode("SELECT 1");
+            my $url = "http://$host:$port/?query=" . url_encode("SELECT 1");
 
             my %headers;
             if ($user && $password) {
@@ -989,7 +978,7 @@ sub setup_routes {
         my $to      = $c->param('to');
 
         if (my $range = $c->param('range')) {
-            ($from, $to) = _parse_time_range($range);
+            ($from, $to) = parse_time_range($range);
         }
 
         my %params = (limit => int($limit));
@@ -1002,7 +991,8 @@ sub setup_routes {
         my $cache_key = "patterns:" . md5_hex(encode_json(\%params));
         if (my $cached = _cache_get($cache_key)) {
             $c->res->headers->header('X-Cache' => 'HIT');
-            $c->render(json => $cached);
+            $c->res->headers->content_type('application/json');
+            $c->render(data => $cached);
             return;
         }
 
@@ -1022,7 +1012,7 @@ sub setup_routes {
         }
         my $json = '{"patterns":[' . join(',', @pattern_json) . '],"total":' . scalar(@$patterns) . '}';
 
-        _cache_set($cache_key, { raw_json => $json }, 30);
+        _cache_set($cache_key, $json, 30);
         $c->res->headers->header('X-Cache' => 'MISS');
         $c->res->headers->content_type('application/json');
 
@@ -1042,7 +1032,7 @@ sub setup_routes {
         }
 
         if (my $range = $c->param('range')) {
-            ($from, $to) = _parse_time_range($range);
+            ($from, $to) = parse_time_range($range);
         }
 
         my %params = (limit => int($limit));
@@ -1177,72 +1167,6 @@ sub setup_routes {
     });
 
     return app;
-}
-
-
-
-# Format duration in human readable format
-sub _format_duration {
-    my ($secs) = @_;
-    return '0s' unless $secs;
-
-    my @parts;
-    if ($secs >= 86400) {
-        push @parts, int($secs / 86400) . 'd';
-        $secs %= 86400;
-    }
-    if ($secs >= 3600) {
-        push @parts, int($secs / 3600) . 'h';
-        $secs %= 3600;
-    }
-    if ($secs >= 60) {
-        push @parts, int($secs / 60) . 'm';
-        $secs %= 60;
-    }
-    if ($secs > 0 && @parts < 2) {
-        push @parts, $secs . 's';
-    }
-
-    return join(' ', @parts) || '0s';
-}
-
-# Parse time range shortcut (15m, 1h, 24h, 7d)
-sub _parse_time_range {
-    my ($range) = @_;
-
-    my $now = time();
-    my $from;
-
-    if ($range =~ /^(\d+)m$/) {
-        $from = $now - ($1 * 60);
-    }
-    elsif ($range =~ /^(\d+)h$/) {
-        $from = $now - ($1 * 3600);
-    }
-    elsif ($range =~ /^(\d+)d$/) {
-        $from = $now - ($1 * 86400);
-    }
-    else {
-        return (undef, undef);
-    }
-
-    my $from_ts = _epoch_to_iso($from);
-    my $to_ts = _epoch_to_iso($now);
-
-    return ($from_ts, $to_ts);
-}
-
-sub _epoch_to_iso {
-    my ($epoch) = @_;
-    my @t = gmtime($epoch);
-    return sprintf('%04d-%02d-%02dT%02d:%02d:%02dZ',
-        $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0]);
-}
-
-sub _url_encode {
-    my ($str) = @_;
-    $str =~ s/([^A-Za-z0-9\-_.~])/sprintf("%%%02X", ord($1))/ge;
-    return $str;
 }
 
 # Start the server

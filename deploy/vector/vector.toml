@@ -57,9 +57,9 @@ true
 type = "remap"
 inputs = ["filter_noise"]
 source = '''
-# Extract service name from container name (remove leading slash)
+# Extract container name (remove leading slash)
 container = string!(.container_name)
-.service = replace(container, r'^/', "")
+container = replace(container, r'^/', "")
 
 # Get hostname from environment or use container hostname
 .host = get_env_var("VECTOR_HOSTNAME") ?? get_hostname() ?? "unknown"
@@ -67,19 +67,8 @@ container = string!(.container_name)
 # Ensure message is string
 msg = string!(.message)
 
-# Try to parse JSON logs for structured data
-parsed, err = parse_json(msg)
-if err == null {
-    # Extract message from parsed JSON
-    msg_val, msg_err = get(parsed, ["msg"])
-    if msg_err != null {
-        msg_val, msg_err = get(parsed, ["message"])
-    }
-    if msg_err == null && msg_val != null {
-        msg = to_string!(msg_val)
-    }
-    .message = msg
-}
+# Default service to container name
+.service = container
 
 # Initialize trace fields
 .trace_id = ""
@@ -87,43 +76,42 @@ if err == null {
 .span_id = ""
 .parent_span_id = ""
 
-# Extract trace fields from JSON if available
-if err == null {
-    trace_val, t_err = get(parsed, ["trace_id"])
-    if t_err == null && trace_val != null { .trace_id = to_string!(trace_val) }
-
-    req_val, r_err = get(parsed, ["request_id"])
-    if r_err == null && req_val != null { .request_id = to_string!(req_val) }
-}
-
-# Detect log level with priority (most specific first)
+# Default level
 level = "INFO"
-if match(msg, r'(?i)\b(fatal|panic|critical)\b') {
-    level = "FATAL"
-} else if match(msg, r'(?i)\b(error|err|exception|failed)\b') {
-    level = "ERROR"
-} else if match(msg, r'(?i)\b(warn|warning)\b') {
-    level = "WARN"
-} else if match(msg, r'(?i)\b(debug|trace)\b') {
-    level = "DEBUG"
-} else if match(msg, r'(?i)\b(info)\b') {
-    level = "INFO"
+
+# Try to parse JSON logs for structured data
+parsed, parse_err = parse_json(msg)
+if parse_err == null {
+    # Extract service
+    .service = string(parsed.service) ?? container
+
+    # Extract message - try "message" then "msg"
+    inner_msg = string(parsed.message) ?? string(parsed.msg) ?? msg
+    msg = inner_msg
+
+    # Extract level
+    json_level = upcase(string(parsed.level) ?? string(parsed.severity) ?? "")
+    if json_level != "" { level = json_level }
+
+    # Extract trace fields
+    .trace_id = string(parsed.trace_id) ?? ""
+    .request_id = string(parsed.request_id) ?? ""
+    .span_id = string(parsed.span_id) ?? ""
+    .parent_span_id = string(parsed.parent_span_id) ?? ""
+} else {
+    # For non-JSON logs, detect level from message text
+    if match(msg, r'(?i)\b(fatal|panic|critical)\b') {
+        level = "FATAL"
+    } else if match(msg, r'(?i)\b(error|err|exception|failed)\b') {
+        level = "ERROR"
+    } else if match(msg, r'(?i)\b(warn|warning)\b') {
+        level = "WARNING"
+    } else if match(msg, r'(?i)\b(debug|trace)\b') {
+        level = "DEBUG"
+    }
 }
 
-# If JSON had level, use it
-if err == null {
-    level_val, lv_err = get(parsed, ["level"])
-    if lv_err != null {
-        level_val, lv_err = get(parsed, ["severity"])
-    }
-    if lv_err == null && level_val != null {
-        parsed_level = upcase(to_string!(level_val))
-        if parsed_level != "" {
-            level = parsed_level
-        }
-    }
-}
-
+.message = msg
 .level = level
 .raw = msg
 
@@ -133,6 +121,7 @@ image_str = to_string(.image) ?? ""
 stream_str = to_string(.stream) ?? "stdout"
 .meta = encode_json({
     "container_id": container_id_str,
+    "container": container,
     "image": image_str,
     "source": "docker",
     "stream": stream_str
