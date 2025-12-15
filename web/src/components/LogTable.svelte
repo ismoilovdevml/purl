@@ -54,8 +54,22 @@
     { id: 'level', label: 'Level', visible: true, width: 100, minWidth: 60 },
     { id: 'service', label: 'Service', visible: true, width: 150, minWidth: 80 },
     { id: 'host', label: 'Host', visible: false, width: 120, minWidth: 80 },
+    { id: 'namespace', label: 'Namespace', visible: false, width: 120, minWidth: 80, meta: true },
+    { id: 'pod', label: 'Pod', visible: false, width: 180, minWidth: 100, meta: true },
+    { id: 'node', label: 'Node', visible: false, width: 150, minWidth: 100, meta: true },
     { id: 'message', label: 'Message', visible: true, width: null, minWidth: 200 }
   ];
+
+  // Helper to get meta field value
+  function getMetaField(log, field) {
+    if (!log.meta) return '';
+    try {
+      const meta = typeof log.meta === 'string' ? JSON.parse(log.meta) : log.meta;
+      return meta[field] || '';
+    } catch {
+      return '';
+    }
+  }
 
   // Resize state
   let resizing = null;
@@ -119,12 +133,11 @@
   }
 
   function toggleColumn(colId) {
-    const col = columns.find(c => c.id === colId);
-    if (col) {
-      col.visible = !col.visible;
-      columns = columns;
-      saveColumnConfig();
-    }
+    // Create new array to trigger Svelte reactivity
+    columns = columns.map(c =>
+      c.id === colId ? { ...c, visible: !c.visible } : c
+    );
+    saveColumnConfig();
   }
 
   function startResize(event, colId) {
@@ -165,6 +178,9 @@
       { id: 'level', label: 'Level', visible: true, width: 100, minWidth: 60 },
       { id: 'service', label: 'Service', visible: true, width: 150, minWidth: 80 },
       { id: 'host', label: 'Host', visible: false, width: 120, minWidth: 80 },
+      { id: 'namespace', label: 'Namespace', visible: false, width: 120, minWidth: 80, meta: true },
+      { id: 'pod', label: 'Pod', visible: false, width: 180, minWidth: 100, meta: true },
+      { id: 'node', label: 'Node', visible: false, width: 150, minWidth: 100, meta: true },
       { id: 'message', label: 'Message', visible: true, width: null, minWidth: 200 }
     ];
     saveColumnConfig();
@@ -255,6 +271,21 @@
             {#if columns.find(c => c.id === 'host')?.visible}
               <td style="width: {columns.find(c => c.id === 'host').width}px">
                 <span class="host">{log.host}</span>
+              </td>
+            {/if}
+            {#if columns.find(c => c.id === 'namespace')?.visible}
+              <td style="width: {columns.find(c => c.id === 'namespace').width}px">
+                <span class="namespace">{getMetaField(log, 'namespace')}</span>
+              </td>
+            {/if}
+            {#if columns.find(c => c.id === 'pod')?.visible}
+              <td style="width: {columns.find(c => c.id === 'pod').width}px">
+                <span class="pod">{getMetaField(log, 'pod')}</span>
+              </td>
+            {/if}
+            {#if columns.find(c => c.id === 'node')?.visible}
+              <td style="width: {columns.find(c => c.id === 'node').width}px">
+                <span class="node">{getMetaField(log, 'node')}</span>
               </td>
             {/if}
             {#if columns.find(c => c.id === 'message')?.visible}
@@ -627,6 +658,20 @@
   }
 
   .host {
+    color: #a371f7;
+  }
+
+  .namespace {
+    color: #f0883e;
+  }
+
+  .pod {
+    color: #3fb950;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 12px;
+  }
+
+  .node {
     color: #a371f7;
   }
 

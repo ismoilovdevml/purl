@@ -47,9 +47,9 @@ sub setup_log_routes {
         $params{service} = $service if $service;
         $params{host}    = $host if $host;
 
-        # Parse KQL query
+        # Parse KQL query (supports field:value and meta.field:value)
         if ($query) {
-            if ($query =~ /^(\w+):(.+)$/) {
+            if ($query =~ /^([\w.]+):(.+)$/) {
                 my ($field, $value) = ($1, $2);
                 $field = lc($field);
                 $value =~ s/^["']|["']$//g;
@@ -60,6 +60,10 @@ sub setup_log_routes {
                     $params{service} = $value;
                 } elsif ($field eq 'host') {
                     $params{host} = $value;
+                } elsif ($field =~ /^meta\.(\w+)$/) {
+                    # Handle meta.* fields (namespace, pod, node, container, cluster)
+                    $params{meta_field} = $1;
+                    $params{meta_value} = $value;
                 } else {
                     $params{query} = $value;
                 }

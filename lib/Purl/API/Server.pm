@@ -498,7 +498,8 @@ sub setup_routes {
     $protected->post('/query' => sub ($c) { $logs_c->query($c) });
 
     # Field statistics (with caching)
-    $protected->get('/stats/fields/:field' => sub ($c) {
+    # Use #field placeholder to allow dots (for meta.namespace, meta.pod, etc.)
+    $protected->get('/stats/fields/#field' => sub ($c) {
         my $field = $c->param('field');
         my $limit = $c->param('limit') // 10;
         my $from  = $c->param('from');
@@ -509,7 +510,8 @@ sub setup_routes {
             ($from, $to) = _parse_time_range($range);
         }
 
-        unless ($field =~ /^(level|service|host)$/) {
+        # Allow standard fields and meta.* fields (K8s support)
+        unless ($field =~ /^(level|service|host|meta\.(namespace|pod|node|container|cluster))$/) {
             $c->render(json => { error => 'Invalid field' }, status => 400);
             return;
         }

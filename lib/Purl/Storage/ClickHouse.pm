@@ -632,10 +632,12 @@ sub field_stats {
     my ($where_sql, $bind_params) = $self->_build_where_clause(%params);
 
     # Handle meta.* fields (K8s support) using JSONExtractString
+    # Meta field is double-encoded JSON string, so we need to unescape it first
     my $select_field;
     if ($valid_field =~ /^meta\.(\w+)$/) {
         my $sub_field = $1;
-        $select_field = "JSONExtractString(meta, '$sub_field')";
+        # Strip outer quotes and unescape inner quotes before JSON extraction
+        $select_field = "JSONExtractString(replaceAll(substring(meta, 2, length(meta)-2), '\\\\\"', '\"'), '$sub_field')";
     } else {
         $select_field = $valid_field;
     }

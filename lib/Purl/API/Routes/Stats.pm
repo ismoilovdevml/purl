@@ -19,7 +19,8 @@ sub setup_stats_routes {
     my ($cache_get, $cache_set) = @$cache_funcs;
 
     # Field statistics (with caching)
-    $protected->get('/stats/fields/:field' => sub {
+    # Use #field placeholder to allow dots (for meta.namespace, meta.pod, etc.)
+    $protected->get('/stats/fields/#field' => sub {
         my ($c) = @_;
         my $field = $c->param('field');
         my $limit = $c->param('limit') // 10;

@@ -206,6 +206,28 @@ sub _build_where_clause {
         }
     }
 
+    # Meta field filter (K8s: namespace, pod, node, container, cluster)
+    # Use simple position() to find field and value in meta JSON string
+    if ($params{meta_field} && $params{meta_value}) {
+        my $meta_field = lc($params{meta_field});
+        if ($ALLOWED_META_FIELDS{$meta_field}) {
+            my $meta_value = $params{meta_value};
+            if ($meta_value =~ /\*/) {
+                # Wildcard search - look for field name and partial value
+                my $clean_value = $meta_value;
+                $clean_value =~ s/\*//g;
+                push @where, "(position(meta, {p_meta_field:String}) > 0 AND position(meta, {p_meta_value:String}) > 0)";
+                $bind_params{p_meta_field} = $meta_field;
+                $bind_params{p_meta_value} = $clean_value;
+            } else {
+                # Exact match: search for both field name and value in meta
+                push @where, "(position(meta, {p_meta_field:String}) > 0 AND position(meta, {p_meta_value:String}) > 0)";
+                $bind_params{p_meta_field} = $meta_field;
+                $bind_params{p_meta_value} = $meta_value;
+            }
+        }
+    }
+
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
     return ($where_sql, \%bind_params);
 }
