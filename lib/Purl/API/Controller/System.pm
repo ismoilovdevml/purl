@@ -10,7 +10,7 @@ use Time::HiRes qw(time);
 extends 'Purl::API::Controller::Base';
 
 # Version constant
-our $VERSION = '0.1.0';
+our $VERSION = '1.2.0';
 
 sub health {
     my ($self, $c) = @_;

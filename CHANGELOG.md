@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-12-15
+
+### Added
+
+- Kubernetes one-line install script (`deploy/kubernetes/install.sh`)
+- Kubernetes uninstall script (`deploy/kubernetes/uninstall.sh`)
+- K8s metadata sidebar (namespace, pod, node filters)
+- Copy-to-clipboard with visual feedback on log details
+- Meta field support in KQL queries (`meta.namespace:value`, `meta.pod:*`)
+
+### Changed
+
+- Vector VRL config: improved JSON log parsing with `exists()` checks
+- README: simplified K8s installation instructions
+- Log detail rows now clickable for quick copy
+- Reduced K8s deployment replicas for resource optimization
+
+### Fixed
+
+- KQL parser regex to support dot notation (`meta.namespace`)
+- Vector JSON message extraction (was showing raw JSON)
+- Build output gitignore (web/public/index.html)
+
 ## [1.1.0] - 2025-12-13
 
 ### Added
@@ -45,5 +68,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Svelte 5 dark theme dashboard
 - Vector log collector configurations
 
+[1.2.0]: https://github.com/ismoilovdevml/purl/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ismoilovdevml/purl/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ismoilovdevml/purl/releases/tag/v1.0.0

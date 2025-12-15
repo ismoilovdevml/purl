@@ -6,6 +6,7 @@ local/
 # Build output
 web/public/build/
 web/public/assets/
+web/public/index.html
 web/dist/
 
 # Data

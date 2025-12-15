@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use 5.024;
 
-our $VERSION = '1.1.0';
+our $VERSION = '1.2.0';
 
 use Mojolicious::Lite -signatures;
 use Mojo::JSON qw(encode_json decode_json);

@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use 5.024;
 
-our $VERSION = '0.2.0';
+our $VERSION = '1.2.0';
 
 1;
 
