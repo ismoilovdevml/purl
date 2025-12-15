@@ -351,14 +351,14 @@ exclude_units = ["vector.service"]
 EOF
     fi
 
-    local inputs="docker_logs"
-    [ "$has_journald" = true ] && inputs="docker_logs, journald"
+    local inputs='["docker_logs"]'
+    [ "$has_journald" = true ] && inputs='["docker_logs", "journald"]'
 
     cat >> /etc/vector/vector.toml << EOF
 
 [transforms.parsed]
 type = "remap"
-inputs = ["$inputs"]
+inputs = $inputs
 source = '''
 .host = "$hostname_label"
 service_name = string(.container_name) ?? string(._SYSTEMD_UNIT) ?? "unknown"
