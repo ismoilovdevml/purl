@@ -270,9 +270,12 @@ sub get_service_health {
 sub get_service_details {
     my ($self, $service, %params) = @_;
 
-    my $from = $params{from} // '1 hour';
+    my $range = $params{from} // '1h';
     my $db   = $self->database;
     my $safe_service = $self->_quote_string($service);
+
+    # Convert range to SQL interval
+    my (undef, $range_sql) = _parse_interval_range('1minute', $range);
 
     # Basic metrics
     my $metrics_sql = qq{
@@ -287,7 +290,7 @@ sub get_service_details {
             formatDateTime(max(timestamp), '%Y-%m-%dT%H:%i:%S') || 'Z' AS last_seen
         FROM $db.logs
         WHERE service = $safe_service
-            AND timestamp >= now() - INTERVAL $from
+            AND timestamp >= now() - INTERVAL $range_sql
     };
 
     my $metrics = $self->_query_json($metrics_sql);
@@ -295,14 +298,14 @@ sub get_service_details {
     # Recent errors
     my $errors_sql = qq{
         SELECT
-            formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' AS timestamp,
+            formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' AS ts,
             level,
             message,
             trace_id
         FROM $db.logs
         WHERE service = $safe_service
             AND level IN ('ERROR', 'FATAL')
-            AND timestamp >= now() - INTERVAL $from
+            AND timestamp >= now() - INTERVAL $range_sql
         ORDER BY timestamp DESC
         LIMIT 10
     };
@@ -334,6 +337,143 @@ sub record_service_edge {
     };
 
     eval { $self->_query($sql) };
+}
+
+# ============================================
+# Service Metrics Timeseries API
+# ============================================
+
+# Get service metrics over time (for charts)
+sub get_service_metrics_timeseries {
+    my ($self, $service, %params) = @_;
+
+    my $range    = $params{range} // '1h';
+    my $interval = $params{interval} // '1minute';
+    my $db       = $self->database;
+    my $safe_service = $self->_quote_string($service);
+
+    # Determine interval and time range
+    my ($interval_sql, $range_sql) = _parse_interval_range($interval, $range);
+
+    my $sql = qq{
+        SELECT
+            toStartOfInterval(timestamp, INTERVAL $interval_sql) AS time,
+            count() AS requests,
+            countIf(level IN ('ERROR', 'FATAL')) AS errors,
+            countIf(level = 'WARN') AS warnings
+        FROM $db.logs
+        WHERE service = $safe_service
+            AND timestamp >= now() - INTERVAL $range_sql
+        GROUP BY time
+        ORDER BY time ASC
+    };
+
+    my $results = $self->_query_json($sql);
+
+    # Format timestamps
+    for my $row (@$results) {
+        $row->{time} = $row->{time} . 'Z' if $row->{time} && $row->{time} !~ /Z$/;
+    }
+
+    return $results;
+}
+
+# Get latency percentiles for a service
+sub get_service_latency_percentiles {
+    my ($self, $service, %params) = @_;
+
+    my $range = $params{range} // '1h';
+    my $db    = $self->database;
+    my $safe_service = $self->_quote_string($service);
+
+    my (undef, $range_sql) = _parse_interval_range('1minute', $range);
+
+    # Get percentiles from service_edges (outgoing calls)
+    my $sql = qq{
+        SELECT
+            round(avg(if(call_count > 0, total_duration_ms / call_count, 0)), 2) AS avg_ms,
+            round(quantile(0.50)(if(call_count > 0, total_duration_ms / call_count, 0)), 2) AS p50_ms,
+            round(quantile(0.75)(if(call_count > 0, total_duration_ms / call_count, 0)), 2) AS p75_ms,
+            round(quantile(0.90)(if(call_count > 0, total_duration_ms / call_count, 0)), 2) AS p90_ms,
+            round(quantile(0.95)(if(call_count > 0, total_duration_ms / call_count, 0)), 2) AS p95_ms,
+            round(quantile(0.99)(if(call_count > 0, total_duration_ms / call_count, 0)), 2) AS p99_ms,
+            round(min(min_duration_ms), 2) AS min_ms,
+            round(max(max_duration_ms), 2) AS max_ms
+        FROM $db.service_edges
+        WHERE (source_service = $safe_service OR target_service = $safe_service)
+            AND date >= toDate(now() - INTERVAL $range_sql)
+    };
+
+    my $results = $self->_query_json($sql);
+    return $results->[0] // {
+        avg_ms => 0, p50_ms => 0, p75_ms => 0,
+        p90_ms => 0, p95_ms => 0, p99_ms => 0,
+        min_ms => 0, max_ms => 0
+    };
+}
+
+# Get latency timeseries for charts
+sub get_service_latency_timeseries {
+    my ($self, $service, %params) = @_;
+
+    my $range    = $params{range} // '1h';
+    my $interval = $params{interval} // '1minute';
+    my $db       = $self->database;
+    my $safe_service = $self->_quote_string($service);
+
+    my ($interval_sql, $range_sql) = _parse_interval_range($interval, $range);
+
+    my $sql = qq{
+        SELECT
+            toStartOfInterval(last_seen, INTERVAL $interval_sql) AS time,
+            round(avg(if(call_count > 0, total_duration_ms / call_count, 0)), 2) AS avg_ms,
+            round(quantile(0.50)(if(call_count > 0, total_duration_ms / call_count, 0)), 2) AS p50_ms,
+            round(quantile(0.95)(if(call_count > 0, total_duration_ms / call_count, 0)), 2) AS p95_ms,
+            round(quantile(0.99)(if(call_count > 0, total_duration_ms / call_count, 0)), 2) AS p99_ms
+        FROM $db.service_edges
+        WHERE (source_service = $safe_service OR target_service = $safe_service)
+            AND date >= toDate(now() - INTERVAL $range_sql)
+        GROUP BY time
+        ORDER BY time ASC
+    };
+
+    my $results = $self->_query_json($sql);
+
+    for my $row (@$results) {
+        $row->{time} = $row->{time} . 'Z' if $row->{time} && $row->{time} !~ /Z$/;
+    }
+
+    return $results;
+}
+
+# Helper to parse interval and range strings
+sub _parse_interval_range {
+    my ($interval, $range) = @_;
+
+    # Map interval strings to SQL
+    my %interval_map = (
+        '1minute'  => '1 MINUTE',
+        '5minute'  => '5 MINUTE',
+        '1hour'    => '1 HOUR',
+        '1day'     => '1 DAY',
+    );
+
+    # Map range strings to SQL
+    my %range_map = (
+        '15m'  => '15 MINUTE',
+        '30m'  => '30 MINUTE',
+        '1h'   => '1 HOUR',
+        '6h'   => '6 HOUR',
+        '12h'  => '12 HOUR',
+        '24h'  => '24 HOUR',
+        '7d'   => '7 DAY',
+        '30d'  => '30 DAY',
+    );
+
+    my $interval_sql = $interval_map{$interval} // '1 MINUTE';
+    my $range_sql    = $range_map{$range} // '1 HOUR';
+
+    return ($interval_sql, $range_sql);
 }
 
 1;

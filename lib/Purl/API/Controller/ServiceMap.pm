@@ -229,6 +229,70 @@ sub get_health {
     });
 }
 
+# GET /api/services/:name/metrics - Get service metrics timeseries
+sub get_metrics {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $name = $c->param('name');
+        my $range = $c->param('range') // '1h';
+        my $interval = $c->param('interval') // '1minute';
+
+        unless ($name) {
+            $self->render_error($c, 'Service name required', 400);
+            return;
+        }
+
+        my $timeseries = $self->storage->get_service_metrics_timeseries(
+            $name,
+            range => $range,
+            interval => $interval
+        );
+
+        $c->render(json => {
+            service => $name,
+            range => $range,
+            interval => $interval,
+            data => $timeseries,
+            total_points => scalar(@$timeseries),
+        });
+    });
+}
+
+# GET /api/services/:name/latency - Get service latency metrics
+sub get_latency {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $name = $c->param('name');
+        my $range = $c->param('range') // '1h';
+        my $interval = $c->param('interval') // '1minute';
+
+        unless ($name) {
+            $self->render_error($c, 'Service name required', 400);
+            return;
+        }
+
+        my $percentiles = $self->storage->get_service_latency_percentiles(
+            $name,
+            range => $range
+        );
+
+        my $timeseries = $self->storage->get_service_latency_timeseries(
+            $name,
+            range => $range,
+            interval => $interval
+        );
+
+        $c->render(json => {
+            service => $name,
+            range => $range,
+            percentiles => $percentiles,
+            timeseries => $timeseries,
+        });
+    });
+}
+
 1;
 
 __END__

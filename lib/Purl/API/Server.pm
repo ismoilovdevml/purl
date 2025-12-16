@@ -590,6 +590,12 @@ sub setup_routes {
     # Get downstream services (services this service calls)
     $protected->get('/services/:name/downstream' => sub ($c) { $service_map_c->get_downstream($c) });
 
+    # Get service metrics timeseries (for charts)
+    $protected->get('/services/:name/metrics' => sub ($c) { $service_map_c->get_metrics($c) });
+
+    # Get service latency percentiles
+    $protected->get('/services/:name/latency' => sub ($c) { $service_map_c->get_latency($c) });
+
     # ============================================
     # Analytics API
     # ============================================
