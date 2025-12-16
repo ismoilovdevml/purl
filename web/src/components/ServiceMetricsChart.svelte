@@ -9,8 +9,6 @@
   let tooltip = { show: false, x: 0, y: 0, data: null };
   let hoveredBar = -1;
 
-  $: totalRequests = data.reduce((sum, d) => sum + (d.requests || 0), 0);
-  $: totalErrors = data.reduce((sum, d) => sum + (d.errors || 0), 0);
   $: maxCount = Math.max(...data.map(d => d.requests || 0), 1);
 
   $: if (data.length > 0 && canvas) {
@@ -125,7 +123,6 @@
 
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
     const { padding, barWidth, gap } = dims;
 
     const chartX = x - padding.left;

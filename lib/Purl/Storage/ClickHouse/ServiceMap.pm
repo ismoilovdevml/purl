@@ -312,10 +312,27 @@ sub get_service_details {
 
     my $errors = $self->_query_json($errors_sql);
 
+    # Recent logs (last 10)
+    my $logs_sql = qq{
+        SELECT
+            formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' AS ts,
+            level,
+            message,
+            trace_id
+        FROM $db.logs
+        WHERE service = $safe_service
+            AND timestamp >= now() - INTERVAL $range_sql
+        ORDER BY timestamp DESC
+        LIMIT 10
+    };
+
+    my $logs = $self->_query_json($logs_sql);
+
     return {
         service => $service,
         metrics => $metrics->[0] // {},
         recent_errors => $errors,
+        recent_logs => $logs,
     };
 }
 

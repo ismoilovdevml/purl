@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { writable } from 'svelte/store';
   import { detectServiceType, serviceTypes } from '../lib/serviceIcons.js';
+  import { query, searchLogs } from '../stores/logs.js';
   import ServiceMetricsChart from './ServiceMetricsChart.svelte';
   import ServiceLatencyChart from './ServiceLatencyChart.svelte';
 
@@ -26,6 +27,8 @@
   let showFilters = false;
   let metricsData = [];
   let latencyData = { percentiles: {}, timeseries: [] };
+  let isDragging = false;
+  let dragStartPos = { x: 0, y: 0 };
 
   // Graph data
   let nodes = [];
@@ -156,15 +159,22 @@
     // Stop existing simulation
     if (simulation) simulation.stop();
 
-    // Create force simulation
+    // Calculate optimal link distance based on number of nodes
+    const nodeCount = nodes.length;
+    const linkDistance = Math.max(200, 400 / Math.sqrt(nodeCount));
+    const chargeStrength = -2500 / Math.sqrt(nodeCount);
+
+    // Create force simulation with very strong repulsion to prevent clustering
     simulation = d3.forceSimulation(nodes)
-      .force('link', d3.forceLink(links).id(d => d.id).distance(140).strength(0.5))
-      .force('charge', d3.forceManyBody().strength(-800).distanceMax(400))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(50))
-      .force('x', d3.forceX(width / 2).strength(0.05))
-      .force('y', d3.forceY(height / 2).strength(0.05))
+      .force('link', d3.forceLink(links).id(d => d.id).distance(linkDistance).strength(0.2))
+      .force('charge', d3.forceManyBody().strength(chargeStrength).distanceMin(100).distanceMax(1000))
+      .force('center', d3.forceCenter(width / 2, height / 2).strength(0.05))
+      .force('collision', d3.forceCollide().radius(80).strength(1).iterations(3))
+      .force('x', d3.forceX(width / 2).strength(0.01))
+      .force('y', d3.forceY(height / 2).strength(0.01))
       .alphaDecay(0.02)
+      .alphaMin(0.001)
+      .velocityDecay(0.3)
       .on('tick', () => {
         nodes = [...nodes];
         links = [...links];
@@ -184,18 +194,25 @@
     setupDrag(d3);
   }
 
-  function setupDrag(d3) {
+  function setupDrag(_d3) {
     // We'll handle drag in the node elements themselves
   }
 
   function handleNodeDragStart(event, node) {
     if (!simulation) return;
+    isDragging = false;
+    dragStartPos = { x: event.clientX, y: event.clientY };
     simulation.alphaTarget(0.3).restart();
     node.fx = node.x;
     node.fy = node.y;
   }
 
   function handleNodeDrag(event, node) {
+    if (event.buttons !== 1) return;
+    const dx = Math.abs(event.clientX - dragStartPos.x);
+    const dy = Math.abs(event.clientY - dragStartPos.y);
+    if (dx > 5 || dy > 5) isDragging = true;
+
     const rect = svgElement.getBoundingClientRect();
     node.fx = (event.clientX - rect.left - transform.x) / transform.k;
     node.fy = (event.clientY - rect.top - transform.y) / transform.k;
@@ -207,11 +224,22 @@
     simulation.alphaTarget(0);
     node.fx = null;
     node.fy = null;
+
+    // If not dragging, treat as click
+    if (!isDragging) {
+      selectedService.set(node.id);
+      fetchServiceDetails(node.id);
+    }
+    isDragging = false;
   }
 
   function handleNodeClick(node) {
-    selectedService.set(node.id);
-    fetchServiceDetails(node.id);
+    // This is now handled in handleNodeDragEnd to avoid conflicts
+    // But keep for keyboard navigation
+    if (!isDragging) {
+      selectedService.set(node.id);
+      fetchServiceDetails(node.id);
+    }
   }
 
   function handleNodeHover(event, node) {
@@ -277,6 +305,19 @@
   function formatErrorRate(errors, total) {
     if (!total) return '0%';
     return ((errors / total) * 100).toFixed(1) + '%';
+  }
+
+  // Navigation functions
+  function navigateToLogs(serviceName) {
+    if (!serviceName) return;
+    query.set(`service:${serviceName}`);
+    searchLogs();
+    window.location.hash = 'logs';
+  }
+
+  function navigateToTraces(_serviceName) {
+    // Navigate to traces page - traces will be filtered by service if we add that feature
+    window.location.hash = 'traces';
   }
 
   let selectedRange = '1h';
@@ -435,6 +476,7 @@
           <p>Service dependencies will appear here once logs are ingested.</p>
         </div>
       {:else}
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
         <svg bind:this={svgElement} {width} {height} class="graph-svg" on:click={handleBackgroundClick} on:keydown={(e) => e.key === 'Escape' && handleBackgroundClick()} role="application" aria-label="Interactive Service Map - drag nodes to rearrange, click to select" tabindex="0">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto">
@@ -700,6 +742,37 @@
                 </div>
               </div>
             {/if}
+
+            {#if serviceDetails.recent_logs?.length > 0}
+              <div class="logs-card">
+                <h4>Recent Logs</h4>
+                <div class="logs-list">
+                  {#each serviceDetails.recent_logs.slice(0, 5) as log}
+                    <div class="log-row" class:error-log={log.level === 'ERROR' || log.level === 'FATAL'}>
+                      <span class="log-time">{new Date(log.ts).toLocaleTimeString()}</span>
+                      <span class="log-level level-{log.level?.toLowerCase()}">{log.level}</span>
+                      <span class="log-msg">{log.message?.slice(0, 50)}{log.message?.length > 50 ? '...' : ''}</span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
+            <div class="action-buttons">
+              <a href="#logs" class="action-btn" on:click={() => navigateToLogs($selectedService)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                  <path d="M14 2v6h6M16 13H8M16 17H8"/>
+                </svg>
+                View Logs
+              </a>
+              <a href="#traces" class="action-btn" on:click={() => navigateToTraces($selectedService)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                </svg>
+                View Traces
+              </a>
+            </div>
           </div>
         {/if}
       </div>
@@ -1467,5 +1540,111 @@
       transparent 4px,
       transparent 7px
     );
+  }
+
+  /* Recent Logs Card */
+  .logs-card {
+    padding: 14px;
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 10px;
+    margin-bottom: 14px;
+  }
+
+  .logs-card h4 {
+    margin: 0 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .logs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .log-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    background: #161b22;
+    border-radius: 6px;
+    font-size: 11px;
+  }
+
+  .log-row.error-log {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+  }
+
+  .log-time {
+    color: #6e7681;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    flex-shrink: 0;
+  }
+
+  .log-level {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  .level-info { background: #3b82f6; color: #fff; }
+  .level-debug { background: #6b7280; color: #fff; }
+  .level-warn, .level-warning { background: #f59e0b; color: #000; }
+  .level-error, .level-fatal { background: #ef4444; color: #fff; }
+
+  .log-msg {
+    color: #c9d1d9;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  /* Action Buttons */
+  .action-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .action-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    color: #c9d1d9;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .action-btn:hover {
+    background: #30363d;
+    border-color: #58a6ff;
+    color: #f0f6fc;
+  }
+
+  .action-btn svg {
+    opacity: 0.7;
+  }
+
+  .action-btn:hover svg {
+    opacity: 1;
   }
 </style>

@@ -8,7 +8,9 @@ use Time::HiRes ();
 
 our @EXPORT_OK = qw(
     parse_time_range
+    parse_time_range_clickhouse
     epoch_to_iso
+    epoch_to_clickhouse
     iso_to_epoch
     format_duration
     now_iso
@@ -56,6 +58,46 @@ sub epoch_to_iso {
     my @t = gmtime($epoch);
     return sprintf('%04d-%02d-%02dT%02d:%02d:%02dZ',
         $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0]);
+}
+
+# Convert Unix epoch to ClickHouse DateTime format (YYYY-MM-DD HH:MM:SS)
+sub epoch_to_clickhouse {
+    my ($epoch) = @_;
+    return unless defined $epoch;
+
+    my @t = gmtime($epoch);
+    return sprintf('%04d-%02d-%02d %02d:%02d:%02d',
+        $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0]);
+}
+
+# Parse time range shortcut and return ClickHouse-compatible timestamps
+sub parse_time_range_clickhouse {
+    my ($range) = @_;
+    return (undef, undef) unless $range;
+
+    my $now = time();
+    my $from;
+
+    if ($range =~ /^(\d+)m$/i) {
+        $from = $now - ($1 * 60);
+    }
+    elsif ($range =~ /^(\d+)h$/i) {
+        $from = $now - ($1 * 3600);
+    }
+    elsif ($range =~ /^(\d+)d$/i) {
+        $from = $now - ($1 * 86400);
+    }
+    elsif ($range =~ /^(\d+)w$/i) {
+        $from = $now - ($1 * 604800);
+    }
+    else {
+        return (undef, undef);
+    }
+
+    my $from_ts = epoch_to_clickhouse($from);
+    my $to_ts = epoch_to_clickhouse($now);
+
+    return ($from_ts, $to_ts);
 }
 
 # Convert ISO 8601 to Unix epoch

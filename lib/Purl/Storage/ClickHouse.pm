@@ -1000,8 +1000,9 @@ sub list_recent_traces {
     my $limit = $self->_validate_int($params{limit}, 1, 100) // 50;
     my $range = $params{range} // '1h';
 
-    # Parse time range
-    my ($from, $to) = $self->_parse_time_range($range);
+    # Parse time range using Utils::Time
+    require Purl::Utils::Time;
+    my ($from, $to) = Purl::Utils::Time::parse_time_range($range);
     return { traces => [], total => 0 } unless $from && $to;
 
     my $sql = qq{
@@ -1012,12 +1013,12 @@ sub list_recent_traces {
             count() as span_count,
             countDistinct(service) as service_count,
             countIf(level IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT', 'FATAL')) as error_count,
-            groupArray(DISTINCT service)[1:5] as services,
+            groupUniqArray(5)(service) as services,
             any(message) as root_message
         FROM $table
         WHERE trace_id != ''
-          AND timestamp >= toDateTime('$from')
-          AND timestamp <= toDateTime('$to')
+          AND timestamp >= parseDateTimeBestEffort('$from')
+          AND timestamp <= parseDateTimeBestEffort('$to')
         GROUP BY trace_id
         ORDER BY start_time DESC
         LIMIT $limit
