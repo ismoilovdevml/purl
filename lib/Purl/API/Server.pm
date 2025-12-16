@@ -451,6 +451,9 @@ sub setup_routes {
     # Trace Correlation API
     # ============================================
 
+    # List recent traces
+    $protected->get('/traces' => sub ($c) { $traces_c->list_traces($c) });
+
     # Get logs by trace ID
     $protected->get('/traces/:trace_id' => sub ($c) { $traces_c->get_trace($c) });
 

@@ -10,7 +10,7 @@
   import PatternsSidebar from './components/PatternsSidebar.svelte';
   import AnalyticsPage from './components/AnalyticsPage.svelte';
   import SettingsPage from './components/SettingsPage.svelte';
-  import TraceView from './components/TraceView.svelte';
+  import TracesListPage from './components/TracesListPage.svelte';
   import ServiceMap from './components/ServiceMap.svelte';
   import {
     logs,
@@ -370,8 +370,8 @@
       </aside>
     </div>
   {:else if currentPage === 'traces'}
-    <div class="page-content">
-      <TraceView />
+    <div class="page-content traces-page-container">
+      <TracesListPage />
     </div>
   {:else if currentPage === 'services'}
     <div class="page-content service-map-page">
@@ -683,6 +683,11 @@
   }
 
   .service-map-page {
+    padding: 0;
+    height: calc(100vh - 60px);
+  }
+
+  .traces-page-container {
     padding: 0;
     height: calc(100vh - 60px);
   }

@@ -11,6 +11,39 @@ export const traceLoading = writable(false);
 export const traceError = writable(null);
 export const traceTimeline = writable(null);
 
+// Traces list stores
+export const tracesList = writable([]);
+export const tracesListLoading = writable(false);
+export const tracesListError = writable(null);
+
+// ============================================
+// Traces List API
+// ============================================
+
+export async function fetchRecentTraces(range = '1h', limit = 50) {
+  tracesListLoading.set(true);
+  tracesListError.set(null);
+
+  try {
+    const response = await fetch(`${API_BASE}/traces?range=${range}&limit=${limit}`);
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Failed to fetch traces');
+    }
+
+    const data = await response.json();
+    tracesList.set(data.traces || []);
+    return data;
+  } catch (err) {
+    tracesListError.set(err.message);
+    console.error('Failed to fetch traces:', err);
+    return null;
+  } finally {
+    tracesListLoading.set(false);
+  }
+}
+
 // ============================================
 // Trace API Functions
 // ============================================

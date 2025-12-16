@@ -992,6 +992,75 @@ sub search_by_request {
     };
 }
 
+# List recent traces with aggregated stats
+sub list_recent_traces {
+    my ($self, %params) = @_;
+
+    my $table = $self->database . '.' . $self->table;
+    my $limit = $self->_validate_int($params{limit}, 1, 100) // 50;
+    my $range = $params{range} // '1h';
+
+    # Parse time range
+    my ($from, $to) = $self->_parse_time_range($range);
+    return { traces => [], total => 0 } unless $from && $to;
+
+    my $sql = qq{
+        SELECT
+            trace_id,
+            min(timestamp) as start_time,
+            max(timestamp) as end_time,
+            count() as span_count,
+            countDistinct(service) as service_count,
+            countIf(level IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT', 'FATAL')) as error_count,
+            groupArray(DISTINCT service)[1:5] as services,
+            any(message) as root_message
+        FROM $table
+        WHERE trace_id != ''
+          AND timestamp >= toDateTime('$from')
+          AND timestamp <= toDateTime('$to')
+        GROUP BY trace_id
+        ORDER BY start_time DESC
+        LIMIT $limit
+    };
+
+    my $results = $self->_query_json($sql, no_cache => 1);
+
+    # Format timestamps and calculate duration
+    for my $row (@$results) {
+        $row->{start_time} =~ s/ /T/;
+        $row->{start_time} .= 'Z' unless $row->{start_time} =~ /Z$/;
+        $row->{end_time} =~ s/ /T/;
+        $row->{end_time} .= 'Z' unless $row->{end_time} =~ /Z$/;
+
+        # Calculate duration in ms
+        my $start_epoch = $self->_iso_to_epoch($row->{start_time});
+        my $end_epoch = $self->_iso_to_epoch($row->{end_time});
+        $row->{duration_ms} = int(($end_epoch - $start_epoch) * 1000) if $start_epoch && $end_epoch;
+        $row->{duration_ms} //= 0;
+
+        # Parse services array from ClickHouse format
+        if ($row->{services} && ref($row->{services}) ne 'ARRAY') {
+            $row->{services} = eval { $self->_json->decode($row->{services}) } // [];
+        }
+    }
+
+    return {
+        traces => $results,
+        total  => scalar @$results,
+    };
+}
+
+# Helper to convert ISO timestamp to epoch
+sub _iso_to_epoch {
+    my ($self, $ts) = @_;
+    return unless $ts;
+    $ts =~ s/Z$//;
+    $ts =~ s/T/ /;
+    require Time::Piece;
+    my $t = eval { Time::Piece->strptime($ts, '%Y-%m-%d %H:%M:%S') };
+    return $t ? $t->epoch : undef;
+}
+
 # Check connection
 sub ping {
     my ($self) = @_;
