@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# ============================================
+# Purl Unified Installer
+# Logs + Traces + Auto-Discovery
+# ============================================
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -10,10 +15,9 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 PURL_VERSION="latest"
+BEYLA_VERSION="2.8.2"
+VECTOR_VERSION="0.51.1"
 INSTALL_DIR="/opt/purl"
-CONFIG_DIR="/etc/purl"
-DATA_DIR="/var/lib/purl"
-INTERACTIVE=false
 
 print_banner() {
     echo -e "${CYAN}"
@@ -23,6 +27,9 @@ print_banner() {
  | |_) | | | | '_| |
  |  __/| |_| | | | |
  |_|    \__,_|_| |_|
+
+ Unified Observability Platform
+ Logs • Traces • Auto-Discovery
 EOF
     echo -e "${NC}"
 }
@@ -30,51 +37,31 @@ EOF
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-log_step() { echo -e "${BLUE}[STEP]${NC} ${BOLD}$1${NC}"; }
+log_step() { echo -e "${BLUE}==>${NC} ${BOLD}$1${NC}"; }
 
 prompt() {
     local message="$1" default="$2" result
-    if [ "$INTERACTIVE" = true ]; then
-        if [ -n "$default" ]; then
-            echo -en "${CYAN}$message${NC} [${default}]: " > /dev/tty
-            read result < /dev/tty
-            echo "${result:-$default}"
-        else
-            echo -en "${CYAN}$message${NC}: " > /dev/tty
-            read result < /dev/tty
-            echo "$result"
-        fi
-    else
-        echo "$default"
-    fi
-}
-
-prompt_password() {
-    local message="$1" default="$2" result
-    if [ "$INTERACTIVE" = true ]; then
-        echo -en "${CYAN}$message${NC}: " > /dev/tty
-        read -s result < /dev/tty
-        echo > /dev/tty
+    if [ -n "$default" ]; then
+        echo -en "${CYAN}$message${NC} [${default}]: " > /dev/tty
+        read result < /dev/tty
         echo "${result:-$default}"
     else
-        echo "$default"
+        echo -en "${CYAN}$message${NC}: " > /dev/tty
+        read result < /dev/tty
+        echo "$result"
     fi
 }
 
 prompt_yes_no() {
     local message="$1" default="${2:-y}" result
-    if [ "$INTERACTIVE" = true ]; then
-        if [ "$default" = "y" ]; then
-            echo -en "${CYAN}$message${NC} [Y/n]: " > /dev/tty
-        else
-            echo -en "${CYAN}$message${NC} [y/N]: " > /dev/tty
-        fi
-        read result < /dev/tty
-        result="${result:-$default}"
-        [[ "$result" =~ ^[Yy] ]]
+    if [ "$default" = "y" ]; then
+        echo -en "${CYAN}$message${NC} [Y/n]: " > /dev/tty
     else
-        [ "$default" = "y" ]
+        echo -en "${CYAN}$message${NC} [y/N]: " > /dev/tty
     fi
+    read result < /dev/tty
+    result="${result:-$default}"
+    [[ "$result" =~ ^[Yy] ]]
 }
 
 generate_password() { openssl rand -base64 "${1:-24}" | tr -d '/+=' | head -c "${1:-24}"; }
@@ -101,21 +88,8 @@ check_root() {
     fi
 }
 
-check_os() {
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        OS=$ID
-        OS_VERSION=$VERSION_ID
-        log_info "Detected OS: $OS $OS_VERSION"
-    else
-        log_error "Cannot detect OS"
-        exit 1
-    fi
-}
-
 check_docker() {
     if command -v docker &> /dev/null; then
-        log_info "Docker found: $(docker --version | cut -d' ' -f3 | tr -d ',')"
         if ! docker compose version &> /dev/null; then
             log_error "Docker Compose plugin not found"
             return 1
@@ -125,32 +99,50 @@ check_docker() {
     return 1
 }
 
-check_systemd() {
-    command -v systemctl &> /dev/null && [ -d /run/systemd/system ]
+check_kernel_btf() {
+    # Check BTF support for Beyla eBPF
+    if [ -f /sys/kernel/btf/vmlinux ]; then
+        return 0
+    fi
+    return 1
 }
 
-check_curl() {
-    command -v curl &> /dev/null || { log_error "curl is required"; exit 1; }
+check_kernel_version() {
+    local kernel_version=$(uname -r | cut -d. -f1-2)
+    local major=$(echo $kernel_version | cut -d. -f1)
+    local minor=$(echo $kernel_version | cut -d. -f2)
+
+    # Need kernel 5.8+
+    if [ "$major" -gt 5 ] || ([ "$major" -eq 5 ] && [ "$minor" -ge 8 ]); then
+        return 0
+    fi
+    return 1
 }
 
-check_openssl() {
-    command -v openssl &> /dev/null || { log_error "openssl is required"; exit 1; }
-}
+# ============================================
+# Install Purl Server (Full Stack)
+# ============================================
+install_purl_server() {
+    log_step "Installing Purl Server..."
+    local install_path="${1:-$INSTALL_DIR}"
 
-install_purl_docker() {
-    log_step "Installing Purl with Docker..."
-    local install_path="${1:-/opt/purl}"
-
-    mkdir -p "$install_path" "$install_path/config" "$install_path/docker/clickhouse"
+    mkdir -p "$install_path" "$install_path/config" "$install_path/docker/clickhouse" "$install_path/deploy/vector" "$install_path/deploy/beyla"
     cd "$install_path"
 
     log_info "Downloading configuration files..."
+
+    # Core files
     curl -fsSL "https://raw.githubusercontent.com/ismoilovdevml/purl/main/docker-compose.yml" -o docker-compose.yml
     curl -fsSL "https://raw.githubusercontent.com/ismoilovdevml/purl/main/docker/clickhouse/config.xml" -o docker/clickhouse/config.xml
     curl -fsSL "https://raw.githubusercontent.com/ismoilovdevml/purl/main/docker/clickhouse/users.xml" -o docker/clickhouse/users.xml
-    mkdir -p deploy/vector
+
+    # Vector config
     curl -fsSL "https://raw.githubusercontent.com/ismoilovdevml/purl/main/deploy/vector/vector.toml" -o deploy/vector/vector.toml
 
+    # Beyla config
+    curl -fsSL "https://raw.githubusercontent.com/ismoilovdevml/purl/main/deploy/beyla/docker-compose.beyla.yml" -o deploy/beyla/docker-compose.beyla.yml
+
+    # Generate secure credentials
     local ch_password=$(generate_password 24)
     local api_key=$(generate_api_key)
     local purl_port="3000"
@@ -159,13 +151,13 @@ install_purl_docker() {
     if [ "$INTERACTIVE" = true ]; then
         echo
         log_step "Configuration"
-        ch_password=$(prompt "ClickHouse password" "$ch_password")
-        api_key=$(prompt "API Key" "$api_key")
         purl_port=$(prompt "Purl port" "$purl_port")
         retention_days=$(prompt "Log retention (days)" "$retention_days")
     fi
 
+    # Create .env file
     cat > .env << EOF
+# Purl Configuration
 PURL_PORT=$purl_port
 PURL_HOST=0.0.0.0
 PURL_STORAGE_TYPE=clickhouse
@@ -177,26 +169,53 @@ PURL_CLICKHOUSE_PASSWORD=$ch_password
 PURL_AUTH_ENABLED=1
 PURL_API_KEYS=$api_key
 PURL_RETENTION_DAYS=$retention_days
+
+# Vector Configuration
 VECTOR_HOSTNAME=$(hostname)
+
+# Beyla Configuration
+PURL_OTLP_ENDPOINT=http://localhost:$purl_port
+ENVIRONMENT=production
+BEYLA_LOG_LEVEL=INFO
 EOF
 
+    # Update ClickHouse password
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' "s/CHANGE_ME_GENERATE_SECURE_PASSWORD/$ch_password/g" docker/clickhouse/users.xml
     else
         sed -i "s/CHANGE_ME_GENERATE_SECURE_PASSWORD/$ch_password/g" docker/clickhouse/users.xml
     fi
 
+    # Ask what to install
     local INSTALL_VECTOR=false
-    prompt_yes_no "Install Vector log collector?" "y" && INSTALL_VECTOR=true
+    local INSTALL_BEYLA=false
 
+    if [ "$INTERACTIVE" = true ]; then
+        echo
+        prompt_yes_no "Install Vector (log collection from Docker/systemd)?" "y" && INSTALL_VECTOR=true
+
+        if check_kernel_btf && check_kernel_version; then
+            prompt_yes_no "Install Beyla (auto-tracing with eBPF)?" "y" && INSTALL_BEYLA=true
+        else
+            log_warn "Beyla requires Linux kernel 5.8+ with BTF. Skipping..."
+        fi
+    else
+        # Non-interactive: install everything if possible
+        INSTALL_VECTOR=true
+        check_kernel_btf && check_kernel_version && INSTALL_BEYLA=true
+    fi
+
+    # Start services
     log_step "Starting Purl services..."
+
     if [ "$INSTALL_VECTOR" = true ]; then
         docker compose --profile vector up -d
     else
         docker compose up -d
     fi
 
-    log_info "Waiting for services..."
+    # Wait for Purl to be healthy
+    log_info "Waiting for Purl to start..."
     sleep 10
     local retries=30
     while [ $retries -gt 0 ]; do
@@ -205,8 +224,20 @@ EOF
         ((retries--))
     done
 
-    [ $retries -eq 0 ] && log_warn "Health check timed out" || log_info "Purl is healthy!"
+    if [ $retries -eq 0 ]; then
+        log_warn "Health check timed out"
+    else
+        log_info "Purl is healthy!"
+    fi
 
+    # Start Beyla if requested
+    if [ "$INSTALL_BEYLA" = true ]; then
+        log_step "Starting Beyla auto-tracing..."
+        docker compose -f deploy/beyla/docker-compose.beyla.yml up -d
+        log_info "Beyla started with auto-discovery"
+    fi
+
+    # Save credentials
     local server_ip=$(get_ip_address)
     cat > "$install_path/.credentials" << EOF
 PURL_URL=http://$server_ip:$purl_port
@@ -215,114 +246,98 @@ CLICKHOUSE_PASSWORD=$ch_password
 EOF
     chmod 600 "$install_path/.credentials"
 
+    # Print success message
     echo
-    echo -e "${GREEN}============================================${NC}"
-    echo -e "${GREEN}   Purl Installation Complete!${NC}"
-    echo -e "${GREEN}============================================${NC}"
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                                                            ║${NC}"
+    echo -e "${GREEN}║   ${BOLD}Purl Installation Complete!${NC}${GREEN}                            ║${NC}"
+    echo -e "${GREEN}║                                                            ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo
-    echo -e "${BOLD}Dashboard:${NC} http://$server_ip:$purl_port"
-    echo -e "${BOLD}API Key:${NC} $api_key"
+    echo -e "${BOLD}Dashboard:${NC}   http://$server_ip:$purl_port"
+    echo -e "${BOLD}API Key:${NC}     $api_key"
     echo
-    echo -e "${BOLD}Remote agents:${NC}"
-    echo -e "  PURL_URL=http://$server_ip:$purl_port"
-    echo -e "  PURL_API_KEY=$api_key"
+    echo -e "${BOLD}Installed components:${NC}"
+    echo -e "  ✓ Purl Server"
+    echo -e "  ✓ ClickHouse Database"
+    [ "$INSTALL_VECTOR" = true ] && echo -e "  ✓ Vector Log Collector"
+    [ "$INSTALL_BEYLA" = true ] && echo -e "  ✓ Beyla Auto-Tracing (eBPF)"
     echo
-    echo -e "${YELLOW}Credentials: $install_path/.credentials${NC}"
-    echo
-}
-
-install_purl_systemd() {
-    log_step "Installing Purl with Systemd..."
-    log_warn "Requires: Perl 5.38+, ClickHouse, Node.js 20+"
-
-    prompt_yes_no "Continue?" "n" || exit 0
-
-    local install_path="/opt/purl"
-    git clone https://github.com/ismoilovdevml/purl.git "$install_path" || { log_error "Clone failed"; exit 1; }
-    cd "$install_path"
-
-    log_info "Installing dependencies..."
-    cpanm --installdeps . || log_warn "Some modules failed"
-    cd web && npm install && npm run build && cd ..
-
-    if prompt_yes_no "Existing ClickHouse?" "n"; then
-        local ch_host=$(prompt "ClickHouse host" "localhost")
-        local ch_port=$(prompt "ClickHouse port" "8123")
-        local ch_user=$(prompt "ClickHouse user" "purl")
-        local ch_pass=$(prompt_password "ClickHouse password")
-    else
-        log_info "Install ClickHouse first"
-        exit 1
+    if [ "$INSTALL_BEYLA" = true ]; then
+        echo -e "${CYAN}Auto-tracing is enabled!${NC}"
+        echo -e "All HTTP/gRPC applications will be automatically traced."
+        echo
     fi
-
-    local api_key=$(generate_api_key)
-    local purl_port=$(prompt "Purl port" "3000")
-
-    mkdir -p /etc/purl
-    cat > /etc/purl/purl.env << EOF
-PURL_PORT=$purl_port
-PURL_HOST=0.0.0.0
-PURL_STORAGE_TYPE=clickhouse
-PURL_CLICKHOUSE_HOST=$ch_host
-PURL_CLICKHOUSE_PORT=$ch_port
-PURL_CLICKHOUSE_DATABASE=purl
-PURL_CLICKHOUSE_USER=$ch_user
-PURL_CLICKHOUSE_PASSWORD=$ch_pass
-PURL_AUTH_ENABLED=1
-PURL_API_KEYS=$api_key
-PURL_RETENTION_DAYS=30
-EOF
-    chmod 600 /etc/purl/purl.env
-
-    cat > /etc/systemd/system/purl.service << 'EOF'
-[Unit]
-Description=Purl Log Dashboard
-After=network.target clickhouse-server.service
-
-[Service]
-Type=simple
-EnvironmentFile=/etc/purl/purl.env
-WorkingDirectory=/opt/purl
-ExecStart=/usr/bin/perl -I/opt/purl/lib -MPurl::API::Server -e 'Purl::API::Server->create->run'
-Restart=always
-RestartSec=5
-User=purl
-Group=purl
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    useradd -r -s /bin/false purl 2>/dev/null || true
-    chown -R purl:purl "$install_path"
-    systemctl daemon-reload
-    systemctl enable --now purl
-
-    local server_ip=$(get_ip_address)
+    echo -e "${BOLD}For remote agents:${NC}"
+    echo -e "  curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash -s -- --agent"
     echo
-    echo -e "${GREEN}Purl installed!${NC}"
-    echo -e "${BOLD}Dashboard:${NC} http://$server_ip:$purl_port"
-    echo -e "${BOLD}API Key:${NC} $api_key"
+    echo -e "${YELLOW}Credentials saved: $install_path/.credentials${NC}"
     echo
 }
 
+# ============================================
+# Install Agent (Vector + Beyla)
+# ============================================
 install_agent() {
     print_banner
-    log_step "Installing Vector Agent"
+    log_step "Installing Purl Agent (Logs + Traces)"
 
-    local purl_url=$(prompt "Purl server URL")
+    local purl_url=$(prompt "Purl server URL (e.g., http://192.168.1.100:3000)")
     local api_key=$(prompt "API Key")
 
     [ -z "$purl_url" ] || [ -z "$api_key" ] && { log_error "URL and API Key required"; exit 1; }
 
+    # Test connection
     log_info "Testing connection..."
-    curl -sf -H "X-API-Key: $api_key" "$purl_url/api/health" > /dev/null 2>&1 \
-        && log_info "Connected!" || log_warn "Connection failed, continuing..."
+    if curl -sf -H "X-API-Key: $api_key" "$purl_url/api/health" > /dev/null 2>&1; then
+        log_info "Connection successful!"
+    else
+        log_warn "Connection failed. Continuing anyway..."
+    fi
+
+    local hostname_label=$(prompt "Hostname label" "$(hostname)")
+
+    # Ask what to install
+    local INSTALL_VECTOR=true
+    local INSTALL_BEYLA=false
+
+    if check_kernel_btf && check_kernel_version; then
+        prompt_yes_no "Install Beyla (auto-tracing)?" "y" && INSTALL_BEYLA=true
+    else
+        log_warn "Beyla requires Linux kernel 5.8+ with BTF"
+    fi
+
+    # Install Vector
+    if [ "$INSTALL_VECTOR" = true ]; then
+        install_vector_agent "$purl_url" "$api_key" "$hostname_label"
+    fi
+
+    # Install Beyla
+    if [ "$INSTALL_BEYLA" = true ]; then
+        install_beyla_agent "$purl_url" "$hostname_label"
+    fi
 
     echo
-    echo -e "${BOLD}Method:${NC} 1) Docker  2) Binary"
-    local method=$(prompt "Choose [1/2]" "1")
-    local hostname_label=$(prompt "Hostname" "$(hostname)")
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║   ${BOLD}Agent Installation Complete!${NC}${GREEN}                            ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo
+    echo -e "${BOLD}Installed:${NC}"
+    [ "$INSTALL_VECTOR" = true ] && echo -e "  ✓ Vector (logs) → $purl_url"
+    [ "$INSTALL_BEYLA" = true ] && echo -e "  ✓ Beyla (traces) → $purl_url"
+    echo
+    echo -e "${BOLD}Check status:${NC}"
+    [ "$INSTALL_VECTOR" = true ] && echo -e "  docker logs -f purl-vector"
+    [ "$INSTALL_BEYLA" = true ] && echo -e "  docker logs -f purl-beyla"
+    echo
+}
+
+install_vector_agent() {
+    local purl_url="$1"
+    local api_key="$2"
+    local hostname_label="$3"
+
+    log_step "Installing Vector agent..."
 
     local has_journald=false
     command -v journalctl &> /dev/null && has_journald=true
@@ -338,7 +353,7 @@ address = "0.0.0.0:8686"
 [sources.docker_logs]
 type = "docker_logs"
 docker_host = "unix:///var/run/docker.sock"
-exclude_containers = ["vector", "*-vector", "purl"]
+exclude_containers = ["vector", "*-vector", "purl", "beyla", "*-beyla"]
 EOF
 
     if [ "$has_journald" = true ]; then
@@ -362,7 +377,7 @@ inputs = $inputs
 source = '''
 .host = "$hostname_label"
 service_name = string(.container_name) ?? string(._SYSTEMD_UNIT) ?? "unknown"
-.service = replace(replace(service_name, r'^/', ""), r'\.service$', "")
+.service = replace(replace(service_name, r'^/', ""), r'\.service\$', "")
 
 msg = string(.message) ?? ""
 .raw = msg
@@ -409,55 +424,115 @@ headers.Content-Type = "application/json"
 headers.X-API-Key = "$api_key"
 EOF
 
-    if [ "$method" = "1" ]; then
-        log_step "Installing via Docker..."
-        docker rm -f purl-vector 2>/dev/null || true
-        docker run -d --name purl-vector --restart unless-stopped \
-            -v /etc/vector:/etc/vector:ro \
-            -v /var/run/docker.sock:/var/run/docker.sock:ro \
-            -v /var/log:/var/log:ro \
-            -v purl-vector-data:/var/lib/vector \
-            timberio/vector:0.51.1-alpine --config /etc/vector/vector.toml
+    # Run Vector in Docker
+    docker rm -f purl-vector 2>/dev/null || true
+    docker run -d \
+        --name purl-vector \
+        --restart unless-stopped \
+        -v /etc/vector:/etc/vector:ro \
+        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        -v /var/log:/var/log:ro \
+        -v purl-vector-data:/var/lib/vector \
+        timberio/vector:$VECTOR_VERSION-alpine \
+        --config /etc/vector/vector.toml
 
-        echo -e "\n${GREEN}Vector agent installed!${NC}"
-        echo -e "Logs: docker logs -f purl-vector"
-    else
-        log_step "Installing binary..."
-        curl -fsSL https://sh.vector.dev | bash -s -- -y
-
-        cat > /etc/systemd/system/vector.service << 'EOF'
-[Unit]
-Description=Vector Log Collector
-After=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/vector --config /etc/vector/vector.toml
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-        systemctl daemon-reload
-        systemctl enable --now vector
-
-        echo -e "\n${GREEN}Vector agent installed!${NC}"
-        echo -e "Status: systemctl status vector"
-    fi
+    log_info "Vector agent started"
 }
 
+install_beyla_agent() {
+    local purl_url="$1"
+    local hostname_label="$2"
+
+    log_step "Installing Beyla auto-tracing agent..."
+
+    # Run Beyla in Docker with auto-discovery
+    docker rm -f purl-beyla 2>/dev/null || true
+    docker run -d \
+        --name purl-beyla \
+        --restart unless-stopped \
+        --privileged \
+        --pid host \
+        --network host \
+        -e "BEYLA_DISCOVERY_SERVICES=.*" \
+        -e "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf" \
+        -e "OTEL_EXPORTER_OTLP_ENDPOINT=$purl_url" \
+        -e "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=$purl_url/v1/traces" \
+        -e "OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production,host.name=$hostname_label" \
+        -e "BEYLA_LOG_LEVEL=INFO" \
+        -e "BEYLA_EBPF_TRACK_REQUEST_HEADERS=true" \
+        -e "BEYLA_INTERNAL_METRICS_PROMETHEUS_PORT=6060" \
+        -v /sys/kernel/debug:/sys/kernel/debug:ro \
+        -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
+        -v /sys/fs/bpf:/sys/fs/bpf:rw \
+        grafana/beyla:$BEYLA_VERSION
+
+    log_info "Beyla agent started with auto-discovery"
+}
+
+# ============================================
+# Uninstall
+# ============================================
+uninstall() {
+    log_step "Uninstalling Purl..."
+
+    # Stop and remove containers
+    docker rm -f purl purl-local purl-clickhouse purl-clickhouse-local purl-vector purl-vector-local purl-beyla 2>/dev/null || true
+
+    # Remove volumes
+    prompt_yes_no "Remove data volumes?" "n" && {
+        docker volume rm clickhouse_data clickhouse_logs clickhouse_data_local clickhouse_logs_local purl-vector-data 2>/dev/null || true
+    }
+
+    # Remove config
+    prompt_yes_no "Remove config files?" "n" && {
+        rm -rf /opt/purl /etc/vector/vector.toml
+    }
+
+    log_info "Uninstall complete"
+}
+
+# ============================================
+# Status check
+# ============================================
+status() {
+    echo -e "${BOLD}Purl Services Status:${NC}"
+    echo
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=purl" --filter "name=clickhouse" --filter "name=vector" --filter "name=beyla" 2>/dev/null || echo "No containers found"
+    echo
+}
+
+# ============================================
+# Main
+# ============================================
 main() {
-    INSTALL_AGENT=false
+    INTERACTIVE=true
+    local MODE="server"
+
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --agent|-a) INSTALL_AGENT=true; shift ;;
-            --interactive|-i) INTERACTIVE=true; shift ;;
+            --agent|-a) MODE="agent"; shift ;;
+            --server|-s) MODE="server"; shift ;;
+            --uninstall|-u) MODE="uninstall"; shift ;;
+            --status) MODE="status"; shift ;;
+            --non-interactive|-y) INTERACTIVE=false; shift ;;
             --help|-h)
-                echo "Usage: $0 [--agent] [--interactive]"
-                echo "  --agent, -a        Install Vector agent only"
-                echo "  --interactive, -i  Enable prompts"
+                echo "Usage: $0 [OPTIONS]"
+                echo
+                echo "Options:"
+                echo "  --server, -s         Install Purl server (default)"
+                echo "  --agent, -a          Install agent only (Vector + Beyla)"
+                echo "  --uninstall, -u      Remove Purl"
+                echo "  --status             Show service status"
+                echo "  --non-interactive, -y  Don't ask for confirmation"
+                echo "  --help, -h           Show this help"
+                echo
+                echo "Examples:"
+                echo "  # Install server with all components"
+                echo "  curl -fsSL https://purl.dev/install.sh | sudo bash"
+                echo
+                echo "  # Install agent on remote server"
+                echo "  curl -fsSL https://purl.dev/install.sh | sudo bash -s -- --agent"
+                echo
                 exit 0 ;;
             *) shift ;;
         esac
@@ -465,34 +540,30 @@ main() {
 
     print_banner
 
-    if [ "$INSTALL_AGENT" = true ]; then
-        [ "$INTERACTIVE" = false ] && { log_error "Agent requires -i flag"; exit 1; }
-        check_root
-        check_curl
-        install_agent
-        exit 0
-    fi
-
-    check_root
-    check_os
-    check_curl
-    check_openssl
-
-    local choice="1"
-    if [ "$INTERACTIVE" = true ]; then
-        echo -e "${BOLD}Install:${NC} 1) Docker  2) Systemd  3) Agent only"
-        choice=$(prompt "Choose [1/2/3]" "1")
-    fi
-
-    case $choice in
-        1)
-            check_docker || { log_error "Docker required: curl -fsSL https://get.docker.com | sh"; exit 1; }
-            install_purl_docker ;;
-        2)
-            check_systemd || { log_error "Systemd not found"; exit 1; }
-            install_purl_systemd ;;
-        3) install_agent ;;
-        *) log_error "Invalid choice"; exit 1 ;;
+    case $MODE in
+        server)
+            check_root
+            check_docker || {
+                log_error "Docker is required. Install with: curl -fsSL https://get.docker.com | sh"
+                exit 1
+            }
+            install_purl_server
+            ;;
+        agent)
+            check_root
+            check_docker || {
+                log_error "Docker is required. Install with: curl -fsSL https://get.docker.com | sh"
+                exit 1
+            }
+            install_agent
+            ;;
+        uninstall)
+            check_root
+            uninstall
+            ;;
+        status)
+            status
+            ;;
     esac
 }
 

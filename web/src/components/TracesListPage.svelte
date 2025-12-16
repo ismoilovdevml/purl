@@ -1,9 +1,10 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import {
     tracesList,
     tracesListLoading,
     tracesListError,
+    tracesServiceFilter,
     fetchRecentTraces,
     formatDuration,
     getServiceColor,
@@ -13,11 +14,21 @@
 
   let selectedRange = '1h';
   let selectedTraceId = null;
+  let serviceFilter = null;
+
+  // Subscribe to service filter changes
+  const unsubscribe = tracesServiceFilter.subscribe(value => {
+    serviceFilter = value;
+    if (value) {
+      resetServiceColors();
+      fetchRecentTraces(selectedRange, 50, value);
+    }
+  });
 
   function handleRangeChange(range) {
     selectedRange = range;
     resetServiceColors();
-    fetchRecentTraces(range);
+    fetchRecentTraces(range, 50, serviceFilter);
   }
 
   function selectTrace(traceId) {
@@ -26,6 +37,13 @@
 
   function closeTraceView() {
     selectedTraceId = null;
+  }
+
+  function clearServiceFilter() {
+    tracesServiceFilter.set(null);
+    serviceFilter = null;
+    resetServiceColors();
+    fetchRecentTraces(selectedRange);
   }
 
   function formatTimestamp(ts) {
@@ -48,7 +66,11 @@
   }
 
   onMount(() => {
-    fetchRecentTraces(selectedRange);
+    fetchRecentTraces(selectedRange, 50, serviceFilter);
+  });
+
+  onDestroy(() => {
+    unsubscribe();
   });
 </script>
 
@@ -60,6 +82,12 @@
       <div class="header-left">
         <h2>Traces</h2>
         <span class="trace-count">{$tracesList.length} traces</span>
+        {#if serviceFilter}
+          <div class="service-filter-badge">
+            <span>Service: {serviceFilter}</span>
+            <button class="clear-filter" on:click={clearServiceFilter} title="Clear filter">×</button>
+          </div>
+        {/if}
       </div>
 
       <div class="header-right">
@@ -73,7 +101,7 @@
             </button>
           {/each}
         </div>
-        <button class="refresh-btn" on:click={() => fetchRecentTraces(selectedRange)} disabled={$tracesListLoading}>
+        <button class="refresh-btn" on:click={() => fetchRecentTraces(selectedRange, 50, serviceFilter)} disabled={$tracesListLoading}>
           {#if $tracesListLoading}
             <span class="spinner"></span>
           {:else}
@@ -186,8 +214,9 @@
 
   .header-left {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
   }
 
   .header-left h2 {
@@ -195,6 +224,38 @@
     font-size: 18px;
     font-weight: 600;
     color: #f0f6fc;
+  }
+
+  .service-filter-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(88, 166, 255, 0.15);
+    border: 1px solid rgba(88, 166, 255, 0.3);
+    border-radius: 16px;
+    font-size: 12px;
+    color: #58a6ff;
+  }
+
+  .clear-filter {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    background: rgba(88, 166, 255, 0.2);
+    color: #58a6ff;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .clear-filter:hover {
+    background: rgba(88, 166, 255, 0.4);
   }
 
   .trace-count {

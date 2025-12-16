@@ -49,6 +49,7 @@ nytprof.out
 
 # Local development
 docker-compose.local.yml
+docker-compose.demo.yml
 
 # Docker
 docker/clickhouse/data/

@@ -30,6 +30,7 @@ use Purl::API::Controller::System;
 use Purl::API::Controller::Analytics;
 use Purl::API::Controller::Auth;
 use Purl::API::Controller::ServiceMap;
+use Purl::API::Controller::OTLP;
 
 # Package-level state
 my $storage;
@@ -304,6 +305,7 @@ sub setup_routes {
     my $analytics_c = Purl::API::Controller::Analytics->new(%c_args, notifier_list => \%notifiers);
     my $logs_c   = Purl::API::Controller::Logs->new(%c_args, websockets => $websockets);
     my $service_map_c = Purl::API::Controller::ServiceMap->new(%c_args);
+    my $otlp_c = Purl::API::Controller::OTLP->new(%c_args);
 
     # Periodic buffer flush timer (every 2 seconds)
     Mojo::IOLoop->recurring(2 => sub {
@@ -437,6 +439,15 @@ sub setup_routes {
 
     # JSON metrics endpoint (for dashboard)
     $api->get('/metrics/json' => sub ($c) { $sys_c->metrics_json($c) });
+
+    # ============================================
+    # OTLP Endpoints (OpenTelemetry Protocol)
+    # No auth - OTLP exporters (Beyla, etc.) don't use auth
+    # ============================================
+    my $r = app->routes;
+    $r->post('/v1/traces' => sub ($c) { $otlp_c->receive_traces($c) });
+    $r->post('/v1/metrics' => sub ($c) { $otlp_c->receive_metrics($c) });
+    $r->post('/v1/logs' => sub ($c) { $otlp_c->receive_logs($c) });
 
     # Search logs (with caching)
     $protected->get('/logs' => sub ($c) { $logs_c->search($c) });

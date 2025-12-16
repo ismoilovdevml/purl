@@ -15,17 +15,22 @@ export const traceTimeline = writable(null);
 export const tracesList = writable([]);
 export const tracesListLoading = writable(false);
 export const tracesListError = writable(null);
+export const tracesServiceFilter = writable(null);
 
 // ============================================
 // Traces List API
 // ============================================
 
-export async function fetchRecentTraces(range = '1h', limit = 50) {
+export async function fetchRecentTraces(range = '1h', limit = 50, service = null) {
   tracesListLoading.set(true);
   tracesListError.set(null);
 
   try {
-    const response = await fetch(`${API_BASE}/traces?range=${range}&limit=${limit}`);
+    let url = `${API_BASE}/traces?range=${range}&limit=${limit}`;
+    if (service) {
+      url += `&service=${encodeURIComponent(service)}`;
+    }
+    const response = await fetch(url);
 
     if (!response.ok) {
       const err = await response.json();

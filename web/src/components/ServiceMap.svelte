@@ -3,6 +3,7 @@
   import { writable } from 'svelte/store';
   import { detectServiceType, serviceTypes } from '../lib/serviceIcons.js';
   import { query, searchLogs } from '../stores/logs.js';
+  import { tracesServiceFilter } from '../stores/traces.js';
   import ServiceMetricsChart from './ServiceMetricsChart.svelte';
   import ServiceLatencyChart from './ServiceLatencyChart.svelte';
 
@@ -115,10 +116,19 @@
   // Process graph data for D3
   function processGraphData(data) {
     const nodeMap = new Map();
+    const nodeCount = (data.nodes || []).length;
 
-    nodes = (data.nodes || []).map(n => {
+    // Calculate initial positions in a circle to spread nodes evenly
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) * 0.35;
+
+    nodes = (data.nodes || []).map((n, index) => {
       const health = getHealthStatus(n.data.error_count, n.data.log_count);
       const typeInfo = detectServiceType(n.data.id);
+
+      // Position nodes in a circle initially for better spreading
+      const angle = (2 * Math.PI * index) / nodeCount;
       const node = {
         id: n.data.id,
         label: n.data.label || n.data.id,
@@ -131,8 +141,8 @@
         color: typeInfo.color,
         textColor: typeInfo.textColor,
         abbrev: typeInfo.abbrev,
-        x: width / 2 + (Math.random() - 0.5) * 200,
-        y: height / 2 + (Math.random() - 0.5) * 200,
+        x: centerX + radius * Math.cos(angle),
+        y: centerY + radius * Math.sin(angle),
       };
       nodeMap.set(node.id, node);
       return node;
@@ -222,14 +232,18 @@
   function handleNodeDragEnd(event, node) {
     if (!simulation) return;
     simulation.alphaTarget(0);
-    node.fx = null;
-    node.fy = null;
 
-    // If not dragging, treat as click
+    // Keep the node fixed at its new position after dragging
+    // Only release if it was just a click (not a drag)
     if (!isDragging) {
+      // It was a click, not a drag - release the node and select it
+      node.fx = null;
+      node.fy = null;
       selectedService.set(node.id);
       fetchServiceDetails(node.id);
     }
+    // If it was a drag, keep fx/fy set so node stays in place
+
     isDragging = false;
   }
 
@@ -315,8 +329,9 @@
     window.location.hash = 'logs';
   }
 
-  function navigateToTraces(_serviceName) {
-    // Navigate to traces page - traces will be filtered by service if we add that feature
+  function navigateToTraces(serviceName) {
+    // Set service filter and navigate to traces page
+    tracesServiceFilter.set(serviceName);
     window.location.hash = 'traces';
   }
 

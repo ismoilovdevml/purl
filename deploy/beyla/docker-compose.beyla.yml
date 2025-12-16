@@ -1,0 +1,77 @@
+# Beyla eBPF Auto-Instrumentation for Purl
+# Version: Beyla 2.8.2 with auto-discovery
+#
+# Auto-discovers and traces ALL applications running on the host
+# Requires Linux kernel 5.8+ with BTF enabled.
+#
+# Usage (standalone):
+#   docker compose -f docker-compose.beyla.yml up -d
+#
+# Usage (with Purl):
+#   docker compose -f docker-compose.yml -f deploy/beyla/docker-compose.beyla.yml up -d
+
+services:
+  beyla:
+    image: grafana/beyla:2.8.2
+    container_name: purl-beyla
+    privileged: true
+    pid: host
+    network_mode: host
+    environment:
+      # ============================================
+      # Auto-Discovery Configuration
+      # ============================================
+      # Discover ALL services (wildcard)
+      BEYLA_DISCOVERY_SERVICES: ".*"
+
+      # Or specify ports to monitor (comma-separated)
+      # BEYLA_OPEN_PORT: "${BEYLA_PORTS:-80,443,3000,5000,8000,8080,8443,9000}"
+
+      # Executable name regex for discovery
+      # BEYLA_EXECUTABLE_NAME: ".*"
+
+      # ============================================
+      # OTLP Export Configuration
+      # ============================================
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${PURL_OTLP_ENDPOINT:-http://localhost:3000}"
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "${PURL_OTLP_ENDPOINT:-http://localhost:3000}/v1/traces"
+
+      # ============================================
+      # Service Identification
+      # ============================================
+      # If not set, Beyla auto-detects service name from executable
+      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:-}"
+
+      # Resource attributes
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=${ENVIRONMENT:-production},host.name=${HOSTNAME:-purl-host}"
+
+      # ============================================
+      # Beyla Settings
+      # ============================================
+      BEYLA_LOG_LEVEL: "${BEYLA_LOG_LEVEL:-INFO}"
+
+      # Enable all protocols
+      BEYLA_EBPF_TRACK_REQUEST_HEADERS: "true"
+
+      # Metrics export (optional)
+      BEYLA_PROMETHEUS_PORT: "9090"
+
+      # Internal metrics port
+      BEYLA_INTERNAL_METRICS_PROMETHEUS_PORT: "6060"
+
+    volumes:
+      # Required for eBPF
+      - /sys/kernel/debug:/sys/kernel/debug:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+      - /sys/fs/bpf:/sys/fs/bpf:rw
+
+      # Optional: custom config file
+      # - ./beyla-config.yml:/etc/beyla/config.yml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:6060/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

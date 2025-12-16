@@ -380,6 +380,40 @@ sub _init_schema {
         ORDER BY created_at
     });
 
+    # Create spans table for OTLP traces
+    $self->_query(qq{
+        CREATE TABLE IF NOT EXISTS ${db}.spans (
+            trace_id String CODEC(ZSTD(3)),
+            span_id String CODEC(ZSTD(3)),
+            parent_span_id String DEFAULT '' CODEC(ZSTD(3)),
+
+            start_time DateTime64(9),
+            end_time DateTime64(9),
+            duration_ns UInt64,
+
+            service LowCardinality(String),
+            operation String CODEC(ZSTD(3)),
+            span_kind LowCardinality(String),
+
+            status_code LowCardinality(String) DEFAULT 'UNSET',
+            status_message String DEFAULT '' CODEC(ZSTD(3)),
+
+            attributes String CODEC(ZSTD(3)),
+            resource_attributes String CODEC(ZSTD(3)),
+            events String CODEC(ZSTD(3)),
+
+            INDEX idx_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_service service TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_span_id span_id TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_operation operation TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4
+        )
+        ENGINE = MergeTree()
+        PARTITION BY toYYYYMMDD(start_time)
+        ORDER BY (service, trace_id, start_time)
+        TTL toDateTime(start_time) + INTERVAL $self->{retention_days} DAY
+        SETTINGS index_granularity = 8192
+    });
+
     # Create log patterns table for pattern-based grouping
     $self->_query(qq{
         CREATE TABLE IF NOT EXISTS ${db}.log_patterns (
@@ -999,11 +1033,19 @@ sub list_recent_traces {
     my $table = $self->database . '.' . $self->table;
     my $limit = $self->_validate_int($params{limit}, 1, 100) // 50;
     my $range = $params{range} // '1h';
+    my $service = $params{service};
 
     # Parse time range using Utils::Time
     require Purl::Utils::Time;
     my ($from, $to) = Purl::Utils::Time::parse_time_range($range);
     return { traces => [], total => 0 } unless $from && $to;
+
+    # Build service filter if provided
+    my $service_condition = '';
+    if ($service) {
+        my $safe_service = $self->_quote_string($service);
+        $service_condition = "AND service = $safe_service";
+    }
 
     my $sql = qq{
         SELECT
@@ -1019,6 +1061,7 @@ sub list_recent_traces {
         WHERE trace_id != ''
           AND timestamp >= parseDateTimeBestEffort('$from')
           AND timestamp <= parseDateTimeBestEffort('$to')
+          $service_condition
         GROUP BY trace_id
         ORDER BY start_time DESC
         LIMIT $limit
@@ -1147,6 +1190,188 @@ sub DEMOLISH {
 
 # Note: Saved Searches and Alerts CRUD methods are provided by
 # Purl::Storage::ClickHouse::SavedSearches and Purl::Storage::ClickHouse::Alerts roles
+
+# ============================================
+# OTLP Spans Methods
+# ============================================
+
+# Insert spans from OTLP data
+sub insert_spans {
+    my ($self, $spans) = @_;
+
+    return 0 unless $spans && @$spans;
+
+    my $db = $self->database;
+    my @rows;
+
+    for my $span (@$spans) {
+        # Convert nanoseconds to DateTime64(9) format
+        my $start_ns = $span->{start_time} // 0;
+        my $end_ns = $span->{end_time} // $start_ns;
+        my $duration_ns = $end_ns - $start_ns;
+
+        # Convert nanoseconds to seconds with nanosecond precision
+        my $start_time = $self->_ns_to_datetime64($start_ns);
+        my $end_time = $self->_ns_to_datetime64($end_ns);
+
+        push @rows, join("\t",
+            $span->{trace_id} // '',
+            $span->{span_id} // '',
+            $span->{parent_span_id} // '',
+            $start_time,
+            $end_time,
+            $duration_ns,
+            $span->{service} // 'unknown',
+            $span->{operation} // '',
+            $span->{span_kind} // 'INTERNAL',
+            $span->{status_code} // 'UNSET',
+            $span->{status_message} // '',
+            $span->{attributes} // '[]',
+            $span->{resource_attributes} // '[]',
+            $span->{events} // '[]',
+        );
+    }
+
+    my $data = join("\n", @rows);
+    my $url = $self->_base_url . '/?' . $self->_auth_params;
+    $url .= '&async_insert=1&wait_for_async_insert=0';
+    $url .= '&query=' . uri_escape("INSERT INTO ${db}.spans FORMAT TabSeparated");
+
+    my $response = $self->_http->post($url, {
+        content => $data,
+        headers => { 'Content-Type' => 'text/plain' },
+    });
+
+    unless ($response->{success}) {
+        die "ClickHouse spans insert error: $response->{status} - $response->{content}";
+    }
+
+    return scalar @$spans;
+}
+
+# Convert nanoseconds to ClickHouse DateTime64(9) format
+sub _ns_to_datetime64 {
+    my ($self, $ns) = @_;
+    return '1970-01-01 00:00:00.000000000' unless $ns && $ns > 0;
+
+    my $sec = int($ns / 1_000_000_000);
+    my $nano = $ns % 1_000_000_000;
+
+    # Time::Piece::gmtime returns object with year/mon already correct
+    my $t = gmtime($sec);
+    return sprintf('%04d-%02d-%02d %02d:%02d:%02d.%09d',
+        $t->year, $t->mon, $t->mday,
+        $t->hour, $t->min, $t->sec, $nano
+    );
+}
+
+# Get all spans for a trace
+sub get_trace_spans {
+    my ($self, $trace_id, %params) = @_;
+
+    my $db = $self->database;
+    my $limit = $self->_validate_int($params{limit}, 1, 1000) // 200;
+
+    # Validate trace_id format
+    return [] unless $trace_id && $trace_id =~ /^[a-fA-F0-9\-]{8,36}$/;
+
+    my $safe_trace_id = lc($trace_id);
+    $safe_trace_id =~ s/-//g;  # Remove dashes if present
+
+    my $sql = qq{
+        SELECT
+            trace_id,
+            span_id,
+            parent_span_id,
+            formatDateTime(start_time, '%Y-%m-%dT%H:%i:%S') || '.' ||
+                toString(toUnixTimestamp64Nano(start_time) % 1000000000) || 'Z' as start_time,
+            formatDateTime(end_time, '%Y-%m-%dT%H:%i:%S') || '.' ||
+                toString(toUnixTimestamp64Nano(end_time) % 1000000000) || 'Z' as end_time,
+            duration_ns,
+            toFloat64(duration_ns) / 1000000.0 as duration_ms,
+            service,
+            operation,
+            span_kind,
+            status_code,
+            status_message,
+            attributes,
+            resource_attributes,
+            events
+        FROM ${db}.spans
+        WHERE trace_id = '$safe_trace_id'
+           OR trace_id = '$trace_id'
+        ORDER BY start_time ASC
+        LIMIT $limit
+    };
+
+    my $results = $self->_query_json($sql);
+
+    # Parse JSON attributes
+    for my $row (@$results) {
+        $row->{attributes} = eval { $self->_json->decode($row->{attributes}) } // [];
+        $row->{resource_attributes} = eval { $self->_json->decode($row->{resource_attributes}) } // [];
+        $row->{events} = eval { $self->_json->decode($row->{events}) } // [];
+    }
+
+    return $results;
+}
+
+# List recent traces with aggregated info
+sub list_traces_from_spans {
+    my ($self, %params) = @_;
+
+    my $db = $self->database;
+    my $limit = $self->_validate_int($params{limit}, 1, 100) // 50;
+    my $range = $params{range} // '1h';
+
+    # Parse range
+    my $range_sql = $self->_parse_range_sql($range);
+
+    my $sql = qq{
+        SELECT
+            trace_id,
+            min(start_time) as trace_start_time,
+            max(end_time) as trace_end_time,
+            toFloat64(max(toUnixTimestamp64Nano(end_time)) - min(toUnixTimestamp64Nano(start_time))) / 1000000.0 as duration_ms,
+            count() as span_count,
+            countIf(status_code = 'ERROR') as error_count,
+            groupUniqArray(5)(service) as services,
+            any(operation) as root_operation
+        FROM ${db}.spans
+        WHERE start_time >= now() - INTERVAL $range_sql
+        GROUP BY trace_id
+        ORDER BY trace_start_time DESC
+        LIMIT $limit
+    };
+
+    my $results = $self->_query_json($sql);
+
+    return {
+        traces => $results,
+        total => scalar @$results,
+    };
+}
+
+# Parse range string to SQL interval
+sub _parse_range_sql {
+    my ($self, $range) = @_;
+
+    my %ranges = (
+        '5m'  => '5 MINUTE',
+        '15m' => '15 MINUTE',
+        '30m' => '30 MINUTE',
+        '1h'  => '1 HOUR',
+        '3h'  => '3 HOUR',
+        '6h'  => '6 HOUR',
+        '12h' => '12 HOUR',
+        '24h' => '24 HOUR',
+        '1d'  => '1 DAY',
+        '3d'  => '3 DAY',
+        '7d'  => '7 DAY',
+    );
+
+    return $ranges{$range} // '1 HOUR';
+}
 
 1;
 
