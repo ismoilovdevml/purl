@@ -21,6 +21,7 @@ export const nodeStats = writable([]);
 
 // Histogram data
 export const histogram = writable([]);
+export const previousHistogram = writable([]);
 
 // Performance metrics
 export const metrics = writable(null);
@@ -292,6 +293,60 @@ export async function fetchHistogram(signal = null) {
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error('Failed to fetch histogram:', err);
+    }
+  }
+}
+
+// Fetch previous period histogram for comparison
+export async function fetchPreviousHistogram(signal = null) {
+  try {
+    const currentRange = get(timeRange);
+    const currentCustom = get(customTimeRange);
+
+    const interval = getIntervalForRange(currentRange, currentCustom.from, currentCustom.to);
+    const params = new URLSearchParams({ interval });
+
+    // Calculate previous period based on current range
+    const now = new Date();
+    let prevFrom, prevTo;
+
+    if (currentRange === 'custom' && currentCustom.from && currentCustom.to) {
+      // Custom range: shift back by the same duration
+      const from = new Date(currentCustom.from);
+      const to = new Date(currentCustom.to);
+      const duration = to.getTime() - from.getTime();
+      prevFrom = new Date(from.getTime() - duration);
+      prevTo = new Date(to.getTime() - duration);
+    } else {
+      // Preset range: calculate previous period
+      // e.g., 15m means "last 15 minutes", previous is "30 min ago to 15 min ago"
+      const rangeMs = {
+        '5m': 5 * 60 * 1000,
+        '15m': 15 * 60 * 1000,
+        '30m': 30 * 60 * 1000,
+        '1h': 60 * 60 * 1000,
+        '4h': 4 * 60 * 60 * 1000,
+        '12h': 12 * 60 * 60 * 1000,
+        '24h': 24 * 60 * 60 * 1000,
+        '7d': 7 * 24 * 60 * 60 * 1000,
+        '30d': 30 * 24 * 60 * 60 * 1000
+      };
+      const duration = rangeMs[currentRange] || 60 * 60 * 1000;
+      // Previous period: from (now - 2*duration) to (now - duration)
+      prevTo = new Date(now.getTime() - duration);
+      prevFrom = new Date(now.getTime() - 2 * duration);
+    }
+
+    params.set('from', prevFrom.toISOString());
+    params.set('to', prevTo.toISOString());
+
+    const response = await fetch(`${API_BASE}/stats/histogram?${params}`, { signal });
+    const data = await response.json();
+
+    previousHistogram.set(data.buckets || []);
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      console.error('Failed to fetch previous histogram:', err);
     }
   }
 }

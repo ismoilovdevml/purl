@@ -81,6 +81,20 @@
     searchLogs();
   }
 
+  function handleHistogramFilter(event) {
+    const { start, end } = event.detail;
+    $timeRange = 'custom';
+    $customTimeRange = { from: start, to: end };
+    searchLogs();
+  }
+
+  function handleHistogramZoom(event) {
+    const { start, end } = event.detail;
+    $timeRange = 'custom';
+    $customTimeRange = { from: start, to: end };
+    searchLogs();
+  }
+
   function saveCurrentSearch() {
     savedSearchesRef?.openSaveModal($query, $timeRange);
   }
@@ -322,7 +336,7 @@
       </aside>
 
       <div class="main-content">
-        <Histogram />
+        <Histogram on:filter={handleHistogramFilter} on:zoom={handleHistogramZoom} />
         <LogTable logs={$logs} />
       </div>
 
