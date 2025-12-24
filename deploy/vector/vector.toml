@@ -70,15 +70,12 @@ msg = string!(.message)
 # Try to parse JSON logs for structured data
 parsed, err = parse_json(msg)
 if err == null {
-    # Extract message from parsed JSON
-    msg_val, msg_err = get(parsed, ["msg"])
-    if msg_err != null {
-        msg_val, msg_err = get(parsed, ["message"])
+    # Extract message from parsed JSON - check both "message" and "msg" keys
+    msg_val = get(parsed, ["message"]) ?? get(parsed, ["msg"]) ?? null
+    if msg_val != null {
+        msg = to_string(msg_val) ?? msg
+        .message = msg
     }
-    if msg_err == null && msg_val != null {
-        msg = to_string!(msg_val)
-    }
-    .message = msg
 }
 
 # Initialize trace fields
