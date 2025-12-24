@@ -80,20 +80,37 @@ METRICS
 
 sub metrics_json {
     my ($self, $c) = @_;
-    
+
     $self->safe_execute($c, sub {
         my $stats = eval { $self->storage->stats() } // {};
         my $ch_metrics = eval { $self->storage->get_metrics() } // {};
-        my $uptime = int(time() - $^T);
+        my $server_metrics = Purl::API::Server::get_metrics();
+
+        my $uptime_secs = int(time() - ($server_metrics->{start_time} // $^T));
+        my $uptime_human = _format_uptime($uptime_secs);
+
+        # Calculate percentiles from latencies
+        my @latencies = sort { $a <=> $b } @{$server_metrics->{latencies} // []};
+        my $p50 = _percentile(\@latencies, 50);
+        my $p95 = _percentile(\@latencies, 95);
+        my $p99 = _percentile(\@latencies, 99);
+        my $max_latency = @latencies ? $latencies[-1] : 0;
+
+        # Calculate requests per second
+        my $rps = $uptime_secs > 0
+            ? sprintf("%.1f", ($server_metrics->{requests_total} // 0) / $uptime_secs)
+            : 0;
 
         $c->render(json => {
             server => {
                 version       => $VERSION,
-                uptime_secs   => $uptime,
+                uptime_secs   => $uptime_secs,
+                uptime_human  => $uptime_human,
             },
             storage => {
                 total_logs    => $stats->{total_logs} // 0,
                 db_size_mb    => $stats->{db_size_mb} // 0,
+                db_size_bytes => $stats->{db_size_bytes} // 0,
                 oldest_log    => $stats->{oldest_log},
                 newest_log    => $stats->{newest_log},
             },
@@ -107,11 +124,49 @@ sub metrics_json {
                 buffer_size     => $ch_metrics->{buffer_size} // 0,
                 errors_total    => $ch_metrics->{errors_total} // 0,
             },
+            requests => {
+                total         => $server_metrics->{requests_total} // 0,
+                errors        => $server_metrics->{errors_total} // 0,
+                per_second    => $rps,
+                bytes_in      => $server_metrics->{bytes_in} // 0,
+                bytes_out     => $server_metrics->{bytes_out} // 0,
+                p50_latency   => sprintf("%.1fms", $p50),
+                p95_latency   => sprintf("%.1fms", $p95),
+                p99_latency   => sprintf("%.1fms", $p99),
+                max_latency   => sprintf("%.1fms", $max_latency),
+            },
             cache => {
                 entries       => scalar keys %{$self->cache},
+                ttl           => '60s',
+                hit_rate      => $ch_metrics->{cache_hit_rate} // '0%',
             },
         });
     });
+}
+
+sub _percentile {
+    my ($sorted_arr, $p) = @_;
+    return 0 unless @$sorted_arr;
+    my $idx = int(($p / 100) * @$sorted_arr);
+    $idx = @$sorted_arr - 1 if $idx >= @$sorted_arr;
+    return $sorted_arr->[$idx];
+}
+
+sub _format_uptime {
+    my ($secs) = @_;
+    if ($secs < 60) {
+        return "${secs}s";
+    } elsif ($secs < 3600) {
+        return sprintf("%dm %ds", int($secs / 60), $secs % 60);
+    } elsif ($secs < 86400) {
+        my $h = int($secs / 3600);
+        my $m = int(($secs % 3600) / 60);
+        return sprintf("%dh %dm", $h, $m);
+    } else {
+        my $d = int($secs / 86400);
+        my $h = int(($secs % 86400) / 3600);
+        return sprintf("%dd %dh", $d, $h);
+    }
 }
 
 1;

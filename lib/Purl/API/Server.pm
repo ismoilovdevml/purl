@@ -45,7 +45,14 @@ my %metrics = (
     query_duration_sum => 0,
     query_count        => 0,
     start_time         => time(),
+    # Extended metrics for Analytics
+    latencies          => [],  # Recent request latencies for percentiles
+    bytes_in           => 0,
+    bytes_out          => 0,
 );
+
+# Metrics accessor for controllers
+sub get_metrics { return \%metrics; }
 
 # Shared cache for all controllers
 my %cache;
@@ -203,21 +210,32 @@ sub setup_routes {
         $metrics{requests_by_path}{$path}++;
     });
 
-    # Request logging
+    # Request logging and metrics collection
     app->hook(after_dispatch => sub ($c) {
         my $start = $c->stash('request_start');
         my $duration = $start ? time() - $start : 0;
+        my $duration_ms = $duration * 1000;
+
         $metrics{query_duration_sum} += $duration;
         $metrics{query_count}++;
+
+        # Track latencies for percentile calculation (keep last 1000)
+        push @{$metrics{latencies}}, $duration_ms;
+        shift @{$metrics{latencies}} while @{$metrics{latencies}} > 1000;
+
+        # Track bytes
+        my $req_size = length($c->req->body // '');
+        my $res_size = length($c->res->body // '');
+        $metrics{bytes_in} += $req_size;
+        $metrics{bytes_out} += $res_size;
 
         my $method = $c->req->method;
         my $path = $c->req->url->path->to_string;
         my $status = $c->res->code // 0;
         my $ip = $c->tx->remote_address // '-';
-        my $duration_ms = sprintf("%.2f", $duration * 1000);
 
         my $log_level = $status >= 500 ? 'error' : ($status >= 400 ? 'warn' : 'info');
-        app->log->$log_level("$ip - $method $path $status ${duration_ms}ms");
+        app->log->$log_level(sprintf("%s - %s %s %d %.2fms", $ip, $method, $path, $status, $duration_ms));
 
         $metrics{errors_total}++ if $status >= 400;
     });
