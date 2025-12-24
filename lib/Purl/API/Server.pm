@@ -7,8 +7,6 @@ our $VERSION = '1.2.0';
 
 use Mojolicious::Lite -signatures;
 use Mojo::JSON qw(encode_json decode_json);
-use Digest::SHA qw(sha256_hex);
-use MIME::Base64 qw(decode_base64);
 use Time::HiRes qw(time);
 
 use Purl::Storage::ClickHouse;
@@ -16,6 +14,7 @@ use Purl::Alert::Telegram;
 use Purl::Alert::Slack;
 use Purl::Alert::Webhook;
 use Purl::Config;
+use Purl::API::Middleware::Auth;
 
 # Controllers
 use Purl::API::Controller::Logs;
@@ -52,28 +51,13 @@ my %metrics = (
 my %cache;
 my $cache_ttl = 60;
 
-# Rate limiting state
-my %rate_limit;
-my $rate_limit_window = 60;
-my $rate_limit_max = 1000;
-
-# Password verification helper
-sub _verify_password {
-    my ($password, $stored) = @_;
-    return 0 unless $stored && $stored =~ /^([^\$]+)\$([a-f0-9]+)$/;
-    my ($salt, $hash) = ($1, $2);
-    my $check = sha256_hex($salt . $password . $salt);
-    return 0 unless length($check) == length($hash);
-    my $result = 0;
-    $result |= ord(substr($check, $_, 1)) ^ ord(substr($hash, $_, 1)) for 0..length($check)-1;
-    return $result == 0;
-}
+# Auth middleware instance
+my $auth_middleware;
 
 sub create {
     my ($class, %args) = @_;
     $config = $args{config} // {};
     $cache_ttl = $config->{cache}{ttl} // 60;
-    $rate_limit_max = $config->{rate_limit}{max_requests} // 1000;
     return bless {}, $class;
 }
 
@@ -140,80 +124,18 @@ sub _build_notifiers {
     return \%notifiers;
 }
 
-sub _check_rate_limit {
-    my ($ip) = @_;
-    my $now = time();
-    my $window_start = int($now / $rate_limit_window) * $rate_limit_window;
-    my $key = "$ip:$window_start";
-
-    for my $k (keys %rate_limit) {
-        delete $rate_limit{$k} if $k !~ /:$window_start$/;
-    }
-
-    $rate_limit{$key}++;
-    return $rate_limit{$key} <= $rate_limit_max;
-}
-
-sub _check_auth {
-    my ($c) = @_;
-    my $auth_config = $config->{auth} // {};
-
-    my $auth_enabled = $ENV{PURL_AUTH_ENABLED} // $auth_config->{enabled} // 0;
-    return 1 unless $auth_enabled;
-
-    # Skip auth for same-origin requests
-    my $sec_fetch = $c->req->headers->header('Sec-Fetch-Site') // '';
-    return 1 if $sec_fetch eq 'same-origin' || $sec_fetch eq 'same-site';
-
-    my $origin = $c->req->headers->header('Origin') // '';
-    my $host = $c->req->headers->host // '';
-    if ($origin && $host) {
-        my ($origin_host) = $origin =~ m{^https?://([^/]+)};
-        return 1 if $origin_host && $origin_host eq $host;
-    }
-
-    my $referer = $c->req->headers->header('Referer') // '';
-    if ($referer && $host) {
-        my ($referer_host) = $referer =~ m{^https?://([^/]+)};
-        return 1 if $referer_host && $referer_host eq $host;
-    }
-
-    # API Key auth
-    if (my $api_key = $c->req->headers->header('X-API-Key')) {
-        if (my $env_keys = $ENV{PURL_API_KEYS}) {
-            my @keys = split /,/, $env_keys;
-            return 1 if grep { $_ eq $api_key } @keys;
-        }
-        my $valid_keys = $auth_config->{api_keys} // [];
-        return 1 if grep { $_ eq $api_key } @$valid_keys;
-    }
-
-    # Basic auth
-    my $auth_header = $c->req->headers->authorization // '';
-    if ($auth_header =~ /^Basic\s+(.+)$/) {
-        my $decoded = decode_base64($1);
-        my ($user, $pass) = split /:/, $decoded, 2;
-        my $users = $auth_config->{users} // {};
-        if (exists $users->{$user}) {
-            my $stored = $users->{$user};
-            if ($stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/) {
-                return 1 if _verify_password($pass, $stored);
-            } else {
-                app->log->warn("User '$user' has plaintext password - please hash it");
-                return 1 if $stored eq $pass;
-            }
-        }
-    }
-
-    return 0;
-}
-
 sub setup_routes {
     my ($self) = @_;
 
     $settings //= Purl::Config->new();
     $storage //= _build_storage();
     _build_notifiers();
+
+    # Initialize auth middleware
+    $auth_middleware = Purl::API::Middleware::Auth->new(
+        config         => $config,
+        rate_limit_max => $config->{rate_limit}{max_requests} // 1000,
+    );
 
     # Common controller args
     my %c_args = (storage => $storage, config => $config, cache => \%cache);
@@ -308,13 +230,23 @@ sub setup_routes {
         return 1 if $path =~ m{^/api/(health|metrics)$};
 
         my $ip = $c->tx->remote_address // '127.0.0.1';
-        unless (_check_rate_limit($ip)) {
-            $c->render(json => { error => 'Rate limit exceeded', retry_after => $rate_limit_window }, status => 429);
+
+        # Rate limiting via middleware
+        unless ($auth_middleware->check_rate_limit($ip)) {
+            $c->render(json => {
+                error       => 'Rate limit exceeded',
+                retry_after => $auth_middleware->rate_limit_window,
+            }, status => 429);
             $metrics{errors_total}++;
             return 0;
         }
 
-        unless (_check_auth($c)) {
+        # Add rate limit headers
+        $c->res->headers->header('X-RateLimit-Limit' => $auth_middleware->rate_limit_max);
+        $c->res->headers->header('X-RateLimit-Remaining' => $auth_middleware->get_rate_limit_remaining($ip));
+
+        # Auth check via middleware
+        unless ($auth_middleware->check_auth($c)) {
             $c->render(json => { error => 'Unauthorized' }, status => 401);
             $metrics{errors_total}++;
             return 0;
