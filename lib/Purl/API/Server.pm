@@ -17,6 +17,7 @@ use Purl::Alert::Telegram;
 use Purl::Alert::Slack;
 use Purl::Alert::Webhook;
 use Purl::Config;
+use Purl::Util::Time qw(parse_time_range);
 
 # Contollers
 use Purl::API::Controller::Logs;
@@ -507,7 +508,7 @@ sub setup_routes {
 
         # Parse range parameter (e.g., 15m, 1h, 24h)
         if (my $range = $c->param('range')) {
-            ($from, $to) = _parse_time_range($range);
+            ($from, $to) = parse_time_range($range);
         }
 
         # Allow standard fields and meta.* fields (K8s support)
@@ -550,7 +551,7 @@ sub setup_routes {
 
         # Parse range parameter (e.g., 15m, 1h, 24h)
         if (my $range = $c->param('range')) {
-            ($from, $to) = _parse_time_range($range);
+            ($from, $to) = parse_time_range($range);
         }
 
         my %params = (interval => $interval);
@@ -989,7 +990,7 @@ sub setup_routes {
         my $to      = $c->param('to');
 
         if (my $range = $c->param('range')) {
-            ($from, $to) = _parse_time_range($range);
+            ($from, $to) = parse_time_range($range);
         }
 
         my %params = (limit => int($limit));
@@ -1042,7 +1043,7 @@ sub setup_routes {
         }
 
         if (my $range = $c->param('range')) {
-            ($from, $to) = _parse_time_range($range);
+            ($from, $to) = parse_time_range($range);
         }
 
         my %params = (limit => int($limit));
@@ -1177,66 +1178,6 @@ sub setup_routes {
     });
 
     return app;
-}
-
-
-
-# Format duration in human readable format
-sub _format_duration {
-    my ($secs) = @_;
-    return '0s' unless $secs;
-
-    my @parts;
-    if ($secs >= 86400) {
-        push @parts, int($secs / 86400) . 'd';
-        $secs %= 86400;
-    }
-    if ($secs >= 3600) {
-        push @parts, int($secs / 3600) . 'h';
-        $secs %= 3600;
-    }
-    if ($secs >= 60) {
-        push @parts, int($secs / 60) . 'm';
-        $secs %= 60;
-    }
-    if ($secs > 0 && @parts < 2) {
-        push @parts, $secs . 's';
-    }
-
-    return join(' ', @parts) || '0s';
-}
-
-# Parse time range shortcut (15m, 1h, 24h, 7d)
-sub _parse_time_range {
-    my ($range) = @_;
-
-    my $now = time();
-    my $from;
-
-    if ($range =~ /^(\d+)m$/) {
-        $from = $now - ($1 * 60);
-    }
-    elsif ($range =~ /^(\d+)h$/) {
-        $from = $now - ($1 * 3600);
-    }
-    elsif ($range =~ /^(\d+)d$/) {
-        $from = $now - ($1 * 86400);
-    }
-    else {
-        return (undef, undef);
-    }
-
-    my $from_ts = _epoch_to_iso($from);
-    my $to_ts = _epoch_to_iso($now);
-
-    return ($from_ts, $to_ts);
-}
-
-sub _epoch_to_iso {
-    my ($epoch) = @_;
-    my @t = gmtime($epoch);
-    return sprintf('%04d-%02d-%02dT%02d:%02d:%02dZ',
-        $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0]);
 }
 
 sub _url_encode {

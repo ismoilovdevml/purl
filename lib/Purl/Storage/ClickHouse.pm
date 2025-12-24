@@ -8,8 +8,8 @@ use namespace::clean;
 use HTTP::Tiny;
 use JSON::XS ();
 use URI::Escape qw(uri_escape);
-use Time::Piece;
 use Time::HiRes qw(time);
+use Purl::Util::Time qw(to_clickhouse_ts now_clickhouse);
 
 # Consume roles for modular functionality
 with 'Purl::Storage::ClickHouse::Query';
@@ -539,38 +539,17 @@ sub maybe_flush {
 }
 
 # Format timestamp for ClickHouse DateTime64(3)
-# Required format: YYYY-MM-DD HH:MM:SS.mmm (space, not T)
+# Uses centralized Purl::Util::Time
 sub _format_timestamp {
     my ($self, $ts) = @_;
-
-    if ($ts) {
-        # Replace T with space for ClickHouse
-        $ts =~ s/T/ /;
-        # Remove Z suffix if present
-        $ts =~ s/Z$//;
-        # Ensure milliseconds exist
-        $ts .= '.000' unless $ts =~ /\.\d{3}$/;
-        return $ts if $ts =~ /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/;
-    }
-
-    # Default to now with milliseconds
-    my $t = Time::Piece->new;
-    return sprintf('%s.000', $t->strftime('%Y-%m-%d %H:%M:%S'));
+    return to_clickhouse_ts($ts) || now_clickhouse();
 }
 
 # Convert ISO timestamp (from API) to ClickHouse format for queries
+# Uses centralized Purl::Util::Time
 sub _convert_to_clickhouse_ts {
     my ($self, $ts) = @_;
-    return '' unless $ts;
-
-    # Replace T with space
-    $ts =~ s/T/ /;
-    # Remove Z suffix
-    $ts =~ s/Z$//;
-    # Add milliseconds if missing
-    $ts .= '.000' unless $ts =~ /\.\d+$/;
-
-    return $ts;
+    return to_clickhouse_ts($ts);
 }
 
 # Search logs (SQL injection protected)

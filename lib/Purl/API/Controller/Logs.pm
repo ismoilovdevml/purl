@@ -10,6 +10,8 @@ use Digest::MD5 qw(md5_hex);
 use Time::HiRes qw(time);
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 
+use Purl::Util::Time qw(parse_time_range epoch_to_iso);
+
 extends 'Purl::API::Controller::Base';
 
 # Shared state for live tail
@@ -17,9 +19,6 @@ has 'websockets' => (
     is => 'ro',
     default => sub { [] },
 );
-
-# Import helper for ISO time
-use Time::Piece;
 
 sub _broadcast_logs {
     my ($self, $logs) = @_;
@@ -113,32 +112,6 @@ sub query {
     });
 }
 
-sub _epoch_to_iso {
-    my ($epoch) = @_;
-    return Time::Piece->new($epoch)->datetime;
-}
-
-sub _parse_time_range {
-    my ($range) = @_;
-    my ($from, $to);
-    
-    # Simple range parsing logic (same as in Server.pm but implicit)
-    # Server.pm didn't show _parse_time_range implementation in lines 1-800?
-    # I should check Server.pm for _parse_time_range implementation or implement it here.
-    # It was likely further down in the file. I will implement a basic version or simple pass-through.
-    
-    # We will just implement parsing of 1h, 24h etc.
-    my $t = Time::Piece->new;
-    if ($range =~ /^(\d+)([hmda])$/) {
-        my ($val, $unit) = ($1, $2);
-        my $seconds = $val * ($unit eq 'm' ? 60 : $unit eq 'h' ? 3600 : $unit eq 'd' ? 86400 : 1);
-        $from = ($t - $seconds)->datetime;
-        $to = $t->datetime;
-    }
-    
-    return ($from, $to);
-}
-
 sub search {
     my ($self, $c) = @_;
     
@@ -154,7 +127,7 @@ sub search {
         my $order   = $c->param('order') // 'DESC';
 
         if (my $range = $c->param('range')) {
-            ($from, $to) = _parse_time_range($range);
+            ($from, $to) = parse_time_range($range);
         }
 
         my %params = (
@@ -257,7 +230,7 @@ sub ingest {
 
         my $count = 0;
         for my $log (@$logs) {
-            $log->{timestamp} //= _epoch_to_iso(time());
+            $log->{timestamp} //= epoch_to_iso(time());
             $log->{level} //= 'INFO';
             $log->{service} //= 'unknown';
             $log->{host} //= 'unknown';

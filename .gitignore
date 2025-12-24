@@ -53,3 +53,6 @@ docker-compose.local.yml
 # Docker
 docker/clickhouse/data/
 docker/clickhouse/logs/
+
+# Local ClickHouse configs
+docker/clickhouse/*.local.xml
