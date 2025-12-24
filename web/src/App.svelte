@@ -26,21 +26,9 @@
   let currentPage = 'logs'; // 'logs' | 'analytics' | 'settings'
   let refreshIntervalId = null;
   let currentRefreshInterval = 30;
-
-  // Subscribe to refresh interval changes
-  const unsubscribeRefresh = refreshInterval.subscribe(v => {
-    currentRefreshInterval = v;
-    setupRefreshInterval();
-  });
-
-  // Subscribe to default time range (apply on first load)
   let hasAppliedDefaultRange = false;
-  const unsubscribeDefaultRange = defaultTimeRange.subscribe(v => {
-    if (!hasAppliedDefaultRange && v) {
-      $timeRange = v;
-      hasAppliedDefaultRange = true;
-    }
-  });
+  let unsubscribeRefresh = null;
+  let unsubscribeDefaultRange = null;
 
   function setupRefreshInterval() {
     // Clear existing interval
@@ -63,21 +51,34 @@
   }
 
   onMount(async () => {
+    // Subscribe to refresh interval changes
+    unsubscribeRefresh = refreshInterval.subscribe(v => {
+      currentRefreshInterval = v;
+      setupRefreshInterval();
+    });
+
+    // Subscribe to default time range (apply on first load)
+    unsubscribeDefaultRange = defaultTimeRange.subscribe(v => {
+      if (!hasAppliedDefaultRange && v) {
+        $timeRange = v;
+        hasAppliedDefaultRange = true;
+      }
+    });
+
     // Check URL hash for navigation
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
 
     if (currentPage === 'logs') {
       await searchLogs();
-      setupRefreshInterval();
     }
 
     return () => window.removeEventListener('hashchange', handleHashChange);
   });
 
   onDestroy(() => {
-    unsubscribeRefresh();
-    unsubscribeDefaultRange();
+    if (unsubscribeRefresh) unsubscribeRefresh();
+    if (unsubscribeDefaultRange) unsubscribeDefaultRange();
     if (refreshIntervalId) {
       clearInterval(refreshIntervalId);
     }

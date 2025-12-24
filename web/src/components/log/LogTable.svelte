@@ -24,19 +24,13 @@
   let shouldHighlightErrors = true;
   let timeFormat = 'absolute';
 
-  const unsubscribeCompact = compactMode.subscribe(v => isCompact = v);
-  const unsubscribeWrap = lineWrap.subscribe(v => shouldWrap = v);
-  const unsubscribeHighlight = highlightErrors.subscribe(v => shouldHighlightErrors = v);
-  const unsubscribeTimeFormat = timestampFormat.subscribe(v => timeFormat = v);
-  const unsubscribeHost = showHost.subscribe(v => {
-    // Update host column visibility when setting changes
-    const hostCol = columns.find(c => c.id === 'host');
-    if (hostCol && hostCol.visible !== v) {
-      hostCol.visible = v;
-      columns = columns;
-      saveColumnConfig();
-    }
-  });
+  // Subscription references (initialized in onMount)
+  let unsubscribeCompact = null;
+  let unsubscribeWrap = null;
+  let unsubscribeHighlight = null;
+  let unsubscribeTimeFormat = null;
+  let unsubscribeHost = null;
+  let unsubscribeQuery = null;
 
   // Context state
   let contextData = {};
@@ -44,16 +38,6 @@
 
   // Current search query for highlighting
   let searchQuery = '';
-  const unsubscribeQuery = query.subscribe(v => searchQuery = v);
-
-  onDestroy(() => {
-    unsubscribeQuery();
-    unsubscribeCompact();
-    unsubscribeWrap();
-    unsubscribeHighlight();
-    unsubscribeHost();
-    unsubscribeTimeFormat();
-  });
 
   let selectedLog = null;
   let showColumnMenu = false;
@@ -76,6 +60,23 @@
   let startWidth = 0;
 
   onMount(() => {
+    // Initialize subscriptions
+    unsubscribeCompact = compactMode.subscribe(v => isCompact = v);
+    unsubscribeWrap = lineWrap.subscribe(v => shouldWrap = v);
+    unsubscribeHighlight = highlightErrors.subscribe(v => shouldHighlightErrors = v);
+    unsubscribeTimeFormat = timestampFormat.subscribe(v => timeFormat = v);
+    unsubscribeQuery = query.subscribe(v => searchQuery = v);
+    unsubscribeHost = showHost.subscribe(v => {
+      // Update host column visibility when setting changes
+      const hostCol = columns.find(c => c.id === 'host');
+      if (hostCol && hostCol.visible !== v) {
+        hostCol.visible = v;
+        columns = columns;
+        saveColumnConfig();
+      }
+    });
+
+    // Load saved column config
     const saved = localStorage.getItem('purl_column_config');
     if (saved) {
       try {
@@ -88,6 +89,15 @@
         // Ignore parse errors
       }
     }
+  });
+
+  onDestroy(() => {
+    if (unsubscribeQuery) unsubscribeQuery();
+    if (unsubscribeCompact) unsubscribeCompact();
+    if (unsubscribeWrap) unsubscribeWrap();
+    if (unsubscribeHighlight) unsubscribeHighlight();
+    if (unsubscribeHost) unsubscribeHost();
+    if (unsubscribeTimeFormat) unsubscribeTimeFormat();
   });
 
   function saveColumnConfig() {
