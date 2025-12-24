@@ -3,13 +3,13 @@
   import SearchBar from './components/SearchBar.svelte';
   import TimeRangePicker from './components/TimeRangePicker.svelte';
   import FieldsSidebar from './components/FieldsSidebar.svelte';
-  import LogTable from './components/LogTable.svelte';
+  import { LogTable } from './components/log';
   import Histogram from './components/Histogram.svelte';
   import SavedSearches from './components/SavedSearches.svelte';
   import AlertsPanel from './components/AlertsPanel.svelte';
   import PatternsSidebar from './components/PatternsSidebar.svelte';
   import AnalyticsPage from './components/AnalyticsPage.svelte';
-  import SettingsPage from './components/SettingsPage.svelte';
+  import { SettingsPage } from './components/settings';
   import {
     logs,
     loading,

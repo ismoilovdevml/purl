@@ -312,7 +312,7 @@
     }
   }
 
-  function handleMouseUp(event) {
+  function handleMouseUp() {
     if (isDragging && dragStart !== null && dragEnd !== null) {
       const startIdx = Math.min(dragStart, dragEnd);
       const endIdx = Math.max(dragStart, dragEnd);
