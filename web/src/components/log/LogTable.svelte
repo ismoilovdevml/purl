@@ -11,11 +11,32 @@
   import { formatTimestamp, formatFullTimestamp } from '../../utils/format.js';
   import { getLevelColor, getLevelBgColor } from '../../utils/colors.js';
   import { highlightText } from '../../utils/dom.js';
+  import { compactMode, lineWrap, highlightErrors, showHost, timestampFormat } from '../../stores/settings.js';
   import ColumnPicker from './ColumnPicker.svelte';
   import LogDetail from './LogDetail.svelte';
   import LogContextPanel from './LogContextPanel.svelte';
 
   export let logs = [];
+
+  // Settings
+  let isCompact = false;
+  let shouldWrap = true;
+  let shouldHighlightErrors = true;
+  let timeFormat = 'absolute';
+
+  const unsubscribeCompact = compactMode.subscribe(v => isCompact = v);
+  const unsubscribeWrap = lineWrap.subscribe(v => shouldWrap = v);
+  const unsubscribeHighlight = highlightErrors.subscribe(v => shouldHighlightErrors = v);
+  const unsubscribeTimeFormat = timestampFormat.subscribe(v => timeFormat = v);
+  const unsubscribeHost = showHost.subscribe(v => {
+    // Update host column visibility when setting changes
+    const hostCol = columns.find(c => c.id === 'host');
+    if (hostCol && hostCol.visible !== v) {
+      hostCol.visible = v;
+      columns = columns;
+      saveColumnConfig();
+    }
+  });
 
   // Context state
   let contextData = {};
@@ -27,6 +48,11 @@
 
   onDestroy(() => {
     unsubscribeQuery();
+    unsubscribeCompact();
+    unsubscribeWrap();
+    unsubscribeHighlight();
+    unsubscribeHost();
+    unsubscribeTimeFormat();
   });
 
   let selectedLog = null;
@@ -184,7 +210,7 @@
       <span>Try adjusting your search or time range</span>
     </div>
   {:else}
-    <table class="log-table" class:resizing={resizing !== null}>
+    <table class="log-table" class:resizing={resizing !== null} class:compact={isCompact} class:no-wrap={!shouldWrap}>
       <thead>
         <tr>
           {#each orderedVisibleColumns as col}
@@ -217,6 +243,7 @@
           <tr
             class="log-row"
             class:selected={selectedLog?.id === log.id}
+            class:error-row={shouldHighlightErrors && (log.level === 'ERROR' || log.level === 'FATAL')}
             on:click={() => selectLog(log)}
           >
             {#each orderedVisibleColumns as col (col.id)}
@@ -226,7 +253,7 @@
               >
                 {#if col.id === 'time'}
                   <span class="timestamp" title={formatFullTimestamp(log.timestamp)}>
-                    {formatTimestamp(log.timestamp)}
+                    {formatTimestamp(log.timestamp, timeFormat)}
                   </span>
                 {:else if col.id === 'level'}
                   <span class="level-badge" style="background: {getLevelBgColor(log.level)}; color: {getLevelColor(log.level)}">
@@ -476,5 +503,44 @@
     padding: 1px 2px;
     border-radius: 2px;
     font-weight: 600;
+  }
+
+  /* Compact mode */
+  .log-table.compact th {
+    padding: 6px 10px;
+  }
+
+  .log-table.compact td {
+    padding: 4px 10px;
+  }
+
+  .log-table.compact .level-badge {
+    padding: 1px 6px;
+    font-size: 10px;
+  }
+
+  /* No wrap mode */
+  .log-table.no-wrap .message {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 600px;
+  }
+
+  /* Error highlight */
+  .log-row.error-row {
+    background: rgba(248, 81, 73, 0.08);
+  }
+
+  .log-row.error-row:hover {
+    background: rgba(248, 81, 73, 0.12);
+  }
+
+  .log-row.error-row td.pinned {
+    background: rgba(248, 81, 73, 0.08);
+  }
+
+  .log-row.error-row:hover td.pinned {
+    background: rgba(248, 81, 73, 0.12);
   }
 </style>

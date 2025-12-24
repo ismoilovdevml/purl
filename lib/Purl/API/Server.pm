@@ -323,7 +323,7 @@ sub setup_routes {
     # ============================================
     $protected->get('/saved-searches' => sub ($c) { $saved_c->list($c) });
     $protected->post('/saved-searches' => sub ($c) { $saved_c->create($c) });
-    $protected->delete('/saved-searches/:id' => sub ($c) { $saved_c->delete($c) });
+    $protected->delete('/saved-searches/:id' => sub ($c) { $saved_c->remove($c) });
 
     # ============================================
     # Alerts endpoints
@@ -331,7 +331,7 @@ sub setup_routes {
     $protected->get('/alerts' => sub ($c) { $alerts_c->list($c) });
     $protected->post('/alerts' => sub ($c) { $alerts_c->create($c) });
     $protected->put('/alerts/:id' => sub ($c) { $alerts_c->update($c) });
-    $protected->delete('/alerts/:id' => sub ($c) { $alerts_c->delete($c) });
+    $protected->delete('/alerts/:id' => sub ($c) { $alerts_c->remove($c) });
     $protected->post('/alerts/check' => sub ($c) { $alerts_c->check($c) });
     $protected->post('/alerts/test-notification' => sub ($c) { $alerts_c->test_notification($c) });
 

@@ -9,7 +9,6 @@
   import DatabaseSettings from './DatabaseSettings.svelte';
   import NotificationSettings from './NotificationSettings.svelte';
   import DisplaySettings from './DisplaySettings.svelte';
-  import ShortcutsSettings from './ShortcutsSettings.svelte';
   import DataSettings from './DataSettings.svelte';
   import AboutSettings from './AboutSettings.svelte';
 
@@ -19,7 +18,6 @@
     { id: 'database', label: 'Database', icon: 'server' },
     { id: 'notifications', label: 'Notifications', icon: 'bell' },
     { id: 'display', label: 'Display', icon: 'monitor' },
-    { id: 'shortcuts', label: 'Shortcuts', icon: 'keyboard' },
     { id: 'data', label: 'Data', icon: 'database' },
     { id: 'about', label: 'About', icon: 'info' },
   ];
@@ -47,10 +45,6 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
             </svg>
-          {:else if section.icon === 'keyboard'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M7 16h10"/>
-            </svg>
           {:else if section.icon === 'database'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
@@ -73,8 +67,6 @@
       <NotificationSettings />
     {:else if activeSection === 'display'}
       <DisplaySettings />
-    {:else if activeSection === 'shortcuts'}
-      <ShortcutsSettings />
     {:else if activeSection === 'data'}
       <DataSettings />
     {:else if activeSection === 'about'}

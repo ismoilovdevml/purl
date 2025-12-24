@@ -38,7 +38,7 @@ sub create {
     });
 }
 
-sub delete {
+sub remove {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {

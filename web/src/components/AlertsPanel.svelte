@@ -143,12 +143,6 @@
     }
   }
 
-  function requestNotificationPermission() {
-    if ('Notification' in window) {
-      Notification.requestPermission();
-    }
-  }
-
   function handleAddClick(e) {
     e.stopPropagation();
     openModal();

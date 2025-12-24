@@ -6,26 +6,17 @@
   <DisplaySettings />
 -->
 <script>
-  import { onMount } from 'svelte';
   import Select from '../ui/Select.svelte';
   import Input from '../ui/Input.svelte';
   import Toggle from '../ui/Toggle.svelte';
   import Card from '../ui/Card.svelte';
-
-  let settings = {
-    defaultTimeRange: '15m',
-    refreshInterval: 30,
-    maxResults: 500,
-    compactMode: false,
-    lineWrap: true,
-    showHost: true,
-    showRaw: false,
-    highlightErrors: true,
-    autoScroll: true,
-    timestampFormat: 'relative',
-  };
+  import { settings } from '../../stores/settings.js';
 
   let saved = false;
+  let localSettings;
+
+  // Subscribe to store
+  $: localSettings = $settings;
 
   const timeRangeOptions = [
     { value: '5m', label: '5 minutes' },
@@ -41,25 +32,14 @@
     { value: 'iso', label: 'ISO 8601' },
   ];
 
-  onMount(() => {
-    loadSettings();
-  });
-
-  function loadSettings() {
-    const savedData = localStorage.getItem('purl_settings');
-    if (savedData) {
-      settings = { ...settings, ...JSON.parse(savedData) };
-    }
+  function updateSetting(key, value) {
+    settings.setSetting(key, value);
+    showSaved();
   }
 
-  function saveSettings() {
-    localStorage.setItem('purl_settings', JSON.stringify(settings));
+  function showSaved() {
     saved = true;
     setTimeout(() => saved = false, 2000);
-  }
-
-  function handleChange() {
-    saveSettings();
   }
 </script>
 
@@ -76,9 +56,9 @@
         <span class="setting-hint">Initial time range when opening logs</span>
       </div>
       <Select
-        bind:value={settings.defaultTimeRange}
+        value={localSettings.defaultTimeRange}
         options={timeRangeOptions}
-        on:change={handleChange}
+        on:change={(e) => updateSetting('defaultTimeRange', e.detail || e.target.value)}
       />
     </div>
 
@@ -91,8 +71,8 @@
         type="number"
         min={0}
         max={300}
-        bind:value={settings.refreshInterval}
-        on:change={handleChange}
+        value={localSettings.refreshInterval}
+        on:change={(e) => updateSetting('refreshInterval', parseInt(e.target.value) || 0)}
       />
     </div>
 
@@ -105,28 +85,28 @@
         type="number"
         min={50}
         max={5000}
-        bind:value={settings.maxResults}
-        on:change={handleChange}
+        value={localSettings.maxResults}
+        on:change={(e) => updateSetting('maxResults', parseInt(e.target.value) || 500)}
       />
     </div>
 
     <div class="setting-item">
       <Toggle
-        bind:checked={settings.compactMode}
+        checked={localSettings.compactMode}
         label="Compact Mode"
         description="Reduce spacing in log list"
         labelPosition="left"
-        on:change={handleChange}
+        on:change={() => updateSetting('compactMode', !localSettings.compactMode)}
       />
     </div>
 
     <div class="setting-item">
       <Toggle
-        bind:checked={settings.lineWrap}
+        checked={localSettings.lineWrap}
         label="Line Wrap"
         description="Wrap long log messages"
         labelPosition="left"
-        on:change={handleChange}
+        on:change={() => updateSetting('lineWrap', !localSettings.lineWrap)}
       />
     </div>
   </Card>
@@ -139,41 +119,41 @@
   <Card padding="none">
     <div class="setting-item">
       <Toggle
-        bind:checked={settings.showHost}
+        checked={localSettings.showHost}
         label="Show Host Column"
         description="Display host information in log list"
         labelPosition="left"
-        on:change={handleChange}
+        on:change={() => updateSetting('showHost', !localSettings.showHost)}
       />
     </div>
 
     <div class="setting-item">
       <Toggle
-        bind:checked={settings.showRaw}
+        checked={localSettings.showRaw}
         label="Show Raw Messages"
         description="Display raw log data by default"
         labelPosition="left"
-        on:change={handleChange}
+        on:change={() => updateSetting('showRaw', !localSettings.showRaw)}
       />
     </div>
 
     <div class="setting-item">
       <Toggle
-        bind:checked={settings.highlightErrors}
+        checked={localSettings.highlightErrors}
         label="Highlight Errors"
         description="Highlight ERROR and FATAL logs"
         labelPosition="left"
-        on:change={handleChange}
+        on:change={() => updateSetting('highlightErrors', !localSettings.highlightErrors)}
       />
     </div>
 
     <div class="setting-item">
       <Toggle
-        bind:checked={settings.autoScroll}
+        checked={localSettings.autoScroll}
         label="Auto Scroll"
         description="Auto-scroll to new logs in live mode"
         labelPosition="left"
-        on:change={handleChange}
+        on:change={() => updateSetting('autoScroll', !localSettings.autoScroll)}
       />
     </div>
 
@@ -183,9 +163,9 @@
         <span class="setting-hint">How to display timestamps</span>
       </div>
       <Select
-        bind:value={settings.timestampFormat}
+        value={localSettings.timestampFormat}
         options={timestampOptions}
-        on:change={handleChange}
+        on:change={(e) => updateSetting('timestampFormat', e.detail || e.target.value)}
       />
     </div>
   </Card>

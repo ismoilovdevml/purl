@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { escapeHtml } from '../utils/dom.js';
+import { settings } from './settings.js';
 
 // State stores
 export const logs = writable([]);
@@ -52,7 +53,8 @@ export async function searchLogs() {
     const currentRange = get(timeRange);
     const currentCustom = get(customTimeRange);
 
-    const params = new URLSearchParams({ limit: 500 });
+    const currentSettings = settings.get();
+    const params = new URLSearchParams({ limit: currentSettings.maxResults || 500 });
 
     // Use custom range if set, otherwise use preset range
     if (currentRange === 'custom' && currentCustom.from && currentCustom.to) {

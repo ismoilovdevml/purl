@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import SearchBar from './components/SearchBar.svelte';
   import TimeRangePicker from './components/TimeRangePicker.svelte';
   import FieldsSidebar from './components/FieldsSidebar.svelte';
@@ -20,9 +20,42 @@
     total,
     searchLogs,
   } from './stores/logs.js';
+  import { refreshInterval, defaultTimeRange } from './stores/settings.js';
 
   let savedSearchesRef;
   let currentPage = 'logs'; // 'logs' | 'analytics' | 'settings'
+  let refreshIntervalId = null;
+  let currentRefreshInterval = 30;
+
+  // Subscribe to refresh interval changes
+  const unsubscribeRefresh = refreshInterval.subscribe(v => {
+    currentRefreshInterval = v;
+    setupRefreshInterval();
+  });
+
+  // Subscribe to default time range (apply on first load)
+  let hasAppliedDefaultRange = false;
+  const unsubscribeDefaultRange = defaultTimeRange.subscribe(v => {
+    if (!hasAppliedDefaultRange && v) {
+      $timeRange = v;
+      hasAppliedDefaultRange = true;
+    }
+  });
+
+  function setupRefreshInterval() {
+    // Clear existing interval
+    if (refreshIntervalId) {
+      clearInterval(refreshIntervalId);
+      refreshIntervalId = null;
+    }
+
+    // Set up new interval if enabled (> 0) and on logs page
+    if (currentRefreshInterval > 0 && currentPage === 'logs') {
+      refreshIntervalId = setInterval(() => {
+        searchLogs();
+      }, currentRefreshInterval * 1000);
+    }
+  }
 
   // Dismiss error
   function dismissError() {
@@ -36,9 +69,18 @@
 
     if (currentPage === 'logs') {
       await searchLogs();
+      setupRefreshInterval();
     }
 
     return () => window.removeEventListener('hashchange', handleHashChange);
+  });
+
+  onDestroy(() => {
+    unsubscribeRefresh();
+    unsubscribeDefaultRange();
+    if (refreshIntervalId) {
+      clearInterval(refreshIntervalId);
+    }
   });
 
   function handleHashChange() {
@@ -51,6 +93,13 @@
   function navigate(page) {
     currentPage = page;
     window.location.hash = page;
+    // Restart refresh interval when navigating to logs
+    if (page === 'logs') {
+      setupRefreshInterval();
+    } else if (refreshIntervalId) {
+      clearInterval(refreshIntervalId);
+      refreshIntervalId = null;
+    }
   }
 
   function handleSearch() {

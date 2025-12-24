@@ -4,14 +4,23 @@
  */
 
 /**
- * Format timestamp for display in log table (HH:MM:SS)
+ * Format timestamp for display in log table based on format setting
  * @param {string} ts - ISO timestamp
+ * @param {string} format - Format type: 'relative', 'absolute', 'iso'
  * @returns {string} Formatted time
  */
-export function formatTimestamp(ts) {
+export function formatTimestamp(ts, format = 'absolute') {
   if (!ts) return '';
   try {
     const date = new Date(ts);
+
+    if (format === 'relative') {
+      return formatRelativeTime(date);
+    } else if (format === 'iso') {
+      return date.toISOString();
+    }
+
+    // Default: absolute (HH:MM:SS)
     return date.toLocaleTimeString('en-US', {
       hour12: false,
       hour: '2-digit',
