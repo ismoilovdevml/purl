@@ -650,34 +650,78 @@ sub histogram {
     my $table = $self->database . '.' . $self->table;
     my $interval = $params{interval} // '1 hour';
 
-    # Convert interval to ClickHouse function (whitelist approach)
-    my $time_func;
+    # Convert interval to ClickHouse function and step (whitelist approach)
+    my ($time_func, $interval_step, $to_start_func);
     if ($interval =~ /minute/i) {
         $time_func = "toStartOfMinute(timestamp)";
+        $interval_step = "INTERVAL 1 MINUTE";
+        $to_start_func = "toStartOfMinute";
     } elsif ($interval =~ /hour/i) {
         $time_func = "toStartOfHour(timestamp)";
+        $interval_step = "INTERVAL 1 HOUR";
+        $to_start_func = "toStartOfHour";
     } elsif ($interval =~ /day/i) {
         $time_func = "toStartOfDay(timestamp)";
+        $interval_step = "INTERVAL 1 DAY";
+        $to_start_func = "toStartOfDay";
     } else {
         $time_func = "toStartOfHour(timestamp)";
+        $interval_step = "INTERVAL 1 HOUR";
+        $to_start_func = "toStartOfHour";
     }
-
-
 
     my ($where_sql, $bind_params) = $self->_build_where_clause(%params);
 
-    # Query with level breakdown for stacked bars
+    # Calculate time bounds for WITH FILL
+    my ($fill_from, $fill_to);
+    if ($params{from} && $params{to}) {
+        $fill_from = "$to_start_func({p_fill_from:DateTime64(3)})";
+        $fill_to = "$to_start_func({p_fill_to:DateTime64(3)})";
+        $bind_params->{p_fill_from} = $self->_convert_to_clickhouse_ts($params{from});
+        $bind_params->{p_fill_to} = $self->_convert_to_clickhouse_ts($params{to});
+    } elsif ($params{range}) {
+        # Parse range like '15m', '1h', '24h', '7d'
+        my $range = $params{range};
+        if ($range =~ /^(\d+)([mhd])$/i) {
+            my ($num, $unit) = ($1, lc($2));
+            my $seconds = $num * ($unit eq 'm' ? 60 : $unit eq 'h' ? 3600 : 86400);
+            $fill_from = "$to_start_func(now() - INTERVAL $seconds SECOND)";
+            $fill_to = "$to_start_func(now())";
+        } else {
+            $fill_from = "$to_start_func(now() - INTERVAL 1 HOUR)";
+            $fill_to = "$to_start_func(now())";
+        }
+    } else {
+        $fill_from = "$to_start_func(now() - INTERVAL 1 HOUR)";
+        $fill_to = "$to_start_func(now())";
+    }
+
+    # Query with level breakdown and WITH FILL for empty buckets
     my $sql = qq{
         SELECT
-            formatDateTime($time_func, '%Y-%m-%dT%H:%i:%S') || 'Z' as time,
-            count() as count,
-            countIf(level IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT')) as errors,
-            countIf(level = 'WARNING') as warnings,
-            countIf(level IN ('INFO', 'NOTICE')) as info,
-            countIf(level IN ('DEBUG', 'TRACE')) as debug
-        FROM $table
-        $where_sql
-        GROUP BY time
+            formatDateTime(time_bucket, '%Y-%m-%dT%H:%i:%S') || 'Z' as time,
+            count as count,
+            errors,
+            warnings,
+            info,
+            debug
+        FROM (
+            SELECT
+                $time_func as time_bucket,
+                count() as count,
+                countIf(level IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT')) as errors,
+                countIf(level = 'WARNING') as warnings,
+                countIf(level IN ('INFO', 'NOTICE')) as info,
+                countIf(level IN ('DEBUG', 'TRACE')) as debug
+            FROM $table
+            $where_sql
+            GROUP BY time_bucket
+            ORDER BY time_bucket ASC
+            WITH FILL
+                FROM $fill_from
+                TO $fill_to + $interval_step
+                STEP $interval_step
+        )
         ORDER BY time ASC
     };
 

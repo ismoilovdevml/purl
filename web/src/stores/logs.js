@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 
 // State stores
 export const logs = writable([]);
@@ -143,13 +143,9 @@ export async function searchLogs() {
   error.set(null);
 
   try {
-    let currentQuery;
-    let currentRange;
-    let currentCustom;
-
-    query.subscribe(v => currentQuery = v)();
-    timeRange.subscribe(v => currentRange = v)();
-    customTimeRange.subscribe(v => currentCustom = v)();
+    const currentQuery = get(query);
+    const currentRange = get(timeRange);
+    const currentCustom = get(customTimeRange);
 
     const params = new URLSearchParams({ limit: 500 });
 
@@ -223,10 +219,8 @@ export const debouncedSearch = debounce(searchLogs, 300);
 // Fetch field statistics with abort signal
 export async function fetchFieldStats(field, signal = null) {
   try {
-    let currentRange;
-    let currentCustom;
-    timeRange.subscribe(v => currentRange = v)();
-    customTimeRange.subscribe(v => currentCustom = v)();
+    const currentRange = get(timeRange);
+    const currentCustom = get(customTimeRange);
 
     const params = new URLSearchParams({ limit: 10 });
 
@@ -278,10 +272,8 @@ function getIntervalForRange(range, customFrom, customTo) {
 // Fetch histogram with abort signal
 export async function fetchHistogram(signal = null) {
   try {
-    let currentRange;
-    let currentCustom;
-    timeRange.subscribe(v => currentRange = v)();
-    customTimeRange.subscribe(v => currentCustom = v)();
+    const currentRange = get(timeRange);
+    const currentCustom = get(customTimeRange);
 
     const interval = getIntervalForRange(currentRange, currentCustom.from, currentCustom.to);
     const params = new URLSearchParams({ interval });
