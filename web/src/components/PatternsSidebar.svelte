@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { patterns, patternsLoading, patternsError, fetchPatterns, fetchPatternLogs, highlightPattern, getLevelColor, logs, timeRange, query, total } from '../stores/logs.js';
+  import { patterns, patternsLoading, patternsError, fetchPatterns, fetchPatternLogs, highlightPattern, logs, timeRange, query, total } from '../stores/logs.js';
+  import { getLevelColor } from '../utils/colors.js';
 
   let selectedPattern = null;
   let patternLogs = null;

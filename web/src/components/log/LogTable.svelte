@@ -9,7 +9,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { query, fetchLogContext, filterByTrace, filterByRequest } from '../../stores/logs.js';
   import { formatTimestamp, formatFullTimestamp } from '../../utils/format.js';
-  import { getLevelColor } from '../../utils/colors.js';
+  import { getLevelColor, getLevelBgColor } from '../../utils/colors.js';
   import { highlightText } from '../../utils/dom.js';
   import ColumnPicker from './ColumnPicker.svelte';
   import LogDetail from './LogDetail.svelte';
@@ -229,7 +229,7 @@
                     {formatTimestamp(log.timestamp)}
                   </span>
                 {:else if col.id === 'level'}
-                  <span class="level-badge" style="background: {getLevelColor(log.level)}20; color: {getLevelColor(log.level)}">
+                  <span class="level-badge" style="background: {getLevelBgColor(log.level)}; color: {getLevelColor(log.level)}">
                     {log.level}
                   </span>
                 {:else if col.id === 'service'}

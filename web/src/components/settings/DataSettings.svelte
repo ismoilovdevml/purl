@@ -6,6 +6,9 @@
   <DataSettings />
 -->
 <script>
+  import Button from '../ui/Button.svelte';
+  import Card from '../ui/Card.svelte';
+
   const API_BASE = '/api';
 
   function getHeaders() {
@@ -33,13 +36,13 @@
     <p>Manage cache and stored data</p>
   </div>
 
-  <div class="settings-group">
+  <Card padding="none">
     <div class="setting-item">
       <div class="setting-info">
         <span class="setting-label">Clear Query Cache</span>
         <span class="setting-hint">Clear server-side query cache</span>
       </div>
-      <button class="danger-btn" on:click={clearCache}>Clear Cache</button>
+      <Button variant="danger" on:click={clearCache}>Clear Cache</Button>
     </div>
 
     <div class="setting-item">
@@ -47,9 +50,9 @@
         <span class="setting-label">Clear Local Storage</span>
         <span class="setting-hint">Reset all client-side settings</span>
       </div>
-      <button class="danger-btn" on:click={clearLocalStorage}>Reset</button>
+      <Button variant="danger" on:click={clearLocalStorage}>Reset</Button>
     </div>
-  </div>
+  </Card>
 </section>
 
 <style>
@@ -72,13 +75,6 @@
     font-size: 0.875rem;
     color: var(--text-secondary, #8b949e);
     margin: 0;
-  }
-
-  .settings-group {
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #21262d);
-    border-radius: 8px;
-    overflow: hidden;
   }
 
   .setting-item {
@@ -107,21 +103,5 @@
   .setting-hint {
     font-size: 0.75rem;
     color: var(--text-secondary, #8b949e);
-  }
-
-  .danger-btn {
-    padding: 8px 16px;
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--color-error, #f85149);
-    border-radius: 6px;
-    color: var(--color-error, #f85149);
-    font-size: 0.8125rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .danger-btn:hover {
-    background: rgba(248, 81, 73, 0.15);
   }
 </style>

@@ -7,6 +7,10 @@
 -->
 <script>
   import { onMount } from 'svelte';
+  import Select from '../ui/Select.svelte';
+  import Input from '../ui/Input.svelte';
+  import Toggle from '../ui/Toggle.svelte';
+  import Card from '../ui/Card.svelte';
 
   let settings = {
     defaultTimeRange: '15m',
@@ -31,6 +35,12 @@
     { value: '7d', label: '7 days' },
   ];
 
+  const timestampOptions = [
+    { value: 'relative', label: 'Relative (5 min ago)' },
+    { value: 'absolute', label: 'Absolute (12:34:56)' },
+    { value: 'iso', label: 'ISO 8601' },
+  ];
+
   onMount(() => {
     loadSettings();
   });
@@ -47,6 +57,10 @@
     saved = true;
     setTimeout(() => saved = false, 2000);
   }
+
+  function handleChange() {
+    saveSettings();
+  }
 </script>
 
 <section class="settings-section">
@@ -55,17 +69,17 @@
     <p>Customize the appearance of your dashboard</p>
   </div>
 
-  <div class="settings-group">
+  <Card padding="none">
     <div class="setting-item">
       <div class="setting-info">
         <span class="setting-label">Default Time Range</span>
         <span class="setting-hint">Initial time range when opening logs</span>
       </div>
-      <select bind:value={settings.defaultTimeRange} on:change={saveSettings}>
-        {#each timeRangeOptions as option}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
+      <Select
+        bind:value={settings.defaultTimeRange}
+        options={timeRangeOptions}
+        on:change={handleChange}
+      />
     </div>
 
     <div class="setting-item">
@@ -73,7 +87,13 @@
         <span class="setting-label">Refresh Interval</span>
         <span class="setting-hint">Auto-refresh interval in seconds (0 = disabled)</span>
       </div>
-      <input type="number" min="0" max="300" bind:value={settings.refreshInterval} on:change={saveSettings} />
+      <Input
+        type="number"
+        min={0}
+        max={300}
+        bind:value={settings.refreshInterval}
+        on:change={handleChange}
+      />
     </div>
 
     <div class="setting-item">
@@ -81,80 +101,80 @@
         <span class="setting-label">Max Results</span>
         <span class="setting-hint">Maximum number of logs to display</span>
       </div>
-      <input type="number" min="50" max="5000" bind:value={settings.maxResults} on:change={saveSettings} />
+      <Input
+        type="number"
+        min={50}
+        max={5000}
+        bind:value={settings.maxResults}
+        on:change={handleChange}
+      />
     </div>
 
     <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">Compact Mode</span>
-        <span class="setting-hint">Reduce spacing in log list</span>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" bind:checked={settings.compactMode} on:change={saveSettings} />
-        <span class="toggle-slider"></span>
-      </label>
+      <Toggle
+        bind:checked={settings.compactMode}
+        label="Compact Mode"
+        description="Reduce spacing in log list"
+        labelPosition="left"
+        on:change={handleChange}
+      />
     </div>
 
     <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">Line Wrap</span>
-        <span class="setting-hint">Wrap long log messages</span>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" bind:checked={settings.lineWrap} on:change={saveSettings} />
-        <span class="toggle-slider"></span>
-      </label>
+      <Toggle
+        bind:checked={settings.lineWrap}
+        label="Line Wrap"
+        description="Wrap long log messages"
+        labelPosition="left"
+        on:change={handleChange}
+      />
     </div>
-  </div>
+  </Card>
 
   <div class="section-header" style="margin-top: 32px;">
     <h3>Log Viewer Settings</h3>
     <p>Configure log display preferences</p>
   </div>
 
-  <div class="settings-group">
+  <Card padding="none">
     <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">Show Host Column</span>
-        <span class="setting-hint">Display host information in log list</span>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" bind:checked={settings.showHost} on:change={saveSettings} />
-        <span class="toggle-slider"></span>
-      </label>
+      <Toggle
+        bind:checked={settings.showHost}
+        label="Show Host Column"
+        description="Display host information in log list"
+        labelPosition="left"
+        on:change={handleChange}
+      />
     </div>
 
     <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">Show Raw Messages</span>
-        <span class="setting-hint">Display raw log data by default</span>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" bind:checked={settings.showRaw} on:change={saveSettings} />
-        <span class="toggle-slider"></span>
-      </label>
+      <Toggle
+        bind:checked={settings.showRaw}
+        label="Show Raw Messages"
+        description="Display raw log data by default"
+        labelPosition="left"
+        on:change={handleChange}
+      />
     </div>
 
     <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">Highlight Errors</span>
-        <span class="setting-hint">Highlight ERROR and FATAL logs</span>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" bind:checked={settings.highlightErrors} on:change={saveSettings} />
-        <span class="toggle-slider"></span>
-      </label>
+      <Toggle
+        bind:checked={settings.highlightErrors}
+        label="Highlight Errors"
+        description="Highlight ERROR and FATAL logs"
+        labelPosition="left"
+        on:change={handleChange}
+      />
     </div>
 
     <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">Auto Scroll</span>
-        <span class="setting-hint">Auto-scroll to new logs in live mode</span>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" bind:checked={settings.autoScroll} on:change={saveSettings} />
-        <span class="toggle-slider"></span>
-      </label>
+      <Toggle
+        bind:checked={settings.autoScroll}
+        label="Auto Scroll"
+        description="Auto-scroll to new logs in live mode"
+        labelPosition="left"
+        on:change={handleChange}
+      />
     </div>
 
     <div class="setting-item">
@@ -162,13 +182,13 @@
         <span class="setting-label">Timestamp Format</span>
         <span class="setting-hint">How to display timestamps</span>
       </div>
-      <select bind:value={settings.timestampFormat} on:change={saveSettings}>
-        <option value="relative">Relative (5 min ago)</option>
-        <option value="absolute">Absolute (12:34:56)</option>
-        <option value="iso">ISO 8601</option>
-      </select>
+      <Select
+        bind:value={settings.timestampFormat}
+        options={timestampOptions}
+        on:change={handleChange}
+      />
     </div>
-  </div>
+  </Card>
 
   {#if saved}
     <div class="save-toast">Settings saved!</div>
@@ -197,13 +217,6 @@
     margin: 0;
   }
 
-  .settings-group {
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #21262d);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-
   .setting-item {
     display: flex;
     align-items: center;
@@ -230,71 +243,6 @@
   .setting-hint {
     font-size: 0.75rem;
     color: var(--text-secondary, #8b949e);
-  }
-
-  select {
-    padding: 8px 12px;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: 6px;
-    color: var(--text-primary, #c9d1d9);
-    font-size: 0.875rem;
-  }
-
-  input[type="number"] {
-    width: 80px;
-    padding: 8px 12px;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: 6px;
-    color: var(--text-primary, #c9d1d9);
-    text-align: center;
-  }
-
-  .toggle {
-    position: relative;
-    display: inline-block;
-    width: 44px;
-    height: 24px;
-  }
-
-  .toggle input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-  }
-
-  .toggle-slider {
-    position: absolute;
-    cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: var(--bg-tertiary, #21262d);
-    border-radius: 12px;
-    transition: 0.2s;
-  }
-
-  .toggle-slider:before {
-    position: absolute;
-    content: "";
-    height: 18px;
-    width: 18px;
-    left: 3px;
-    bottom: 3px;
-    background: var(--text-secondary, #8b949e);
-    border-radius: 50%;
-    transition: 0.2s;
-  }
-
-  .toggle input:checked + .toggle-slider {
-    background: var(--color-success, #238636);
-  }
-
-  .toggle input:checked + .toggle-slider:before {
-    transform: translateX(20px);
-    background: #fff;
   }
 
   .save-toast {

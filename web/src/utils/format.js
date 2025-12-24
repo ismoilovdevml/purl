@@ -77,37 +77,6 @@ export function formatBytes(bytes, decimals = 1) {
 }
 
 /**
- * Format duration in milliseconds to human readable
- * @param {number} ms - Duration in milliseconds
- * @returns {string} Formatted duration
- */
-export function formatDuration(ms) {
-  if (!ms || ms < 0) return '0ms';
-
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  if (ms < 3600000) return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
-
-  const hours = Math.floor(ms / 3600000);
-  const minutes = Math.floor((ms % 3600000) / 60000);
-  return `${hours}h ${minutes}m`;
-}
-
-/**
- * Format percentage
- * @param {number} value - Value
- * @param {number} total - Total
- * @param {number} decimals - Decimal places
- * @returns {string} Formatted percentage
- */
-export function formatPercentage(value, total, decimals = 1) {
-  if (!total || total === 0) return '0%';
-  const pct = (value / total) * 100;
-  if (pct < 0.1) return '<0.1%';
-  return pct.toFixed(decimals).replace(/\.0$/, '') + '%';
-}
-
-/**
  * Format relative time (e.g., "2 minutes ago")
  * @param {string|Date} date - Date to format
  * @returns {string} Relative time string
@@ -138,16 +107,4 @@ export function formatRelativeTime(date) {
 export function formatNumber(num) {
   if (num === null || num === undefined) return '0';
   return num.toLocaleString();
-}
-
-/**
- * Truncate string with ellipsis
- * @param {string} str - String to truncate
- * @param {number} maxLength - Maximum length
- * @returns {string} Truncated string
- */
-export function truncate(str, maxLength = 50) {
-  if (!str) return '';
-  if (str.length <= maxLength) return str;
-  return str.slice(0, maxLength - 3) + '...';
 }

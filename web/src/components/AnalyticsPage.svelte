@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { formatBytes, formatNumber } from '../utils/format.js';
 
   let stats = null;
   let metrics = null;
@@ -44,21 +45,6 @@
   onDestroy(() => {
     if (refreshInterval) clearInterval(refreshInterval);
   });
-
-  function formatBytes(bytes) {
-    if (!bytes) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
-  }
-
-  function formatNumber(num) {
-    if (!num) return '0';
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toLocaleString();
-  }
 
   function formatTime(date) {
     if (!date) return '-';

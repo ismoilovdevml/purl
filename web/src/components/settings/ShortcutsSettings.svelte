@@ -7,6 +7,9 @@
 -->
 <script>
   import { onMount } from 'svelte';
+  import Toggle from '../ui/Toggle.svelte';
+  import Card from '../ui/Card.svelte';
+  import Badge from '../ui/Badge.svelte';
 
   let settings = {
     keyboardShortcuts: true,
@@ -53,27 +56,28 @@
     <p>Quick actions for power users</p>
   </div>
 
-  <div class="settings-group">
+  <Card padding="none">
     <div class="setting-item">
-      <div class="setting-info">
-        <span class="setting-label">Enable Keyboard Shortcuts</span>
-        <span class="setting-hint">Turn keyboard shortcuts on/off</span>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" bind:checked={settings.keyboardShortcuts} on:change={saveSettings} />
-        <span class="toggle-slider"></span>
-      </label>
+      <Toggle
+        bind:checked={settings.keyboardShortcuts}
+        label="Enable Keyboard Shortcuts"
+        description="Turn keyboard shortcuts on/off"
+        labelPosition="left"
+        on:change={saveSettings}
+      />
     </div>
-  </div>
+  </Card>
 
-  <div class="shortcuts-list">
-    {#each shortcuts as shortcut}
-      <div class="shortcut-item">
-        <kbd>{shortcut.key}</kbd>
-        <span>{shortcut.action}</span>
-      </div>
-    {/each}
-  </div>
+  <Card padding="none" title="Available Shortcuts" class="shortcuts-card">
+    <div class="shortcuts-list">
+      {#each shortcuts as shortcut}
+        <div class="shortcut-item">
+          <Badge variant="default">{shortcut.key}</Badge>
+          <span class="shortcut-action">{shortcut.action}</span>
+        </div>
+      {/each}
+    </div>
+  </Card>
 </section>
 
 <style>
@@ -98,13 +102,6 @@
     margin: 0;
   }
 
-  .settings-group {
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #21262d);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-
   .setting-item {
     display: flex;
     align-items: center;
@@ -112,74 +109,13 @@
     padding: 12px 16px;
   }
 
-  .setting-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .setting-label {
-    font-size: 0.875rem;
-    color: var(--text-primary, #c9d1d9);
-  }
-
-  .setting-hint {
-    font-size: 0.75rem;
-    color: var(--text-secondary, #8b949e);
-  }
-
-  .toggle {
-    position: relative;
-    display: inline-block;
-    width: 44px;
-    height: 24px;
-  }
-
-  .toggle input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-  }
-
-  .toggle-slider {
-    position: absolute;
-    cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: var(--bg-tertiary, #21262d);
-    border-radius: 12px;
-    transition: 0.2s;
-  }
-
-  .toggle-slider:before {
-    position: absolute;
-    content: "";
-    height: 18px;
-    width: 18px;
-    left: 3px;
-    bottom: 3px;
-    background: var(--text-secondary, #8b949e);
-    border-radius: 50%;
-    transition: 0.2s;
-  }
-
-  .toggle input:checked + .toggle-slider {
-    background: var(--color-success, #238636);
-  }
-
-  .toggle input:checked + .toggle-slider:before {
-    transform: translateX(20px);
-    background: #fff;
+  :global(.shortcuts-card) {
+    margin-top: 16px;
   }
 
   .shortcuts-list {
-    margin-top: 16px;
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #21262d);
-    border-radius: 8px;
-    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   .shortcut-item {
@@ -194,19 +130,7 @@
     border-bottom: none;
   }
 
-  .shortcut-item kbd {
-    min-width: 50px;
-    padding: 4px 8px;
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: 4px;
-    font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
-    font-size: 0.75rem;
-    color: var(--text-primary, #f0f6fc);
-    text-align: center;
-  }
-
-  .shortcut-item span {
+  .shortcut-action {
     font-size: 0.875rem;
     color: var(--text-secondary, #8b949e);
   }

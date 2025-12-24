@@ -1,9 +1,14 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import Button from './ui/Button.svelte';
+  import Input from './ui/Input.svelte';
+  import Select from './ui/Select.svelte';
+  import Modal from './ui/Modal.svelte';
 
   let alerts = [];
   let showModal = false;
   let editingAlert = null;
+  let expanded = false;
 
   let form = {
     name: '',
@@ -13,6 +18,12 @@
     notify_type: 'webhook',
     notify_target: ''
   };
+
+  const notifyOptions = [
+    { value: 'browser', label: 'Browser' },
+    { value: 'webhook', label: 'Webhook' },
+    { value: 'slack', label: 'Slack' }
+  ];
 
   const API_BASE = '/api';
   let checkInterval;
@@ -137,157 +148,177 @@
       Notification.requestPermission();
     }
   }
+
+  function handleAddClick(e) {
+    e.stopPropagation();
+    openModal();
+  }
 </script>
 
 <div class="alerts-panel">
-  <div class="header">
+  <button class="header" on:click={() => expanded = !expanded}>
+    <svg class="chevron" class:expanded width="12" height="12" viewBox="0 0 12 12">
+      <path fill="currentColor" d="M4 2l4 4-4 4"/>
+    </svg>
     <h3>Alerts</h3>
-    <button class="btn-icon" on:click={() => openModal()} title="Create alert">
+    {#if alerts.length > 0}
+      <span class="count">{alerts.length}</span>
+    {/if}
+    <Button icon size="sm" variant="ghost" on:click={handleAddClick} title="Create alert">
       <svg width="14" height="14" viewBox="0 0 14 14">
         <path fill="currentColor" d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       </svg>
-    </button>
-  </div>
+    </Button>
+  </button>
 
-  {#if alerts.length === 0}
-    <p class="empty">No alerts configured</p>
-    <button class="btn-small" on:click={requestNotificationPermission}>
-      Enable notifications
-    </button>
-  {:else}
-    <ul>
-      {#each alerts as alert}
-        <li class:disabled={!alert.enabled}>
-          <button class="alert-info" on:click={() => openModal(alert)}>
-            <span class="name">{alert.name}</span>
-            <span class="details">
-              {alert.query || 'All logs'} >= {alert.threshold} in {alert.window_minutes}m
-            </span>
-          </button>
-          <button class="btn-toggle" on:click|stopPropagation={() => toggleAlert(alert)} title={alert.enabled ? 'Disable' : 'Enable'}>
-            {#if alert.enabled}
-              <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="#3fb950"/></svg>
-            {:else}
-              <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="#6e7681" stroke-width="1.5"/></svg>
-            {/if}
-          </button>
-          <button class="btn-delete" aria-label="Delete alert" on:click|stopPropagation={() => deleteAlert(alert.id)}>
-            <svg width="12" height="12" viewBox="0 0 12 12">
-              <path fill="currentColor" d="M9.5 3L3 9.5M3 3l6.5 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-          </button>
-        </li>
-      {/each}
-    </ul>
+  {#if expanded}
+    <div class="content">
+      {#if alerts.length === 0}
+        <p class="empty">No alerts configured</p>
+      {:else}
+        <ul>
+          {#each alerts as alert}
+            <li class:disabled={!alert.enabled}>
+              <button class="alert-info" on:click={() => openModal(alert)}>
+                <span class="name">{alert.name}</span>
+                <span class="details">
+                  {alert.query || 'All logs'} >= {alert.threshold} in {alert.window_minutes}m
+                </span>
+              </button>
+              <Button icon size="sm" variant="ghost" on:click={() => toggleAlert(alert)} title={alert.enabled ? 'Disable' : 'Enable'}>
+                {#if alert.enabled}
+                  <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="#3fb950"/></svg>
+                {:else}
+                  <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="#6e7681" stroke-width="1.5"/></svg>
+                {/if}
+              </Button>
+              <Button icon size="sm" variant="ghost" on:click={() => deleteAlert(alert.id)} class="delete-btn">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                  <path fill="currentColor" d="M9.5 3L3 9.5M3 3l6.5 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </Button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
   {/if}
 </div>
 
-{#if showModal}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1" on:click={() => showModal = false} on:keydown={(e) => e.key === 'Escape' && (showModal = false)}>
-    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-    <div class="modal" role="document" on:click|stopPropagation on:keydown|stopPropagation>
-      <h3>{editingAlert ? 'Edit Alert' : 'Create Alert'}</h3>
+<Modal bind:open={showModal} title={editingAlert ? 'Edit Alert' : 'Create Alert'} size="md">
+  <div class="form-content">
+    <Input
+      label="Name"
+      bind:value={form.name}
+      placeholder="High error rate"
+      fullWidth
+    />
 
-      <label>
-        Name
-        <input type="text" bind:value={form.name} placeholder="High error rate" />
-      </label>
+    <Input
+      label="Query (optional)"
+      bind:value={form.query}
+      placeholder="level:ERROR"
+      fullWidth
+    />
 
-      <label>
-        Query (optional)
-        <input type="text" bind:value={form.query} placeholder="level:ERROR" />
-      </label>
-
-      <div class="row">
-        <label>
-          Threshold
-          <input type="number" bind:value={form.threshold} min="1" />
-        </label>
-        <label>
-          Window (minutes)
-          <input type="number" bind:value={form.window_minutes} min="1" />
-        </label>
-      </div>
-
-      <label>
-        Notification Type
-        <select bind:value={form.notify_type}>
-          <option value="browser">Browser</option>
-          <option value="webhook">Webhook</option>
-          <option value="slack">Slack</option>
-        </select>
-      </label>
-
-      {#if form.notify_type !== 'browser'}
-        <label>
-          {form.notify_type === 'slack' ? 'Slack Webhook URL' : 'Webhook URL'}
-          <input type="url" bind:value={form.notify_target} placeholder="https://..." />
-        </label>
-      {/if}
-
-      <div class="actions">
-        <button class="btn" on:click={() => showModal = false}>Cancel</button>
-        <button class="btn primary" on:click={saveAlert}>Save</button>
-      </div>
+    <div class="row">
+      <Input
+        label="Threshold"
+        type="number"
+        bind:value={form.threshold}
+        min={1}
+      />
+      <Input
+        label="Window (minutes)"
+        type="number"
+        bind:value={form.window_minutes}
+        min={1}
+      />
     </div>
+
+    <Select
+      label="Notification Type"
+      bind:value={form.notify_type}
+      options={notifyOptions}
+      fullWidth
+    />
+
+    {#if form.notify_type !== 'browser'}
+      <Input
+        label={form.notify_type === 'slack' ? 'Slack Webhook URL' : 'Webhook URL'}
+        type="url"
+        bind:value={form.notify_target}
+        placeholder="https://..."
+        fullWidth
+      />
+    {/if}
   </div>
-{/if}
+
+  <svelte:fragment slot="footer">
+    <Button variant="default" on:click={() => showModal = false}>Cancel</Button>
+    <Button variant="success" on:click={saveAlert}>Save</Button>
+  </svelte:fragment>
+</Modal>
 
 <style>
   .alerts-panel {
-    margin-top: 24px;
-    padding-top: 16px;
-    border-top: 1px solid #30363d;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color, #30363d);
   }
 
   .header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .header:hover h3 {
+    color: var(--text-primary, #c9d1d9);
+  }
+
+  .chevron {
+    color: var(--text-secondary, #8b949e);
+    transition: transform 0.15s ease;
+  }
+
+  .chevron.expanded {
+    transform: rotate(90deg);
   }
 
   h3 {
-    font-size: 12px;
+    flex: 1;
+    font-size: 11px;
     text-transform: uppercase;
-    color: #8b949e;
+    color: var(--text-secondary, #8b949e);
     font-weight: 600;
+    margin: 0;
+    transition: color 0.15s;
   }
 
-  .btn-icon {
-    padding: 4px;
-    background: none;
-    border: none;
-    color: #8b949e;
-    cursor: pointer;
-    border-radius: 4px;
+  .count {
+    font-size: 10px;
+    color: var(--text-muted, #6e7681);
+    background: var(--bg-tertiary, #21262d);
+    padding: 2px 6px;
+    border-radius: 10px;
   }
 
-  .btn-icon:hover {
-    color: #c9d1d9;
-    background: #30363d;
+  .content {
+    padding-left: 20px;
   }
 
   .empty {
-    color: #6e7681;
-    font-size: 13px;
-    margin-bottom: 8px;
-  }
-
-  .btn-small {
-    padding: 4px 8px;
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    color: #8b949e;
-    cursor: pointer;
-    font-size: 11px;
-  }
-
-  .btn-small:hover {
-    color: #c9d1d9;
-    background: #30363d;
+    color: var(--text-muted, #6e7681);
+    font-size: 12px;
+    margin: 0;
+    padding: 8px 0;
   }
 
   ul {
@@ -310,74 +341,36 @@
     display: flex;
     flex-direction: column;
     padding: 8px;
-    background: #21262d;
-    border: 1px solid #30363d;
+    background: var(--bg-tertiary, #21262d);
+    border: 1px solid var(--border-color, #30363d);
     border-radius: 6px;
     cursor: pointer;
+    text-align: left;
   }
 
   .alert-info:hover {
-    border-color: #58a6ff;
+    border-color: var(--color-primary, #58a6ff);
   }
 
   .name {
-    color: #c9d1d9;
+    color: var(--text-primary, #c9d1d9);
     font-size: 13px;
     font-weight: 500;
   }
 
   .details {
-    color: #8b949e;
+    color: var(--text-secondary, #8b949e);
     font-size: 11px;
   }
 
-  .btn-toggle, .btn-delete {
-    padding: 4px;
-    background: none;
-    border: none;
-    cursor: pointer;
-    border-radius: 4px;
+  :global(.delete-btn):hover {
+    color: var(--color-error, #f85149) !important;
   }
 
-  .btn-delete {
-    color: #6e7681;
-  }
-
-  .btn-delete:hover {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-  }
-
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+  .form-content {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .modal {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    padding: 20px;
-    width: 450px;
-  }
-
-  .modal h3 {
-    font-size: 16px;
-    color: #c9d1d9;
-    text-transform: none;
-    margin-bottom: 16px;
-  }
-
-  label {
-    display: block;
-    margin-bottom: 12px;
-    color: #8b949e;
-    font-size: 12px;
+    flex-direction: column;
+    gap: 16px;
   }
 
   .row {
@@ -385,53 +378,7 @@
     gap: 12px;
   }
 
-  .row label {
+  .row > :global(*) {
     flex: 1;
-  }
-
-  input, select {
-    width: 100%;
-    margin-top: 4px;
-    padding: 8px 12px;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    font-size: 14px;
-  }
-
-  input:focus, select:focus {
-    outline: none;
-    border-color: #58a6ff;
-  }
-
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 16px;
-  }
-
-  .btn {
-    padding: 8px 16px;
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  .btn:hover {
-    background: #30363d;
-  }
-
-  .btn.primary {
-    background: #238636;
-    border-color: #238636;
-  }
-
-  .btn.primary:hover {
-    background: #2ea043;
   }
 </style>

@@ -7,6 +7,10 @@
 -->
 <script>
   import { onMount } from 'svelte';
+  import Input from '../ui/Input.svelte';
+  import Button from '../ui/Button.svelte';
+  import Card from '../ui/Card.svelte';
+  import Badge from '../ui/Badge.svelte';
 
   const API_BASE = '/api';
 
@@ -92,7 +96,7 @@
   </div>
 
   <!-- Telegram -->
-  <div class="notification-card">
+  <Card padding="none" class="notification-card">
     <div class="notification-header">
       <div class="notification-icon telegram">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
@@ -104,38 +108,37 @@
         <p>Receive alerts via Telegram bot</p>
       </div>
       {#if serverSettings?.notifications?.telegram?.from_env}
-        <span class="env-badge">From Environment</span>
+        <Badge variant="warning" size="sm">From Environment</Badge>
       {/if}
     </div>
 
     <div class="notification-form">
-      <div class="form-field">
-        <label for="telegram-token">Bot Token</label>
-        <input
-          id="telegram-token"
+      <div class="form-row">
+        <span class="form-label">Bot Token</span>
+        <Input
           type="password"
           bind:value={notifications.telegram.bot_token}
           placeholder="123456:ABC-DEF..."
           disabled={serverSettings?.notifications?.telegram?.from_env}
+          fullWidth
         />
       </div>
-      <div class="form-field">
-        <label for="telegram-chat">Chat ID</label>
-        <input
-          id="telegram-chat"
-          type="text"
+      <div class="form-row">
+        <span class="form-label">Chat ID</span>
+        <Input
           bind:value={notifications.telegram.chat_id}
           placeholder="-1001234567890"
           disabled={serverSettings?.notifications?.telegram?.from_env}
+          fullWidth
         />
       </div>
       <div class="form-actions">
-        <button class="test-btn" on:click={() => testNotification('telegram')} disabled={testingNotification === 'telegram'}>
+        <Button variant="default" on:click={() => testNotification('telegram')} loading={testingNotification === 'telegram'}>
           {testingNotification === 'telegram' ? 'Testing...' : 'Test'}
-        </button>
-        <button class="save-btn" on:click={() => saveNotification('telegram')} disabled={savingNotification === 'telegram' || serverSettings?.notifications?.telegram?.from_env}>
+        </Button>
+        <Button variant="success" on:click={() => saveNotification('telegram')} loading={savingNotification === 'telegram'} disabled={serverSettings?.notifications?.telegram?.from_env}>
           {savingNotification === 'telegram' ? 'Saving...' : 'Save'}
-        </button>
+        </Button>
       </div>
       {#if notificationTestResult.telegram}
         <div class="result-box" class:success={notificationTestResult.telegram.success}>
@@ -148,10 +151,10 @@
         </div>
       {/if}
     </div>
-  </div>
+  </Card>
 
   <!-- Slack -->
-  <div class="notification-card">
+  <Card padding="none" class="notification-card">
     <div class="notification-header">
       <div class="notification-icon slack">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
@@ -163,38 +166,37 @@
         <p>Post alerts to Slack channel</p>
       </div>
       {#if serverSettings?.notifications?.slack?.from_env}
-        <span class="env-badge">From Environment</span>
+        <Badge variant="warning" size="sm">From Environment</Badge>
       {/if}
     </div>
 
     <div class="notification-form">
-      <div class="form-field">
-        <label for="slack-webhook">Webhook URL</label>
-        <input
-          id="slack-webhook"
+      <div class="form-row">
+        <span class="form-label">Webhook URL</span>
+        <Input
           type="password"
           bind:value={notifications.slack.webhook_url}
           placeholder="https://hooks.slack.com/services/..."
           disabled={serverSettings?.notifications?.slack?.from_env}
+          fullWidth
         />
       </div>
-      <div class="form-field">
-        <label for="slack-channel">Channel (optional)</label>
-        <input
-          id="slack-channel"
-          type="text"
+      <div class="form-row">
+        <span class="form-label">Channel (optional)</span>
+        <Input
           bind:value={notifications.slack.channel}
           placeholder="#alerts"
           disabled={serverSettings?.notifications?.slack?.from_env}
+          fullWidth
         />
       </div>
       <div class="form-actions">
-        <button class="test-btn" on:click={() => testNotification('slack')} disabled={testingNotification === 'slack'}>
+        <Button variant="default" on:click={() => testNotification('slack')} loading={testingNotification === 'slack'}>
           {testingNotification === 'slack' ? 'Testing...' : 'Test'}
-        </button>
-        <button class="save-btn" on:click={() => saveNotification('slack')} disabled={savingNotification === 'slack' || serverSettings?.notifications?.slack?.from_env}>
+        </Button>
+        <Button variant="success" on:click={() => saveNotification('slack')} loading={savingNotification === 'slack'} disabled={serverSettings?.notifications?.slack?.from_env}>
           {savingNotification === 'slack' ? 'Saving...' : 'Save'}
-        </button>
+        </Button>
       </div>
       {#if notificationTestResult.slack}
         <div class="result-box" class:success={notificationTestResult.slack.success}>
@@ -207,10 +209,10 @@
         </div>
       {/if}
     </div>
-  </div>
+  </Card>
 
   <!-- Webhook -->
-  <div class="notification-card">
+  <Card padding="none" class="notification-card">
     <div class="notification-header">
       <div class="notification-icon webhook">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -223,38 +225,37 @@
         <p>Send to custom HTTP endpoint</p>
       </div>
       {#if serverSettings?.notifications?.webhook?.from_env}
-        <span class="env-badge">From Environment</span>
+        <Badge variant="warning" size="sm">From Environment</Badge>
       {/if}
     </div>
 
     <div class="notification-form">
-      <div class="form-field">
-        <label for="webhook-url">Webhook URL</label>
-        <input
-          id="webhook-url"
-          type="text"
+      <div class="form-row">
+        <span class="form-label">Webhook URL</span>
+        <Input
           bind:value={notifications.webhook.url}
           placeholder="https://your-server.com/webhook"
           disabled={serverSettings?.notifications?.webhook?.from_env}
+          fullWidth
         />
       </div>
-      <div class="form-field">
-        <label for="webhook-token">Auth Token (optional)</label>
-        <input
-          id="webhook-token"
+      <div class="form-row">
+        <span class="form-label">Auth Token (optional)</span>
+        <Input
           type="password"
           bind:value={notifications.webhook.auth_token}
           placeholder="Bearer token"
           disabled={serverSettings?.notifications?.webhook?.from_env}
+          fullWidth
         />
       </div>
       <div class="form-actions">
-        <button class="test-btn" on:click={() => testNotification('webhook')} disabled={testingNotification === 'webhook'}>
+        <Button variant="default" on:click={() => testNotification('webhook')} loading={testingNotification === 'webhook'}>
           {testingNotification === 'webhook' ? 'Testing...' : 'Test'}
-        </button>
-        <button class="save-btn" on:click={() => saveNotification('webhook')} disabled={savingNotification === 'webhook' || serverSettings?.notifications?.webhook?.from_env}>
+        </Button>
+        <Button variant="success" on:click={() => saveNotification('webhook')} loading={savingNotification === 'webhook'} disabled={serverSettings?.notifications?.webhook?.from_env}>
           {savingNotification === 'webhook' ? 'Saving...' : 'Save'}
-        </button>
+        </Button>
       </div>
       {#if notificationTestResult.webhook}
         <div class="result-box" class:success={notificationTestResult.webhook.success}>
@@ -267,13 +268,13 @@
         </div>
       {/if}
     </div>
-  </div>
+  </Card>
 
-  <div class="auth-info">
+  <Card padding="md" class="auth-info-card">
     <h4>Settings Storage</h4>
     <p>Notification settings are saved to <code>/app/config/settings.json</code> on the server.</p>
     <p>Environment variables take precedence over UI settings and cannot be modified here.</p>
-  </div>
+  </Card>
 </section>
 
 <style>
@@ -298,12 +299,8 @@
     margin: 0;
   }
 
-  .notification-card {
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #21262d);
-    border-radius: 8px;
+  :global(.notification-card) {
     margin-bottom: 16px;
-    overflow: hidden;
   }
 
   .notification-header {
@@ -355,15 +352,6 @@
     color: var(--text-secondary, #8b949e);
   }
 
-  .env-badge {
-    font-size: 0.6875rem;
-    font-weight: 500;
-    color: var(--color-warning, #d29922);
-    background: rgba(210, 153, 34, 0.15);
-    padding: 2px 8px;
-    border-radius: 10px;
-  }
-
   .notification-form {
     padding: 16px;
     display: flex;
@@ -371,38 +359,17 @@
     gap: 12px;
   }
 
-  .form-field {
+  .form-row {
     display: flex;
-    flex-direction: row;
     align-items: center;
     gap: 12px;
   }
 
-  .form-field label {
-    width: 120px;
+  .form-label {
+    width: 140px;
     flex-shrink: 0;
     font-size: 0.8125rem;
     color: var(--text-secondary, #8b949e);
-  }
-
-  .form-field input {
-    flex: 1;
-    padding: 8px 12px;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: 6px;
-    color: var(--text-primary, #c9d1d9);
-    font-size: 0.875rem;
-  }
-
-  .form-field input:focus {
-    outline: none;
-    border-color: var(--color-primary, #58a6ff);
-  }
-
-  .form-field input:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
   }
 
   .form-actions {
@@ -427,67 +394,23 @@
     background: rgba(63, 185, 80, 0.1);
   }
 
-  .save-btn, .test-btn {
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .save-btn {
-    background: var(--color-success, #238636);
-    border: 1px solid var(--color-success, #238636);
-    color: #fff;
-  }
-
-  .save-btn:hover:not(:disabled) {
-    background: #2ea043;
-  }
-
-  .save-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .test-btn {
-    background: transparent;
-    border: 1px solid var(--border-color, #30363d);
-    color: var(--text-primary, #c9d1d9);
-  }
-
-  .test-btn:hover:not(:disabled) {
-    background: var(--bg-tertiary, #21262d);
-    border-color: var(--text-secondary, #8b949e);
-  }
-
-  .test-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .auth-info {
+  :global(.auth-info-card) {
     margin-top: 24px;
-    padding: 16px;
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #21262d);
-    border-radius: 8px;
   }
 
-  .auth-info h4 {
+  :global(.auth-info-card) h4 {
     margin: 0 0 8px;
     font-size: 0.875rem;
     color: var(--text-primary, #f0f6fc);
   }
 
-  .auth-info p {
+  :global(.auth-info-card) p {
     margin: 8px 0;
     font-size: 0.8125rem;
     color: var(--text-secondary, #8b949e);
   }
 
-  .auth-info code {
+  :global(.auth-info-card) code {
     background: var(--bg-tertiary, #21262d);
     padding: 2px 6px;
     border-radius: 4px;

@@ -1,6 +1,8 @@
 <script>
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { levelStats, serviceStats, hostStats, connectWebSocket, isLive } from '../stores/logs.js';
+  import Button from './ui/Button.svelte';
+  import { debounce } from '../utils/dom.js';
 
   export let value = '';
 
@@ -16,7 +18,7 @@
   let searchHistory = [];
   let showHistory = false;
   const MAX_HISTORY = 10;
-  
+
   // Live mode
   let ws = null;
 
@@ -46,11 +48,11 @@
     } else {
       ws = connectWebSocket();
       isLive.set(true);
-      
+
       // Clear current search when going live
       if (value) {
         value = '';
-        dispatch('search'); 
+        dispatch('search');
       }
     }
   }
@@ -66,7 +68,7 @@
     if (event.key === 'Enter' && $isLive) {
       toggleLive();
     }
-    
+
     if (showSuggestions && suggestions.length > 0) {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
@@ -93,9 +95,12 @@
     }
   }
 
+  // Debounced suggestion update for better performance
+  const debouncedUpdateSuggestions = debounce(updateSuggestions, 150);
+
   function handleInput() {
     selectedIndex = -1;
-    updateSuggestions();
+    debouncedUpdateSuggestions();
   }
 
   function handleFocus() {
@@ -221,10 +226,15 @@
 </script>
 
 <div class="search-bar" role="search">
-  <button class="live-btn" class:active={$isLive} on:click={toggleLive} title="Toggle Live Mode">
-    <span class="live-indicator"></span>
+  <Button
+    variant={$isLive ? 'success' : 'default'}
+    on:click={toggleLive}
+    title="Toggle Live Mode"
+    class="live-btn"
+  >
+    <span class="live-indicator" class:active={$isLive}></span>
     Live
-  </button>
+  </Button>
 
   <div class="search-con">
     <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
@@ -247,11 +257,11 @@
   />
 
   {#if value}
-    <button class="clear-btn" on:click={handleClear} title="Clear search" aria-label="Clear search">
+    <Button icon size="sm" variant="ghost" on:click={handleClear} title="Clear search" class="clear-btn">
       <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
         <path fill="currentColor" d="M7 5.586 3.707 2.293a1 1 0 0 0-1.414 1.414L5.586 7 2.293 10.293a1 1 0 1 0 1.414 1.414L7 8.414l3.293 3.293a1 1 0 0 0 1.414-1.414L8.414 7l3.293-3.293a1 1 0 0 0-1.414-1.414L7 5.586Z"/>
       </svg>
-    </button>
+    </Button>
   {/if}
 
   <!-- Autocomplete dropdown -->
@@ -315,6 +325,7 @@
     position: relative;
     display: flex;
     align-items: center;
+    gap: 12px;
   }
 
   .search-con {
@@ -323,51 +334,28 @@
     display: flex;
     align-items: center;
   }
-  
-  .live-btn {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 12px;
-    height: 38px;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #8b949e;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    margin-right: 12px;
-    transition: all 0.15s;
-  }
 
-  .live-btn:hover {
-    border-color: #8b949e;
-    color: #c9d1d9;
-  }
-
-  .live-btn.active {
-    background: #3fb95020;
-    border-color: #3fb950;
-    color: #3fb950;
+  :global(.live-btn) {
+    gap: 6px !important;
   }
 
   .live-indicator {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #8b949e;
+    background: var(--text-secondary, #8b949e);
+    transition: all 0.2s;
   }
 
-  .live-btn.active .live-indicator {
-    background: #3fb950;
-    box-shadow: 0 0 6px #3fb95060;
+  .live-indicator.active {
+    background: var(--color-success, #3fb950);
+    box-shadow: 0 0 6px rgba(63, 185, 80, 0.4);
   }
 
   .search-icon {
     position: absolute;
     left: 12px;
-    color: #8b949e;
+    color: var(--text-secondary, #8b949e);
     pointer-events: none;
     z-index: 1;
   }
@@ -375,39 +363,28 @@
   input {
     width: 100%;
     padding: 10px 36px;
-    background: #0d1117;
-    border: 1px solid #30363d;
+    background: var(--bg-primary, #0d1117);
+    border: 1px solid var(--border-color, #30363d);
     border-radius: 6px;
-    color: #c9d1d9;
+    color: var(--text-primary, #c9d1d9);
     font-size: 14px;
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-family: var(--font-mono, 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace);
   }
 
   input:focus {
     outline: none;
-    border-color: #58a6ff;
+    border-color: var(--color-primary, #58a6ff);
     box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
   }
 
   input::placeholder {
-    color: #6e7681;
+    color: var(--text-muted, #6e7681);
   }
 
-  .clear-btn {
-    position: absolute;
+  :global(.clear-btn) {
+    position: absolute !important;
     right: 8px;
-    padding: 4px;
-    background: none;
-    border: none;
-    color: #8b949e;
-    cursor: pointer;
-    border-radius: 4px;
     z-index: 1;
-  }
-
-  .clear-btn:hover {
-    color: #c9d1d9;
-    background: #30363d;
   }
 
   .suggestions {
@@ -416,8 +393,8 @@
     left: 0;
     right: 0;
     margin-top: 4px;
-    background: #161b22;
-    border: 1px solid #30363d;
+    background: var(--bg-secondary, #161b22);
+    border: 1px solid var(--border-color, #30363d);
     border-radius: 6px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     z-index: 100;
@@ -429,16 +406,16 @@
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    border-bottom: 1px solid #30363d;
+    border-bottom: 1px solid var(--border-color, #30363d);
     font-size: 11px;
-    color: #8b949e;
+    color: var(--text-secondary, #8b949e);
     text-transform: uppercase;
   }
 
   .history-clear {
     background: none;
     border: none;
-    color: #58a6ff;
+    color: var(--color-primary, #58a6ff);
     cursor: pointer;
     font-size: 11px;
     text-transform: uppercase;
@@ -456,7 +433,7 @@
     padding: 8px 12px;
     background: none;
     border: none;
-    color: #c9d1d9;
+    color: var(--text-primary, #c9d1d9);
     text-align: left;
     cursor: pointer;
     font-size: 13px;
@@ -464,7 +441,7 @@
 
   .suggestion-item:hover,
   .suggestion-item.selected {
-    background: #21262d;
+    background: var(--bg-tertiary, #21262d);
   }
 
   .suggestion-icon {
@@ -473,28 +450,28 @@
     justify-content: center;
     width: 18px;
     height: 18px;
-    color: #8b949e;
+    color: var(--text-secondary, #8b949e);
   }
 
   .suggestion-text {
     flex: 1;
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace);
   }
 
   .history-query {
-    color: #58a6ff;
+    color: var(--color-primary, #58a6ff);
   }
 
   .suggestion-hint {
     font-size: 11px;
-    color: #6e7681;
+    color: var(--text-muted, #6e7681);
     padding: 2px 6px;
-    background: #21262d;
+    background: var(--bg-tertiary, #21262d);
     border-radius: 4px;
   }
 
   .suggestion-field {
     font-size: 11px;
-    color: #8b949e;
+    color: var(--text-secondary, #8b949e);
   }
 </style>

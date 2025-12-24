@@ -7,6 +7,12 @@
 -->
 <script>
   import { onMount } from 'svelte';
+  import Input from '../ui/Input.svelte';
+  import Button from '../ui/Button.svelte';
+  import Card from '../ui/Card.svelte';
+  import Badge from '../ui/Badge.svelte';
+  import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import { formatBytes, formatNumber, formatRelativeTime } from '../../utils/format.js';
 
   const API_BASE = '/api';
 
@@ -152,79 +158,62 @@
   </div>
 
   {#if loadingSettings}
-    <div class="loading-state">Loading configuration...</div>
+    <LoadingSpinner centered label="Loading configuration..." />
   {:else}
     <!-- ClickHouse Connection -->
-    <div class="settings-group">
+    <Card padding="none">
       <div class="group-header">
         <span class="group-title">ClickHouse Connection</span>
         {#if serverSettings?.clickhouse?.host?.from_env}
-          <span class="env-badge">From Environment</span>
+          <Badge variant="warning" size="sm">From Environment</Badge>
         {/if}
       </div>
 
       <div class="form-grid">
-        <div class="form-field">
-          <label for="db-host">Host</label>
-          <input
-            id="db-host"
-            type="text"
-            bind:value={dbForm.host}
-            placeholder="localhost"
-          />
-        </div>
+        <Input
+          label="Host"
+          bind:value={dbForm.host}
+          placeholder="localhost"
+        />
 
-        <div class="form-field">
-          <label for="db-port">Port</label>
-          <input
-            id="db-port"
-            type="number"
-            bind:value={dbForm.port}
-            placeholder="8123"
-          />
-        </div>
+        <Input
+          label="Port"
+          type="number"
+          bind:value={dbForm.port}
+          placeholder="8123"
+        />
 
-        <div class="form-field">
-          <label for="db-database">Database</label>
-          <input
-            id="db-database"
-            type="text"
-            bind:value={dbForm.database}
-            placeholder="purl"
-          />
-        </div>
+        <Input
+          label="Database"
+          bind:value={dbForm.database}
+          placeholder="purl"
+        />
 
-        <div class="form-field">
-          <label for="db-user">User</label>
-          <input
-            id="db-user"
-            type="text"
-            bind:value={dbForm.user}
-            placeholder="default"
-          />
-        </div>
+        <Input
+          label="User"
+          bind:value={dbForm.user}
+          placeholder="default"
+        />
 
-        <div class="form-field full-width">
-          <label for="db-password">Password</label>
-          <input
-            id="db-password"
+        <div class="full-width">
+          <Input
+            label="Password"
             type="password"
             bind:value={dbForm.password}
             placeholder={serverSettings?.clickhouse?.password_set?.value ? '********' : 'Enter password'}
+            helper={serverSettings?.clickhouse?.password_set?.value && !dbForm.password ? 'Password is already set. Leave empty to keep current.' : ''}
+            fullWidth
           />
-          {#if serverSettings?.clickhouse?.password_set?.value && !dbForm.password}
-            <span class="field-hint">Password is already set. Leave empty to keep current.</span>
-          {/if}
         </div>
       </div>
 
       <div class="form-actions">
-        <button class="test-btn" on:click={testDbConnection} disabled={testingDb}>
+        <Button variant="default" on:click={testDbConnection} loading={testingDb}>
           {testingDb ? 'Testing...' : 'Test Connection'}
-        </button>
-        <button class="save-btn" on:click={saveDbSettings} disabled={savingDb}>
+        </Button>
+        <Button variant="success" on:click={saveDbSettings} loading={savingDb}>
           {savingDb ? 'Saving...' : 'Save Settings'}
-        </button>
+        </Button>
       </div>
 
       {#if dbTestResult}
@@ -248,34 +237,34 @@
           {dbMessage.text}
         </div>
       {/if}
-    </div>
+    </Card>
 
     <!-- Retention Settings -->
-    <div class="settings-group" style="margin-top: 24px;">
+    <Card padding="none" class="retention-card">
       <div class="group-header">
         <span class="group-title">Data Retention</span>
         {#if serverSettings?.retention?.days?.from_env}
-          <span class="env-badge">From Environment</span>
+          <Badge variant="warning" size="sm">From Environment</Badge>
         {/if}
       </div>
 
       <div class="setting-item">
         <div class="setting-info">
-          <label for="retention-days">Retention Period</label>
+          <span class="setting-label">Retention Period</span>
           <span class="setting-hint">How long to keep log data (ClickHouse TTL)</span>
         </div>
         <div class="retention-control">
-          <input
-            id="retention-days"
+          <Input
             type="number"
-            min="1"
-            max="365"
+            min={1}
+            max={365}
             bind:value={retentionDays}
+            size="sm"
           />
           <span class="unit">days</span>
-          <button class="save-btn" on:click={saveRetention} disabled={savingRetention}>
+          <Button variant="success" size="sm" on:click={saveRetention} loading={savingRetention}>
             {savingRetention ? 'Saving...' : 'Apply'}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -288,24 +277,24 @@
       {#if retentionStats}
         <div class="stats-grid">
           <div class="stat-card">
-            <span class="stat-value">{retentionStats.total_logs?.toLocaleString() || 0}</span>
+            <span class="stat-value">{formatNumber(retentionStats.total_logs || 0)}</span>
             <span class="stat-label">Total Logs</span>
           </div>
           <div class="stat-card">
-            <span class="stat-value">{retentionStats.db_size_mb || 0} MB</span>
+            <span class="stat-value">{formatBytes((retentionStats.db_size_mb || 0) * 1024 * 1024)}</span>
             <span class="stat-label">Database Size</span>
           </div>
           <div class="stat-card">
-            <span class="stat-value">{retentionStats.oldest_log ? new Date(retentionStats.oldest_log).toLocaleDateString() : 'N/A'}</span>
+            <span class="stat-value">{retentionStats.oldest_log ? formatRelativeTime(retentionStats.oldest_log) : 'N/A'}</span>
             <span class="stat-label">Oldest Log</span>
           </div>
           <div class="stat-card">
-            <span class="stat-value">{retentionStats.newest_log ? new Date(retentionStats.newest_log).toLocaleDateString() : 'N/A'}</span>
+            <span class="stat-value">{retentionStats.newest_log ? formatRelativeTime(retentionStats.newest_log) : 'N/A'}</span>
             <span class="stat-label">Newest Log</span>
           </div>
         </div>
       {/if}
-    </div>
+    </Card>
   {/if}
 </section>
 
@@ -331,13 +320,6 @@
     margin: 0;
   }
 
-  .settings-group {
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #21262d);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-
   .group-header {
     display: flex;
     align-items: center;
@@ -355,15 +337,6 @@
     letter-spacing: 0.05em;
   }
 
-  .env-badge {
-    font-size: 0.6875rem;
-    font-weight: 500;
-    color: var(--color-warning, #d29922);
-    background: rgba(210, 153, 34, 0.15);
-    padding: 2px 8px;
-    border-radius: 10px;
-  }
-
   .form-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -371,38 +344,8 @@
     padding: 16px;
   }
 
-  .form-field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .form-field.full-width {
+  .full-width {
     grid-column: 1 / -1;
-  }
-
-  .form-field label {
-    font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
-  }
-
-  .form-field input {
-    padding: 8px 12px;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: 6px;
-    color: var(--text-primary, #c9d1d9);
-    font-size: 0.875rem;
-  }
-
-  .form-field input:focus {
-    outline: none;
-    border-color: var(--color-primary, #58a6ff);
-  }
-
-  .field-hint {
-    font-size: 0.6875rem;
-    color: var(--text-secondary, #8b949e);
   }
 
   .form-actions {
@@ -429,46 +372,6 @@
     background: rgba(63, 185, 80, 0.1);
   }
 
-  .save-btn, .test-btn {
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .save-btn {
-    background: var(--color-success, #238636);
-    border: 1px solid var(--color-success, #238636);
-    color: #fff;
-  }
-
-  .save-btn:hover:not(:disabled) {
-    background: #2ea043;
-  }
-
-  .save-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .test-btn {
-    background: transparent;
-    border: 1px solid var(--border-color, #30363d);
-    color: var(--text-primary, #c9d1d9);
-  }
-
-  .test-btn:hover:not(:disabled) {
-    background: var(--bg-tertiary, #21262d);
-    border-color: var(--text-secondary, #8b949e);
-  }
-
-  .test-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
   .setting-item {
     display: flex;
     align-items: center;
@@ -487,7 +390,7 @@
     gap: 2px;
   }
 
-  .setting-info label {
+  .setting-label {
     font-size: 0.875rem;
     color: var(--text-primary, #c9d1d9);
   }
@@ -503,19 +406,13 @@
     gap: 8px;
   }
 
-  .retention-control input {
-    width: 80px;
-    padding: 8px 12px;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: 6px;
-    color: var(--text-primary, #c9d1d9);
-    text-align: center;
-  }
-
   .retention-control .unit {
     font-size: 0.8125rem;
     color: var(--text-secondary, #8b949e);
+  }
+
+  :global(.retention-card) {
+    margin-top: 24px;
   }
 
   .stats-grid {
@@ -549,9 +446,4 @@
     margin-top: 4px;
   }
 
-  .loading-state {
-    padding: 40px;
-    text-align: center;
-    color: var(--text-secondary, #8b949e);
-  }
 </style>

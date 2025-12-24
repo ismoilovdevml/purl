@@ -42,20 +42,26 @@ export function highlightText(text, query) {
 
 /**
  * Svelte action for click outside detection
- * Usage: <div use:clickOutside on:clickOutside={handleClose}>
+ * Usage: <div use:clickOutside={handleClose}>
  * @param {HTMLElement} node - DOM node
+ * @param {Function} callback - Function to call when clicked outside
  * @returns {object} Svelte action object
  */
-export function clickOutside(node) {
+export function clickOutside(node, callback) {
   const handleClick = (event) => {
     if (!node.contains(event.target)) {
-      node.dispatchEvent(new CustomEvent('clickOutside', { detail: event }));
+      if (typeof callback === 'function') {
+        callback();
+      }
     }
   };
 
   document.addEventListener('click', handleClick, true);
 
   return {
+    update(newCallback) {
+      callback = newCallback;
+    },
     destroy() {
       document.removeEventListener('click', handleClick, true);
     }
@@ -102,71 +108,6 @@ export function debounce(fn, delay = 300) {
     clearTimeout(timeoutId);
     timeoutId = setTimeout(() => fn(...args), delay);
   };
-}
-
-/**
- * Throttle function
- * @param {Function} fn - Function to throttle
- * @param {number} limit - Minimum time between calls
- * @returns {Function} Throttled function
- */
-export function throttle(fn, limit = 100) {
-  let inThrottle;
-  return (...args) => {
-    if (!inThrottle) {
-      fn(...args);
-      inThrottle = true;
-      setTimeout(() => (inThrottle = false), limit);
-    }
-  };
-}
-
-/**
- * Generate unique ID
- * @param {string} prefix - Optional prefix
- * @returns {string} Unique ID
- */
-export function uniqueId(prefix = 'id') {
-  return `${prefix}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-/**
- * Check if element is in viewport
- * @param {HTMLElement} element - Element to check
- * @returns {boolean} Whether element is visible
- */
-export function isInViewport(element) {
-  const rect = element.getBoundingClientRect();
-  return (
-    rect.top >= 0 &&
-    rect.left >= 0 &&
-    rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-    rect.right <= (window.innerWidth || document.documentElement.clientWidth)
-  );
-}
-
-/**
- * Scroll element into view smoothly
- * @param {HTMLElement} element - Element to scroll to
- * @param {object} options - Scroll options
- */
-export function scrollIntoView(element, options = {}) {
-  element?.scrollIntoView({
-    behavior: 'smooth',
-    block: 'nearest',
-    ...options
-  });
-}
-
-/**
- * Focus first focusable element within a container
- * @param {HTMLElement} container - Container element
- */
-export function focusFirstElement(container) {
-  const focusable = container.querySelector(
-    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-  );
-  focusable?.focus();
 }
 
 /**
