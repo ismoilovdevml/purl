@@ -86,9 +86,10 @@
 <style>
   .settings-page {
     display: flex;
-    min-height: 100%;
+    height: calc(100vh - 60px);
     background: var(--bg-primary, #0d1117);
     color: var(--text-primary, #c9d1d9);
+    overflow: hidden;
   }
 
   .settings-nav {
@@ -97,6 +98,7 @@
     border-right: 1px solid var(--border-color, #21262d);
     padding: 20px 0;
     flex-shrink: 0;
+    overflow-y: auto;
   }
 
   .settings-nav h2 {
@@ -142,5 +144,6 @@
     flex: 1;
     padding: 24px 32px;
     overflow-y: auto;
+    height: 100%;
   }
 </style>

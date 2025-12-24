@@ -17,7 +17,7 @@
   let serverSettings = null;
 
   let notifications = {
-    telegram: { enabled: false, bot_token: '', chat_id: '' },
+    telegram: { enabled: false, bot_token: '', chat_id: '', thread_id: '' },
     slack: { enabled: false, webhook_url: '', channel: '' },
     webhook: { enabled: false, url: '', auth_token: '' }
   };
@@ -107,11 +107,18 @@
         <h4>Telegram</h4>
         <p>Receive alerts via Telegram bot</p>
       </div>
+      <div class="notification-toggle">
+        <label class="toggle">
+          <input type="checkbox" bind:checked={notifications.telegram.enabled} disabled={serverSettings?.notifications?.telegram?.from_env} />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
       {#if serverSettings?.notifications?.telegram?.from_env}
         <Badge variant="warning" size="sm">From Environment</Badge>
       {/if}
     </div>
 
+    {#if notifications.telegram.enabled || serverSettings?.notifications?.telegram?.enabled}
     <div class="notification-form">
       <div class="form-row">
         <span class="form-label">Bot Token</span>
@@ -132,6 +139,16 @@
           fullWidth
         />
       </div>
+      <div class="form-row">
+        <span class="form-label">Thread ID</span>
+        <Input
+          bind:value={notifications.telegram.thread_id}
+          placeholder="123 (optional, for topics)"
+          disabled={serverSettings?.notifications?.telegram?.from_env}
+          fullWidth
+        />
+        <span class="form-hint">For supergroups with topics enabled</span>
+      </div>
       <div class="form-actions">
         <Button variant="default" on:click={() => testNotification('telegram')} loading={testingNotification === 'telegram'}>
           {testingNotification === 'telegram' ? 'Testing...' : 'Test'}
@@ -151,6 +168,7 @@
         </div>
       {/if}
     </div>
+    {/if}
   </Card>
 
   <!-- Slack -->
@@ -165,11 +183,18 @@
         <h4>Slack</h4>
         <p>Post alerts to Slack channel</p>
       </div>
+      <div class="notification-toggle">
+        <label class="toggle">
+          <input type="checkbox" bind:checked={notifications.slack.enabled} disabled={serverSettings?.notifications?.slack?.from_env} />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
       {#if serverSettings?.notifications?.slack?.from_env}
         <Badge variant="warning" size="sm">From Environment</Badge>
       {/if}
     </div>
 
+    {#if notifications.slack.enabled || serverSettings?.notifications?.slack?.enabled}
     <div class="notification-form">
       <div class="form-row">
         <span class="form-label">Webhook URL</span>
@@ -209,6 +234,7 @@
         </div>
       {/if}
     </div>
+    {/if}
   </Card>
 
   <!-- Webhook -->
@@ -224,11 +250,18 @@
         <h4>Webhook</h4>
         <p>Send to custom HTTP endpoint</p>
       </div>
+      <div class="notification-toggle">
+        <label class="toggle">
+          <input type="checkbox" bind:checked={notifications.webhook.enabled} disabled={serverSettings?.notifications?.webhook?.from_env} />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
       {#if serverSettings?.notifications?.webhook?.from_env}
         <Badge variant="warning" size="sm">From Environment</Badge>
       {/if}
     </div>
 
+    {#if notifications.webhook.enabled || serverSettings?.notifications?.webhook?.enabled}
     <div class="notification-form">
       <div class="form-row">
         <span class="form-label">Webhook URL</span>
@@ -268,6 +301,7 @@
         </div>
       {/if}
     </div>
+    {/if}
   </Card>
 
   <Card padding="md" class="auth-info-card">
@@ -392,6 +426,74 @@
   .result-box.success {
     color: var(--color-success, #3fb950);
     background: rgba(63, 185, 80, 0.1);
+  }
+
+  .notification-toggle {
+    margin-left: auto;
+  }
+
+  .toggle {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+  }
+
+  .toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--bg-tertiary, #21262d);
+    border-radius: 24px;
+    transition: 0.2s;
+  }
+
+  .toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: #8b949e;
+    border-radius: 50%;
+    transition: 0.2s;
+  }
+
+  .toggle input:checked + .toggle-slider {
+    background-color: var(--color-success, #238636);
+  }
+
+  .toggle input:checked + .toggle-slider:before {
+    transform: translateX(20px);
+    background-color: #fff;
+  }
+
+  .toggle input:disabled + .toggle-slider {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .form-hint {
+    font-size: 0.6875rem;
+    color: var(--text-muted, #6e7681);
+    margin-left: 8px;
+  }
+
+  .form-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
   }
 
   :global(.auth-info-card) {
