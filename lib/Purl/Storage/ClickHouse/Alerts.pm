@@ -111,43 +111,78 @@ sub check_alerts {
         WHERE enabled = 1
     });
 
-    my @triggered;
+    return [] unless @$alerts;
+
+    # Group alerts by window_minutes for batch querying
+    my %by_window;
     for my $alert (@$alerts) {
         my $window = $self->_validate_int($alert->{window_minutes}, 1, 1440) // 5;
-        my $query_filter = $alert->{query};
+        push @{$by_window{$window}}, $alert;
+    }
 
-        # Build WHERE clause
-        my @where = ("timestamp >= now() - INTERVAL $window MINUTE");
-        if ($query_filter) {
-            if ($query_filter =~ /^level:(\w+)$/i) {
-                my $level = $self->_validate_level($1);
-                push @where, "level = " . $self->_quote_string($level) if $level;
-            } elsif ($query_filter =~ /^service:(\S+)$/i) {
-                my $service = $self->_sanitize_identifier($1);
-                push @where, "service = " . $self->_quote_string($service) if $service;
-            } else {
-                push @where, "position(message, " . $self->_quote_string($query_filter) . ") > 0";
+    my @triggered;
+    my @triggered_ids;
+
+    # Process each window group with a single optimized query
+    for my $window (keys %by_window) {
+        my $window_alerts = $by_window{$window};
+
+        # Build UNION ALL query for all alerts in this window
+        my @case_conditions;
+        my %alert_by_id;
+
+        for my $alert (@$window_alerts) {
+            $alert_by_id{$alert->{id}} = $alert;
+            my $query_filter = $alert->{query};
+            my $alert_id_quoted = $self->_quote_string($alert->{id});
+
+            my $filter_condition = '1=1';
+            if ($query_filter) {
+                if ($query_filter =~ /^level:(\w+)$/i) {
+                    my $level = $self->_validate_level($1);
+                    $filter_condition = "level = " . $self->_quote_string($level) if $level;
+                } elsif ($query_filter =~ /^service:(\S+)$/i) {
+                    my $service = $self->_sanitize_identifier($1);
+                    $filter_condition = "service = " . $self->_quote_string($service) if $service;
+                } else {
+                    $filter_condition = "position(message, " . $self->_quote_string($query_filter) . ") > 0";
+                }
             }
-        }
 
-        my $where_sql = join(' AND ', @where);
-        my $count_sql = "SELECT count() as cnt FROM $table WHERE $where_sql";
-        my $result = $self->_query_json($count_sql);
-        my $count = $result->[0]{cnt} // 0;
-
-        if ($count >= $alert->{threshold}) {
-            push @triggered, {
-                %$alert,
-                count => $count,
+            push @case_conditions, qq{
+                SELECT $alert_id_quoted as alert_id, count() as cnt
+                FROM $table
+                WHERE timestamp >= now() - INTERVAL $window MINUTE
+                  AND $filter_condition
             };
+        }
 
-            # Update last_triggered
-            if ($self->_validate_uuid($alert->{id})) {
-                $self->_query(qq{
-                    ALTER TABLE ${db}.alerts UPDATE last_triggered = now() WHERE id = @{[$self->_quote_string($alert->{id})]}
-                });
+        # Execute single query for all alerts in this window
+        my $combined_sql = join("\nUNION ALL\n", @case_conditions);
+        my $results = $self->_query_json($combined_sql);
+
+        # Check thresholds
+        for my $row (@$results) {
+            my $alert_id = $row->{alert_id};
+            my $count = $row->{cnt} // 0;
+            my $alert = $alert_by_id{$alert_id};
+
+            if ($alert && $count >= $alert->{threshold}) {
+                push @triggered, {
+                    %$alert,
+                    count => $count,
+                };
+                push @triggered_ids, $alert_id if $self->_validate_uuid($alert_id);
             }
         }
+    }
+
+    # Batch update last_triggered for all triggered alerts
+    if (@triggered_ids) {
+        my $ids_str = join(', ', map { $self->_quote_string($_) } @triggered_ids);
+        $self->_query(qq{
+            ALTER TABLE ${db}.alerts UPDATE last_triggered = now() WHERE id IN ($ids_str)
+        });
     }
 
     return \@triggered;

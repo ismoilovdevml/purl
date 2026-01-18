@@ -320,6 +320,13 @@ sub _init_schema {
         });
     };
 
+    # Add composite indexes for common query patterns (performance optimization)
+    eval {
+        $self->_query(qq{
+            ALTER TABLE $table ADD INDEX IF NOT EXISTS idx_service_level (service, level) TYPE set(1000) GRANULARITY 4
+        });
+    };
+
     # Create materialized view for level stats
     $self->_query(qq{
         CREATE MATERIALIZED VIEW IF NOT EXISTS ${table}_level_stats

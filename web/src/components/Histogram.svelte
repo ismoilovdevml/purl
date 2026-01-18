@@ -14,30 +14,49 @@
   let selectionRect = null;
   let showComparison = false;
 
-  // Stats
-  $: totalLogs = $histogram.reduce((sum, d) => sum + d.count, 0);
-  $: maxCount = Math.max(...$histogram.map(d => d.count), 1);
-  $: avgCount = $histogram.length > 0 ? Math.round(totalLogs / $histogram.length) : 0;
-  $: errorCount = $histogram.reduce((sum, d) => sum + (d.errors || 0), 0);
-  $: warnCount = $histogram.reduce((sum, d) => sum + (d.warnings || 0), 0);
+  // Stats - single pass calculation for performance
+  function calculateAllStats(data) {
+    if (data.length === 0) {
+      return { total: 0, max: 1, errors: 0, warnings: 0, avg: 0, stdDev: 0, anomalies: [] };
+    }
 
-  // Previous period stats for comparison
+    let total = 0, errors = 0, warnings = 0, max = 1;
+    const counts = [];
+
+    for (const d of data) {
+      total += d.count;
+      errors += d.errors || 0;
+      warnings += d.warnings || 0;
+      if (d.count > max) max = d.count;
+      counts.push(d.count);
+    }
+
+    const avg = Math.round(total / data.length);
+    const mean = total / data.length;
+    let sumSquares = 0;
+    for (const c of counts) {
+      sumSquares += (c - mean) ** 2;
+    }
+    const stdDev = Math.sqrt(sumSquares / data.length);
+    const threshold = avg + (stdDev * 2);
+    const anomalies = data.map((d, i) => d.count > threshold ? i : -1).filter(i => i >= 0);
+
+    return { total, max, errors, warnings, avg, stdDev, anomalies, threshold };
+  }
+
+  $: stats = calculateAllStats($histogram);
+  $: totalLogs = stats.total;
+  $: maxCount = stats.max;
+  $: avgCount = stats.avg;
+  $: errorCount = stats.errors;
+  $: warnCount = stats.warnings;
+  $: anomalies = stats.anomalies;
+
+  // Previous period stats for comparison - single pass
   $: prevTotalLogs = $previousHistogram.reduce((sum, d) => sum + d.count, 0);
   $: totalChangePercent = prevTotalLogs > 0
     ? Math.round(((totalLogs - prevTotalLogs) / prevTotalLogs) * 100)
     : null;
-
-  // Anomaly detection - bars that are > 2 standard deviations from mean
-  $: stdDev = calculateStdDev($histogram.map(d => d.count));
-  $: anomalyThreshold = avgCount + (stdDev * 2);
-  $: anomalies = $histogram.map((d, i) => d.count > anomalyThreshold ? i : -1).filter(i => i >= 0);
-
-  function calculateStdDev(values) {
-    if (values.length === 0) return 0;
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    const squareDiffs = values.map(v => Math.pow(v - mean, 2));
-    return Math.sqrt(squareDiffs.reduce((a, b) => a + b, 0) / values.length);
-  }
 
   $: if ($histogram.length > 0 && canvas) {
     drawHistogram();
@@ -240,6 +259,19 @@
     });
   }
 
+  // RAF flag to prevent excessive redraws
+  let rafPending = false;
+
+  function scheduleRedraw() {
+    if (!rafPending) {
+      rafPending = true;
+      requestAnimationFrame(() => {
+        drawHistogram();
+        rafPending = false;
+      });
+    }
+  }
+
   function handleMouseMove(event) {
     const dims = getBarDimensions();
     if (!dims) return;
@@ -277,14 +309,13 @@
         const startX = padding.left + Math.min(dragStart, dragEnd) * (barWidth + gap);
         const endX = padding.left + (Math.max(dragStart, dragEnd) + 1) * (barWidth + gap) - gap;
         selectionRect = { x: startX, width: endX - startX };
-        drawHistogram();
       }
     } else {
       hoveredBar = -1;
       tooltip.show = false;
     }
 
-    drawHistogram();
+    scheduleRedraw();
   }
 
   function handleMouseLeave() {
@@ -293,7 +324,7 @@
     if (!isDragging) {
       selectionRect = null;
     }
-    drawHistogram();
+    scheduleRedraw();
   }
 
   function handleMouseDown(event) {
@@ -347,7 +378,7 @@
     dragStart = null;
     dragEnd = null;
     selectionRect = null;
-    drawHistogram();
+    scheduleRedraw();
   }
 
   function toggleComparison() {

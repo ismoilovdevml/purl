@@ -181,8 +181,12 @@
     document.removeEventListener('mouseup', stopResize);
   }
 
-  // Helper to get meta field value
+  // Helper to get meta field value - use pre-parsed meta if available
   function getMetaField(log, field) {
+    // Use pre-parsed meta from logs.js if available
+    if (log.parsedMeta) {
+      return log.parsedMeta[field] || '';
+    }
     if (!log.meta) return '';
     try {
       const meta = typeof log.meta === 'string' ? JSON.parse(log.meta) : log.meta;
@@ -192,11 +196,20 @@
     }
   }
 
-  $: visibleColumns = columns.filter(c => c.visible);
-  $: pinnedColumns = visibleColumns.filter(c => c.pinned);
-  $: unpinnedColumns = visibleColumns.filter(c => !c.pinned);
-  $: orderedVisibleColumns = [...pinnedColumns, ...unpinnedColumns];
-  $: colspanCount = visibleColumns.length;
+  // Consolidated reactive block to avoid cascade recalculations
+  let visibleColumns = [];
+  let pinnedColumns = [];
+  let unpinnedColumns = [];
+  let orderedVisibleColumns = [];
+  let colspanCount = 0;
+
+  $: {
+    visibleColumns = columns.filter(c => c.visible);
+    pinnedColumns = visibleColumns.filter(c => c.pinned);
+    unpinnedColumns = visibleColumns.filter(c => !c.pinned);
+    orderedVisibleColumns = [...pinnedColumns, ...unpinnedColumns];
+    colspanCount = visibleColumns.length;
+  }
 </script>
 
 <div class="log-table-container">

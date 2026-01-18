@@ -8,12 +8,17 @@
   let patternLogsLoading = false;
   let expanded = true;
 
+  // Track previous time range to avoid cascade fetches
+  let previousTimeRange = null;
+
   onMount(() => {
+    previousTimeRange = $timeRange;
     fetchPatterns();
   });
 
-  // Refetch when time range changes
-  $: if ($timeRange) {
+  // Refetch when time range changes - only if actually changed
+  $: if ($timeRange && previousTimeRange !== null && previousTimeRange !== $timeRange) {
+    previousTimeRange = $timeRange;
     fetchPatterns();
     selectedPattern = null;
     patternLogs = null;
@@ -41,11 +46,8 @@
         ...log,
         id: log.id || `${log.timestamp}-${index}`
       }));
-      console.log('Setting logs:', logsWithIds.length, logsWithIds);
       logs.set(logsWithIds);
       total.set(result.total || logsWithIds.length);
-    } else {
-      console.log('No result or hits:', result);
     }
   }
 

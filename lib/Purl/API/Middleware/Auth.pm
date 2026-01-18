@@ -27,6 +27,11 @@ has '_rate_limit' => (
     default => sub { {} },
 );
 
+has '_last_cleanup' => (
+    is      => 'rw',
+    default => sub { time() },
+);
+
 has 'rate_limit_window' => (
     is      => 'ro',
     default => 60,
@@ -96,9 +101,12 @@ sub check_rate_limit {
     my $key = "$ip:$window_start";
     my $rate_limit = $self->_rate_limit;
 
-    # Cleanup old entries
-    for my $k (keys %$rate_limit) {
-        delete $rate_limit->{$k} if $k !~ /:$window_start$/;
+    # Periodic cleanup - only once per window instead of every request (O(n) -> O(1) amortized)
+    if ($now - $self->_last_cleanup >= $self->rate_limit_window) {
+        for my $k (keys %$rate_limit) {
+            delete $rate_limit->{$k} if $k !~ /:$window_start$/;
+        }
+        $self->_last_cleanup($now);
     }
 
     $rate_limit->{$key}++;

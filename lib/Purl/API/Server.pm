@@ -45,8 +45,10 @@ my %metrics = (
     query_duration_sum => 0,
     query_count        => 0,
     start_time         => time(),
-    # Extended metrics for Analytics
-    latencies          => [],  # Recent request latencies for percentiles
+    # Extended metrics for Analytics - circular buffer for O(1) operations
+    latencies          => [(0) x 1000],  # Pre-allocated circular buffer
+    latency_index      => 0,             # Current write position
+    latency_count      => 0,             # Number of entries (max 1000)
     bytes_in           => 0,
     bytes_out          => 0,
 );
@@ -219,9 +221,11 @@ sub setup_routes {
         $metrics{query_duration_sum} += $duration;
         $metrics{query_count}++;
 
-        # Track latencies for percentile calculation (keep last 1000)
-        push @{$metrics{latencies}}, $duration_ms;
-        shift @{$metrics{latencies}} while @{$metrics{latencies}} > 1000;
+        # Track latencies for percentile calculation using O(1) circular buffer
+        my $idx = $metrics{latency_index} % 1000;
+        $metrics{latencies}[$idx] = $duration_ms;
+        $metrics{latency_index}++;
+        $metrics{latency_count}++ if $metrics{latency_count} < 1000;
 
         # Track bytes
         my $req_size = length($c->req->body // '');
@@ -369,7 +373,13 @@ sub setup_routes {
         });
 
         $c->on(finish => sub ($c, $code, $reason) {
-            $websockets = [grep { $_ != $ws } @$websockets];
+            # Use splice for O(1) removal instead of grep O(n) copy
+            for my $i (0 .. $#$websockets) {
+                if ($websockets->[$i] == $ws) {
+                    splice @$websockets, $i, 1;
+                    last;
+                }
+            }
         });
 
         $c->send(encode_json({

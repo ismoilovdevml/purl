@@ -71,11 +71,22 @@ export async function searchLogs() {
     const response = await fetch(`${API_BASE}/logs?${params}`, { signal });
     const data = await response.json();
 
-    // Add unique IDs to logs for selection tracking
-    const logsWithIds = (data.hits || []).map((log, index) => ({
-      ...log,
-      id: log.id || `${log.timestamp}-${index}`
-    }));
+    // Add unique IDs to logs and pre-parse meta for performance
+    const logsWithIds = (data.hits || []).map((log, index) => {
+      let parsedMeta = null;
+      if (log.meta) {
+        try {
+          parsedMeta = typeof log.meta === 'string' ? JSON.parse(log.meta) : log.meta;
+        } catch {
+          parsedMeta = {};
+        }
+      }
+      return {
+        ...log,
+        id: log.id || `${log.timestamp}-${index}`,
+        parsedMeta
+      };
+    });
     logs.set(logsWithIds);
     total.set(data.total || 0);
 

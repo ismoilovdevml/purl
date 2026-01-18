@@ -5,6 +5,7 @@ use 5.024;
 
 use Moo::Role;
 use Time::HiRes qw(time);
+use Digest::MD5 qw(md5_hex);
 
 # Cache attributes
 has '_query_cache' => (
@@ -24,20 +25,23 @@ has 'cache_ttl' => (
 
 has 'cache_max_size' => (
     is      => 'ro',
-    default => 100,
+    default => 1000,  # Increased from 100 for better hit rate
+);
+
+# Eviction percentage (20% instead of 50% to reduce thrashing)
+has '_eviction_rate' => (
+    is      => 'ro',
+    default => 0.2,
 );
 
 # ============================================
 # Cache Management
 # ============================================
 
-# Generate cache key from SQL
+# Generate cache key from SQL using MD5 for better distribution
 sub _get_cache_key {
     my ($self, $sql) = @_;
-    # Simple hash for cache key
-    my $key = 0;
-    $key = ($key * 31 + ord($_)) % 2147483647 for split //, $sql;
-    return $key;
+    return md5_hex($sql);
 }
 
 # Get cached value
@@ -55,26 +59,26 @@ sub _get_cached {
     return $cached;
 }
 
-# Set cached value with LRU eviction
+# Set cached value with gradual LRU eviction (20% instead of 50%)
 sub _set_cached {
     my ($self, $key, $value) = @_;
     return unless $self->use_query_cache;
 
-    # LRU eviction
     my $cache = $self->_query_cache;
+    my $timestamps = $self->_cache_timestamps;
+
+    # LRU eviction - evict 20% of oldest entries when at capacity
     if (keys %$cache >= $self->cache_max_size) {
-        my @keys = sort {
-            $self->_cache_timestamps->{$a} <=> $self->_cache_timestamps->{$b}
-        } keys %$cache;
-        my $to_delete = int(@keys / 2);
+        my @keys = sort { $timestamps->{$a} <=> $timestamps->{$b} } keys %$cache;
+        my $to_delete = int(@keys * $self->_eviction_rate) || 1;
         for my $k (@keys[0..$to_delete-1]) {
             delete $cache->{$k};
-            delete $self->_cache_timestamps->{$k};
+            delete $timestamps->{$k};
         }
     }
 
     $cache->{$key} = $value;
-    $self->_cache_timestamps->{$key} = time();
+    $timestamps->{$key} = time();
 }
 
 # Clear all cache
