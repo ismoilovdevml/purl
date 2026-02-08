@@ -15,6 +15,7 @@ use Purl::Alert::Slack;
 use Purl::Alert::Webhook;
 use Purl::Config;
 use Purl::API::Middleware::Auth;
+use Purl::API::Middleware::License;
 
 # Controllers
 use Purl::API::Controller::Logs;
@@ -62,6 +63,9 @@ my $cache_ttl = 60;
 
 # Auth middleware instance
 my $auth_middleware;
+
+# License middleware instance
+my $license_middleware;
 
 sub create {
     my ($class, %args) = @_;
@@ -146,6 +150,27 @@ sub setup_routes {
         rate_limit_max => $config->{rate_limit}{max_requests} // 1000,
     );
 
+    # Initialize license middleware
+    $license_middleware = Purl::API::Middleware::License->new(
+        config   => $config,
+        settings => $settings,
+    );
+
+    # Activate license on startup
+    my $license_key = $license_middleware->get_license_key();
+    if ($license_key && $license_key ne '') {
+        app->log->info("License key detected, activating...");
+        my $license_info = $license_middleware->activate_with_api();
+        if ($license_info->{valid} && $license_info->{activated}) {
+            app->log->info("License activated: plan=$license_info->{plan}");
+        } elsif ($license_info->{error}) {
+            app->log->warn("License activation warning: $license_info->{error}");
+            app->log->info("Running with plan: $license_info->{plan}");
+        }
+    } else {
+        app->log->info("No license key configured, running as Free plan");
+    }
+
     # Common controller args
     my %c_args = (storage => $storage, config => $config, cache => \%cache);
 
@@ -175,6 +200,14 @@ sub setup_routes {
             app->log->error("Periodic buffer flush failed: $@") if $@;
         }
     });
+
+    # License heartbeat (every 6 hours)
+    if ($license_key && $license_key ne '') {
+        Mojo::IOLoop->recurring(21600 => sub {
+            eval { $license_middleware->send_heartbeat(); };
+            app->log->debug("License heartbeat sent") unless $@;
+        });
+    }
 
     # Static files
     app->static->paths->[0] = '/app/web/public';
@@ -274,6 +307,9 @@ sub setup_routes {
             return 0;
         }
 
+        # Attach license info to request stash
+        $license_middleware->check_license($c);
+
         return 1;
     });
 
@@ -284,6 +320,22 @@ sub setup_routes {
     $api->get('/health' => sub ($c) { $sys_c->health($c) });
     $api->get('/metrics' => sub ($c) { $sys_c->metrics($c) });
     $api->get('/metrics/json' => sub ($c) { $sys_c->metrics_json($c) });
+
+    # ============================================
+    # License endpoint (protected)
+    # ============================================
+    $protected->get('/license' => sub ($c) {
+        my $info = $license_middleware->get_license_info();
+        $c->render(json => {
+            plan       => $info->{plan} // 'free',
+            features   => $info->{features} // [],
+            limits     => $info->{limits} // {},
+            activated  => $info->{activated} // 0,
+            valid      => $info->{valid} // 0,
+            expires_at => $info->{expires_at} // undef,
+            ($info->{error} ? (error => $info->{error}) : ()),
+        });
+    });
 
     # ============================================
     # Log endpoints

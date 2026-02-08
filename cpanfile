@@ -25,3 +25,6 @@ requires 'Digest::MD5';
 
 # Auth
 requires 'MIME::Base64';
+
+# License verification (JWT RS256)
+requires 'Crypt::JWT', '0.035';
