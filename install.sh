@@ -145,11 +145,11 @@ install_purl_docker() {
     cd "$install_path"
 
     log_info "Downloading configuration files..."
-    curl -fsSL "https://raw.githubusercontent.com/ismoilovdevml/purl/main/docker-compose.yml" -o docker-compose.yml
-    curl -fsSL "https://raw.githubusercontent.com/ismoilovdevml/purl/main/docker/clickhouse/config.xml" -o docker/clickhouse/config.xml
-    curl -fsSL "https://raw.githubusercontent.com/ismoilovdevml/purl/main/docker/clickhouse/users.xml" -o docker/clickhouse/users.xml
+    curl -fsSL "https://purlogs.com/docker-compose.yml" -o docker-compose.yml
+    curl -fsSL "https://purlogs.com/config/clickhouse-config.xml" -o docker/clickhouse/config.xml
+    curl -fsSL "https://purlogs.com/config/clickhouse-users.xml" -o docker/clickhouse/users.xml
     mkdir -p deploy/vector
-    curl -fsSL "https://raw.githubusercontent.com/ismoilovdevml/purl/main/deploy/vector/vector.toml" -o deploy/vector/vector.toml
+    curl -fsSL "https://purlogs.com/config/vector.toml" -o deploy/vector/vector.toml
 
     local ch_password=$(generate_password 24)
     local api_key=$(generate_api_key)

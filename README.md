@@ -25,13 +25,13 @@ Lightweight log aggregation system with ClickHouse. Collect, search, analyze, an
 ### Install Purl Server
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash -s -- -i
+curl -fsSL https://purlogs.com/install.sh | sudo bash -s -- -i
 ```
 
 ### Install Vector Agent (Remote Servers)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/install.sh | sudo bash -s -- --agent -i
+curl -fsSL https://purlogs.com/install.sh | sudo bash -s -- --agent -i
 ```
 
 That's it. Open `http://your-server:3000` and start searching logs.
@@ -121,7 +121,7 @@ GET /api/logs?q=level:ERROR&range=1h&limit=100
 
 ```bash
 # One-line install (auto-generates secrets)
-curl -fsSL https://raw.githubusercontent.com/ismoilovdevml/purl/main/deploy/kubernetes/install.sh | bash
+curl -fsSL https://purlogs.com/k8s-install.sh | bash
 ```
 
 Or clone and run locally:

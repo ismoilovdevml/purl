@@ -56,3 +56,4 @@ docker/clickhouse/logs/
 
 # Local ClickHouse configs
 docker/clickhouse/*.local.xml
+.vercel

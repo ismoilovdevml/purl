@@ -9,7 +9,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 NAMESPACE="${PURL_NAMESPACE:-purl}"
-REPO_URL="https://raw.githubusercontent.com/ismoilovdevml/purl/main/deploy/kubernetes"
+REPO_URL="https://purlogs.com/k8s"
 
 echo -e "${BLUE}"
 echo "  ____            _ "
