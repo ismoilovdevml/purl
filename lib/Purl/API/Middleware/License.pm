@@ -43,15 +43,15 @@ has '_http' => (
     default => sub { HTTP::Tiny->new(timeout => 10) },
 );
 
-# Instance ID for activation (persistent per server)
+# Instance ID for activation (persistent per server, stable across restarts)
 has '_instance_id' => (
     is      => 'ro',
     lazy    => 1,
     default => sub {
         my $hostname = hostname();
-        # Use hostname + MAC-like hash for unique instance ID
         require Digest::SHA;
-        return Digest::SHA::sha256_hex("purl:$hostname:$$");
+        # Use only hostname — must NOT include PID ($$) since that changes on restart
+        return Digest::SHA::sha256_hex("purl:$hostname");
     },
 );
 
@@ -267,6 +267,32 @@ sub send_heartbeat {
     });
 
     # Non-blocking heartbeat - don't block the event loop
+    eval {
+        $self->_http->post($url, {
+            content => $payload,
+            headers => { 'Content-Type' => 'application/json' },
+        });
+    };
+}
+
+# ============================================
+# Deactivation (shutdown)
+# ============================================
+
+sub deactivate {
+    my ($self) = @_;
+
+    my $license_key = $self->get_license_key();
+    return unless $license_key && $license_key ne '';
+
+    my $api_url = $self->get_api_url();
+    my $url = "$api_url/api/license/deactivate";
+
+    my $payload = $self->_json->encode({
+        licenseKey => $license_key,
+        instanceId => $self->_instance_id,
+    });
+
     eval {
         $self->_http->post($url, {
             content => $payload,

@@ -483,6 +483,13 @@ sub run {
             }
         }
 
+        # Deactivate license (free up the activation slot for this server)
+        if ($license_middleware) {
+            app->log->info("Deactivating license...");
+            eval { $license_middleware->deactivate(); };
+            app->log->error("License deactivation failed: $@") if $@;
+        }
+
         app->log->info("Shutdown complete");
         exit 0;
     };
