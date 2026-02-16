@@ -150,7 +150,7 @@ sub _verify_jwt_offline {
     # Fix escaped newlines in ENV vars
     $public_key_pem =~ s/\\n/\n/g;
 
-    eval {
+    my $result = eval {
         my $decoded = Crypt::JWT::decode_jwt(
             token   => $license_key,
             key     => \$public_key_pem,
@@ -162,25 +162,27 @@ sub _verify_jwt_offline {
         # Check expiry explicitly
         my $exp = $decoded->{exp} // 0;
         if ($exp < time()) {
-            return { %$FREE_PLAN, error => 'License expired', valid => 0 };
+            { %$FREE_PLAN, error => 'License expired', valid => 0 };
+        } else {
+            {
+                valid          => 1,
+                activated      => 1,
+                plan           => $decoded->{plan} // 'free',
+                features       => $decoded->{features} // [],
+                limits         => $decoded->{limits} // $FREE_PLAN->{limits},
+                expires_at     => $exp,
+                customer_email => $decoded->{customerEmail} // '',
+                jti            => $decoded->{jti} // '',
+            };
         }
-
-        return {
-            valid          => 1,
-            activated      => 1,
-            plan           => $decoded->{plan} // 'free',
-            features       => $decoded->{features} // [],
-            limits         => $decoded->{limits} // $FREE_PLAN->{limits},
-            expires_at     => $exp,
-            customer_email => $decoded->{customerEmail} // '',
-            jti            => $decoded->{jti} // '',
-        };
     };
     if ($@) {
         my $err = "$@";
         $err =~ s/\s+$//;
         return { %$FREE_PLAN, error => "JWT verification failed: $err", valid => 0 };
     }
+
+    return $result;
 }
 
 # ============================================
@@ -342,6 +344,7 @@ sub check_license {
     # License check is non-blocking - always allow requests
     # but attach license info to stash for controllers to use
     my $info = $self->get_license_info();
+    $info = $FREE_PLAN unless ref $info eq 'HASH';
     $c->stash('license_info' => $info);
     $c->stash('license_plan' => $info->{plan} // 'free');
 
