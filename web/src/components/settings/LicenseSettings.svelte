@@ -22,16 +22,17 @@
     log_search: 'Log Search',
     live_tail: 'Live Tail',
     basic_alerts: 'Basic Alerts',
-    advanced_alerts: 'Advanced Alerts',
-    patterns: 'Log Patterns',
+    pattern_analysis: 'Log Patterns',
+    custom_dashboards: 'Custom Dashboards',
+    telegram_alerts: 'Telegram Alerts',
+    slack_alerts: 'Slack Alerts',
+    webhook_alerts: 'Webhook Alerts',
     saved_searches_unlimited: 'Saved Searches',
-    custom_retention: 'Custom Retention',
-    api_access: 'API Access',
-    multi_user: 'Multi-User',
+    self_hosted: 'Self-Hosted',
     sso: 'SSO',
     audit_logs: 'Audit Logs',
     priority_support: 'Priority Support',
-    custom_integrations: 'Custom Integrations',
+    dedicated_support: 'Dedicated Support',
   };
 
   const PLAN_COLORS = {
@@ -124,28 +125,28 @@
       {#if $licenseInfo?.limits}
         <Card padding="md" title="Limits">
           <div class="limits-list">
-            {#if $licenseInfo.limits.servers}
+            {#if $licenseInfo.limits.servers != null}
               <div class="limit-item">
                 <span>Servers</span>
-                <span class="limit-value">{$licenseInfo.limits.servers === 999 ? 'Unlimited' : $licenseInfo.limits.servers}</span>
+                <span class="limit-value">{$licenseInfo.limits.servers === -1 || $licenseInfo.limits.servers === 999 ? 'Unlimited' : $licenseInfo.limits.servers}</span>
               </div>
             {/if}
-            {#if $licenseInfo.limits.retention_days}
+            {#if $licenseInfo.limits.retention_days != null}
               <div class="limit-item">
                 <span>Retention</span>
-                <span class="limit-value">{$licenseInfo.limits.retention_days === 999 ? 'Unlimited' : $licenseInfo.limits.retention_days + ' days'}</span>
+                <span class="limit-value">{$licenseInfo.limits.retention_days === -1 || $licenseInfo.limits.retention_days === 999 ? 'Unlimited' : $licenseInfo.limits.retention_days + ' days'}</span>
               </div>
             {/if}
-            {#if $licenseInfo.limits.users}
+            {#if $licenseInfo.limits.users != null}
               <div class="limit-item">
                 <span>Users</span>
-                <span class="limit-value">{$licenseInfo.limits.users === 999 ? 'Unlimited' : $licenseInfo.limits.users}</span>
+                <span class="limit-value">{$licenseInfo.limits.users === -1 || $licenseInfo.limits.users === 999 ? 'Unlimited' : $licenseInfo.limits.users}</span>
               </div>
             {/if}
-            {#if $licenseInfo.limits.alerts}
+            {#if $licenseInfo.limits.alerts != null}
               <div class="limit-item">
                 <span>Alerts</span>
-                <span class="limit-value">{$licenseInfo.limits.alerts === 999 ? 'Unlimited' : $licenseInfo.limits.alerts}</span>
+                <span class="limit-value">{$licenseInfo.limits.alerts === -1 || $licenseInfo.limits.alerts === 999 ? 'Unlimited' : $licenseInfo.limits.alerts}</span>
               </div>
             {/if}
           </div>

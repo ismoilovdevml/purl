@@ -138,7 +138,7 @@
         <span class="user-count">
           {users.length} user{users.length !== 1 ? 's' : ''}
           {#if $licenseLimits?.users}
-            <span class="limit-info">/ {$licenseLimits.users === 999 ? '∞' : $licenseLimits.users} max</span>
+            <span class="limit-info">/ {$licenseLimits.users === -1 || $licenseLimits.users === 999 ? '∞' : $licenseLimits.users} max</span>
           {/if}
         </span>
         <Button variant="primary" size="sm" on:click={() => { showAddForm = !showAddForm; addError = ''; }}>
