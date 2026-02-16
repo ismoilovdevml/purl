@@ -10,6 +10,7 @@
   import PatternsSidebar from './components/PatternsSidebar.svelte';
   import AnalyticsPage from './components/AnalyticsPage.svelte';
   import SettingsPage from './components/settings/SettingsPage.svelte';
+  import LoginPage from './components/LoginPage.svelte';
   import {
     logs,
     loading,
@@ -21,6 +22,8 @@
     searchLogs,
   } from './stores/logs.js';
   import { refreshInterval, defaultTimeRange } from './stores/settings.js';
+  import { fetchLicense, currentPlan, isPaidPlan } from './stores/license.js';
+  import { currentUser, checkAuth, logout } from './stores/auth.js';
 
   let savedSearchesRef;
   let currentPage = 'logs'; // 'logs' | 'analytics' | 'settings'
@@ -29,6 +32,7 @@
   let hasAppliedDefaultRange = false;
   let unsubscribeRefresh = null;
   let unsubscribeDefaultRange = null;
+  let appReady = false;
 
   function setupRefreshInterval() {
     // Clear existing interval
@@ -50,7 +54,22 @@
     error.set(null);
   }
 
+  async function handleLogout() {
+    await logout();
+    currentPage = 'logs';
+  }
+
   onMount(async () => {
+    // Fetch license info first
+    await fetchLicense();
+
+    // If Pro/Enterprise, check session auth
+    if ($isPaidPlan) {
+      await checkAuth();
+    }
+
+    appReady = true;
+
     // Subscribe to refresh interval changes
     unsubscribeRefresh = refreshInterval.subscribe(v => {
       currentRefreshInterval = v;
@@ -200,6 +219,16 @@
   }
 </script>
 
+{#if !appReady}
+  <div class="app-loading">
+    <svg width="48" height="48" viewBox="0 0 32 32">
+      <circle cx="16" cy="16" r="14" fill="none" stroke="#58a6ff" stroke-width="2"/>
+      <path d="M10 12 L22 12 M10 16 L22 16 M10 20 L18 20" stroke="#58a6ff" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </div>
+{:else if $isPaidPlan && !$currentUser}
+  <LoginPage on:login={() => { appReady = true; searchLogs(); }} />
+{:else}
 <main>
   <header>
     <button class="logo" on:click={() => navigate('logs')}>
@@ -220,6 +249,11 @@
         />
       </svg>
       <span>Purl</span>
+      {#if $isPaidPlan}
+        <span class="plan-badge" class:enterprise={$currentPlan === 'enterprise'}>
+          {$currentPlan === 'enterprise' ? 'Enterprise' : 'Pro'}
+        </span>
+      {/if}
     </button>
 
     <nav class="nav-tabs">
@@ -277,6 +311,13 @@
         Settings
       </button>
     </nav>
+
+    {#if $currentUser}
+      <div class="user-menu">
+        <span class="user-name">{$currentUser.username}</span>
+        <button class="btn btn-sm" on:click={handleLogout}>Logout</button>
+      </div>
+    {/if}
 
     {#if currentPage === 'logs'}
       <SearchBar bind:value={$query} on:search={handleSearch} />
@@ -400,6 +441,7 @@
     <SettingsPage />
   {/if}
 </main>
+{/if}
 
 <style>
   :global(*) {
@@ -451,6 +493,56 @@
 
   .logo:hover {
     color: #79c0ff;
+  }
+
+  .plan-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: rgba(88, 166, 255, 0.15);
+    color: #58a6ff;
+    letter-spacing: 0.02em;
+  }
+
+  .plan-badge.enterprise {
+    background: rgba(163, 113, 247, 0.15);
+    color: #a371f7;
+  }
+
+  .user-menu {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .user-name {
+    font-size: 13px;
+    color: #8b949e;
+  }
+
+  .btn-sm {
+    padding: 4px 10px;
+    font-size: 11px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn-sm:hover {
+    background: #30363d;
+  }
+
+  .app-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    background: #0d1117;
   }
 
   .nav-tabs {

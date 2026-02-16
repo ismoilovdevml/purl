@@ -33,6 +33,18 @@ has 'rebuild_storage' => (
     default => sub { sub {} },
 );
 
+# Callback to reload license after key change
+has 'reload_license' => (
+    is      => 'ro',
+    default => sub { sub {} },
+);
+
+# Auth middleware for user management
+has 'auth_middleware' => (
+    is      => 'ro',
+    default => sub { undef },
+);
+
 sub get_all {
     my ($self, $c) = @_;
 
@@ -247,6 +259,187 @@ sub update_retention {
             });
         } else {
             $self->render_error($c, 'Failed to save settings', 500);
+        }
+    });
+}
+
+# ============================================
+# License Key Management
+# ============================================
+
+sub update_license {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body && defined $body->{key}) {
+            $self->render_error($c, 'License key required', 400);
+            return;
+        }
+
+        if ($ENV{PURL_LICENSE_KEY}) {
+            $c->render(json => {
+                error    => 'Cannot modify - configured via PURL_LICENSE_KEY',
+                from_env => 1,
+            }, status => 400);
+            return;
+        }
+
+        my $key = $body->{key};
+
+        if ($self->settings->set('license', 'key', $key)) {
+            # Reload license middleware to pick up new key
+            $self->reload_license->();
+
+            $c->render(json => {
+                status  => 'ok',
+                message => 'License key updated.',
+            });
+        } else {
+            $self->render_error($c, 'Failed to save license key', 500);
+        }
+    });
+}
+
+# ============================================
+# User Management (Pro/Enterprise)
+# ============================================
+
+sub list_users {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $auth_config = $self->settings->get_section('auth') // {};
+        my $users = $auth_config->{users} // {};
+
+        my @user_list = map { { username => $_ } } sort keys %$users;
+
+        $c->render(json => { users => \@user_list });
+    });
+}
+
+sub create_user {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body && $body->{username} && $body->{password}) {
+            $self->render_error($c, 'Username and password required', 400);
+            return;
+        }
+
+        my $username = $body->{username};
+        my $password = $body->{password};
+
+        unless ($username =~ /^[a-zA-Z0-9_-]{2,32}$/) {
+            $self->render_error($c, 'Username must be 2-32 alphanumeric characters', 400);
+            return;
+        }
+
+        unless (length($password) >= 6) {
+            $self->render_error($c, 'Password must be at least 6 characters', 400);
+            return;
+        }
+
+        my $auth_config = $self->settings->get_section('auth') // {};
+        my $users = $auth_config->{users} // {};
+
+        if (exists $users->{$username}) {
+            $self->render_error($c, 'User already exists', 409);
+            return;
+        }
+
+        # Check user limit from license
+        my $license_info = $c->stash('license_info') // {};
+        my $max_users = $license_info->{limits}{users} // 1;
+        if (scalar(keys %$users) >= $max_users) {
+            $self->render_error($c, "User limit reached ($max_users). Upgrade your plan.", 403);
+            return;
+        }
+
+        # Hash password
+        my $hashed = $self->auth_middleware->hash_password($password);
+        $users->{$username} = $hashed;
+        $auth_config->{users} = $users;
+
+        if ($self->settings->set_section('auth', $auth_config)) {
+            $c->render(json => { status => 'ok', username => $username });
+        } else {
+            $self->render_error($c, 'Failed to create user', 500);
+        }
+    });
+}
+
+sub update_user {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $username = $c->param('username');
+        my $body = eval { decode_json($c->req->body) };
+
+        unless ($body && $body->{password}) {
+            $self->render_error($c, 'New password required', 400);
+            return;
+        }
+
+        unless (length($body->{password}) >= 6) {
+            $self->render_error($c, 'Password must be at least 6 characters', 400);
+            return;
+        }
+
+        my $auth_config = $self->settings->get_section('auth') // {};
+        my $users = $auth_config->{users} // {};
+
+        unless (exists $users->{$username}) {
+            $self->render_error($c, 'User not found', 404);
+            return;
+        }
+
+        $users->{$username} = $self->auth_middleware->hash_password($body->{password});
+        $auth_config->{users} = $users;
+
+        if ($self->settings->set_section('auth', $auth_config)) {
+            $c->render(json => { status => 'ok', message => 'Password updated' });
+        } else {
+            $self->render_error($c, 'Failed to update user', 500);
+        }
+    });
+}
+
+sub delete_user {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $username = $c->param('username');
+
+        my $auth_config = $self->settings->get_section('auth') // {};
+        my $users = $auth_config->{users} // {};
+
+        unless (exists $users->{$username}) {
+            $self->render_error($c, 'User not found', 404);
+            return;
+        }
+
+        # Prevent deleting the last user
+        if (scalar(keys %$users) <= 1) {
+            $self->render_error($c, 'Cannot delete the last user', 400);
+            return;
+        }
+
+        # Prevent deleting yourself
+        my $current = $c->stash('current_user') // '';
+        if ($current eq $username) {
+            $self->render_error($c, 'Cannot delete your own account', 400);
+            return;
+        }
+
+        delete $users->{$username};
+        $auth_config->{users} = $users;
+
+        if ($self->settings->set_section('auth', $auth_config)) {
+            $c->render(json => { status => 'ok' });
+        } else {
+            $self->render_error($c, 'Failed to delete user', 500);
         }
     });
 }

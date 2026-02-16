@@ -4,6 +4,7 @@
   import Input from './ui/Input.svelte';
   import Select from './ui/Select.svelte';
   import Modal from './ui/Modal.svelte';
+  import { isFreePlan } from '../stores/license.js';
 
   const dispatch = createEventDispatcher();
 
@@ -101,7 +102,15 @@
 
   {#if expanded}
     <div class="content">
-      {#if searches.length === 0}
+      {#if $isFreePlan}
+        <div class="upgrade-cta">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          <span>Requires Pro</span>
+          <a href="https://purlogs.com/pricing" target="_blank" rel="noopener">Upgrade</a>
+        </div>
+      {:else if searches.length === 0}
         <p class="empty">No saved searches</p>
       {:else}
         <ul>
@@ -259,5 +268,30 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+
+  .upgrade-cta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 16px 12px;
+    text-align: center;
+    color: #6e7681;
+    font-size: 12px;
+  }
+
+  .upgrade-cta svg {
+    color: #6e7681;
+  }
+
+  .upgrade-cta a {
+    color: #58a6ff;
+    text-decoration: none;
+    font-size: 11px;
+  }
+
+  .upgrade-cta a:hover {
+    text-decoration: underline;
   }
 </style>

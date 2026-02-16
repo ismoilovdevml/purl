@@ -10,15 +10,20 @@
   import NotificationSettings from './NotificationSettings.svelte';
   import DisplaySettings from './DisplaySettings.svelte';
   import DataSettings from './DataSettings.svelte';
+  import LicenseSettings from './LicenseSettings.svelte';
+  import UsersSettings from './UsersSettings.svelte';
   import AboutSettings from './AboutSettings.svelte';
+  import { isPaidPlan } from '../../stores/license.js';
 
   let activeSection = 'database';
 
-  const sections = [
+  $: sections = [
     { id: 'database', label: 'Database', icon: 'server' },
     { id: 'notifications', label: 'Notifications', icon: 'bell' },
     { id: 'display', label: 'Display', icon: 'monitor' },
     { id: 'data', label: 'Data', icon: 'database' },
+    { id: 'license', label: 'License', icon: 'key' },
+    ...($isPaidPlan ? [{ id: 'users', label: 'Users', icon: 'users' }] : []),
     { id: 'about', label: 'About', icon: 'info' },
   ];
 </script>
@@ -49,6 +54,14 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
             </svg>
+          {:else if section.icon === 'key'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+            </svg>
+          {:else if section.icon === 'users'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
           {:else if section.icon === 'info'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
@@ -69,6 +82,10 @@
       <DisplaySettings />
     {:else if activeSection === 'data'}
       <DataSettings />
+    {:else if activeSection === 'license'}
+      <LicenseSettings />
+    {:else if activeSection === 'users'}
+      <UsersSettings />
     {:else if activeSection === 'about'}
       <AboutSettings />
     {/if}

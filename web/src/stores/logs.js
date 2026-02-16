@@ -1,6 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { escapeHtml } from '../utils/dom.js';
 import { settings } from './settings.js';
+import { currentUser } from './auth.js';
 
 // State stores
 export const logs = writable([]);
@@ -69,6 +70,12 @@ export async function searchLogs() {
     }
 
     const response = await fetch(`${API_BASE}/logs?${params}`, { signal });
+
+    if (response.status === 401) {
+      currentUser.set(null);
+      return;
+    }
+
     const data = await response.json();
 
     // Add unique IDs to logs and pre-parse meta for performance

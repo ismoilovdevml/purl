@@ -156,6 +156,10 @@ sub setup_routes {
         settings => $settings,
     );
 
+    # Wire license middleware into auth for plan-aware authentication
+    $auth_middleware->license_middleware($license_middleware);
+    $auth_middleware->settings($settings);
+
     # Activate license on startup
     my $license_key = $license_middleware->get_license_key();
     if ($license_key && $license_key ne '') {
@@ -171,12 +175,37 @@ sub setup_routes {
         app->log->info("No license key configured, running as Free plan");
     }
 
+    # Session secret for signed cookies
+    my $session_secret = $ENV{PURL_SESSION_SECRET}
+        // ($settings ? $settings->get('server', 'session_secret') : '')
+        // join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..64);
+    app->secrets([$session_secret]);
+
+    # Create default admin for Pro/Enterprise if no users exist
+    my $info = $license_middleware->get_license_info();
+    if ($info && $info->{plan} ne 'free') {
+        my $auth_section = $settings->get_section('auth') // {};
+        my $users = $auth_section->{users} // {};
+        if (!keys %$users) {
+            my $default_hash = $auth_middleware->hash_password('admin');
+            $auth_section->{users} = { admin => $default_hash };
+            $auth_section->{enabled} = 1;
+            $settings->set_section('auth', $auth_section);
+            app->log->warn("Default admin user created (admin/admin). CHANGE PASSWORD IMMEDIATELY!");
+        }
+    }
+
     # Common controller args
     my %c_args = (storage => $storage, config => $config, cache => \%cache);
 
     # Instantiate controllers
     my $sys_c    = Purl::API::Controller::System->new(%c_args);
-    my $auth_c   = Purl::API::Controller::Auth->new(%c_args);
+    my $auth_c   = Purl::API::Controller::Auth->new(
+        %c_args,
+        auth_middleware    => $auth_middleware,
+        license_middleware => $license_middleware,
+        settings           => $settings,
+    );
     my $traces_c = Purl::API::Controller::Traces->new(%c_args);
     my $analytics_c = Purl::API::Controller::Analytics->new(%c_args, notifier_list => \%notifiers);
     my $logs_c   = Purl::API::Controller::Logs->new(%c_args, websockets => $websockets);
@@ -190,6 +219,18 @@ sub setup_routes {
         notifiers         => \%notifiers,
         rebuild_notifiers => sub { _build_notifiers() },
         rebuild_storage   => sub { $storage = _build_storage() },
+        reload_license    => sub {
+            $license_middleware->_license_info(undef);
+            $license_middleware->_cache_expires(0);
+            my $key = $license_middleware->get_license_key();
+            if ($key && $key ne '') {
+                my $info = $license_middleware->activate_with_api();
+                app->log->info("License reloaded: plan=$info->{plan}");
+            } else {
+                app->log->info("License key removed, reverting to Free plan");
+            }
+        },
+        auth_middleware    => $auth_middleware,
     );
     my $config_c = Purl::API::Controller::Config->new(%c_args, main_config => $config);
 
@@ -321,6 +362,11 @@ sub setup_routes {
     $api->get('/metrics' => sub ($c) { $sys_c->metrics($c) });
     $api->get('/metrics/json' => sub ($c) { $sys_c->metrics_json($c) });
 
+    # Auth endpoints (public - no auth required)
+    $api->post('/auth/login' => sub ($c) { $auth_c->login($c) });
+    $api->post('/auth/logout' => sub ($c) { $auth_c->logout($c) });
+    $api->get('/auth/me' => sub ($c) { $auth_c->me($c) });
+
     # ============================================
     # License endpoint (protected)
     # ============================================
@@ -409,6 +455,13 @@ sub setup_routes {
     $protected->put('/settings/notifications/:type' => sub ($c) { $settings_c->update_notifications($c) });
     $protected->post('/settings/notifications/:type/test' => sub ($c) { $settings_c->test_notification($c) });
     $protected->put('/settings/retention' => sub ($c) { $settings_c->update_retention($c) });
+    $protected->put('/settings/license' => sub ($c) { $settings_c->update_license($c) });
+
+    # User management endpoints (Pro/Enterprise)
+    $protected->get('/settings/users' => sub ($c) { $settings_c->list_users($c) });
+    $protected->post('/settings/users' => sub ($c) { $settings_c->create_user($c) });
+    $protected->put('/settings/users/:username' => sub ($c) { $settings_c->update_user($c) });
+    $protected->delete('/settings/users/:username' => sub ($c) { $settings_c->delete_user($c) });
 
     # ============================================
     # WebSocket for live tail

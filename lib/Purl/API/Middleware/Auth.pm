@@ -42,6 +42,18 @@ has 'rate_limit_max' => (
     default => 1000,
 );
 
+# License middleware reference for plan-aware auth
+has 'license_middleware' => (
+    is      => 'rw',
+    default => sub { undef },
+);
+
+# Settings reference for user lookup
+has 'settings' => (
+    is      => 'rw',
+    default => sub { undef },
+);
+
 # ============================================
 # Password Hashing
 # ============================================
@@ -132,17 +144,50 @@ sub check_auth {
 
     # Check if auth is enabled
     my $auth_enabled = $ENV{PURL_AUTH_ENABLED} // $auth_config->{enabled} // 0;
-    return 1 unless $auth_enabled;
 
-    # Skip auth for same-origin requests (browser security)
+    # Determine current plan
+    my $plan = 'free';
+    if ($self->license_middleware) {
+        my $info = $self->license_middleware->get_license_info();
+        $plan = $info->{plan} // 'free' if $info;
+    }
+
+    # API Key auth always works (programmatic access)
+    if ($self->_check_api_key($c, $auth_config)) {
+        return 1;
+    }
+
+    # Basic auth always works
+    if ($self->_check_basic_auth($c, $auth_config)) {
+        $c->stash(current_user => 'api');
+        return 1;
+    }
+
+    # Pro/Enterprise: require session cookie for browser access
+    if ($plan ne 'free') {
+        if ($self->_check_session($c)) {
+            return 1;
+        }
+        # No valid session — deny browser access
+        return 0;
+    }
+
+    # Free plan: same-origin bypass (backward compatible)
+    return 1 unless $auth_enabled;
     return 1 if $self->_is_same_origin($c);
 
-    # Try API Key auth
-    return 1 if $self->_check_api_key($c, $auth_config);
+    return 0;
+}
 
-    # Try Basic auth
-    return 1 if $self->_check_basic_auth($c, $auth_config);
+sub _check_session {
+    my ($self, $c) = @_;
+    my $username = $c->session->{username};
+    my $logged_in = $c->session->{logged_in};
 
+    if ($logged_in && $username) {
+        $c->stash(current_user => $username);
+        return 1;
+    }
     return 0;
 }
 

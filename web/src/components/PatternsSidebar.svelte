@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { patterns, patternsLoading, patternsError, fetchPatterns, fetchPatternLogs, highlightPattern, logs, timeRange, query, total } from '../stores/logs.js';
   import { getLevelColor } from '../utils/colors.js';
+  import { isFreePlan } from '../stores/license.js';
 
   let selectedPattern = null;
   let patternLogs = null;
@@ -79,7 +80,15 @@
 
   {#if expanded}
     <div class="patterns-content">
-      {#if $patternsError}
+      {#if $isFreePlan}
+        <div class="upgrade-cta">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          <span>Requires Pro</span>
+          <a href="https://purlogs.com/pricing" target="_blank" rel="noopener">Upgrade</a>
+        </div>
+      {:else if $patternsError}
         <div class="error-state">
           <span>{$patternsError}</span>
         </div>
@@ -323,5 +332,30 @@
     padding: 12px;
     background: #0d1117;
     border-top: 1px solid #30363d;
+  }
+
+  .upgrade-cta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 24px 16px;
+    text-align: center;
+    color: #6e7681;
+    font-size: 13px;
+  }
+
+  .upgrade-cta svg {
+    color: #6e7681;
+  }
+
+  .upgrade-cta a {
+    color: #58a6ff;
+    text-decoration: none;
+    font-size: 12px;
+  }
+
+  .upgrade-cta a:hover {
+    text-decoration: underline;
   }
 </style>
