@@ -159,12 +159,11 @@ sub _verify_jwt_offline {
             verify_exp => 1,
         );
 
-        # Check expiry explicitly
         my $exp = $decoded->{exp} // 0;
         if ($exp < time()) {
-            { %$FREE_PLAN, error => 'License expired', valid => 0 };
+            +{ %$FREE_PLAN, error => 'License expired', valid => 0 };
         } else {
-            {
+            +{
                 valid          => 1,
                 activated      => 1,
                 plan           => $decoded->{plan} // 'free',
@@ -179,7 +178,7 @@ sub _verify_jwt_offline {
     if ($@) {
         my $err = "$@";
         $err =~ s/\s+$//;
-        return { %$FREE_PLAN, error => "JWT verification failed: $err", valid => 0 };
+        return +{ %$FREE_PLAN, error => "JWT verification failed: $err", valid => 0 };
     }
 
     return $result;
