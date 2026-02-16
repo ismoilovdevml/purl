@@ -62,7 +62,7 @@ has 'max_execution_time' => (
 
 has 'max_rows_to_read' => (
     is      => 'ro',
-    default => 1_000_000,
+    default => 0,  # unlimited — max_execution_time is the safety net
 );
 
 has 'use_query_cache' => (

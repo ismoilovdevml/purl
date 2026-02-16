@@ -34,6 +34,11 @@ sub create {
             return;
         }
 
+        # Enforce alert count limit
+        my $existing = $self->storage->get_alerts();
+        my $count = ref $existing eq 'ARRAY' ? scalar @$existing : 0;
+        return unless $self->check_limit($c, 'alerts', $count);
+
         $self->storage->create_alert(%$body);
         $c->render(json => { status => 'ok' });
     });

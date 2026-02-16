@@ -14,6 +14,7 @@ extends 'Purl::API::Controller::Base';
 
 sub list {
     my ($self, $c) = @_;
+    return unless $self->require_feature($c, 'pattern_analysis');
 
     $self->safe_execute($c, sub {
         my $limit   = $c->param('limit') // 30;
@@ -71,6 +72,7 @@ sub list {
 
 sub logs {
     my ($self, $c) = @_;
+    return unless $self->require_feature($c, 'pattern_analysis');
 
     $self->safe_execute($c, sub {
         my $hash  = $c->param('hash');
@@ -103,6 +105,7 @@ sub logs {
 
 sub stats {
     my ($self, $c) = @_;
+    return unless $self->require_feature($c, 'pattern_analysis');
 
     $self->safe_execute($c, sub {
         my $cache_key = 'pattern_stats';

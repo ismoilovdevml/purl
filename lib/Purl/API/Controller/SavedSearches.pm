@@ -11,6 +11,7 @@ extends 'Purl::API::Controller::Base';
 
 sub list {
     my ($self, $c) = @_;
+    return unless $self->require_feature($c, 'saved_searches');
 
     $self->safe_execute($c, sub {
         my $searches = $self->storage->get_saved_searches();
@@ -20,6 +21,7 @@ sub list {
 
 sub create {
     my ($self, $c) = @_;
+    return unless $self->require_feature($c, 'saved_searches');
 
     $self->safe_execute($c, sub {
         my $body = eval { decode_json($c->req->body) };

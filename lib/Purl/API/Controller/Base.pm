@@ -53,13 +53,46 @@ sub render_error {
 
 sub safe_execute {
     my ($self, $c, $cb) = @_;
-    
+
     eval {
         $cb->();
     };
     if ($@) {
         $self->render_error($c, "Internal Server Error: $@", 500);
     }
+}
+
+# ============================================
+# License enforcement helpers
+# ============================================
+
+sub require_feature {
+    my ($self, $c, $feature) = @_;
+    my $info = $c->stash('license_info') // return 1;
+    my @features = @{ $info->{features} // [] };
+    return 1 if grep { $_ eq $feature } @features;
+    my $plan = $info->{plan} // 'free';
+    $c->render(json => {
+        error   => "This feature requires a Pro or Enterprise license",
+        feature => $feature,
+        plan    => $plan,
+        upgrade => 'https://purlogs.com/pricing',
+    }, status => 403);
+    return 0;
+}
+
+sub check_limit {
+    my ($self, $c, $limit_name, $current_count) = @_;
+    my $info = $c->stash('license_info') // return 1;
+    my $max = $info->{limits}{$limit_name} // return 1;
+    return 1 if $current_count < $max;
+    my $plan = $info->{plan} // 'free';
+    $c->render(json => {
+        error   => "Limit reached: $limit_name (current: $current_count, max: $max)",
+        plan    => $plan,
+        upgrade => 'https://purlogs.com/pricing',
+    }, status => 403);
+    return 0;
 }
 
 1;
