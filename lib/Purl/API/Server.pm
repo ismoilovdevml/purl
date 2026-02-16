@@ -368,9 +368,9 @@ sub setup_routes {
     $api->get('/auth/me' => sub ($c) { $auth_c->me($c) });
 
     # ============================================
-    # License endpoint (protected)
+    # License endpoint (public - needed before auth to determine plan)
     # ============================================
-    $protected->get('/license' => sub ($c) {
+    $api->get('/license' => sub ($c) {
         my $info = $license_middleware->get_license_info();
         $c->render(json => {
             plan       => $info->{plan} // 'free',
