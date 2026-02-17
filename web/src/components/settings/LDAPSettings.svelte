@@ -344,7 +344,7 @@
           <Input
             bind:value={searchFilter}
             label="Search Filter"
-            placeholder="({user_attr}={username})"
+            placeholder={'({user_attr}={username})'}
             fullWidth
             disabled={!enabled}
           />
@@ -357,7 +357,7 @@
       <button
         type="button"
         class="advanced-toggle"
-        on:click={() => showAdvanced = !showAdvanced}
+        onclick={() => showAdvanced = !showAdvanced}
       >
         <svg
           class="chevron"
