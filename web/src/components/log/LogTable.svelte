@@ -6,23 +6,26 @@
   <LogTable logs={logs} />
 -->
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { query, fetchLogContext, filterByTrace, filterByRequest } from '../../stores/logs.js';
   import { formatTimestamp, formatFullTimestamp } from '../../utils/format.js';
   import { getLevelColor, getLevelBgColor } from '../../utils/colors.js';
   import { highlightText } from '../../utils/dom.js';
-  import { compactMode, lineWrap, highlightErrors, showHost, timestampFormat } from '../../stores/settings.js';
+  import { compactMode, lineWrap, highlightErrors, showHost, timestampFormat, maxResults } from '../../stores/settings.js';
   import ColumnPicker from './ColumnPicker.svelte';
   import LogDetail from './LogDetail.svelte';
   import LogContextPanel from './LogContextPanel.svelte';
 
   export let logs = [];
 
+  const dispatch = createEventDispatcher();
+
   // Settings
   let isCompact = false;
   let shouldWrap = true;
   let shouldHighlightErrors = true;
   let timeFormat = 'absolute';
+  let maxResultsValue = 500;
 
   // Subscription references (initialized in onMount)
   let unsubscribeCompact = null;
@@ -31,6 +34,7 @@
   let unsubscribeTimeFormat = null;
   let unsubscribeHost = null;
   let unsubscribeQuery = null;
+  let unsubscribeMaxResults = null;
 
   // Context state
   let contextData = {};
@@ -41,6 +45,14 @@
 
   let selectedLog = null;
   let showColumnMenu = false;
+
+  // Pagination
+  const pageSize = 100;
+  let currentPage = 1;
+
+  // Multi-row selection
+  let selectedIds = new Set();
+  let lastCheckedIndex = null;
 
   // Column configuration
   let columns = [
@@ -66,6 +78,7 @@
     unsubscribeHighlight = highlightErrors.subscribe(v => shouldHighlightErrors = v);
     unsubscribeTimeFormat = timestampFormat.subscribe(v => timeFormat = v);
     unsubscribeQuery = query.subscribe(v => searchQuery = v);
+    unsubscribeMaxResults = maxResults.subscribe(v => maxResultsValue = v || 500);
     unsubscribeHost = showHost.subscribe(v => {
       // Update host column visibility when setting changes
       const hostCol = columns.find(c => c.id === 'host');
@@ -98,7 +111,31 @@
     if (unsubscribeHighlight) unsubscribeHighlight();
     if (unsubscribeHost) unsubscribeHost();
     if (unsubscribeTimeFormat) unsubscribeTimeFormat();
+    if (unsubscribeMaxResults) unsubscribeMaxResults();
   });
+
+  // Reset pagination and selection when logs array changes
+  $: if (logs) {
+    currentPage = 1;
+    selectedIds = new Set();
+    lastCheckedIndex = null;
+    dispatch('selectionChange', { selected: [] });
+  }
+
+  // Derived: paginated slice
+  $: paginatedLogs = logs.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  // Derived: total pages
+  $: totalPages = Math.max(1, Math.ceil(logs.length / pageSize));
+
+  // Derived: page range display
+  $: pageStart = logs.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  $: pageEnd = Math.min(currentPage * pageSize, logs.length);
+
+  // Derived: selection state for current page
+  $: allSelected = paginatedLogs.length > 0 && paginatedLogs.every(l => selectedIds.has(l.id));
+  $: someSelected = paginatedLogs.some(l => selectedIds.has(l.id)) && !allSelected;
+  $: selectionCount = selectedIds.size;
 
   function saveColumnConfig() {
     localStorage.setItem('purl_column_config', JSON.stringify(
@@ -208,7 +245,110 @@
     pinnedColumns = visibleColumns.filter(c => c.pinned);
     unpinnedColumns = visibleColumns.filter(c => !c.pinned);
     orderedVisibleColumns = [...pinnedColumns, ...unpinnedColumns];
-    colspanCount = visibleColumns.length;
+    // +1 for the checkbox column
+    colspanCount = visibleColumns.length + 1;
+  }
+
+  // Pagination controls
+  function goToPrevPage() {
+    if (currentPage > 1) currentPage -= 1;
+  }
+
+  function goToNextPage() {
+    if (currentPage < totalPages) currentPage += 1;
+  }
+
+  // Selection handlers
+  function toggleRowSelection(event, log, index) {
+    event.stopPropagation();
+    const newSet = new Set(selectedIds);
+
+    if (event.shiftKey && lastCheckedIndex !== null) {
+      // Range select between lastCheckedIndex and current index
+      const from = Math.min(lastCheckedIndex, index);
+      const to = Math.max(lastCheckedIndex, index);
+      const shouldSelect = !newSet.has(log.id);
+      for (let i = from; i <= to; i++) {
+        const l = paginatedLogs[i];
+        if (l) {
+          if (shouldSelect) {
+            newSet.add(l.id);
+          } else {
+            newSet.delete(l.id);
+          }
+        }
+      }
+    } else {
+      if (newSet.has(log.id)) {
+        newSet.delete(log.id);
+      } else {
+        newSet.add(log.id);
+      }
+      lastCheckedIndex = index;
+    }
+
+    selectedIds = newSet;
+    dispatch('selectionChange', { selected: [...selectedIds] });
+  }
+
+  function toggleSelectAll() {
+    const newSet = new Set(selectedIds);
+    if (allSelected) {
+      // Deselect all on current page
+      for (const l of paginatedLogs) {
+        newSet.delete(l.id);
+      }
+    } else {
+      // Select all on current page
+      for (const l of paginatedLogs) {
+        newSet.add(l.id);
+      }
+    }
+    selectedIds = newSet;
+    dispatch('selectionChange', { selected: [...selectedIds] });
+  }
+
+  function clearSelection() {
+    selectedIds = new Set();
+    lastCheckedIndex = null;
+    dispatch('selectionChange', { selected: [] });
+  }
+
+  function exportSelected() {
+    const selected = logs.filter(l => selectedIds.has(l.id));
+    if (selected.length === 0) return;
+
+    const headers = ['timestamp', 'level', 'service', 'host', 'message'];
+    const csvRows = [headers.join(',')];
+
+    for (const log of selected) {
+      const row = headers.map(h => {
+        const val = log[h] || '';
+        const escaped = String(val).replace(/"/g, '""');
+        return /[,\n"]/.test(escaped) ? `"${escaped}"` : escaped;
+      });
+      csvRows.push(row.join(','));
+    }
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `purl-selected-${Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // Apply indeterminate state to header checkbox via action
+  function indeterminate(node, value) {
+    node.indeterminate = value;
+    return {
+      update(newValue) {
+        node.indeterminate = newValue;
+      }
+    };
   }
 </script>
 
@@ -233,9 +373,35 @@
       <span>Try adjusting your search or time range</span>
     </div>
   {:else}
+    <!-- Selection bar -->
+    {#if selectionCount > 0}
+      <div class="selection-bar">
+        <span class="selection-count"><strong>{selectionCount}</strong> {selectionCount === 1 ? 'row' : 'rows'} selected</span>
+        <button class="selection-action-btn" on:click={exportSelected}>
+          <svg width="12" height="12" viewBox="0 0 14 14"><path fill="currentColor" d="M2 1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1Zm1 3h6v1H3V4Zm0 2h6v1H3V6Zm0 2h4v1H3V8Z"/></svg>
+          Export selected
+        </button>
+        <button class="selection-clear-btn" on:click={clearSelection}>
+          <svg width="12" height="12" viewBox="0 0 14 14"><path fill="currentColor" d="M7 5.586 3.707 2.293a1 1 0 0 0-1.414 1.414L5.586 7 2.293 10.293a1 1 0 1 0 1.414 1.414L7 8.414l3.293 3.293a1 1 0 0 0 1.414-1.414L8.414 7l3.293-3.293a1 1 0 0 0-1.414-1.414L7 5.586Z"/></svg>
+          Clear selection
+        </button>
+      </div>
+    {/if}
+
     <table class="log-table" class:resizing={resizing !== null} class:compact={isCompact} class:no-wrap={!shouldWrap}>
       <thead>
         <tr>
+          <!-- Checkbox column header -->
+          <th class="checkbox-col">
+              <input
+              type="checkbox"
+              class="row-checkbox"
+              checked={allSelected}
+              use:indeterminate={someSelected}
+              on:change={toggleSelectAll}
+              aria-label="Select all on current page"
+            />
+          </th>
           {#each orderedVisibleColumns as col}
             <th
               style={col.width ? `width: ${col.width}px` : ''}
@@ -262,13 +428,25 @@
         </tr>
       </thead>
       <tbody>
-        {#each logs as log, i (log.id || i)}
+        {#each paginatedLogs as log, i (log.id || i)}
           <tr
             class="log-row"
             class:selected={selectedLog?.id === log.id}
+            class:row-checked={selectedIds.has(log.id)}
             class:error-row={shouldHighlightErrors && (log.level === 'ERROR' || log.level === 'FATAL')}
             on:click={() => selectLog(log)}
           >
+            <!-- Checkbox cell -->
+            <td class="checkbox-col" on:click|stopPropagation>
+                <input
+                type="checkbox"
+                class="row-checkbox"
+                checked={selectedIds.has(log.id)}
+                on:change={(e) => toggleRowSelection(e, log, i)}
+                on:click|stopPropagation
+                aria-label="Select row"
+              />
+            </td>
             {#each orderedVisibleColumns as col (col.id)}
               <td
                 style={col.width ? `width: ${col.width}px` : ''}
@@ -331,6 +509,39 @@
         {/each}
       </tbody>
     </table>
+
+    <!-- Pagination footer -->
+    <div class="pagination-footer">
+      <span class="pagination-info">
+        {#if logs.length > 0}
+          Showing {pageStart}–{pageEnd} of {logs.length} results
+        {/if}
+        {#if logs.length >= maxResultsValue}
+          <span class="truncation-note">Results may be truncated. Showing max {maxResultsValue} logs.</span>
+        {/if}
+      </span>
+      <div class="pagination-controls">
+        <button
+          class="page-btn"
+          on:click={goToPrevPage}
+          disabled={currentPage === 1}
+          aria-label="Previous page"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14"><path fill="currentColor" d="M8.707 3.293a1 1 0 0 0-1.414 0L3.586 7l3.707 3.707a1 1 0 1 0 1.414-1.414L6.414 7l2.293-2.293a1 1 0 0 0 0-1.414Z"/></svg>
+          Prev
+        </button>
+        <span class="page-indicator">Page {currentPage} of {totalPages}</span>
+        <button
+          class="page-btn"
+          on:click={goToNextPage}
+          disabled={currentPage === totalPages}
+          aria-label="Next page"
+        >
+          Next
+          <svg width="14" height="14" viewBox="0 0 14 14"><path fill="currentColor" d="M5.293 3.293a1 1 0 0 1 1.414 0L10.414 7 6.707 10.707a1 1 0 0 1-1.414-1.414L7.586 7 5.293 4.707a1 1 0 0 1 0-1.414Z"/></svg>
+        </button>
+      </div>
+    </div>
   {/if}
 </div>
 
@@ -355,6 +566,63 @@
   .toolbar-info {
     font-size: var(--text-sm, 12px);
     color: var(--text-secondary, #8b949e);
+  }
+
+  /* Selection bar */
+  .selection-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    background: var(--color-primary-bg, rgba(56, 139, 253, 0.08));
+    border-bottom: 1px solid var(--color-primary, #58a6ff);
+    font-size: var(--text-sm, 12px);
+  }
+
+  .selection-count {
+    color: var(--text-primary, #c9d1d9);
+    margin-right: 4px;
+  }
+
+  .selection-count strong {
+    color: var(--color-primary, #58a6ff);
+  }
+
+  .selection-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    background: var(--bg-tertiary, #21262d);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: var(--radius-sm, 4px);
+    color: var(--text-primary, #c9d1d9);
+    font-size: var(--text-sm, 12px);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .selection-action-btn:hover {
+    background: var(--border-color, #30363d);
+  }
+
+  .selection-clear-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    background: transparent;
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: var(--radius-sm, 4px);
+    color: var(--text-secondary, #8b949e);
+    font-size: var(--text-sm, 12px);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .selection-clear-btn:hover {
+    background: var(--bg-tertiary, #21262d);
+    color: var(--text-primary, #c9d1d9);
   }
 
   .empty-state {
@@ -445,6 +713,28 @@
     user-select: none;
   }
 
+  /* Checkbox column */
+  .checkbox-col {
+    width: 36px;
+    min-width: 36px;
+    max-width: 36px;
+    padding: 8px 10px;
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  th.checkbox-col {
+    padding: 10px 10px;
+  }
+
+  .row-checkbox {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--color-primary, #58a6ff);
+    vertical-align: middle;
+  }
+
   .log-row {
     cursor: pointer;
     transition: background 0.1s;
@@ -464,6 +754,18 @@
 
   .log-row.selected td.pinned {
     background: var(--color-primary-bg, rgba(56, 139, 253, 0.08));
+  }
+
+  .log-row.row-checked {
+    background: rgba(56, 139, 253, 0.06);
+  }
+
+  .log-row.row-checked:hover {
+    background: rgba(56, 139, 253, 0.10);
+  }
+
+  .log-row.row-checked td.pinned {
+    background: rgba(56, 139, 253, 0.06);
   }
 
   td {
@@ -565,5 +867,67 @@
 
   .log-row.error-row:hover td.pinned {
     background: rgba(248, 81, 73, 0.12);
+  }
+
+  /* Pagination footer */
+  .pagination-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--bg-tertiary, #21262d);
+    border-top: 1px solid var(--border-color, #30363d);
+    font-size: var(--text-sm, 12px);
+    color: var(--text-secondary, #8b949e);
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+  }
+
+  .pagination-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .truncation-note {
+    color: var(--color-warning, #f5a623);
+    font-size: 11px;
+  }
+
+  .pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .page-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: var(--bg-secondary, #161b22);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: var(--radius-sm, 4px);
+    color: var(--text-primary, #c9d1d9);
+    font-size: var(--text-sm, 12px);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .page-btn:hover:not(:disabled) {
+    background: var(--border-color, #30363d);
+  }
+
+  .page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .page-indicator {
+    font-size: var(--text-sm, 12px);
+    color: var(--text-secondary, #8b949e);
+    min-width: 80px;
+    text-align: center;
   }
 </style>

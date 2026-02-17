@@ -44,7 +44,10 @@ sub _validate_field {
     # Check for meta.* fields (K8s support)
     if ($field =~ /^meta\.(\w+)$/) {
         my $sub_field = $1;
-        return $ALLOWED_META_FIELDS{$sub_field} ? $field : undef;
+        # Accept whitelisted K8s fields or any lowercase alphanumeric field (max 32 chars)
+        return $field if $ALLOWED_META_FIELDS{$sub_field};
+        return $field if $sub_field =~ /^[a-z][a-z0-9_]{0,31}$/;
+        return undef;
     }
 
     return $ALLOWED_FIELDS{$field} ? $field : undef;
@@ -210,7 +213,7 @@ sub _build_where_clause {
     # Use simple position() to find field and value in meta JSON string
     if ($params{meta_field} && $params{meta_value}) {
         my $meta_field = lc($params{meta_field});
-        if ($ALLOWED_META_FIELDS{$meta_field}) {
+        if ($ALLOWED_META_FIELDS{$meta_field} || $meta_field =~ /^[a-z][a-z0-9_]{0,31}$/) {
             my $meta_value = $params{meta_value};
             if ($meta_value =~ /\*/) {
                 # Wildcard search - look for field name and partial value

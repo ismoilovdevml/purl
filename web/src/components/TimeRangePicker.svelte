@@ -25,6 +25,7 @@
   let fromTime = '';
   let toDate = '';
   let toTime = '';
+  let validationError = '';
 
   function selectRange(range) {
     value = range;
@@ -37,6 +38,7 @@
 
   function openCustom() {
     showCustom = true;
+    validationError = '';
     // Set default to last hour
     const now = new Date();
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
@@ -54,10 +56,11 @@
     const to = new Date(`${toDate}T${toTime}`);
 
     if (from >= to) {
-      alert('Start time must be before end time');
+      validationError = 'Start time must be before end time';
       return;
     }
 
+    validationError = '';
     customFrom = from.toISOString();
     customTo = to.toISOString();
     value = 'custom';
@@ -68,17 +71,26 @@
 
   function cancelCustom() {
     showCustom = false;
+    validationError = '';
   }
 
   function toggleDropdown() {
     showDropdown = !showDropdown;
-    if (!showDropdown) showCustom = false;
+    if (!showDropdown) {
+      showCustom = false;
+      validationError = '';
+    }
+  }
+
+  function handleInputChange() {
+    validationError = '';
   }
 
   function handleKeydown(event) {
     if (event.key === 'Escape') {
       showDropdown = false;
       showCustom = false;
+      validationError = '';
     } else if (event.key === 'Enter' || event.key === ' ') {
       if (!showDropdown) {
         event.preventDefault();
@@ -96,6 +108,7 @@
     if (!event.target.closest('.time-picker')) {
       showDropdown = false;
       showCustom = false;
+      validationError = '';
     }
   }
 
@@ -143,18 +156,22 @@
           <div class="datetime-group">
             <label for="from-date">From</label>
             <div class="datetime-inputs">
-              <input id="from-date" type="date" bind:value={fromDate} />
-              <input id="from-time" type="time" bind:value={fromTime} aria-label="From time" />
+              <input id="from-date" type="date" bind:value={fromDate} on:change={handleInputChange} />
+              <input id="from-time" type="time" bind:value={fromTime} aria-label="From time" on:change={handleInputChange} />
             </div>
           </div>
 
           <div class="datetime-group">
             <label for="to-date">To</label>
             <div class="datetime-inputs">
-              <input id="to-date" type="date" bind:value={toDate} />
-              <input id="to-time" type="time" bind:value={toTime} aria-label="To time" />
+              <input id="to-date" type="date" bind:value={toDate} on:change={handleInputChange} />
+              <input id="to-time" type="time" bind:value={toTime} aria-label="To time" on:change={handleInputChange} />
             </div>
           </div>
+
+          {#if validationError}
+            <div class="validation-error" role="alert">{validationError}</div>
+          {/if}
 
           <div class="custom-actions">
             <button class="btn-cancel" on:click|stopPropagation={cancelCustom}>Cancel</button>
@@ -328,6 +345,17 @@
 
   .datetime-inputs input[type="time"] {
     flex: 0.8;
+  }
+
+  .validation-error {
+    font-size: 12px;
+    color: #f85149;
+    margin-top: 8px;
+    margin-bottom: 4px;
+    padding: 6px 8px;
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid rgba(248, 81, 73, 0.3);
+    border-radius: 4px;
   }
 
   .custom-actions {

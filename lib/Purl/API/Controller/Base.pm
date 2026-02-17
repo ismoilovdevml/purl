@@ -95,4 +95,18 @@ sub check_limit {
     return 0;
 }
 
+# ============================================
+# RBAC helpers
+# ============================================
+
+sub require_role {
+    my ($self, $c, @allowed_roles) = @_;
+    my $username = $c->session('username');
+    my $role = $self->app->config->get_user_role($username);
+    return 1 if $role eq 'admin';
+    return 1 if grep { $_ eq $role } @allowed_roles;
+    $self->render_error($c, 'Insufficient permissions', 403);
+    return 0;
+}
+
 1;

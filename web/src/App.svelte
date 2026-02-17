@@ -34,6 +34,40 @@
   let unsubscribeDefaultRange = null;
   let appReady = false;
 
+  // Enhanced error state with retry callback and severity
+  let errorState = { message: '', retryFn: null, severity: 'error' };
+  let errorDismissTimer = null;
+
+  // Selected logs for bulk export
+  let selectedLogs = [];
+  // Export progress indicator for large exports
+  let exportStatus = '';
+
+  // Sync the logs store error into local errorState (auto-set retry to searchLogs)
+  $: if ($error) {
+    setError($error, searchLogs, 'error');
+  } else if (!$error && errorState.retryFn === searchLogs) {
+    clearError();
+  }
+
+  function setError(message, retryFn = null, severity = 'error') {
+    if (errorDismissTimer) clearTimeout(errorDismissTimer);
+    errorState = { message, retryFn, severity };
+    // Auto-dismiss after 10 seconds
+    errorDismissTimer = setTimeout(() => {
+      clearError();
+    }, 10000);
+  }
+
+  function clearError() {
+    if (errorDismissTimer) {
+      clearTimeout(errorDismissTimer);
+      errorDismissTimer = null;
+    }
+    errorState = { message: '', retryFn: null, severity: 'error' };
+    error.set(null);
+  }
+
   function setupRefreshInterval() {
     // Clear existing interval
     if (refreshIntervalId) {
@@ -47,11 +81,6 @@
         searchLogs();
       }, currentRefreshInterval * 1000);
     }
-  }
-
-  // Dismiss error
-  function dismissError() {
-    error.set(null);
   }
 
   async function handleLogout() {
@@ -100,6 +129,9 @@
     if (unsubscribeDefaultRange) unsubscribeDefaultRange();
     if (refreshIntervalId) {
       clearInterval(refreshIntervalId);
+    }
+    if (errorDismissTimer) {
+      clearTimeout(errorDismissTimer);
     }
   });
 
@@ -168,43 +200,55 @@
     savedSearchesRef?.openSaveModal($query, $timeRange);
   }
 
-  function exportCSV() {
-    if ($logs.length === 0) return;
-
-    const headers = ['timestamp', 'level', 'service', 'host', 'message'];
-    const csvRows = [headers.join(',')];
-
-    for (const log of $logs) {
-      const row = headers.map((h) => {
-        const val = log[h] || '';
-        const escaped = String(val).replace(/"/g, '""');
-        return /[,\n"]/.test(escaped) ? `"${escaped}"` : escaped;
-      });
-      csvRows.push(row.join(','));
-    }
-
-    const blob = new Blob([csvRows.join('\n')], {
-      type: 'text/csv;charset=utf-8;',
-    });
-    downloadBlob(blob, `purl-logs-${Date.now()}.csv`);
+  // Handle selection changes from LogTable
+  function handleSelectionChange(event) {
+    selectedLogs = event.detail?.selected || [];
   }
 
-  function exportJSON() {
-    if ($logs.length === 0) return;
+  function exportCSV(logsToExport) {
+    if (!logsToExport || logsToExport.length === 0) return;
 
-    const data = $logs.map((log) => ({
-      timestamp: log.timestamp,
-      level: log.level,
-      service: log.service,
-      host: log.host,
-      message: log.message,
-      meta: log.meta || {},
-    }));
+    if (logsToExport.length > 100) {
+      exportStatus = 'preparing';
+    }
 
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: 'application/json',
+    // Collect all unique meta keys across all logs
+    const metaKeys = [...new Set(
+      logsToExport.flatMap(l => Object.keys(l.meta || l.parsedMeta || {}))
+    )].sort();
+
+    const headers = ['timestamp', 'level', 'service', 'host', 'message',
+                     ...metaKeys.map(k => `meta.${k}`)];
+
+    const rows = logsToExport.map(log => {
+      const metaObj = log.meta || log.parsedMeta || {};
+      return [
+        log.timestamp || '',
+        log.level || '',
+        log.service || '',
+        log.host || '',
+        `"${(log.message || '').replace(/"/g, '""')}"`,
+        ...metaKeys.map(k => `"${((metaObj[k] !== undefined ? metaObj[k] : '') + '').replace(/"/g, '""')}"`)
+      ];
     });
+
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    downloadBlob(blob, `purl-logs-${Date.now()}.csv`);
+    exportStatus = '';
+  }
+
+  function exportJSON(logsToExport) {
+    if (!logsToExport || logsToExport.length === 0) return;
+
+    if (logsToExport.length > 100) {
+      exportStatus = 'preparing';
+    }
+
+    const json = JSON.stringify(logsToExport, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
     downloadBlob(blob, `purl-logs-${Date.now()}.json`);
+    exportStatus = '';
   }
 
   function downloadBlob(blob, filename) {
@@ -325,6 +369,42 @@
       <div class="header-actions">
         <TimeRangePicker value={$timeRange} on:change={handleTimeRangeChange} />
 
+        {#if selectedLogs.length > 0}
+          <div class="actions-dropdown">
+            <button class="btn btn-selected dropdown-trigger">
+              Export Selected ({selectedLogs.length})
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"><path d="M6 9l6 6 6-6" /></svg
+              >
+            </button>
+            <div class="dropdown-menu">
+              <button on:click={() => exportCSV(selectedLogs)}>
+                <svg width="14" height="14" viewBox="0 0 14 14"
+                  ><path
+                    fill="currentColor"
+                    d="M2 1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1Zm1 3h6v1H3V4Zm0 2h6v1H3V6Zm0 2h4v1H3V8Z"
+                  /></svg
+                >
+                Export CSV
+              </button>
+              <button on:click={() => exportJSON(selectedLogs)}>
+                <svg width="14" height="14" viewBox="0 0 14 14"
+                  ><path
+                    fill="currentColor"
+                    d="M3 2a1 1 0 0 0-1 1v2a1 1 0 0 1-1 1 1 1 0 0 1 1 1v2a1 1 0 0 0 1 1M9 2a1 1 0 0 1 1 1v2a1 1 0 0 0 1 1 1 1 0 0 0-1 1v2a1 1 0 0 1-1 1"
+                  /></svg
+                >
+                Export JSON
+              </button>
+            </div>
+          </div>
+        {/if}
+
         <div class="actions-dropdown">
           <button class="btn dropdown-trigger">
             Actions
@@ -349,7 +429,7 @@
               Save Search
             </button>
             <div class="divider"></div>
-            <button on:click={exportCSV} disabled={$logs.length === 0}>
+            <button on:click={() => exportCSV($logs)} disabled={$logs.length === 0}>
               <svg width="14" height="14" viewBox="0 0 14 14"
                 ><path
                   fill="currentColor"
@@ -358,7 +438,7 @@
               >
               Export CSV
             </button>
-            <button on:click={exportJSON} disabled={$logs.length === 0}>
+            <button on:click={() => exportJSON($logs)} disabled={$logs.length === 0}>
               <svg width="14" height="14" viewBox="0 0 14 14"
                 ><path
                   fill="currentColor"
@@ -381,18 +461,30 @@
     {/if}
   </header>
 
-  {#if $error}
-    <div class="error-banner" role="alert">
+  {#if exportStatus === 'preparing'}
+    <div class="info-banner" role="status">
+      <span class="spinner spinner-sm"></span>
+      <span>Preparing export...</span>
+    </div>
+  {/if}
+
+  {#if errorState.message}
+    <div class="error-banner severity-{errorState.severity}" role="alert">
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
         <path
           fill="currentColor"
           d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-2.75a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V6a.75.75 0 0 1 .75-.75Zm0 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
         />
       </svg>
-      <span>{$error}</span>
+      <span>{errorState.message}</span>
+      {#if errorState.retryFn}
+        <button class="retry-btn" on:click={errorState.retryFn} aria-label="Retry">
+          Retry
+        </button>
+      {/if}
       <button
         class="dismiss-btn"
-        on:click={dismissError}
+        on:click={clearError}
         aria-label="Dismiss error"
       >
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
@@ -414,6 +506,10 @@
         <span class="separator">|</span>
         <span>Query: <code>{$query}</code></span>
       {/if}
+      {#if selectedLogs.length > 0}
+        <span class="separator">|</span>
+        <span class="selection-info">{selectedLogs.length} selected</span>
+      {/if}
     </div>
 
     <div class="container">
@@ -428,7 +524,7 @@
 
       <div class="main-content">
         <Histogram on:filter={handleHistogramFilter} on:zoom={handleHistogramZoom} />
-        <LogTable logs={$logs} />
+        <LogTable logs={$logs} on:selectionChange={handleSelectionChange} />
       </div>
 
       <aside class="patterns-aside">
@@ -614,6 +710,11 @@
     color: #58a6ff;
   }
 
+  .selection-info {
+    color: #58a6ff;
+    font-weight: 500;
+  }
+
   .btn {
     display: flex;
     align-items: center;
@@ -637,6 +738,15 @@
     cursor: not-allowed;
   }
 
+  .btn-selected {
+    border-color: #388bfd;
+    color: #58a6ff;
+  }
+
+  .btn-selected:hover {
+    background: rgba(56, 139, 253, 0.1);
+  }
+
   .spinner {
     width: 14px;
     height: 14px;
@@ -644,6 +754,12 @@
     border-top-color: #58a6ff;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
+  }
+
+  .spinner-sm {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
   }
 
   @keyframes spin {
@@ -748,7 +864,19 @@
     margin: 4px 0;
   }
 
-  /* Error banner */
+  /* Info banner (export progress) */
+  .info-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 16px;
+    background: rgba(56, 139, 253, 0.1);
+    border-bottom: 1px solid rgba(56, 139, 253, 0.3);
+    color: #58a6ff;
+    font-size: 13px;
+  }
+
+  /* Error banner with severity variants */
   .error-banner {
     display: flex;
     align-items: center;
@@ -760,12 +888,51 @@
     font-size: 13px;
   }
 
+  .error-banner.severity-warning {
+    background: rgba(210, 153, 34, 0.1);
+    border-bottom-color: #d29922;
+    color: #d29922;
+  }
+
+  .error-banner.severity-info {
+    background: rgba(56, 139, 253, 0.1);
+    border-bottom-color: rgba(56, 139, 253, 0.3);
+    color: #58a6ff;
+  }
+
   .error-banner svg {
     flex-shrink: 0;
   }
 
   .error-banner span {
     flex: 1;
+  }
+
+  .retry-btn {
+    padding: 4px 10px;
+    background: rgba(248, 81, 73, 0.15);
+    border: 1px solid rgba(248, 81, 73, 0.4);
+    border-radius: 4px;
+    color: #f85149;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+
+  .retry-btn:hover {
+    background: rgba(248, 81, 73, 0.25);
+  }
+
+  .error-banner.severity-warning .retry-btn {
+    background: rgba(210, 153, 34, 0.15);
+    border-color: rgba(210, 153, 34, 0.4);
+    color: #d29922;
+  }
+
+  .error-banner.severity-warning .retry-btn:hover {
+    background: rgba(210, 153, 34, 0.25);
   }
 
   .dismiss-btn {
@@ -777,10 +944,27 @@
     border-radius: 4px;
     opacity: 0.7;
     transition: opacity 0.15s;
+    flex-shrink: 0;
   }
 
   .dismiss-btn:hover {
     opacity: 1;
     background: rgba(248, 81, 73, 0.2);
+  }
+
+  .error-banner.severity-warning .dismiss-btn {
+    color: #d29922;
+  }
+
+  .error-banner.severity-warning .dismiss-btn:hover {
+    background: rgba(210, 153, 34, 0.2);
+  }
+
+  .error-banner.severity-info .dismiss-btn {
+    color: #58a6ff;
+  }
+
+  .error-banner.severity-info .dismiss-btn:hover {
+    background: rgba(56, 139, 253, 0.2);
   }
 </style>

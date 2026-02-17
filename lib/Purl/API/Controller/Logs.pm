@@ -228,6 +228,10 @@ sub ingest {
             return;
         }
 
+        if (scalar(@$logs) > 10_000) {
+            return $self->render_error($c, 400, 'Batch too large: maximum 10000 logs per request');
+        }
+
         my $count = 0;
         for my $log (@$logs) {
             $log->{timestamp} //= epoch_to_iso(time());
@@ -236,6 +240,9 @@ sub ingest {
             $log->{host} //= 'unknown';
             $log->{message} //= $log->{msg} // $log->{log} // '';
             $log->{raw} //= $log->{message};
+            if (exists $log->{meta} && ref($log->{meta}) ne 'HASH') {
+                $log->{meta} = {};
+            }
             $log->{meta} //= {};
 
             $self->storage->insert($log);

@@ -9,6 +9,7 @@ use JSON::XS ();
 use HTTP::Tiny;
 use Time::HiRes qw(time);
 use Sys::Hostname;
+use Digest::SHA qw(sha256_hex);
 
 has 'config' => (
     is      => 'ro',
@@ -43,15 +44,45 @@ has '_http' => (
     default => sub { HTTP::Tiny->new(timeout => 10) },
 );
 
-# Instance ID for activation (persistent per server, stable across restarts)
+# Instance ID for activation (persistent per container, stable across restarts)
 has '_instance_id' => (
     is      => 'ro',
     lazy    => 1,
     default => sub {
+        my $id_file = '/app/config/.instance_id';
+
+        # Try to read existing persistent ID
+        if (open my $fh, '<', $id_file) {
+            my $saved_id = <$fh>;
+            close $fh;
+            if (defined $saved_id) {
+                $saved_id =~ s/\s+$//;
+                return $saved_id if length($saved_id) > 0;
+            }
+        }
+
+        # Generate new unique ID: hostname + sha256 of random bytes
         my $hostname = hostname();
-        require Digest::SHA;
-        # Use only hostname — must NOT include PID ($$) since that changes on restart
-        return Digest::SHA::sha256_hex("purl:$hostname");
+        my $random_hex;
+        if (open my $urandom, '<:raw', '/dev/urandom') {
+            my $bytes = '';
+            read $urandom, $bytes, 16;
+            close $urandom;
+            $random_hex = sha256_hex($bytes);
+        }
+        else {
+            $random_hex = sha256_hex("$hostname:$$:" . time() . ':' . rand());
+        }
+
+        my $new_id = substr("$hostname-$random_hex", 0, 32);
+
+        # Persist for future restarts (ignore errors — may be read-only fs)
+        if (open my $fh, '>', $id_file) {
+            print $fh $new_id;
+            close $fh;
+        }
+
+        return $new_id;
     },
 );
 

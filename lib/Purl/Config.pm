@@ -359,6 +359,49 @@ sub is_from_env {
     return 0;
 }
 
+# ============================================
+# User role management (RBAC)
+# ============================================
+
+my %VALID_ROLES = map { $_ => 1 } qw(admin operator viewer);
+
+sub get_user_role {
+    my ($self, $username) = @_;
+    return 'viewer' unless defined $username && $username ne '';
+    my $roles = $self->_config->{auth}{roles} // {};
+    return $roles->{$username} // 'viewer';
+}
+
+sub set_user_role {
+    my ($self, $username, $role) = @_;
+    $role //= 'viewer';
+    $role = 'viewer' unless exists $VALID_ROLES{$role};
+    $self->_config->{auth} //= {};
+    $self->_config->{auth}{roles} //= {};
+    $self->_config->{auth}{roles}{$username} = $role;
+    return $self->save();
+}
+
+sub ensure_user_roles {
+    my ($self) = @_;
+    my $users = $self->_config->{auth}{users} // {};
+    my $roles = $self->_config->{auth}{roles} // {};
+    my $changed = 0;
+    my @usernames = sort keys %$users;
+    for my $i (0 .. $#usernames) {
+        my $u = $usernames[$i];
+        unless (exists $roles->{$u}) {
+            $roles->{$u} = ($i == 0 || $u eq 'admin') ? 'admin' : 'viewer';
+            $changed = 1;
+        }
+    }
+    if ($changed) {
+        $self->_config->{auth}{roles} = $roles;
+        $self->save();
+    }
+    return $roles;
+}
+
 1;
 
 __END__

@@ -65,11 +65,22 @@ sub deliver {
     return 1;
 }
 
+sub _slack_escape {
+    my ($str) = @_;
+    $str =~ s/&/&amp;/g;
+    $str =~ s/</&lt;/g;
+    $str =~ s/>/&gt;/g;
+    return $str;
+}
+
 sub _format_slack_message {
     my ($self, $msg) = @_;
 
     my $color = $msg->{severity} eq 'critical' ? '#dc3545' : '#ffc107';
     my $icon = $msg->{severity} eq 'critical' ? ':rotating_light:' : ':warning:';
+
+    my $alert = _slack_escape($msg->{alert} // '');
+    my $query = _slack_escape($msg->{query} // '');
 
     my $payload = {
         username   => $self->username,
@@ -77,11 +88,11 @@ sub _format_slack_message {
         attachments => [
             {
                 color  => $color,
-                title  => "$icon $msg->{alert}",
+                title  => "$icon $alert",
                 fields => [
                     {
                         title => 'Query',
-                        value => "`$msg->{query}`",
+                        value => "`$query`",
                         short => 0,
                     },
                     {

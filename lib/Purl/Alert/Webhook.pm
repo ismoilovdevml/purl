@@ -7,6 +7,7 @@ use Moo;
 use namespace::clean;
 use HTTP::Tiny;
 use JSON::XS ();
+use Digest::SHA qw(hmac_sha256_hex);
 
 with 'Purl::Alert::Base';
 
@@ -28,6 +29,11 @@ has 'headers' => (
 has 'auth_token' => (
     is      => 'ro',
     default => '',
+);
+
+has 'signing_secret' => (
+    is        => 'ro',
+    predicate => 'has_signing_secret',
 );
 
 has '_http' => (
@@ -64,6 +70,11 @@ sub deliver {
         timestamp => time(),
         alert     => $message,
     });
+
+    if ($self->has_signing_secret) {
+        my $signature = hmac_sha256_hex($payload, $self->signing_secret);
+        $headers{'X-Purl-Signature'} = "sha256=$signature";
+    }
 
     my $response;
     if (uc($self->method) eq 'POST') {

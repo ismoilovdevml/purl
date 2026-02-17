@@ -34,9 +34,11 @@ sub create {
             return;
         }
 
-        # Enforce alert count limit
+        # Enforce alert count limit (count only enabled alerts)
         my $existing = $self->storage->get_alerts();
-        my $count = ref $existing eq 'ARRAY' ? scalar @$existing : 0;
+        my $count = ref $existing eq 'ARRAY'
+            ? scalar grep { $_->{enabled} } @$existing
+            : 0;
         return unless $self->check_limit($c, 'alerts', $count);
 
         $self->storage->create_alert(%$body);

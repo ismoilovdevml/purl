@@ -14,11 +14,32 @@ has 'config' => (
     default => sub { {} },
 );
 
-# CSRF token secret (generated once per instance)
+sub _generate_secure_token {
+    if (open(my $fh, '<:raw', '/dev/urandom')) {
+        read($fh, my $bytes, 32);
+        close($fh);
+        return unpack('H*', $bytes);
+    }
+    require Digest::SHA;
+    return Digest::SHA::sha256_hex(time() . $$ . rand() . $$);
+}
+
+# CSRF token secret (generated once per instance using /dev/urandom)
 has 'csrf_secret' => (
     is      => 'ro',
     lazy    => 1,
-    default => sub { join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..32) },
+    default => sub { _generate_secure_token() },
+);
+
+# Per-username failed login tracking: { username => { count => N, window_start => T } }
+has '_failed_login_attempts' => (
+    is      => 'rw',
+    default => sub { {} },
+);
+
+has '_failed_login_cleanup' => (
+    is      => 'rw',
+    default => sub { time() },
 );
 
 # Rate limiting state
@@ -60,6 +81,7 @@ has 'settings' => (
 
 sub hash_password {
     my ($self, $password, $salt) = @_;
+    return undef if !defined $password || length($password) < 8;
     $salt //= join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..16);
     my $hash = sha256_hex($salt . $password . $salt);
     return "$salt\$$hash";
@@ -67,6 +89,7 @@ sub hash_password {
 
 sub verify_password {
     my ($self, $password, $stored) = @_;
+    return 0 unless defined $password && length($password);
     return 0 unless $stored && $stored =~ /^([^\$]+)\$([a-f0-9]+)$/;
     my ($salt, $hash) = ($1, $2);
     my $check = sha256_hex($salt . $password . $salt);
@@ -84,7 +107,7 @@ sub verify_password {
 
 sub generate_csrf_token {
     my ($self, $session_id) = @_;
-    $session_id //= join('', map { ('a'..'z', 0..9)[rand 36] } 1..16);
+    $session_id //= _generate_secure_token();
     my $timestamp = int(time() / 3600);  # Valid for 1 hour
     my $token = hmac_sha256_hex("$session_id:$timestamp", $self->csrf_secret);
     return "$session_id:$timestamp:$token";
@@ -132,6 +155,57 @@ sub get_rate_limit_remaining {
     my $key = "$ip:$window_start";
     my $used = $self->_rate_limit->{$key} // 0;
     return $self->rate_limit_max - $used;
+}
+
+# ============================================
+# Per-Username Login Rate Limiting
+# ============================================
+
+my $USERNAME_RATE_LIMIT_MAX    = 5;
+my $USERNAME_RATE_LIMIT_WINDOW = 600;
+
+sub _cleanup_failed_login_attempts {
+    my ($self) = @_;
+    my $now = time();
+    return if $now - $self->_failed_login_cleanup < $USERNAME_RATE_LIMIT_WINDOW;
+    my $attempts = $self->_failed_login_attempts;
+    for my $username (keys %$attempts) {
+        delete $attempts->{$username}
+            if $now - $attempts->{$username}{window_start} >= $USERNAME_RATE_LIMIT_WINDOW;
+    }
+    $self->_failed_login_cleanup($now);
+}
+
+sub check_username_rate_limit {
+    my ($self, $username) = @_;
+    return 1 unless defined $username && length($username);
+    $self->_cleanup_failed_login_attempts();
+    my $now   = time();
+    my $entry = $self->_failed_login_attempts->{$username};
+    return 1 unless $entry;
+    if ($now - $entry->{window_start} >= $USERNAME_RATE_LIMIT_WINDOW) {
+        delete $self->_failed_login_attempts->{$username};
+        return 1;
+    }
+    return $entry->{count} < $USERNAME_RATE_LIMIT_MAX;
+}
+
+sub record_failed_login {
+    my ($self, $username) = @_;
+    return unless defined $username && length($username);
+    my $now      = time();
+    my $attempts = $self->_failed_login_attempts;
+    if (!$attempts->{$username} || $now - $attempts->{$username}{window_start} >= $USERNAME_RATE_LIMIT_WINDOW) {
+        $attempts->{$username} = { count => 1, window_start => $now };
+    } else {
+        $attempts->{$username}{count}++;
+    }
+}
+
+sub reset_failed_login {
+    my ($self, $username) = @_;
+    return unless defined $username && length($username);
+    delete $self->_failed_login_attempts->{$username};
 }
 
 # ============================================

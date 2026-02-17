@@ -23,15 +23,72 @@ has 'throttle_seconds' => (
     default => 60,
 );
 
+has 'max_retries' => (
+    is      => 'ro',
+    default => 3,
+);
+
 has '_last_sent' => (
     is      => 'rw',
     default => 0,
+);
+
+# Per-alert throttle state: maps alert_id => last_sent_time
+has '_last_sent_by_alert' => (
+    is      => 'rw',
+    default => sub { {} },
 );
 
 sub can_send {
     my ($self) = @_;
     return 0 unless $self->enabled;
     return 1 if time() - $self->_last_sent >= $self->throttle_seconds;
+    return 0;
+}
+
+# Per-alert throttle with optional per-alert override period
+sub is_throttled {
+    my ($self, $alert_id, $throttle_override_seconds) = @_;
+    return 1 unless $self->enabled;
+    my $period = (defined $throttle_override_seconds && $throttle_override_seconds > 0)
+        ? $throttle_override_seconds
+        : $self->throttle_seconds;
+    my $last = $self->_last_sent_by_alert->{$alert_id} // 0;
+    return (time() - $last) < $period ? 1 : 0;
+}
+
+sub _mark_sent {
+    my ($self, $alert_id) = @_;
+    $self->_last_sent_by_alert->{$alert_id} = time();
+    $self->_last_sent(time());
+}
+
+# Retry wrapper with exponential backoff (1s, 2s, 4s).
+# 4xx responses are not retried; 5xx and connection failures are.
+sub _send_with_retry {
+    my ($self, $send_sub) = @_;
+    for my $attempt (0 .. $self->max_retries - 1) {
+        my $result = eval { $send_sub->() };
+        my $err    = $@;
+        if (!$err && $result) {
+            if (ref $result eq 'HASH' && exists $result->{status}) {
+                return $result if $result->{success};
+                my $status = $result->{status};
+                if ($status >= 400 && $status < 500) {
+                    warn "Alert send failed with client error ($status) — not retrying";
+                    return 0;
+                }
+                warn sprintf("Alert send failed (attempt %d/%d): HTTP %d",
+                    $attempt + 1, $self->max_retries, $status);
+            } else {
+                return $result;
+            }
+        } else {
+            warn sprintf("Alert send failed (attempt %d/%d)%s",
+                $attempt + 1, $self->max_retries, $err ? ": $err" : '');
+        }
+        sleep(2 ** $attempt) if $attempt < $self->max_retries - 1;
+    }
     return 0;
 }
 

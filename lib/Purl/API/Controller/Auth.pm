@@ -101,6 +101,7 @@ sub login {
                 $c->session->{ldap_groups} = $result->{groups} // [];
                 $c->session(expiration => 86400);
 
+                $c->audit_event(action => 'login', status => 'success');
                 $c->render(json => {
                     authenticated => 1,
                     username      => $username,
@@ -109,6 +110,7 @@ sub login {
                 return;
             } else {
                 # LDAP explicitly rejected credentials — do not fall through
+                $c->audit_event(action => 'login', status => 'failure', actor => $username);
                 $self->render_error($c, 'Invalid username or password', 401);
                 return;
             }
@@ -120,6 +122,7 @@ sub login {
         my $users = $auth_config->{users} // {};
 
         unless (exists $users->{$username}) {
+            $c->audit_event(action => 'login', status => 'failure', actor => $username);
             $self->render_error($c, 'Invalid username or password', 401);
             return;
         }
@@ -134,6 +137,7 @@ sub login {
         }
 
         unless ($valid) {
+            $c->audit_event(action => 'login', status => 'failure', actor => $username);
             $self->render_error($c, 'Invalid username or password', 401);
             return;
         }
@@ -144,6 +148,7 @@ sub login {
         $c->session->{auth_method} = 'local';
         $c->session(expiration => 86400);  # 24 hours
 
+        $c->audit_event(action => 'login', status => 'success');
         $c->render(json => {
             authenticated => 1,
             username      => $username,
@@ -156,6 +161,7 @@ sub logout {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        $c->audit_event(action => 'logout');
         $c->session(expires => 1);
         $c->render(json => { status => 'ok' });
     });

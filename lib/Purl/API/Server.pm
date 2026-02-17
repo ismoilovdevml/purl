@@ -30,6 +30,7 @@ use Purl::API::Controller::SavedSearches;
 use Purl::API::Controller::Alerts;
 use Purl::API::Controller::Settings;
 use Purl::API::Controller::Config;
+use Purl::API::Controller::Audit;
 
 # Package-level state
 my $storage;
@@ -202,6 +203,8 @@ sub setup_routes {
         // ($settings ? $settings->get('server', 'session_secret') : '')
         // join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..64);
     app->secrets([$session_secret]);
+    app->sessions->samesite('Strict');
+    app->sessions->secure(1);
 
     # Create default admin for Pro/Enterprise if no users exist
     my $info = $license_middleware->get_license_info();
@@ -262,6 +265,11 @@ sub setup_routes {
         ldap_middleware    => $ldap_middleware,
     );
     my $config_c = Purl::API::Controller::Config->new(%c_args, main_config => $config);
+    my $audit_c  = Purl::API::Controller::Audit->new(%c_args);
+
+    # Initialize audit schema (non-fatal)
+    eval { $storage->_init_audit_schema() };
+    app->log->warn("Audit schema init failed: $@") if $@;
 
     # Periodic buffer flush
     Mojo::IOLoop->recurring(2 => sub {
@@ -345,6 +353,22 @@ sub setup_routes {
         app->log->$log_level(sprintf("%s - %s %s %d %.2fms", $ip, $method, $path, $status, $duration_ms));
 
         $metrics{errors_total}++ if $status >= 400;
+    });
+
+    # Audit event helper — fire-and-forget, never breaks the app
+    app->helper(audit_event => sub {
+        my ($c, %args) = @_;
+        eval {
+            $c->app->storage->log_audit_event({
+                actor         => $args{actor} // $c->session('username') // 'system',
+                action        => $args{action},
+                resource_type => $args{resource_type} // '',
+                resource_id   => $args{resource_id}   // '',
+                details       => $args{details}        // '',
+                ip_address    => $c->tx->remote_address // '',
+                status        => $args{status}         // 'success',
+            });
+        };
     });
 
     my $api = app->routes->under('/api');
@@ -498,6 +522,12 @@ sub setup_routes {
     $protected->post('/settings/ldap/test' => sub ($c) { $settings_c->test_ldap($c) });
 
     # ============================================
+    # Audit log endpoints (Enterprise)
+    # ============================================
+    $protected->get('/audit' => sub ($c) { $audit_c->list($c) });
+    $protected->get('/audit/stats' => sub ($c) { $audit_c->stats($c) });
+
+    # ============================================
     # WebSocket for live tail
     # ============================================
     $api->websocket('/logs/stream' => sub ($c) {
@@ -557,24 +587,26 @@ sub run {
         my $sig = shift;
         app->log->info("Received $sig signal, shutting down gracefully...");
 
+        # Step 1: Deactivate license first (free up activation slot)
+        if ($license_middleware) {
+            app->log->info("Deactivating license...");
+            eval { $license_middleware->deactivate(); };
+            app->log->error("License deactivation failed: $@") if $@;
+        }
+
+        # Step 2: Flush remaining log buffer
         if ($storage && $storage->can('flush')) {
             app->log->info("Flushing log buffer...");
             eval { $storage->flush(); };
             app->log->error("Buffer flush failed: $@") if $@;
         }
 
+        # Step 3: Close WebSocket connections
         if (@$websockets) {
             app->log->info("Closing " . scalar(@$websockets) . " WebSocket connections...");
             for my $tx (@$websockets) {
                 eval { $tx->finish(1001 => 'Server shutting down'); };
             }
-        }
-
-        # Deactivate license (free up the activation slot for this server)
-        if ($license_middleware) {
-            app->log->info("Deactivating license...");
-            eval { $license_middleware->deactivate(); };
-            app->log->error("License deactivation failed: $@") if $@;
         }
 
         app->log->info("Shutdown complete");

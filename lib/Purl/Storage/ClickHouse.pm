@@ -17,6 +17,7 @@ with 'Purl::Storage::ClickHouse::Cache';
 with 'Purl::Storage::ClickHouse::Alerts';
 with 'Purl::Storage::ClickHouse::SavedSearches';
 with 'Purl::Storage::ClickHouse::Patterns';
+with 'Purl::Storage::ClickHouse::Audit';
 
 # Configuration
 has 'host' => (
@@ -212,8 +213,7 @@ sub _query_json {
     my $is_select = $sql =~ /^\s*SELECT/i;
     # Add params to cache key to ensure uniqueness
     if ($is_select && !$opts{no_cache}) {
-        my $param_str = $opts{params} ? join(',', sort keys %{$opts{params}}) . join(',', sort values %{$opts{params}}) : '';
-        $cache_key = $self->_get_cache_key($sql . $param_str);
+        $cache_key = $self->_get_cache_key($sql, $opts{params});
         if (my $cached = $self->_get_cached($cache_key)) {
             return $cached;
         }
@@ -526,6 +526,9 @@ sub flush {
     # Update metrics
     $self->_metrics->{inserts_total} += scalar @logs;
     $self->_metrics->{bytes_inserted} += $bytes;
+
+    # Invalidate query cache so newly inserted logs are visible immediately
+    $self->invalidate_logs_cache() if $self->can('invalidate_logs_cache');
 
     return scalar @logs;
 }

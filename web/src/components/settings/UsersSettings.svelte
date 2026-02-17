@@ -25,12 +25,14 @@
   let showAddForm = false;
   let newUsername = '';
   let newPassword = '';
+  let newRole = 'viewer';
   let addError = '';
   let adding = false;
 
-  // Change password form
+  // Change password / role form
   let changingUser = null;
   let changePassword = '';
+  let changeRole = '';
   let changeError = '';
   let changing = false;
 
@@ -81,12 +83,17 @@
       const res = await fetch(`${API_BASE}/settings/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: newUsername.trim(), password: newPassword })
+        body: JSON.stringify({
+          username: newUsername.trim(),
+          password: newPassword,
+          role: newRole
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create user');
       newUsername = '';
       newPassword = '';
+      newRole = 'viewer';
       showAddForm = false;
       await fetchUsers();
     } catch (err) {
@@ -101,15 +108,19 @@
     changing = true;
     changeError = '';
     try {
+      const body = { password: changePassword };
+      if (changeRole) body.role = changeRole;
       const res = await fetch(`${API_BASE}/settings/users/${changingUser}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: changePassword })
+        body: JSON.stringify(body)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to change password');
       changingUser = null;
       changePassword = '';
+      changeRole = '';
+      await fetchUsers();
     } catch (err) {
       changeError = err.message;
     } finally {
@@ -129,6 +140,19 @@
     } catch (err) {
       error = err.message;
     }
+  }
+
+  function startChanging(user) {
+    changingUser = user.username;
+    changePassword = '';
+    changeRole = user.role || 'viewer';
+    changeError = '';
+  }
+
+  function roleLabel(role) {
+    if (role === 'admin') return 'Admin';
+    if (role === 'operator') return 'Operator';
+    return 'Viewer';
   }
 </script>
 
@@ -173,6 +197,14 @@
         <div class="add-form">
           <Input bind:value={newUsername} placeholder="Username" label="Username" fullWidth />
           <Input bind:value={newPassword} placeholder="Password" label="Password" type="password" fullWidth />
+          <div class="form-field">
+            <label class="form-label" for="new-role-select">Role</label>
+            <select id="new-role-select" class="role-select" bind:value={newRole}>
+              <option value="viewer">Viewer (read-only)</option>
+              <option value="operator">Operator (manage alerts)</option>
+              <option value="admin">Admin (full access)</option>
+            </select>
+          </div>
           <Button variant="success" size="sm" on:click={handleAddUser} loading={adding} disabled={!newUsername.trim() || !newPassword.trim()}>
             Create
           </Button>
@@ -182,62 +214,83 @@
         </div>
       {/if}
 
-      <div class="users-list">
-        {#each users as user}
-          <div class="user-row">
-            <div class="user-info">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                <circle cx="12" cy="7" r="4"/>
-              </svg>
-              <span class="username">{user.username}</span>
-              {#if $currentUser?.username === user.username}
-                <Badge variant="primary" size="sm">You</Badge>
-              {/if}
-              {#if ldapEnabled}
-                <Badge variant="secondary" size="sm">LDAP fallback</Badge>
-              {/if}
-            </div>
-            <div class="user-actions">
-              <Button variant="ghost" size="sm" on:click={() => { changingUser = user.username; changePassword = ''; changeError = ''; }}>
-                Change Password
-              </Button>
-              {#if $currentUser?.username !== user.username}
-                {#if deletingUser === user.username}
-                  <Button variant="danger" size="sm" on:click={() => handleDeleteUser(user.username)}>
-                    Confirm
-                  </Button>
-                  <Button variant="ghost" size="sm" on:click={() => deletingUser = null}>
-                    Cancel
-                  </Button>
-                {:else}
-                  <Button variant="ghost" size="sm" on:click={() => deletingUser = user.username}>
-                    Delete
-                  </Button>
+      <div class="users-table">
+        <div class="table-header">
+          <span class="col-user">User</span>
+          <span class="col-role">Role</span>
+          <span class="col-actions"></span>
+        </div>
+
+        <div class="users-list">
+          {#each users as user}
+            <div class="user-row">
+              <div class="user-info col-user">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                  <circle cx="12" cy="7" r="4"/>
+                </svg>
+                <span class="username">{user.username}</span>
+                {#if $currentUser?.username === user.username}
+                  <Badge variant="primary" size="sm">You</Badge>
                 {/if}
-              {/if}
+                {#if ldapEnabled}
+                  <Badge variant="secondary" size="sm">LDAP fallback</Badge>
+                {/if}
+              </div>
+              <div class="col-role">
+                <span class="role-badge role-{user.role || 'viewer'}">
+                  {roleLabel(user.role)}
+                </span>
+              </div>
+              <div class="user-actions col-actions">
+                <Button variant="ghost" size="sm" on:click={() => startChanging(user)}>
+                  Edit
+                </Button>
+                {#if $currentUser?.username !== user.username}
+                  {#if deletingUser === user.username}
+                    <Button variant="danger" size="sm" on:click={() => handleDeleteUser(user.username)}>
+                      Confirm
+                    </Button>
+                    <Button variant="ghost" size="sm" on:click={() => deletingUser = null}>
+                      Cancel
+                    </Button>
+                  {:else}
+                    <Button variant="ghost" size="sm" on:click={() => deletingUser = user.username}>
+                      Delete
+                    </Button>
+                  {/if}
+                {/if}
+              </div>
             </div>
-          </div>
 
-          {#if changingUser === user.username}
-            <div class="change-password-form">
-              <Input bind:value={changePassword} placeholder="New password" type="password" fullWidth on:enter={handleChangePassword} />
-              <Button variant="primary" size="sm" on:click={handleChangePassword} loading={changing} disabled={!changePassword.trim()}>
-                Save
-              </Button>
-              <Button variant="ghost" size="sm" on:click={() => changingUser = null}>
-                Cancel
-              </Button>
-              {#if changeError}
-                <p class="form-error">{changeError}</p>
-              {/if}
-            </div>
+            {#if changingUser === user.username}
+              <div class="change-password-form">
+                <Input bind:value={changePassword} placeholder="New password (leave blank to keep)" type="password" fullWidth on:enter={handleChangePassword} />
+                <div class="form-field">
+                  <label class="form-label" for="change-role-{user.username}">Role</label>
+                  <select id="change-role-{user.username}" class="role-select" bind:value={changeRole}>
+                    <option value="viewer">Viewer (read-only)</option>
+                    <option value="operator">Operator (manage alerts)</option>
+                    <option value="admin">Admin (full access)</option>
+                  </select>
+                </div>
+                <Button variant="primary" size="sm" on:click={handleChangePassword} loading={changing} disabled={!changePassword.trim() && changeRole === (user.role || 'viewer')}>
+                  Save
+                </Button>
+                <Button variant="ghost" size="sm" on:click={() => changingUser = null}>
+                  Cancel
+                </Button>
+                {#if changeError}
+                  <p class="form-error">{changeError}</p>
+                {/if}
+              </div>
+            {/if}
+          {/each}
+
+          {#if users.length === 0}
+            <div class="empty">No users configured.</div>
           {/if}
-        {/each}
-
-        {#if users.length === 0}
-          <div class="empty">No users configured.</div>
-        {/if}
+        </div>
       </div>
     </Card>
   {/if}
@@ -308,14 +361,62 @@
     flex-wrap: wrap;
   }
 
+  .form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .form-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary, #8b949e);
+  }
+
+  .role-select {
+    padding: 6px 10px;
+    background: var(--bg-secondary, #161b22);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 6px;
+    color: var(--text-primary, #c9d1d9);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    min-width: 180px;
+  }
+
+  .role-select:focus {
+    outline: none;
+    border-color: #388bfd;
+  }
+
+  /* Table layout */
+  .users-table {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .table-header {
+    display: grid;
+    grid-template-columns: 1fr 120px auto;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-color, #30363d);
+    margin-bottom: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted, #6e7681);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
   .users-list {
     display: flex;
     flex-direction: column;
   }
 
   .user-row {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr 120px auto;
     align-items: center;
     padding: 10px 0;
     border-bottom: 1px solid var(--border-color, #21262d);
@@ -325,20 +426,59 @@
     border-bottom: none;
   }
 
-  .user-info {
+  .col-user {
     display: flex;
     align-items: center;
     gap: 8px;
   }
 
+  .col-role {
+    display: flex;
+    align-items: center;
+  }
+
+  .col-actions {
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+  }
+
   .user-info svg {
     color: var(--text-muted, #6e7681);
+    flex-shrink: 0;
   }
 
   .username {
     font-size: 0.875rem;
     font-weight: 500;
     color: var(--text-primary, #c9d1d9);
+  }
+
+  /* Role badge */
+  .role-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: capitalize;
+  }
+
+  .role-admin {
+    background: rgba(56, 139, 253, 0.15);
+    color: #58a6ff;
+  }
+
+  .role-operator {
+    background: rgba(210, 153, 34, 0.15);
+    color: #d29922;
+  }
+
+  .role-viewer {
+    background: rgba(110, 118, 129, 0.2);
+    color: #8b949e;
   }
 
   .user-actions {
@@ -352,6 +492,7 @@
     align-items: flex-end;
     padding: 10px 0 10px 24px;
     flex-wrap: wrap;
+    border-bottom: 1px solid var(--border-color, #21262d);
   }
 
   .form-error {

@@ -13,6 +13,7 @@
   let suggestions = [];
   let selectedIndex = -1;
   let inputEl;
+  let suggestionContainer;
 
   // Search history
   let searchHistory = [];
@@ -25,6 +26,17 @@
   // KQL operators and fields
   const OPERATORS = ['AND', 'OR', 'NOT'];
   const FIELDS = ['level', 'service', 'host', 'message', 'timestamp'];
+  const META_FIELDS = [
+    { field: 'meta.namespace', label: 'Namespace', group: 'Metadata' },
+    { field: 'meta.pod', label: 'Pod', group: 'Metadata' },
+    { field: 'meta.container', label: 'Container', group: 'Metadata' },
+    { field: 'meta.node', label: 'Node', group: 'Metadata' },
+    { field: 'meta.cluster', label: 'Cluster', group: 'Metadata' },
+    { field: 'meta.environment', label: 'Environment', group: 'Metadata' },
+    { field: 'meta.region', label: 'Region', group: 'Metadata' },
+    { field: 'meta.version', label: 'Version', group: 'Metadata' },
+    { field: 'meta.app', label: 'App', group: 'Metadata' },
+  ];
 
   onMount(() => {
     const saved = localStorage.getItem('purl_search_history');
@@ -80,6 +92,12 @@
         event.preventDefault();
         applySuggestion(suggestions[selectedIndex]);
         return;
+      } else if (event.key === 'Tab') {
+        if (showSuggestions && selectedIndex >= 0) {
+          event.preventDefault();
+          applySuggestion(suggestions[selectedIndex]);
+        }
+        return;
       } else if (event.key === 'Escape') {
         showSuggestions = false;
         showHistory = false;
@@ -111,11 +129,11 @@
     }
   }
 
-  function handleBlur() {
-    setTimeout(() => {
+  function handleBlur(e) {
+    if (!e.relatedTarget || !suggestionContainer?.contains(e.relatedTarget)) {
       showSuggestions = false;
       showHistory = false;
-    }, 200);
+    }
   }
 
   function updateSuggestions() {
@@ -164,7 +182,7 @@
       // Suggest fields or operators
       const tokenLower = currentToken.toLowerCase();
 
-      // Field suggestions
+      // Core field suggestions
       const fieldSuggestions = FIELDS
         .filter(f => f.toLowerCase().startsWith(tokenLower))
         .map(f => ({
@@ -172,6 +190,17 @@
           text: `${f}:`,
           display: f,
           hint: 'field'
+        }));
+
+      // Metadata field suggestions
+      const metaSuggestions = META_FIELDS
+        .filter(m => m.field.toLowerCase().startsWith(tokenLower) || m.label.toLowerCase().startsWith(tokenLower))
+        .map(m => ({
+          type: 'field',
+          text: `${m.field}:`,
+          display: m.field,
+          hint: 'metadata',
+          group: m.group
         }));
 
       // Operator suggestions (only after space)
@@ -184,7 +213,7 @@
           hint: 'operator'
         })) : [];
 
-      suggestions = [...fieldSuggestions, ...opSuggestions].slice(0, 8);
+      suggestions = [...fieldSuggestions, ...metaSuggestions, ...opSuggestions].slice(0, 12);
     }
 
     showSuggestions = suggestions.length > 0;
@@ -223,6 +252,10 @@
     value = '';
     dispatch('search');
   }
+
+  // Derive whether suggestions contain any metadata group items
+  $: hasMetaSuggestions = suggestions.some(s => s.group === 'Metadata');
+  $: hasCoreSuggestions = suggestions.some(s => !s.group && s.type === 'field');
 </script>
 
 <div class="search-bar" role="search">
@@ -266,28 +299,80 @@
 
   <!-- Autocomplete dropdown -->
   {#if showSuggestions && suggestions.length > 0}
-    <div class="suggestions" id="search-suggestions" role="listbox" aria-label="Search suggestions">
-      {#each suggestions as suggestion, i}
+    <div class="suggestions" id="search-suggestions" role="listbox" aria-label="Search suggestions" bind:this={suggestionContainer}>
+      {#if hasCoreSuggestions}
+        {#each suggestions.filter(s => !s.group && s.type === 'field') as suggestion}
+          <button
+            class="suggestion-item"
+            class:selected={suggestions.indexOf(suggestion) === selectedIndex}
+            on:mousedown|preventDefault={() => applySuggestion(suggestion)}
+            role="option"
+            aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
+          >
+            <span class="suggestion-icon">
+              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 3h8v1H2V3zm0 2.5h8v1H2v-1zm0 2.5h5v1H2V8z"/></svg>
+            </span>
+            <span class="suggestion-text">{suggestion.display}</span>
+            {#if suggestion.hint}
+              <span class="suggestion-hint">{suggestion.hint}</span>
+            {/if}
+          </button>
+        {/each}
+      {/if}
+
+      {#if hasMetaSuggestions}
+        {#if hasCoreSuggestions}
+          <div class="suggestion-group-divider">Metadata</div>
+        {:else}
+          <div class="suggestion-group-divider">Metadata</div>
+        {/if}
+        {#each suggestions.filter(s => s.group === 'Metadata') as suggestion}
+          <button
+            class="suggestion-item"
+            class:selected={suggestions.indexOf(suggestion) === selectedIndex}
+            on:mousedown|preventDefault={() => applySuggestion(suggestion)}
+            role="option"
+            aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
+          >
+            <span class="suggestion-icon">
+              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 3h8v1H2V3zm0 2.5h8v1H2v-1zm0 2.5h5v1H2V8z"/></svg>
+            </span>
+            <span class="suggestion-text">{suggestion.display}</span>
+            <span class="suggestion-hint">{suggestion.hint}</span>
+          </button>
+        {/each}
+      {/if}
+
+      {#each suggestions.filter(s => s.type === 'operator') as suggestion}
         <button
           class="suggestion-item"
-          class:selected={i === selectedIndex}
+          class:selected={suggestions.indexOf(suggestion) === selectedIndex}
           on:mousedown|preventDefault={() => applySuggestion(suggestion)}
           role="option"
-          aria-selected={i === selectedIndex}
+          aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
         >
           <span class="suggestion-icon">
-            {#if suggestion.type === 'field'}
-              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 3h8v1H2V3zm0 2.5h8v1H2v-1zm0 2.5h5v1H2V8z"/></svg>
-            {:else if suggestion.type === 'operator'}
-              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5"/></svg>
-            {:else}
-              <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="currentColor"/></svg>
-            {/if}
+            <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5"/></svg>
           </span>
           <span class="suggestion-text">{suggestion.display}</span>
           {#if suggestion.hint}
             <span class="suggestion-hint">{suggestion.hint}</span>
           {/if}
+        </button>
+      {/each}
+
+      {#each suggestions.filter(s => s.type === 'value') as suggestion}
+        <button
+          class="suggestion-item"
+          class:selected={suggestions.indexOf(suggestion) === selectedIndex}
+          on:mousedown|preventDefault={() => applySuggestion(suggestion)}
+          role="option"
+          aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
+        >
+          <span class="suggestion-icon">
+            <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="currentColor"/></svg>
+          </span>
+          <span class="suggestion-text">{suggestion.display}</span>
           {#if suggestion.field}
             <span class="suggestion-field">{suggestion.field}</span>
           {/if}
@@ -399,6 +484,17 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     z-index: 100;
     overflow: hidden;
+  }
+
+  .suggestion-group-divider {
+    padding: 4px 12px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted, #6e7681);
+    background: var(--bg-tertiary, #21262d);
+    border-top: 1px solid var(--border-color, #30363d);
   }
 
   .history-header {

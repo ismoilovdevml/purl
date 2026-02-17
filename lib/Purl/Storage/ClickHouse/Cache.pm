@@ -38,10 +38,15 @@ has '_eviction_rate' => (
 # Cache Management
 # ============================================
 
-# Generate cache key from SQL using MD5 for better distribution
+# Generate cache key from SQL + params using MD5 for better distribution.
+# Sort params keys before hashing so parameter order does not affect the cache key.
 sub _get_cache_key {
-    my ($self, $sql) = @_;
-    return md5_hex($sql);
+    my ($self, $sql, $params) = @_;
+    my $key_string = $sql;
+    if ($params && ref($params) eq 'HASH') {
+        $key_string .= '|' . join('|', map { "$_=" . ($params->{$_} // '') } sort keys %$params);
+    }
+    return md5_hex($key_string);
 }
 
 # Get cached value
@@ -83,6 +88,14 @@ sub _set_cached {
 
 # Clear all cache
 sub clear_cache {
+    my ($self) = @_;
+    $self->_query_cache({});
+    $self->_cache_timestamps({});
+}
+
+# Invalidate all log-query cache entries after a successful ingest flush.
+# The entire in-process cache is log-query data, so clearing it fully is correct.
+sub invalidate_logs_cache {
     my ($self) = @_;
     $self->_query_cache({});
     $self->_cache_timestamps({});

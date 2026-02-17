@@ -71,18 +71,30 @@ sub deliver {
     return 1;
 }
 
+sub _html_escape {
+    my ($str) = @_;
+    $str =~ s/&/&amp;/g;
+    $str =~ s/</&lt;/g;
+    $str =~ s/>/&gt;/g;
+    $str =~ s/"/&quot;/g;
+    return $str;
+}
+
 sub _format_telegram_message {
     my ($self, $msg) = @_;
 
     my $severity_emoji = $msg->{severity} eq 'critical' ? "\x{1F6A8}" : "\x{26A0}";
     my $severity_text = uc($msg->{severity});
 
+    my $alert = _html_escape($msg->{alert} // '');
+    my $query = _html_escape($msg->{query} // '');
+
     return <<"EOF";
 $severity_emoji <b>PURL ALERT</b> $severity_emoji
 
-<b>Alert:</b> $msg->{alert}
+<b>Alert:</b> $alert
 <b>Severity:</b> $severity_text
-<b>Query:</b> <code>$msg->{query}</code>
+<b>Query:</b> <code>$query</code>
 
 <b>Count:</b> $msg->{count} (threshold: $msg->{threshold})
 <b>Window:</b> $msg->{window} minutes
