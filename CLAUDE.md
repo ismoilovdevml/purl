@@ -137,6 +137,15 @@ cd /Users/macbook/Documents/devops/personal/purl-web && vercel env pull .env.loc
 - Push to `dev` → CI builds Docker `:dev` + SHA tag
 - PRs: lint + build test only (no push)
 
+**ALWAYS set local git identity before committing** (do NOT use global git config):
+
+```bash
+git config --global --unset user.name  2>/dev/null || true
+git config --global --unset user.email 2>/dev/null || true
+git config --local user.name  "ismoilovdevml"
+git config --local user.email "ismoilovdevarchlinux@gmail.com"
+```
+
 ## Claude Agent Best Practices (Max 20x)
 
 ### Context Window — Asosiy Muammo va Yechim
