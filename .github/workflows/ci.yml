@@ -36,6 +36,12 @@ jobs:
       - name: Run Perl::Critic
         run: perlcritic --profile .perlcriticrc lib/
 
+      - name: Install Test::More
+        run: sudo cpanm --notest Test::More File::Temp
+
+      - name: Run Perl tests
+        run: PERL5LIB=lib prove -r t/
+
   js-lint:
     name: JavaScript Lint
     runs-on: ubuntu-latest
