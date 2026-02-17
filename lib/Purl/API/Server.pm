@@ -58,6 +58,21 @@ my %metrics = (
 # Metrics accessor for controllers
 sub get_metrics { return \%metrics; }
 
+sub _build_ldap_middleware {
+    my $ldap_config = $settings ? $settings->get_section('ldap') : {};
+    my $ldap_enabled = $ENV{PURL_LDAP_ENABLED} // $ldap_config->{enabled} // 0;
+    return undef unless $ldap_enabled;
+
+    # Override config fields with ENV vars
+    for my $key (qw(server port bind_dn bind_password search_base search_filter
+                    tls_enabled tls_verify timeout mode user_attr mail_attr group_attr)) {
+        my $env_var = 'PURL_LDAP_' . uc($key);
+        $ldap_config->{$key} = $ENV{$env_var} if defined $ENV{$env_var} && $ENV{$env_var} ne '';
+    }
+
+    return Purl::API::Middleware::LDAP->new(config => $ldap_config);
+}
+
 # Shared cache for all controllers
 my %cache;
 my $cache_ttl = 60;
@@ -165,20 +180,6 @@ sub setup_routes {
     $auth_middleware->settings($settings);
 
     # Initialize LDAP middleware if configured
-    sub _build_ldap_middleware {
-        my $ldap_config = $settings ? $settings->get_section('ldap') : {};
-        my $ldap_enabled = $ENV{PURL_LDAP_ENABLED} // $ldap_config->{enabled} // 0;
-        return undef unless $ldap_enabled;
-
-        # Override config fields with ENV vars
-        for my $key (qw(server port bind_dn bind_password search_base search_filter
-                        tls_enabled tls_verify timeout mode user_attr mail_attr group_attr)) {
-            my $env_var = 'PURL_LDAP_' . uc($key);
-            $ldap_config->{$key} = $ENV{$env_var} if defined $ENV{$env_var} && $ENV{$env_var} ne '';
-        }
-
-        return Purl::API::Middleware::LDAP->new(config => $ldap_config);
-    }
     $ldap_middleware = _build_ldap_middleware();
 
     # Activate license on startup
