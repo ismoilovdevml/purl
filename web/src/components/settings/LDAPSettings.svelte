@@ -114,19 +114,20 @@
       const res = await fetch(`${API_BASE}/settings/ldap`);
       if (res.ok) {
         const data = await res.json();
-        enabled      = data.enabled      ?? false;
-        serverUrl    = data.server_url   ?? 'ldap://dc.example.com';
-        port         = String(data.port  ?? 389);
-        useTLS       = data.use_tls      ?? false;
-        tlsVerify    = data.tls_verify   ?? 'require';
-        bindDN       = data.bind_dn      ?? '';
-        bindPassword = data.bind_password ?? '';
-        searchBase   = data.search_base  ?? '';
-        mode         = data.mode         ?? 'activedirectory';
-        searchFilter = data.search_filter ?? '({user_attr}={username})';
-        userAttr     = data.user_attr    ?? 'sAMAccountName';
-        mailAttr     = data.mail_attr    ?? 'mail';
-        groupAttr    = data.group_attr   ?? 'memberOf';
+        const cfg = data.config ?? {};
+        enabled      = cfg.enabled      ?? false;
+        serverUrl    = cfg.server       ?? 'ldap://dc.example.com';
+        port         = String(cfg.port  ?? 389);
+        useTLS       = cfg.tls_enabled  ?? false;
+        tlsVerify    = cfg.tls_verify   ?? 'require';
+        bindDN       = cfg.bind_dn      ?? '';
+        bindPassword = cfg.bind_password ?? '';
+        searchBase   = cfg.search_base  ?? '';
+        mode         = cfg.mode         ?? 'ldap';
+        searchFilter = cfg.search_filter ?? '({user_attr}={username})';
+        userAttr     = cfg.user_attr    ?? 'sAMAccountName';
+        mailAttr     = cfg.mail_attr    ?? 'mail';
+        groupAttr    = cfg.group_attr   ?? 'memberOf';
       }
     } catch {
       // leave defaults
@@ -138,9 +139,9 @@
   function buildPayload() {
     return {
       enabled,
-      server_url:    serverUrl,
+      server:        serverUrl,
       port:          parseInt(port, 10) || 389,
-      use_tls:       useTLS,
+      tls_enabled:   useTLS,
       tls_verify:    tlsVerify,
       bind_dn:       bindDN,
       bind_password: bindPassword,
@@ -163,7 +164,7 @@
         body: JSON.stringify(buildPayload()),
       });
       const data = await res.json();
-      if (res.ok && data.ok) {
+      if (res.ok && data.success) {
         testResult = {
           ok: true,
           message: data.message || (data.user_count != null
