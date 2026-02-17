@@ -235,7 +235,8 @@ sub setup_routes {
     my $patterns_c = Purl::API::Controller::Patterns->new(%c_args);
     my $saved_c  = Purl::API::Controller::SavedSearches->new(%c_args);
     my $alerts_c = Purl::API::Controller::Alerts->new(%c_args, notifiers => \%notifiers);
-    my $settings_c = Purl::API::Controller::Settings->new(
+    my $settings_c;
+    $settings_c = Purl::API::Controller::Settings->new(
         %c_args,
         settings          => $settings,
         notifiers         => \%notifiers,
