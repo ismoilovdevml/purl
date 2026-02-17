@@ -20,6 +20,10 @@ export const isPaidPlan = {
   subscribe: (fn) => licenseInfo.subscribe(info => fn(info?.plan === 'pro' || info?.plan === 'enterprise'))
 };
 
+export const isEnterprise = {
+  subscribe: (fn) => licenseInfo.subscribe(info => fn(info?.plan === 'enterprise'))
+};
+
 export const licenseFeatures = {
   subscribe: (fn) => licenseInfo.subscribe(info => fn(info?.features || []))
 };

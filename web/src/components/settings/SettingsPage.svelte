@@ -12,8 +12,9 @@
   import DataSettings from './DataSettings.svelte';
   import LicenseSettings from './LicenseSettings.svelte';
   import UsersSettings from './UsersSettings.svelte';
+  import LDAPSettings from './LDAPSettings.svelte';
   import AboutSettings from './AboutSettings.svelte';
-  import { isPaidPlan } from '../../stores/license.js';
+  import { isPaidPlan, isEnterprise } from '../../stores/license.js';
 
   let activeSection = 'database';
 
@@ -24,6 +25,7 @@
     { id: 'data', label: 'Data', icon: 'database' },
     { id: 'license', label: 'License', icon: 'key' },
     ...($isPaidPlan ? [{ id: 'users', label: 'Users', icon: 'users' }] : []),
+    ...($isEnterprise ? [{ id: 'ldap', label: 'LDAP / AD', icon: 'ldap' }] : []),
     { id: 'about', label: 'About', icon: 'info' },
   ];
 </script>
@@ -62,6 +64,10 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
             </svg>
+          {:else if section.icon === 'ldap'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v4c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 9v4c0 1.66 4 3 9 3s9-1.34 9-3V9"/><path d="M3 13v4c0 1.66 4 3 9 3s9-1.34 9-3v-4"/>
+            </svg>
           {:else if section.icon === 'info'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
@@ -86,6 +92,8 @@
       <LicenseSettings />
     {:else if activeSection === 'users'}
       <UsersSettings />
+    {:else if activeSection === 'ldap'}
+      <LDAPSettings />
     {:else if activeSection === 'about'}
       <AboutSettings />
     {/if}
