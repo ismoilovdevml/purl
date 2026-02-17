@@ -12,6 +12,17 @@ use Purl::Util::Time qw(parse_time_range);
 
 extends 'Purl::API::Controller::Base';
 
+sub _escape_json_string {
+    my ($str) = @_;
+    $str =~ s/\\/\\\\/g;
+    $str =~ s/"/\\"/g;
+    $str =~ s/\n/\\n/g;
+    $str =~ s/\r/\\r/g;
+    $str =~ s/\t/\\t/g;
+    $str =~ s/([\x00-\x1f])/sprintf('\\u%04x', ord($1))/ge;
+    return $str;
+}
+
 sub list {
     my ($self, $c) = @_;
     return unless $self->require_feature($c, 'pattern_analysis');
@@ -52,8 +63,8 @@ sub list {
         my @pattern_json;
         for my $p (@$patterns) {
             my $hash_str = $p->{pattern_hash};
-            my $pattern_escaped = $p->{pattern} =~ s/([\\"])/\\$1/gr;
-            my $sample_escaped = ($p->{sample_message} // '') =~ s/([\\"])/\\$1/gr;
+            my $pattern_escaped = _escape_json_string($p->{pattern});
+            my $sample_escaped = _escape_json_string($p->{sample_message} // '');
             push @pattern_json, sprintf(
                 '{"pattern_hash":"%s","pattern":"%s","sample_message":"%s","service":"%s","level":"%s","first_seen":"%s","last_seen":"%s","count":%d}',
                 $hash_str, $pattern_escaped, $sample_escaped,
