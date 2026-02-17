@@ -16,6 +16,7 @@ use Purl::Alert::Webhook;
 use Purl::Config;
 use Purl::API::Middleware::Auth;
 use Purl::API::Middleware::License;
+use Purl::API::Middleware::LDAP;
 
 # Controllers
 use Purl::API::Controller::Logs;
@@ -66,6 +67,9 @@ my $auth_middleware;
 
 # License middleware instance
 my $license_middleware;
+
+# LDAP middleware instance
+my $ldap_middleware;
 
 sub create {
     my ($class, %args) = @_;
@@ -160,6 +164,23 @@ sub setup_routes {
     $auth_middleware->license_middleware($license_middleware);
     $auth_middleware->settings($settings);
 
+    # Initialize LDAP middleware if configured
+    sub _build_ldap_middleware {
+        my $ldap_config = $settings ? $settings->get_section('ldap') : {};
+        my $ldap_enabled = $ENV{PURL_LDAP_ENABLED} // $ldap_config->{enabled} // 0;
+        return undef unless $ldap_enabled;
+
+        # Override config fields with ENV vars
+        for my $key (qw(server port bind_dn bind_password search_base search_filter
+                        tls_enabled tls_verify timeout mode user_attr mail_attr group_attr)) {
+            my $env_var = 'PURL_LDAP_' . uc($key);
+            $ldap_config->{$key} = $ENV{$env_var} if defined $ENV{$env_var} && $ENV{$env_var} ne '';
+        }
+
+        return Purl::API::Middleware::LDAP->new(config => $ldap_config);
+    }
+    $ldap_middleware = _build_ldap_middleware();
+
     # Activate license on startup
     my $license_key = $license_middleware->get_license_key();
     if ($license_key && $license_key ne '') {
@@ -204,6 +225,7 @@ sub setup_routes {
         %c_args,
         auth_middleware    => $auth_middleware,
         license_middleware => $license_middleware,
+        ldap_middleware    => $ldap_middleware,
         settings           => $settings,
     );
     my $traces_c = Purl::API::Controller::Traces->new(%c_args);
@@ -230,7 +252,12 @@ sub setup_routes {
                 app->log->info("License key removed, reverting to Free plan");
             }
         },
+        rebuild_ldap => sub {
+            $ldap_middleware = _build_ldap_middleware();
+            $settings_c->ldap_middleware($ldap_middleware) if $settings_c;
+        },
         auth_middleware    => $auth_middleware,
+        ldap_middleware    => $ldap_middleware,
     );
     my $config_c = Purl::API::Controller::Config->new(%c_args, main_config => $config);
 
@@ -462,6 +489,11 @@ sub setup_routes {
     $protected->post('/settings/users' => sub ($c) { $settings_c->create_user($c) });
     $protected->put('/settings/users/:username' => sub ($c) { $settings_c->update_user($c) });
     $protected->delete('/settings/users/:username' => sub ($c) { $settings_c->delete_user($c) });
+
+    # LDAP/AD configuration endpoints (Enterprise)
+    $protected->get('/settings/ldap' => sub ($c) { $settings_c->get_ldap($c) });
+    $protected->put('/settings/ldap' => sub ($c) { $settings_c->update_ldap($c) });
+    $protected->post('/settings/ldap/test' => sub ($c) { $settings_c->test_ldap($c) });
 
     # ============================================
     # WebSocket for live tail

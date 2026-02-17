@@ -23,6 +23,12 @@ has 'auth_middleware' => (
     default => sub { undef },
 );
 
+# LDAP middleware for enterprise LDAP/AD auth
+has 'ldap_middleware' => (
+    is      => 'ro',
+    default => sub { undef },
+);
+
 # License middleware for plan checks
 has 'license_middleware' => (
     is      => 'ro',
@@ -77,6 +83,38 @@ sub login {
         my $username = $body->{username};
         my $password = $body->{password};
 
+        # ── LDAP/AD authentication path (Enterprise) ──
+        my $ldap_mw = $self->ldap_middleware;
+        if ($ldap_mw) {
+            my $result = eval { $ldap_mw->authenticate($username, $password) };
+            if ($@) {
+                # Unexpected error — fall through to local auth
+                $c->app->log->warn("LDAP authenticate error: $@");
+            } elsif ($result->{unavailable}) {
+                # LDAP server down — fall through to local auth
+                $c->app->log->warn("LDAP unavailable, falling back to local auth for: $username");
+            } elsif ($result->{success}) {
+                # LDAP login successful
+                $c->session->{username}    = $username;
+                $c->session->{logged_in}   = 1;
+                $c->session->{auth_method} = 'ldap';
+                $c->session->{ldap_groups} = $result->{groups} // [];
+                $c->session(expiration => 86400);
+
+                $c->render(json => {
+                    authenticated => 1,
+                    username      => $username,
+                    auth_method   => 'ldap',
+                });
+                return;
+            } else {
+                # LDAP explicitly rejected credentials — do not fall through
+                $self->render_error($c, 'Invalid username or password', 401);
+                return;
+            }
+        }
+
+        # ── Local authentication path ──
         my $auth_config = $self->settings ? $self->settings->get_section('auth') : {};
         $auth_config //= {};
         my $users = $auth_config->{users} // {};
@@ -101,13 +139,15 @@ sub login {
         }
 
         # Set session
-        $c->session->{username} = $username;
-        $c->session->{logged_in} = 1;
+        $c->session->{username}    = $username;
+        $c->session->{logged_in}   = 1;
+        $c->session->{auth_method} = 'local';
         $c->session(expiration => 86400);  # 24 hours
 
         $c->render(json => {
             authenticated => 1,
             username      => $username,
+            auth_method   => 'local',
         });
     });
 }
@@ -132,6 +172,8 @@ sub me {
             $c->render(json => {
                 authenticated => 1,
                 username      => $username,
+                auth_method   => $c->session->{auth_method} // 'local',
+                ldap_groups   => $c->session->{ldap_groups} // [],
             });
         } else {
             $c->render(json => { authenticated => 0 });

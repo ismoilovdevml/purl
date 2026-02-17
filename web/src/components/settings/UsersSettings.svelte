@@ -19,6 +19,7 @@
   let users = [];
   let loading = true;
   let error = '';
+  let ldapEnabled = false;
 
   // Add user form
   let showAddForm = false;
@@ -38,7 +39,20 @@
 
   onMount(() => {
     fetchUsers();
+    fetchLdapStatus();
   });
+
+  async function fetchLdapStatus() {
+    try {
+      const res = await fetch(`${API_BASE}/settings/ldap`);
+      if (res.ok) {
+        const data = await res.json();
+        ldapEnabled = !!(data.config?.enabled);
+      }
+    } catch {
+      // ignore — LDAP may not be available (free/pro plan)
+    }
+  }
 
   async function fetchUsers() {
     loading = true;
@@ -133,6 +147,15 @@
       <div class="error-msg">{error}</div>
     {/if}
 
+    {#if ldapEnabled}
+      <div class="ldap-banner">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+        </svg>
+        <span>LDAP/AD authentication is active. Users can log in with their directory credentials. Local accounts serve as fallback when LDAP is unavailable.</span>
+      </div>
+    {/if}
+
     <Card padding="md">
       <div class="users-header">
         <span class="user-count">
@@ -170,6 +193,9 @@
               <span class="username">{user.username}</span>
               {#if $currentUser?.username === user.username}
                 <Badge variant="primary" size="sm">You</Badge>
+              {/if}
+              {#if ldapEnabled}
+                <Badge variant="secondary" size="sm">LDAP fallback</Badge>
               {/if}
             </div>
             <div class="user-actions">
@@ -340,5 +366,25 @@
     padding: 20px;
     color: var(--text-muted, #6e7681);
     font-size: 0.875rem;
+  }
+
+  .ldap-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    background: rgba(31, 111, 235, 0.1);
+    border: 1px solid rgba(31, 111, 235, 0.3);
+    border-radius: 6px;
+    color: var(--text-secondary, #8b949e);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  .ldap-banner svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: #388bfd;
   }
 </style>

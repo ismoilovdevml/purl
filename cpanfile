@@ -26,5 +26,9 @@ requires 'Digest::MD5';
 # Auth
 requires 'MIME::Base64';
 
+# LDAP/AD authentication (Enterprise)
+requires 'Net::LDAP';
+requires 'IO::Socket::SSL', '2.0';
+
 # License verification (JWT RS256)
 requires 'Crypt::JWT', '0.035';

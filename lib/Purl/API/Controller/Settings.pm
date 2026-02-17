@@ -39,6 +39,18 @@ has 'reload_license' => (
     default => sub { sub {} },
 );
 
+# Callback to rebuild LDAP middleware after config change
+has 'rebuild_ldap' => (
+    is      => 'ro',
+    default => sub { sub {} },
+);
+
+# LDAP middleware for test connection
+has 'ldap_middleware' => (
+    is      => 'rw',
+    default => sub { undef },
+);
+
 # Auth middleware for user management
 has 'auth_middleware' => (
     is      => 'ro',
@@ -441,6 +453,123 @@ sub delete_user {
         } else {
             $self->render_error($c, 'Failed to delete user', 500);
         }
+    });
+}
+
+# ============================================
+# LDAP/AD Configuration (Enterprise)
+# ============================================
+
+sub get_ldap {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        return unless $self->require_feature($c, 'ldap_auth');
+
+        my $ldap = $self->settings->get_section('ldap') // {};
+
+        # Never expose bind password
+        my $safe = { %$ldap };
+        $safe->{bind_password} = $safe->{bind_password} ? '********' : '';
+
+        $c->render(json => {
+            config   => $safe,
+            from_env => {
+                server        => $self->settings->is_from_env('ldap', 'server') ? 1 : 0,
+                bind_dn       => $self->settings->is_from_env('ldap', 'bind_dn') ? 1 : 0,
+                bind_password => $self->settings->is_from_env('ldap', 'bind_password') ? 1 : 0,
+            },
+        });
+    });
+}
+
+sub update_ldap {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        return unless $self->require_feature($c, 'ldap_auth');
+
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body) {
+            $self->render_error($c, 'Invalid JSON', 400);
+            return;
+        }
+
+        # Validate required fields when enabling
+        if ($body->{enabled}) {
+            for my $field (qw(server bind_dn search_base)) {
+                unless ($body->{$field}) {
+                    $self->render_error($c, "Field '$field' is required when LDAP is enabled", 400);
+                    return;
+                }
+            }
+
+            # Validate server URL format
+            unless ($body->{server} =~ m{^ldaps?://}) {
+                $self->render_error($c, "Server URL must start with ldap:// or ldaps://", 400);
+                return;
+            }
+        }
+
+        my $current = $self->settings->get_section('ldap') // {};
+
+        my @updatable = qw(enabled server port bind_dn search_base search_filter
+                           tls_enabled tls_verify timeout mode user_attr mail_attr
+                           group_attr base_dn);
+
+        for my $key (@updatable) {
+            $current->{$key} = $body->{$key} if exists $body->{$key};
+        }
+
+        # Only update password if explicitly provided and not masked
+        if (exists $body->{bind_password} && $body->{bind_password} ne '********') {
+            $current->{bind_password} = $body->{bind_password};
+        }
+
+        # Auto-set AD defaults when mode=ad
+        if (($body->{mode} // '') eq 'ad') {
+            $current->{user_attr}  //= 'sAMAccountName';
+            $current->{group_attr} //= 'memberOf';
+            $current->{mail_attr}  //= 'mail';
+        }
+
+        if ($self->settings->set_section('ldap', $current)) {
+            $self->rebuild_ldap->();
+            $c->render(json => { status => 'ok', message => 'LDAP settings updated.' });
+        } else {
+            $self->render_error($c, 'Failed to save LDAP settings', 500);
+        }
+    });
+}
+
+sub test_ldap {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        return unless $self->require_feature($c, 'ldap_auth');
+
+        my $ldap_mw = $self->ldap_middleware;
+        unless ($ldap_mw) {
+            $c->render(json => {
+                success => 0,
+                error   => 'LDAP middleware not initialized. Save settings first.',
+            });
+            return;
+        }
+
+        my $available = eval { $ldap_mw->is_available() };
+        if ($@ || !$available) {
+            $c->render(json => {
+                success => 0,
+                error   => $@ ? "Connection error: $@" : 'LDAP server unreachable',
+            });
+            return;
+        }
+
+        $c->render(json => {
+            success => 1,
+            message => 'LDAP server reachable and service account bind successful.',
+        });
     });
 }
 
