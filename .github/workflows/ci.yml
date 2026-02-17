@@ -21,26 +21,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install cpanm and dependencies
+      - name: Cache Perl modules
+        uses: actions/cache@v4
+        id: cache-perl
+        with:
+          path: |
+            ~/perl5
+            ~/.cpanm
+          key: perl-${{ runner.os }}-${{ hashFiles('cpanfile') }}
+          restore-keys: perl-${{ runner.os }}-
+
+      - name: Install cpanm
+        run: curl -L https://cpanmin.us | sudo perl - App::cpanminus
+
+      - name: Install Perl dependencies
+        if: steps.cache-perl.outputs.cache-hit != 'true'
         run: |
-          curl -L https://cpanmin.us | sudo perl - App::cpanminus
-          sudo cpanm --notest --installdeps .
-          sudo cpanm --notest Perl::Critic
+          cpanm --local-lib ~/perl5 --notest --installdeps .
+          cpanm --local-lib ~/perl5 --notest Perl::Critic Test::More File::Temp Test::MockModule
 
       - name: Check Perl syntax
         run: |
+          export PERL5LIB="$HOME/perl5/lib/perl5:lib"
           for f in $(find lib -name '*.pm'); do
-            PERL5LIB=lib perl -c $f || exit 1
+            perl -c "$f" || exit 1
           done
 
       - name: Run Perl::Critic
-        run: perlcritic --profile .perlcriticrc lib/
-
-      - name: Install Test::More
-        run: sudo cpanm --notest Test::More File::Temp
+        run: |
+          export PATH="$HOME/perl5/bin:$PATH"
+          export PERL5LIB="$HOME/perl5/lib/perl5:lib"
+          perlcritic --profile .perlcriticrc lib/
 
       - name: Run Perl tests
-        run: PERL5LIB=lib prove -r t/
+        run: |
+          export PERL5LIB="$HOME/perl5/lib/perl5:lib"
+          prove -r t/
 
   js-lint:
     name: JavaScript Lint
