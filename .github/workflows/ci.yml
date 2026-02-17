@@ -2,9 +2,9 @@ name: CI/CD
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, dev]
   pull_request:
-    branches: [main, master]
+    branches: [main, dev]
   workflow_dispatch:
 
 env:
@@ -59,13 +59,13 @@ jobs:
         run: npm run lint
 
   # ==========================================
-  # Stage 2: Build and Push (only on main)
+  # Stage 2: Build and Push (main and dev)
   # ==========================================
   build-and-push:
     name: Build & Push Docker
     runs-on: ubuntu-latest
     needs: [perl-lint, js-lint]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -79,13 +79,22 @@ jobs:
           username: ${{ secrets.USER }}
           password: ${{ secrets.PASSWORD }}
 
+      - name: Determine Docker tag
+        id: docker-tag
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          else
+            echo "tag=dev" >> $GITHUB_OUTPUT
+          fi
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=${{ steps.docker-tag.outputs.tag }}
             type=sha,prefix=
 
       - name: Build and push Docker image
