@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store';
 import { escapeHtml } from '../utils/dom.js';
 import { settings } from './settings.js';
 import { currentUser } from './auth.js';
+import { error as toastError } from './toast.js';
 
 // State stores
 export const logs = writable([]);
@@ -105,6 +106,7 @@ export async function searchLogs() {
     if (err.name !== 'AbortError') {
       error.set(err.message);
       console.error('Search error:', err);
+      toastError('Search failed: ' + (err.message || 'Unknown error'));
     }
   } finally {
     loading.set(false);
@@ -133,6 +135,7 @@ async function fetchAllStats() {
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error('Stats fetch error:', err);
+      toastError('Failed to load statistics');
     }
   }
 }
@@ -167,6 +170,7 @@ async function fetchFieldStats(field, signal = null) {
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error(`Failed to fetch ${field} stats:`, err);
+      toastError(`Failed to load ${field} statistics`);
     }
   }
 }
@@ -213,6 +217,7 @@ async function fetchHistogram(signal = null) {
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error('Failed to fetch histogram:', err);
+      toastError('Failed to load histogram data');
     }
   }
 }
@@ -267,6 +272,7 @@ export async function fetchPreviousHistogram(signal = null) {
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error('Failed to fetch previous histogram:', err);
+      toastError('Failed to load comparison histogram');
     }
   }
 }
@@ -292,11 +298,13 @@ export function connectWebSocket() {
       }
     } catch (err) {
       console.error('WebSocket message error:', err);
+      toastError('Failed to process live log message');
     }
   };
 
   ws.onerror = (err) => {
     console.error('WebSocket error:', err);
+    toastError('Live tail connection error');
   };
 
   ws.onclose = () => {
@@ -323,6 +331,7 @@ export async function fetchLogContext(logId, before = 50, after = 50) {
     return await response.json();
   } catch (err) {
     console.error('Failed to fetch log context:', err);
+    toastError('Failed to load log context: ' + (err.message || 'Unknown error'));
     return null;
   }
 }
@@ -393,6 +402,7 @@ export async function fetchPatterns() {
     if (err.name !== 'AbortError') {
       patternsError.set(err.message);
       console.error('Failed to fetch patterns:', err);
+      toastError('Failed to load patterns: ' + (err.message || 'Unknown error'));
     }
   } finally {
     patternsLoading.set(false);
@@ -422,6 +432,7 @@ export async function fetchPatternLogs(patternHash) {
     return await response.json();
   } catch (err) {
     console.error('Failed to fetch pattern logs:', err);
+    toastError('Failed to load pattern logs: ' + (err.message || 'Unknown error'));
     return null;
   }
 }

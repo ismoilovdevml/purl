@@ -167,6 +167,11 @@ sub login {
             $password_change_required = 1;
         }
 
+        # Force password change before granting full access
+        if ($password_change_required) {
+            $c->session->{must_change_password} = 1;
+        }
+
         # Set session
         $c->session->{username}    = $username;
         $c->session->{logged_in}   = 1;
@@ -212,6 +217,76 @@ sub me {
         } else {
             $c->render(json => { authenticated => 0 });
         }
+    });
+}
+
+sub change_password {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $username = $c->session->{username};
+        my $logged_in = $c->session->{logged_in};
+
+        unless ($logged_in && $username) {
+            $self->render_error($c, 'Authentication required', 401);
+            return;
+        }
+
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body && $body->{current_password} && $body->{new_password}) {
+            $self->render_error($c, 'current_password and new_password required', 400);
+            return;
+        }
+
+        my $current_password = $body->{current_password};
+        my $new_password     = $body->{new_password};
+
+        # Validate new password length
+        unless (length($new_password) >= 8) {
+            $self->render_error($c, 'New password must be at least 8 characters', 400);
+            return;
+        }
+
+        # Ensure new password differs from current
+        if ($current_password eq $new_password) {
+            $self->render_error($c, 'New password must be different from current password', 400);
+            return;
+        }
+
+        # Verify current password
+        my $auth_config = $self->settings ? $self->settings->get_section('auth') : {};
+        $auth_config //= {};
+        my $users = $auth_config->{users} // {};
+
+        unless (exists $users->{$username}) {
+            $self->render_error($c, 'User not found', 404);
+            return;
+        }
+
+        my $stored = $users->{$username};
+        my ($valid) = $self->auth_middleware->verify_password($current_password, $stored);
+
+        unless ($valid) {
+            $c->audit_event(action => 'change_password', status => 'failure');
+            $self->render_error($c, 'Current password is incorrect', 401);
+            return;
+        }
+
+        # Hash and store new password
+        my $new_hash = $self->auth_middleware->hash_password($new_password);
+        my $section = $self->settings->get_section('auth') // {};
+        $section->{users}{$username} = $new_hash;
+        $self->settings->set_section('auth', $section);
+
+        # Clear the forced password change flag
+        $c->session->{must_change_password} = 0;
+        $c->session->{password_changed} = 1;
+
+        $c->audit_event(action => 'change_password', status => 'success');
+        $c->render(json => {
+            status  => 'ok',
+            message => 'Password changed successfully',
+        });
     });
 }
 

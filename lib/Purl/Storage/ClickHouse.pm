@@ -128,6 +128,32 @@ has '_metrics' => (
     } },
 );
 
+# Circuit breaker state
+has '_circuit_state' => (
+    is      => 'rw',
+    default => 'closed',  # closed, open, half_open
+);
+
+has '_consecutive_failures' => (
+    is      => 'rw',
+    default => 0,
+);
+
+has '_circuit_opened_at' => (
+    is      => 'rw',
+    default => 0,
+);
+
+has '_circuit_failure_threshold' => (
+    is      => 'ro',
+    default => 3,
+);
+
+has '_circuit_cooldown' => (
+    is      => 'ro',
+    default => 30,  # seconds
+);
+
 sub BUILD {
     my ($self) = @_;
     $self->_init_schema();
@@ -168,6 +194,15 @@ sub _query_settings {
 sub _query {
     my ($self, $sql, %opts) = @_;
 
+    # Circuit breaker check
+    if ($self->_circuit_state eq 'open') {
+        if (time() - $self->_circuit_opened_at >= $self->_circuit_cooldown) {
+            $self->_circuit_state('half_open');
+        } else {
+            die "ClickHouse circuit breaker is open — service unavailable";
+        }
+    }
+
     my $start = time();
     my $url = $self->_base_url . '/?' . $self->_auth_params;
     $url .= '&' . $self->_query_settings unless $opts{no_settings};
@@ -179,7 +214,6 @@ sub _query {
     # Add bind parameters to URL
     if (my $params = $opts{params}) {
         for my $key (keys %$params) {
-            # ClickHouse param syntax: param_NAME=VALUE
             $url .= '&param_' . uri_escape($key) . '=' . uri_escape($params->{$key});
         }
     }
@@ -198,8 +232,21 @@ sub _query {
 
     unless ($response->{success}) {
         $self->_metrics->{errors_total}++;
+        $self->_consecutive_failures($self->_consecutive_failures + 1);
+        if ($self->_consecutive_failures >= $self->_circuit_failure_threshold) {
+            $self->_circuit_state('open');
+            $self->_circuit_opened_at(time());
+            warn "ClickHouse circuit breaker OPENED after $self->{_consecutive_failures} consecutive failures";
+        }
         die "ClickHouse error: $response->{status} - $response->{content}";
     }
+
+    # Success — reset circuit breaker
+    if ($self->_circuit_state ne 'closed') {
+        warn "ClickHouse circuit breaker CLOSED — connection recovered";
+    }
+    $self->_consecutive_failures(0);
+    $self->_circuit_state('closed');
 
     return $response->{content};
 }
@@ -1031,6 +1078,17 @@ sub ping {
     };
 
     return $@ ? 0 : 1;
+}
+
+sub circuit_breaker_status {
+    my ($self) = @_;
+    return {
+        state              => $self->_circuit_state,
+        consecutive_failures => $self->_consecutive_failures,
+        cooldown_remaining => $self->_circuit_state eq 'open'
+            ? int($self->_circuit_cooldown - (time() - $self->_circuit_opened_at))
+            : 0,
+    };
 }
 
 # Get table statistics for analytics

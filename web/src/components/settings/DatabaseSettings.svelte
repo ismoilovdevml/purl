@@ -13,6 +13,7 @@
   import Badge from '../ui/Badge.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import { formatBytes, formatNumber, formatRelativeTime } from '../../utils/format.js';
+  import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
 
   const API_BASE = '/api';
 
@@ -95,12 +96,15 @@
       const data = await res.json();
       if (res.ok) {
         dbMessage = { success: true, text: data.message };
+        toastSuccess('Database settings saved');
         fetchServerSettings();
       } else {
         dbMessage = { success: false, text: data.error };
+        toastError('Failed to save database settings: ' + data.error);
       }
     } catch (err) {
       dbMessage = { success: false, text: err.message };
+      toastError('Failed to save database settings: ' + err.message);
     } finally {
       savingDb = false;
     }
@@ -118,8 +122,14 @@
       });
 
       dbTestResult = await res.json();
+      if (dbTestResult.success) {
+        toastSuccess('Database connection successful');
+      } else {
+        toastError('Database connection failed: ' + (dbTestResult.error || 'Unknown error'));
+      }
     } catch (err) {
       dbTestResult = { success: false, error: err.message };
+      toastError('Database connection test failed: ' + err.message);
     } finally {
       testingDb = false;
     }
@@ -139,12 +149,15 @@
       const data = await res.json();
       if (res.ok) {
         retentionMessage = { success: true, text: data.message };
+        toastSuccess('Retention settings saved');
         fetchRetentionStats();
       } else {
         retentionMessage = { success: false, text: data.error };
+        toastError('Failed to save retention settings: ' + data.error);
       }
     } catch (err) {
       retentionMessage = { success: false, text: err.message };
+      toastError('Failed to save retention settings: ' + err.message);
     } finally {
       savingRetention = false;
     }

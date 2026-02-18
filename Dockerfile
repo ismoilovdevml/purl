@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN curl -L https://cpanmin.us | perl - App::cpanminus
 
+ENV TAR_OPTIONS="--warning=no-unknown-keyword"
+
 WORKDIR /app
 COPY cpanfile ./
 RUN cpanm --notest --installdeps .

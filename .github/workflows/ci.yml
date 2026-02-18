@@ -147,10 +147,19 @@ jobs:
           username: ${{ secrets.USER }}
           password: ${{ secrets.PASSWORD }}
 
+      - name: Determine Docker tag
+        id: docker-tag
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          else
+            echo "tag=dev" >> $GITHUB_OUTPUT
+          fi
+
       - name: Scan Docker image for vulnerabilities
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'ismoilovdev/purl:${{ github.sha }}'
+          image-ref: 'ismoilovdev/purl:${{ steps.docker-tag.outputs.tag }}'
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'

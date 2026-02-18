@@ -11,8 +11,8 @@
   import Toggle from '../ui/Toggle.svelte';
   import Card from '../ui/Card.svelte';
   import { settings } from '../../stores/settings.js';
+  import { success as toastSuccess } from '../../stores/toast.js';
 
-  let saved = false;
   let localSettings;
 
   // Subscribe to store
@@ -34,12 +34,7 @@
 
   function updateSetting(key, value) {
     settings.setSetting(key, value);
-    showSaved();
-  }
-
-  function showSaved() {
-    saved = true;
-    setTimeout(() => saved = false, 2000);
+    toastSuccess('Settings saved');
   }
 </script>
 
@@ -170,9 +165,6 @@
     </div>
   </Card>
 
-  {#if saved}
-    <div class="save-toast">Settings saved!</div>
-  {/if}
 </section>
 
 <style>
@@ -225,27 +217,4 @@
     color: var(--text-secondary, #8b949e);
   }
 
-  .save-toast {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    padding: 12px 20px;
-    background: var(--color-success, #238636);
-    border-radius: 6px;
-    color: #fff;
-    font-size: 0.875rem;
-    animation: slideIn 0.2s ease;
-    z-index: 1000;
-  }
-
-  @keyframes slideIn {
-    from {
-      transform: translateY(20px);
-      opacity: 0;
-    }
-    to {
-      transform: translateY(0);
-      opacity: 1;
-    }
-  }
 </style>

@@ -11,6 +11,8 @@
   import Card from '../ui/Card.svelte';
   import Input from '../ui/Input.svelte';
   import Modal from '../ui/Modal.svelte';
+  import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
 
   const API_BASE = '/api';
 
@@ -54,13 +56,16 @@
       const data = await res.json();
       if (res.ok) {
         message = { success: true, text: `Backup "${data.backup?.name}" created successfully` };
+        toastSuccess(`Backup "${data.backup?.name}" created successfully`);
         backupName = '';
         await fetchBackups();
       } else {
         message = { success: false, text: data.error || 'Backup creation failed' };
+        toastError('Backup creation failed: ' + (data.error || 'Unknown error'));
       }
     } catch {
       message = { success: false, text: 'Failed to create backup' };
+      toastError('Failed to create backup');
     }
     creating = false;
   }
@@ -79,11 +84,14 @@
       if (res.ok) {
         const tables = data.restore?.tables?.join(', ') || 'none';
         message = { success: true, text: `Restored ${data.restore?.rows || 0} rows from tables: ${tables}` };
+        toastSuccess(`Backup restored: ${data.restore?.rows || 0} rows`);
       } else {
         message = { success: false, text: data.error || 'Restore failed' };
+        toastError('Restore failed: ' + (data.error || 'Unknown error'));
       }
     } catch {
       message = { success: false, text: 'Failed to restore backup' };
+      toastError('Failed to restore backup');
     }
     restoring = null;
   }
@@ -98,13 +106,16 @@
       });
       if (res.ok) {
         message = { success: true, text: 'Backup deleted' };
+        toastSuccess('Backup deleted');
         await fetchBackups();
       } else {
         const data = await res.json();
         message = { success: false, text: data.error || 'Delete failed' };
+        toastError('Failed to delete backup: ' + (data.error || 'Unknown error'));
       }
     } catch {
       message = { success: false, text: 'Failed to delete backup' };
+      toastError('Failed to delete backup');
     }
     deleting = null;
   }
@@ -171,7 +182,7 @@
     </div>
 
     {#if loading}
-      <div class="empty-state">Loading backups...</div>
+      <div class="empty-state"><LoadingSpinner size="sm" label="Loading backups..." /></div>
     {:else if backups.length === 0}
       <div class="empty-state">No backups found. Create your first backup above.</div>
     {:else}

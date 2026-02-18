@@ -10,14 +10,16 @@
   import Card from '../ui/Card.svelte';
   import Badge from '../ui/Badge.svelte';
   import Button from '../ui/Button.svelte';
+  import LoadingSpinner from '../ui/LoadingSpinner.svelte';
 
   const API_BASE = '/api';
   let systemInfo = null;
   let metricsInfo = null;
+  let loadingInfo = true;
 
-  onMount(() => {
-    fetchSystemInfo();
-    fetchMetrics();
+  onMount(async () => {
+    await Promise.all([fetchSystemInfo(), fetchMetrics()]);
+    loadingInfo = false;
   });
 
   async function fetchSystemInfo() {
@@ -77,6 +79,9 @@
     <p>Log aggregation and analysis platform</p>
   </div>
 
+  {#if loadingInfo}
+    <LoadingSpinner centered label="Loading system info..." />
+  {:else}
   <div class="about-grid">
     <Card padding="lg" class="about-card main-card">
       <div class="about-logo">
@@ -182,6 +187,7 @@
       </Card>
     </div>
   </div>
+  {/if}
 </section>
 
 <style>

@@ -11,8 +11,10 @@
   import Badge from '../ui/Badge.svelte';
   import Button from '../ui/Button.svelte';
   import Input from '../ui/Input.svelte';
+  import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import { licenseLimits } from '../../stores/license.js';
   import { currentUser } from '../../stores/auth.js';
+  import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
 
   const API_BASE = '/api';
 
@@ -91,6 +93,7 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create user');
+      toastSuccess(`User "${newUsername.trim()}" created successfully`);
       newUsername = '';
       newPassword = '';
       newRole = 'viewer';
@@ -98,6 +101,7 @@
       await fetchUsers();
     } catch (err) {
       addError = err.message;
+      toastError('Failed to create user: ' + err.message);
     } finally {
       adding = false;
     }
@@ -117,12 +121,14 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to change password');
+      toastSuccess('User updated successfully');
       changingUser = null;
       changePassword = '';
       changeRole = '';
       await fetchUsers();
     } catch (err) {
       changeError = err.message;
+      toastError('Failed to update user: ' + err.message);
     } finally {
       changing = false;
     }
@@ -135,10 +141,12 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete user');
+      toastSuccess(`User "${username}" deleted`);
       deletingUser = null;
       await fetchUsers();
     } catch (err) {
       error = err.message;
+      toastError('Failed to delete user: ' + err.message);
     }
   }
 
@@ -164,7 +172,7 @@
 
   {#if loading}
     <Card padding="lg">
-      <div class="loading">Loading users...</div>
+      <LoadingSpinner centered label="Loading users..." />
     </Card>
   {:else}
     {#if error}

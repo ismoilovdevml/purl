@@ -632,14 +632,16 @@ subtest 'verify service filter works' => sub {
 # ============================================
 # 26. Audit Endpoints
 # ============================================
-subtest 'GET /api/audit returns audit log list' => sub {
+subtest 'GET /api/audit returns 403 on free plan (feature-gated)' => sub {
     $t->get_ok('/api/audit', { 'X-API-Key' => 'test-key-123' })
-      ->status_is(200);
+      ->status_is(403)
+      ->json_has('/feature');
 };
 
-subtest 'GET /api/audit/stats returns audit stats' => sub {
+subtest 'GET /api/audit/stats returns 403 on free plan (feature-gated)' => sub {
     $t->get_ok('/api/audit/stats', { 'X-API-Key' => 'test-key-123' })
-      ->status_is(200);
+      ->status_is(403)
+      ->json_has('/feature');
 };
 
 # ============================================

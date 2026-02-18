@@ -233,6 +233,37 @@ sub ingest {
             return;
         }
 
+        # Enforce server limit from license
+        my $server_names = {};
+        for my $log (@$logs) {
+            my $svc = $log->{service} // $log->{host} // 'unknown';
+            $server_names->{$svc} = 1;
+        }
+        my $new_server_count = scalar keys %$server_names;
+
+        my $license_info = $c->stash('license_info');
+        if ($license_info && $license_info->{valid} && $license_info->{activated}) {
+            my $max_servers = $license_info->{limits}{servers} // 999;
+            # Get current unique server count from storage
+            my $existing_servers = eval {
+                $self->storage->field_stats('service', limit => $max_servers + $new_server_count + 1);
+            } // [];
+            my $total_servers = scalar @$existing_servers;
+            # Add any new servers not already in the existing list
+            my %existing_set = map { $_->{value} => 1 } @$existing_servers;
+            for my $svc (keys %$server_names) {
+                $total_servers++ unless $existing_set{$svc};
+            }
+            if ($total_servers > $max_servers) {
+                $c->render(json => {
+                    error   => "Server limit reached (max: $max_servers). Upgrade your plan.",
+                    plan    => $license_info->{plan} // 'free',
+                    upgrade => 'https://purlogs.com/pricing',
+                }, status => 403);
+                return;
+            }
+        }
+
         my $count = 0;
         for my $log (@$logs) {
             $log->{timestamp} //= epoch_to_iso(time());

@@ -3,6 +3,7 @@
   import { patterns, patternsLoading, patternsError, fetchPatterns, fetchPatternLogs, highlightPattern, logs, timeRange, query, total } from '../stores/logs.js';
   import { getLevelColor } from '../utils/colors.js';
   import { isFreePlan } from '../stores/license.js';
+  import LoadingSpinner from './ui/LoadingSpinner.svelte';
 
   let selectedPattern = null;
   let patternLogs = null;
@@ -97,7 +98,7 @@
         </div>
       {:else if $patternsLoading && $patterns.length === 0}
         <div class="loading-state">
-          <span>Loading patterns...</span>
+          <LoadingSpinner size="sm" label="Loading patterns..." />
         </div>
       {:else if $patterns.length === 0}
         <div class="empty-state">
@@ -129,7 +130,7 @@
 
       {#if selectedPattern && patternLogsLoading}
         <div class="pattern-detail">
-          <div class="loading-state">Loading logs...</div>
+          <LoadingSpinner size="sm" label="Loading logs..." />
         </div>
       {/if}
     </div>

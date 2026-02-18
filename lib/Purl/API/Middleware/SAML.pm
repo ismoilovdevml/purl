@@ -122,17 +122,23 @@ sub validate_response {
 
     my $cfg = $self->config;
 
+    # Require IdP certificate for signature verification
+    my $idp_cert = $cfg->{idp_cert} // '';
+    unless ($idp_cert && length($idp_cert) > 10) {
+        return { success => 0, error => 'IdP certificate not configured — cannot verify signature' };
+    }
+
     my $result = eval {
         require Net::SAML2::Binding::POST;
         require Net::SAML2::Protocol::Assertion;
 
         # Parse and verify the SAML Response via POST binding
         my $post = Net::SAML2::Binding::POST->new(
-            cacert => $cfg->{idp_cert} // '',
+            cacert => $idp_cert,
         );
 
         my $response = $post->handle_response($saml_response_b64);
-        die "Failed to parse SAML response\n" unless $response;
+        die "SAML response signature verification failed\n" unless $response;
 
         # Parse the assertion
         my $assertion = Net::SAML2::Protocol::Assertion->new_from_xml(

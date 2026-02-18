@@ -27,6 +27,7 @@
   import { refreshInterval, defaultTimeRange } from './stores/settings.js';
   import { fetchLicense, currentPlan, isPaidPlan } from './stores/license.js';
   import { currentUser, checkAuth, logout } from './stores/auth.js';
+  import { success as toastSuccess } from './stores/toast.js';
 
   let savedSearchesRef;
   let currentPage = 'logs'; // 'logs' | 'analytics' | 'settings'
@@ -258,6 +259,7 @@
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     downloadBlob(blob, `purl-logs-${Date.now()}.csv`);
     exportStatus = '';
+    toastSuccess(`Exported ${logsToExport.length} logs as CSV`);
   }
 
   function exportJSON(logsToExport) {
@@ -271,6 +273,7 @@
     const blob = new Blob([json], { type: 'application/json' });
     downloadBlob(blob, `purl-logs-${Date.now()}.json`);
     exportStatus = '';
+    toastSuccess(`Exported ${logsToExport.length} logs as JSON`);
   }
 
   function downloadBlob(blob, filename) {

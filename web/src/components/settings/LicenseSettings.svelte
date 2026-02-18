@@ -12,6 +12,7 @@
   import Button from '../ui/Button.svelte';
   import Input from '../ui/Input.svelte';
   import { licenseInfo, licenseLoading, licenseError, currentPlan, isFreePlan, fetchLicense, saveLicenseKey } from '../../stores/license.js';
+  import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
 
   let licenseKey = '';
   let saving = false;
@@ -53,9 +54,11 @@
     try {
       await saveLicenseKey(licenseKey.trim());
       saveSuccess = 'License key saved successfully.';
+      toastSuccess('License key saved successfully');
       licenseKey = '';
     } catch (err) {
       saveError = err.message;
+      toastError('Failed to save license key: ' + err.message);
     } finally {
       saving = false;
     }

@@ -19,6 +19,8 @@ sub list {
             return;
         }
 
+        return unless $self->require_feature($c, 'audit_logs');
+
         my $actor         = $c->param('actor');
         my $action        = $c->param('action');
         my $resource_type = $c->param('resource_type');
@@ -59,6 +61,8 @@ sub stats {
             $self->render_error($c, 'Unauthorized', 401);
             return;
         }
+
+        return unless $self->require_feature($c, 'audit_logs');
 
         my $audit_stats = $self->storage->get_audit_stats();
         $c->render(json => { stats => $audit_stats });

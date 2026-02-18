@@ -8,25 +8,32 @@
 <script>
   import Button from '../ui/Button.svelte';
   import Card from '../ui/Card.svelte';
+  import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
 
   const API_BASE = '/api';
+
+  let clearingCache = false;
 
   function getHeaders() {
     return { 'Content-Type': 'application/json' };
   }
 
   async function clearCache() {
+    clearingCache = true;
     try {
       await fetch(`${API_BASE}/cache`, { method: 'DELETE', headers: getHeaders() });
-      alert('Cache cleared successfully');
+      toastSuccess('Cache cleared successfully');
     } catch {
-      alert('Failed to clear cache');
+      toastError('Failed to clear cache');
+    } finally {
+      clearingCache = false;
     }
   }
 
   function clearLocalStorage() {
     localStorage.clear();
-    location.reload();
+    toastSuccess('Local storage cleared, reloading...');
+    setTimeout(() => location.reload(), 500);
   }
 </script>
 
@@ -42,7 +49,7 @@
         <span class="setting-label">Clear Query Cache</span>
         <span class="setting-hint">Clear server-side query cache</span>
       </div>
-      <Button variant="danger" on:click={clearCache}>Clear Cache</Button>
+      <Button variant="danger" on:click={clearCache} loading={clearingCache}>Clear Cache</Button>
     </div>
 
     <div class="setting-item">

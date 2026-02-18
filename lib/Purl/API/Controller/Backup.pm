@@ -13,6 +13,8 @@ sub list {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_feature($c, 'backup');
+
         my $backups = $self->storage->list_backups();
         $c->render(json => { backups => $backups });
     });
@@ -22,6 +24,8 @@ sub create {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_feature($c, 'backup');
+
         my $body = eval { decode_json($c->req->body) } // {};
         my $name = $body->{name};
         my $backup_dir = $ENV{PURL_BACKUP_DIR} // '/app/backups';
@@ -42,6 +46,8 @@ sub restore {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_feature($c, 'backup');
+
         my $body = eval { decode_json($c->req->body) } // {};
         my $id = $body->{id};
 
@@ -63,6 +69,8 @@ sub remove {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_feature($c, 'backup');
+
         my $id = $c->param('id');
 
         unless ($id) {

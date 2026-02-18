@@ -11,10 +11,13 @@
   import Button from '../ui/Button.svelte';
   import Card from '../ui/Card.svelte';
   import Badge from '../ui/Badge.svelte';
+  import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
 
   const API_BASE = '/api';
 
   let serverSettings = null;
+  let loadingSettings = true;
 
   let notifications = {
     telegram: { enabled: false, bot_token: '', chat_id: '', thread_id: '' },
@@ -36,6 +39,7 @@
   }
 
   async function fetchServerSettings() {
+    loadingSettings = true;
     try {
       const res = await fetch(`${API_BASE}/settings`, { headers: getHeaders() });
       if (res.ok) {
@@ -43,6 +47,8 @@
       }
     } catch {
       // Ignore
+    } finally {
+      loadingSettings = false;
     }
   }
 
@@ -60,11 +66,14 @@
       const data = await res.json();
       if (res.ok) {
         notificationMessage[type] = { success: true, text: data.message };
+        toastSuccess(`${type.charAt(0).toUpperCase() + type.slice(1)} settings saved`);
       } else {
         notificationMessage[type] = { success: false, text: data.error };
+        toastError(`Failed to save ${type} settings: ${data.error}`);
       }
     } catch (err) {
       notificationMessage[type] = { success: false, text: err.message };
+      toastError(`Failed to save ${type} settings: ${err.message}`);
     } finally {
       savingNotification = null;
     }
@@ -81,8 +90,14 @@
       });
 
       notificationTestResult[type] = await res.json();
+      if (notificationTestResult[type].success) {
+        toastSuccess(`${type.charAt(0).toUpperCase() + type.slice(1)} test notification sent`);
+      } else {
+        toastError(`${type.charAt(0).toUpperCase() + type.slice(1)} test failed: ${notificationTestResult[type].error}`);
+      }
     } catch (err) {
       notificationTestResult[type] = { success: false, error: err.message };
+      toastError(`${type.charAt(0).toUpperCase() + type.slice(1)} test failed: ${err.message}`);
     } finally {
       testingNotification = null;
     }
@@ -95,6 +110,9 @@
     <p>Configure notification channels for alerts</p>
   </div>
 
+  {#if loadingSettings}
+    <LoadingSpinner centered label="Loading notification settings..." />
+  {:else}
   <!-- Telegram -->
   <Card padding="none" class="notification-card">
     <div class="notification-header">
@@ -309,6 +327,7 @@
     <p>Notification settings are saved to <code>/app/config/settings.json</code> on the server.</p>
     <p>Environment variables take precedence over UI settings and cannot be modified here.</p>
   </Card>
+  {/if}
 </section>
 
 <style>

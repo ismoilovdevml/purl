@@ -31,11 +31,14 @@ sub health {
     # We can pass start_time in config or use $^T
     my $start_time = $^T; 
 
+    my $cb_status = eval { $self->storage->circuit_breaker_status() } // {};
+
     $c->render(json => {
         status      => $status,
         timestamp   => time(),
         version     => $VERSION,
         clickhouse  => $ch_ok ? 'connected' : 'disconnected',
+        circuit_breaker => $cb_status,
         uptime_secs => int(time() - $start_time),
         ($ch_error ? (error => substr($ch_error, 0, 200)) : ()),
     }, status => $code);

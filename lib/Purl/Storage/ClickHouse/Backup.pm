@@ -11,6 +11,13 @@ use URI::Escape qw(uri_escape);
 
 my @BACKUP_TABLES = qw(logs alerts saved_searches audit_logs log_patterns);
 
+my %VALID_BACKUP_TABLES = map { $_ => 1 } @BACKUP_TABLES;
+
+sub _validate_backup_table {
+    my ($self, $table) = @_;
+    return $VALID_BACKUP_TABLES{$table} ? 1 : 0;
+}
+
 sub _init_backup_schema {
     my ($self) = @_;
     my $db = $self->database;
@@ -102,13 +109,18 @@ sub create_backup {
 
     eval {
         for my $table (@BACKUP_TABLES) {
-            my $full_table = "${db}.${table}";
+            unless ($self->_validate_backup_table($table)) {
+                warn "Skipping invalid table name: $table";
+                next;
+            }
+            my $safe_table_name = "`${table}`";
+            my $full_table = "`${db}`.${safe_table_name}";
 
             my $safe_db    = $self->_quote_string($db);
-            my $safe_table = $self->_quote_string($table);
+            my $safe_table_str = $self->_quote_string($table);
             my $exists = $self->_query_json(qq{
                 SELECT count() as cnt FROM system.tables
-                WHERE database = $safe_db AND name = $safe_table
+                WHERE database = $safe_db AND name = $safe_table_str
             });
             next unless $exists->[0] && $exists->[0]{cnt} > 0;
 
@@ -196,7 +208,7 @@ sub restore_backup {
 
         next unless $csv && length($csv) > 10;
 
-        my $full_table = "${db}.${table}";
+        my $full_table = "`${db}`.`${table}`";
         my $url = $self->_base_url . '/?' . $self->_auth_params;
         $url .= '&query=' . uri_escape("INSERT INTO $full_table FORMAT CSVWithNames");
 

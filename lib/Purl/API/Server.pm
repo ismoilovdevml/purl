@@ -220,10 +220,16 @@ sub setup_routes {
         app->log->info("No license key configured, running as Free plan");
     }
 
-    # Session secret for signed cookies
+    # Session secret for signed cookies — persist across restarts
     my $session_secret = $ENV{PURL_SESSION_SECRET}
-        // ($settings ? $settings->get('server', 'session_secret') : '')
-        // join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..64);
+        // ($settings ? $settings->get('server', 'session_secret') : undef);
+    unless ($session_secret && $session_secret ne '') {
+        $session_secret = join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..64);
+        if ($settings) {
+            $settings->set('server', 'session_secret', $session_secret);
+            app->log->info("Generated and persisted new session secret to config");
+        }
+    }
     app->secrets([$session_secret]);
     app->sessions->samesite('Strict');
     app->sessions->secure(1);
@@ -502,6 +508,15 @@ sub setup_routes {
         # Attach license info to request stash
         $license_middleware->check_license($c);
 
+        # Block access if password change required (except for the change-password endpoint itself)
+        if ($c->session->{must_change_password} && $path !~ m{^/api/auth/(change-password|me|logout)$}) {
+            $c->render(json => {
+                error => 'Password change required',
+                password_change_required => \1,
+            }, status => 403);
+            return 0;
+        }
+
         return 1;
     });
 
@@ -517,6 +532,9 @@ sub setup_routes {
     $api->post('/auth/login' => sub ($c) { $auth_c->login($c) });
     $api->post('/auth/logout' => sub ($c) { $auth_c->logout($c) });
     $api->get('/auth/me' => sub ($c) { $auth_c->me($c) });
+
+    # Password change (requires auth — protected route)
+    $protected->post('/auth/change-password' => sub ($c) { $auth_c->change_password($c) });
 
     # SSO/SAML 2.0 endpoints (public — no auth required)
     $api->get('/auth/sso/login'     => sub ($c) { $auth_c->sso_login($c) });
