@@ -18,6 +18,7 @@ use Purl::API::Middleware::Auth;
 use Purl::API::Middleware::License;
 use Purl::API::Middleware::LDAP;
 use Purl::API::Middleware::SAML;
+use Purl::API::Middleware::NamespaceScope;
 
 # Controllers
 use Purl::API::Controller::Logs;
@@ -38,6 +39,7 @@ use Purl::API::Controller::ESCompat;
 use Purl::API::Controller::Syslog;
 use Purl::API::Controller::Pipeline;
 use Purl::API::Controller::Dashboard;
+use Purl::API::Controller::K8sAudit;
 use Purl::API::Controller::AI;
 
 # Package-level state
@@ -113,6 +115,9 @@ my $ldap_middleware;
 
 # SAML middleware instance
 my $saml_middleware;
+
+# Namespace scope middleware instance
+my $namespace_scope;
 
 sub create {
     my ($class, %args) = @_;
@@ -210,6 +215,11 @@ sub setup_routes {
     # Initialize LDAP middleware if configured
     $ldap_middleware = _build_ldap_middleware();
     $saml_middleware = _build_saml_middleware();
+
+    # Initialize namespace scope middleware
+    $namespace_scope = Purl::API::Middleware::NamespaceScope->new(
+        settings => $settings,
+    );
 
     # Activate license on startup
     my $license_key = $license_middleware->get_license_key();
@@ -349,6 +359,7 @@ sub setup_routes {
     my $syslog_c    = Purl::API::Controller::Syslog->new(%c_args);
     my $pipeline_c  = Purl::API::Controller::Pipeline->new(%c_args);
     my $dashboard_c = Purl::API::Controller::Dashboard->new(%c_args);
+    my $k8saudit_c  = Purl::API::Controller::K8sAudit->new(%c_args);
     my $ai_c        = Purl::API::Controller::AI->new(%c_args, settings => $settings);
 
     # Initialize audit schema (non-fatal)
@@ -731,11 +742,18 @@ sub setup_routes {
     # Dashboard endpoints
     # ============================================
     $protected->get('/dashboards' => sub ($c) { $dashboard_c->list($c) });
+    $protected->get('/dashboards/templates' => sub ($c) { $dashboard_c->list_templates($c) });
     $protected->get('/dashboards/:id' => sub ($c) { $dashboard_c->get($c) });
     $protected->post('/dashboards' => sub ($c) { $dashboard_c->create($c) });
+    $protected->post('/dashboards/from-template' => sub ($c) { $dashboard_c->create_from_template($c) });
     $protected->put('/dashboards/:id' => sub ($c) { $dashboard_c->update($c) });
     $protected->delete('/dashboards/:id' => sub ($c) { $dashboard_c->remove($c) });
     $protected->post('/dashboards/widget' => sub ($c) { $dashboard_c->execute_widget($c) });
+
+    # ============================================
+    # K8s Audit webhook endpoint
+    # ============================================
+    $protected->post('/v1/k8s-audit' => sub ($c) { $k8saudit_c->ingest($c) });
 
     # ============================================
     # AI query endpoints
