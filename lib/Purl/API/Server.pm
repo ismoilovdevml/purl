@@ -32,6 +32,7 @@ use Purl::API::Controller::Alerts;
 use Purl::API::Controller::Settings;
 use Purl::API::Controller::Config;
 use Purl::API::Controller::Audit;
+use Purl::API::Controller::Backup;
 
 # Package-level state
 my $storage;
@@ -322,10 +323,15 @@ sub setup_routes {
     );
     my $config_c = Purl::API::Controller::Config->new(%c_args, main_config => $config);
     my $audit_c  = Purl::API::Controller::Audit->new(%c_args);
+    my $backup_c = Purl::API::Controller::Backup->new(%c_args);
 
     # Initialize audit schema (non-fatal)
     eval { $storage->_init_audit_schema() };
     app->log->warn("Audit schema init failed: $@") if $@;
+
+    # Initialize backup schema (non-fatal)
+    eval { $storage->_init_backup_schema() };
+    app->log->warn("Backup schema init failed: $@") if $@;
 
     # Periodic buffer flush
     Mojo::IOLoop->recurring(2 => sub {
@@ -627,6 +633,14 @@ sub setup_routes {
     $protected->get('/settings/sso'       => sub ($c) { $settings_c->get_sso($c) });
     $protected->put('/settings/sso'       => sub ($c) { $settings_c->update_sso($c) });
     $protected->post('/settings/sso/test' => sub ($c) { $settings_c->test_sso($c) });
+
+    # ============================================
+    # Backup endpoints
+    # ============================================
+    $protected->get('/backup' => sub ($c) { $backup_c->list($c) });
+    $protected->post('/backup' => sub ($c) { $backup_c->create($c) });
+    $protected->post('/backup/restore' => sub ($c) { $backup_c->restore($c) });
+    $protected->delete('/backup/:id' => sub ($c) { $backup_c->remove($c) });
 
     # ============================================
     # Audit log endpoints (Enterprise)

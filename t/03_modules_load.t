@@ -25,6 +25,7 @@ my @modules = qw(
     Purl::API::Controller::SavedSearches
     Purl::API::Controller::Config
     Purl::API::Controller::Audit
+    Purl::API::Controller::Backup
     Purl::Alert::Telegram
     Purl::Alert::Slack
     Purl::Alert::Webhook

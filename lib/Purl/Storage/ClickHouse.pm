@@ -18,6 +18,7 @@ with 'Purl::Storage::ClickHouse::Alerts';
 with 'Purl::Storage::ClickHouse::SavedSearches';
 with 'Purl::Storage::ClickHouse::Patterns';
 with 'Purl::Storage::ClickHouse::Audit';
+with 'Purl::Storage::ClickHouse::Backup';
 
 # Configuration
 has 'host' => (
