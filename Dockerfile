@@ -11,7 +11,7 @@ FROM perl:5.40-slim-bookworm
 LABEL maintainer="Purl Contributors"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libssl-dev curl ca-certificates \
+    build-essential libssl-dev libxml2-dev curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -L https://cpanmin.us | perl - App::cpanminus

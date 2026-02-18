@@ -29,6 +29,12 @@ has 'ldap_middleware' => (
     default => sub { undef },
 );
 
+# SAML/SSO middleware for enterprise SSO auth
+has 'saml_middleware' => (
+    is      => 'rw',
+    default => sub { undef },
+);
+
 # License middleware for plan checks
 has 'license_middleware' => (
     is      => 'ro',
@@ -180,10 +186,102 @@ sub me {
                 username      => $username,
                 auth_method   => $c->session->{auth_method} // 'local',
                 ldap_groups   => $c->session->{ldap_groups} // [],
+                saml_groups   => $c->session->{saml_groups} // [],
             });
         } else {
             $c->render(json => { authenticated => 0 });
         }
+    });
+}
+
+# SSO/SAML 2.0 — Initiate SP login redirect
+sub sso_login {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $saml_mw = $self->saml_middleware;
+        unless ($saml_mw && $saml_mw->is_available()) {
+            $self->render_error($c, 'SSO is not configured or unavailable', 503);
+            return;
+        }
+
+        my $relay_state = $c->param('redirect') // '/';
+
+        my $result = $saml_mw->build_authn_request($relay_state);
+        unless ($result->{success}) {
+            $c->app->log->warn("SSO: build_authn_request failed: $result->{error}");
+            $self->render_error($c, 'Failed to initiate SSO login', 500);
+            return;
+        }
+
+        $c->redirect_to($result->{redirect_url});
+    });
+}
+
+# SSO/SAML 2.0 — Assertion Consumer Service (receives IdP POST)
+sub sso_callback {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $saml_mw = $self->saml_middleware;
+        unless ($saml_mw) {
+            $self->render_error($c, 'SSO not configured', 503);
+            return;
+        }
+
+        my $saml_response = $c->param('SAMLResponse');
+        unless ($saml_response && length $saml_response) {
+            $self->render_error($c, 'Missing SAMLResponse parameter', 400);
+            return;
+        }
+
+        my $relay_state = $c->param('RelayState') // '/';
+
+        my $result = $saml_mw->validate_response($saml_response, $relay_state);
+
+        unless ($result->{success}) {
+            $c->app->log->warn("SSO: SAML validation failed: $result->{error}");
+            # Redirect to login page with error
+            $c->redirect_to('/?error=sso_failed');
+            return;
+        }
+
+        # Create session — same shape as LDAP session
+        $c->session->{username}    = $result->{username};
+        $c->session->{logged_in}   = 1;
+        $c->session->{auth_method} = 'saml';
+        $c->session->{saml_groups} = $result->{groups} // [];
+        $c->session(expiration => 86400);
+
+        # Safe redirect — only allow relative paths
+        my $safe_redirect = '/';
+        if ($relay_state && $relay_state =~ m{^/[^/]}) {
+            $safe_redirect = $relay_state;
+        }
+
+        $c->redirect_to($safe_redirect);
+    });
+}
+
+# SSO/SAML 2.0 — SP metadata XML
+sub sso_metadata {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $saml_mw = $self->saml_middleware;
+        unless ($saml_mw) {
+            $self->render_error($c, 'SSO not configured', 404);
+            return;
+        }
+
+        my $xml = eval { $saml_mw->generate_metadata() };
+        if ($@ || !$xml) {
+            $self->render_error($c, 'Failed to generate SAML metadata', 500);
+            return;
+        }
+
+        $c->res->headers->content_type('application/xml; charset=utf-8');
+        $c->render(text => $xml);
     });
 }
 

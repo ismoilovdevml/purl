@@ -1,0 +1,766 @@
+<!--
+  SSOSettings Component
+  SAML / SSO authentication configuration (Enterprise only)
+
+  Usage:
+  <SSOSettings />
+-->
+<script>
+  import Card from '../ui/Card.svelte';
+  import Button from '../ui/Button.svelte';
+  import Input from '../ui/Input.svelte';
+  import Select from '../ui/Select.svelte';
+  import Toggle from '../ui/Toggle.svelte';
+
+  const API_BASE = '/api';
+
+  // ── License gate ──────────────────────────────────────────────────────────
+  let plan = $state('free');
+  let licenseLoading = $state(true);
+
+  // ── Page state ─────────────────────────────────────────────────────────────
+  let loading = $state(true);
+  let saveMsg = $state('');
+  let saveError = $state('');
+  let saving = $state(false);
+
+  // ── Test connection state ──────────────────────────────────────────────────
+  let testing = $state(false);
+  let testResult = $state(null); // null | { ok: boolean, message: string }
+
+  // ── Advanced section toggle ────────────────────────────────────────────────
+  let showAdvanced = $state(false);
+
+  // ── Copy state ─────────────────────────────────────────────────────────────
+  let copied = $state(false);
+
+  // ── Form fields ────────────────────────────────────────────────────────────
+  let enabled = $state(false);
+
+  // Identity Provider
+  let idpEntityId = $state('');
+  let idpSsoUrl = $state('');
+  let idpSloUrl = $state('');
+  let idpCertificate = $state('');
+
+  // Service Provider
+  let spEntityId = $state('');
+  let acsUrl = $state('');
+  let nameIdFormat = $state('urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress');
+  let signRequests = $state(false);
+  let spCertificate = $state('');
+  let spPrivateKey = $state('');
+
+  // Attribute mapping
+  let usernameAttr = $state('http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name');
+  let groupsAttr = $state('http://schemas.xmlsoap.org/claims/Group');
+  let allowedGroups = $state('');
+
+  // Force authentication
+  let forceAuthn = $state(false);
+
+  // ── Select options ─────────────────────────────────────────────────────────
+  const nameIdFormatOptions = [
+    { value: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress', label: 'Email Address' },
+    { value: 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent', label: 'Persistent' },
+    { value: 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient', label: 'Transient' },
+    { value: 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified', label: 'Unspecified' },
+  ];
+
+  // ── Derived: SP Metadata URL ──────────────────────────────────────────────
+  const metadataUrl = $derived(
+    spEntityId
+      ? `${window.location.origin}/api/auth/saml/metadata`
+      : ''
+  );
+
+  // ── On mount: fetch license + settings ────────────────────────────────────
+  $effect(() => {
+    fetchLicense();
+    fetchSettings();
+  });
+
+  async function fetchLicense() {
+    licenseLoading = true;
+    try {
+      const res = await fetch(`${API_BASE}/license`);
+      if (res.ok) {
+        const data = await res.json();
+        plan = data.plan || 'free';
+      }
+    } catch {
+      plan = 'free';
+    } finally {
+      licenseLoading = false;
+    }
+  }
+
+  async function fetchSettings() {
+    loading = true;
+    try {
+      const res = await fetch(`${API_BASE}/settings/sso`);
+      if (res.ok) {
+        const data = await res.json();
+        const cfg = data.config ?? {};
+        enabled        = cfg.enabled         ?? false;
+        idpEntityId    = cfg.idp_entity_id   ?? '';
+        idpSsoUrl      = cfg.idp_sso_url     ?? '';
+        idpSloUrl      = cfg.idp_slo_url     ?? '';
+        idpCertificate = cfg.idp_certificate  ?? '';
+        spEntityId     = cfg.sp_entity_id    ?? '';
+        acsUrl         = cfg.acs_url         ?? '';
+        nameIdFormat   = cfg.name_id_format  ?? 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress';
+        signRequests   = cfg.sign_requests   ?? false;
+        spCertificate  = cfg.sp_certificate  ?? '';
+        spPrivateKey   = cfg.sp_private_key  ?? '';
+        usernameAttr   = cfg.username_attr   ?? 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name';
+        groupsAttr     = cfg.groups_attr     ?? 'http://schemas.xmlsoap.org/claims/Group';
+        allowedGroups  = cfg.allowed_groups  ?? '';
+        forceAuthn     = cfg.force_authn     ?? false;
+      }
+    } catch {
+      // leave defaults
+    } finally {
+      loading = false;
+    }
+  }
+
+  function buildPayload() {
+    return {
+      enabled,
+      idp_entity_id:  idpEntityId,
+      idp_sso_url:    idpSsoUrl,
+      idp_slo_url:    idpSloUrl,
+      idp_certificate: idpCertificate,
+      sp_entity_id:   spEntityId,
+      acs_url:        acsUrl,
+      name_id_format: nameIdFormat,
+      sign_requests:  signRequests,
+      sp_certificate: spCertificate,
+      sp_private_key: spPrivateKey,
+      username_attr:  usernameAttr,
+      groups_attr:    groupsAttr,
+      allowed_groups: allowedGroups,
+      force_authn:    forceAuthn,
+    };
+  }
+
+  async function handleTest() {
+    testing = true;
+    testResult = null;
+    try {
+      const res = await fetch(`${API_BASE}/settings/sso/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildPayload()),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        testResult = {
+          ok: true,
+          message: data.message || 'SSO configuration is valid',
+        };
+      } else {
+        testResult = {
+          ok: false,
+          message: data.error || data.message || 'Configuration validation failed',
+        };
+      }
+    } catch (err) {
+      testResult = { ok: false, message: err.message || 'Request failed' };
+    } finally {
+      testing = false;
+    }
+  }
+
+  async function handleSave() {
+    saving = true;
+    saveMsg = '';
+    saveError = '';
+    try {
+      const res = await fetch(`${API_BASE}/settings/sso`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildPayload()),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save settings');
+      saveMsg = 'Settings saved successfully.';
+    } catch (err) {
+      saveError = err.message;
+    } finally {
+      saving = false;
+    }
+  }
+
+  function copyMetadataUrl() {
+    if (!metadataUrl) return;
+    navigator.clipboard.writeText(metadataUrl).then(() => {
+      copied = true;
+      setTimeout(() => { copied = false; }, 2000);
+    });
+  }
+
+  const isEnterprise = $derived(plan === 'enterprise');
+</script>
+
+<section class="settings-section">
+  <div class="section-header">
+    <h3>SAML / SSO</h3>
+    <p>Configure single sign-on via SAML 2.0 identity providers</p>
+  </div>
+
+  {#if licenseLoading || loading}
+    <Card padding="lg">
+      <div class="loading">Loading...</div>
+    </Card>
+  {:else if !isEnterprise}
+    <!-- Enterprise gate banner -->
+    <div class="enterprise-banner">
+      <div class="banner-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+      <div class="banner-body">
+        <strong>SAML / SSO requires an Enterprise license.</strong>
+        <p>Upgrade to enable single sign-on via SAML 2.0 identity providers like Okta, Azure AD, or OneLogin.</p>
+      </div>
+      <a href="https://purl.dev/pricing" class="upgrade-link" target="_blank" rel="noopener noreferrer">
+        Upgrade to Enterprise &rarr;
+      </a>
+    </div>
+  {:else}
+    <!-- ── Section 1: Enable/Disable ──────────────────────────────────────── -->
+    <Card padding="md">
+      <div class="toggle-row">
+        <Toggle
+          bind:checked={enabled}
+          label="Enable SAML SSO"
+          description="Requires Enterprise license"
+        />
+      </div>
+    </Card>
+
+    <!-- ── Section 2: Identity Provider ───────────────────────────────────── -->
+    <Card padding="md">
+      <div class="card-section-title">Identity Provider</div>
+      <div class="form-group">
+        <Input
+          bind:value={idpEntityId}
+          label="IdP Entity ID"
+          placeholder="https://idp.example.com/metadata"
+          fullWidth
+          disabled={!enabled}
+        />
+      </div>
+      <div class="form-group">
+        <Input
+          bind:value={idpSsoUrl}
+          label="IdP SSO URL"
+          placeholder="https://idp.example.com/sso/saml"
+          fullWidth
+          disabled={!enabled}
+        />
+      </div>
+      <div class="form-group">
+        <Input
+          bind:value={idpSloUrl}
+          label="IdP SLO URL (optional)"
+          placeholder="https://idp.example.com/slo/saml"
+          fullWidth
+          disabled={!enabled}
+        />
+      </div>
+      <div class="form-group">
+        <Input
+          bind:value={idpCertificate}
+          label="IdP Certificate (PEM)"
+          type="textarea"
+          placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+          fullWidth
+          disabled={!enabled}
+        />
+      </div>
+    </Card>
+
+    <!-- ── Section 3: Service Provider ────────────────────────────────────── -->
+    <Card padding="md">
+      <div class="card-section-title">Service Provider</div>
+      <div class="form-group">
+        <Input
+          bind:value={spEntityId}
+          label="SP Entity ID"
+          placeholder="https://purl.example.com"
+          fullWidth
+          disabled={!enabled}
+        />
+      </div>
+      <div class="form-group">
+        <Input
+          bind:value={acsUrl}
+          label="Assertion Consumer Service (ACS) URL"
+          placeholder="https://purl.example.com/api/auth/saml/acs"
+          fullWidth
+          disabled={!enabled}
+        />
+      </div>
+      <div class="form-row">
+        <div class="form-group form-group--nameid">
+          <Select
+            bind:value={nameIdFormat}
+            label="NameID Format"
+            options={nameIdFormatOptions}
+            disabled={!enabled}
+            fullWidth
+          />
+        </div>
+      </div>
+      <div class="toggle-row toggle-row--inline">
+        <Toggle
+          bind:checked={signRequests}
+          label="Sign Authentication Requests"
+          size="sm"
+          disabled={!enabled}
+        />
+      </div>
+      <div class="toggle-row toggle-row--inline">
+        <Toggle
+          bind:checked={forceAuthn}
+          label="Force Authentication"
+          size="sm"
+          disabled={!enabled}
+        />
+      </div>
+    </Card>
+
+    <!-- ── Section 4: SP Metadata URL ─────────────────────────────────────── -->
+    {#if metadataUrl}
+      <Card padding="md">
+        <div class="card-section-title">SP Metadata</div>
+        <div class="metadata-row">
+          <code class="metadata-url">{metadataUrl}</code>
+          <button
+            type="button"
+            class="copy-btn"
+            onclick={copyMetadataUrl}
+            title="Copy metadata URL"
+          >
+            {#if copied}
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/>
+              </svg>
+            {:else}
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z"/>
+                <path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z"/>
+              </svg>
+            {/if}
+          </button>
+        </div>
+        <p class="metadata-hint">Provide this URL to your identity provider for automatic SP configuration.</p>
+      </Card>
+    {/if}
+
+    <!-- ── Section 5: Advanced (collapsible) ─────────────────────────────── -->
+    <Card padding="md">
+      <button
+        type="button"
+        class="advanced-toggle"
+        onclick={() => showAdvanced = !showAdvanced}
+      >
+        <svg
+          class="chevron"
+          class:open={showAdvanced}
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+        >
+          <path d="M4.427 6.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 6H4.604a.25.25 0 00-.177.427z"/>
+        </svg>
+        <span>Advanced — Attribute Mapping &amp; SP Certificates</span>
+      </button>
+
+      {#if showAdvanced}
+        <div class="advanced-body">
+          <div class="form-row form-row--three">
+            <div class="form-group">
+              <Input
+                bind:value={usernameAttr}
+                label="Username Attribute"
+                placeholder="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+                fullWidth
+                disabled={!enabled}
+              />
+            </div>
+            <div class="form-group">
+              <Input
+                bind:value={groupsAttr}
+                label="Groups Attribute"
+                placeholder="http://schemas.xmlsoap.org/claims/Group"
+                fullWidth
+                disabled={!enabled}
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <Input
+              bind:value={allowedGroups}
+              label="Allowed Groups"
+              placeholder="Comma-separated group names (leave empty for all)"
+              fullWidth
+              disabled={!enabled}
+              helper="Only users in these groups will be allowed to log in. Leave empty to allow all."
+            />
+          </div>
+          <div class="form-group">
+            <Input
+              bind:value={spCertificate}
+              label="SP Certificate (PEM, optional)"
+              type="textarea"
+              placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+              fullWidth
+              disabled={!enabled}
+              helper="Required if Sign Requests is enabled."
+            />
+          </div>
+          <div class="form-group">
+            <Input
+              bind:value={spPrivateKey}
+              label="SP Private Key (PEM, optional)"
+              type="textarea"
+              placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+              fullWidth
+              disabled={!enabled}
+              helper="Required if Sign Requests is enabled. Stored securely on server."
+            />
+          </div>
+        </div>
+      {/if}
+    </Card>
+
+    <!-- ── Test result ─────────────────────────────────────────────────────── -->
+    {#if testResult !== null}
+      <div class="test-result" class:test-ok={testResult.ok} class:test-fail={!testResult.ok}>
+        {#if testResult.ok}
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/>
+          </svg>
+          Valid — {testResult.message}
+        {:else}
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+          </svg>
+          Validation failed: {testResult.message}
+        {/if}
+      </div>
+    {/if}
+
+    <!-- ── Save feedback ───────────────────────────────────────────────────── -->
+    {#if saveMsg}
+      <div class="save-msg">{saveMsg}</div>
+    {/if}
+    {#if saveError}
+      <div class="error-msg">{saveError}</div>
+    {/if}
+
+    <!-- ── Actions row ─────────────────────────────────────────────────────── -->
+    <div class="actions-row">
+      <Button
+        variant="default"
+        on:click={handleTest}
+        loading={testing}
+        disabled={!enabled || saving}
+      >
+        Test Configuration
+      </Button>
+      <Button
+        variant="primary"
+        on:click={handleSave}
+        loading={saving}
+        disabled={testing}
+      >
+        Save Settings
+      </Button>
+    </div>
+  {/if}
+</section>
+
+<style>
+  .settings-section {
+    max-width: 700px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ── Section header ──────────────────────────────────────────────────────── */
+  .section-header {
+    margin-bottom: 8px;
+  }
+
+  .section-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary, #f0f6fc);
+    margin: 0 0 4px;
+  }
+
+  .section-header p {
+    font-size: 0.875rem;
+    color: var(--text-secondary, #8b949e);
+    margin: 0;
+  }
+
+  /* ── Loading ─────────────────────────────────────────────────────────────── */
+  .loading {
+    text-align: center;
+    color: var(--text-secondary, #8b949e);
+    padding: 20px;
+  }
+
+  /* ── Enterprise gate banner ──────────────────────────────────────────────── */
+  .enterprise-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 20px;
+    background: rgba(88, 166, 255, 0.06);
+    border: 1px solid rgba(88, 166, 255, 0.25);
+    border-radius: 8px;
+  }
+
+  .banner-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: rgba(88, 166, 255, 0.12);
+    border-radius: 8px;
+    color: var(--color-primary, #58a6ff);
+  }
+
+  .banner-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .banner-body strong {
+    display: block;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary, #f0f6fc);
+    margin-bottom: 4px;
+  }
+
+  .banner-body p {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--text-secondary, #8b949e);
+    line-height: 1.5;
+  }
+
+  .upgrade-link {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    background: var(--color-primary, #58a6ff);
+    color: #ffffff;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-decoration: none;
+    border-radius: 6px;
+    white-space: nowrap;
+    transition: background 0.15s ease;
+  }
+
+  .upgrade-link:hover {
+    background: var(--color-primary-hover, #79b8ff);
+  }
+
+  /* ── Card section title ──────────────────────────────────────────────────── */
+  .card-section-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-secondary, #8b949e);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 14px;
+  }
+
+  /* ── Form layout ─────────────────────────────────────────────────────────── */
+  .form-group {
+    margin-bottom: 12px;
+  }
+
+  .form-group:last-child {
+    margin-bottom: 0;
+  }
+
+  .form-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .form-row--three {
+    flex-wrap: wrap;
+  }
+
+  .form-row--three .form-group {
+    flex: 1 1 220px;
+    margin-bottom: 0;
+  }
+
+  .form-group--nameid {
+    flex: 1;
+  }
+
+  /* ── Toggle rows ─────────────────────────────────────────────────────────── */
+  .toggle-row {
+    padding: 4px 0;
+  }
+
+  .toggle-row--inline {
+    margin-top: 10px;
+  }
+
+  /* ── SP Metadata URL ─────────────────────────────────────────────────────── */
+  .metadata-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .metadata-url {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+    background: var(--bg-tertiary, #21262d);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    color: var(--text-primary, #c9d1d9);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .copy-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: var(--bg-tertiary, #21262d);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 6px;
+    color: var(--text-secondary, #8b949e);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .copy-btn:hover {
+    color: var(--text-primary, #c9d1d9);
+    border-color: var(--text-secondary, #8b949e);
+  }
+
+  .metadata-hint {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--text-muted, #6e7681);
+    line-height: 1.5;
+  }
+
+  /* ── Advanced collapsible ────────────────────────────────────────────────── */
+  .advanced-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary, #8b949e);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.15s ease;
+  }
+
+  .advanced-toggle:hover {
+    color: var(--text-primary, #c9d1d9);
+  }
+
+  .chevron {
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+  }
+
+  .chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .advanced-body {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color, #30363d);
+  }
+
+  /* ── Test result banner ──────────────────────────────────────────────────── */
+  .test-result {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+  }
+
+  .test-ok {
+    background: rgba(35, 134, 54, 0.12);
+    border: 1px solid rgba(35, 134, 54, 0.4);
+    color: var(--color-success, #3fb950);
+  }
+
+  .test-fail {
+    background: rgba(248, 81, 73, 0.10);
+    border: 1px solid var(--color-error, #f85149);
+    color: var(--color-error, #f85149);
+  }
+
+  /* ── Save messages ───────────────────────────────────────────────────────── */
+  .save-msg {
+    padding: 10px 14px;
+    background: rgba(35, 134, 54, 0.10);
+    border: 1px solid rgba(35, 134, 54, 0.35);
+    border-radius: 6px;
+    color: var(--color-success, #3fb950);
+    font-size: 0.8125rem;
+  }
+
+  .error-msg {
+    padding: 10px 14px;
+    background: rgba(248, 81, 73, 0.10);
+    border: 1px solid var(--color-error, #f85149);
+    border-radius: 6px;
+    color: var(--color-error, #f85149);
+    font-size: 0.8125rem;
+  }
+
+  /* ── Actions row ─────────────────────────────────────────────────────────── */
+  .actions-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding-top: 4px;
+  }
+</style>

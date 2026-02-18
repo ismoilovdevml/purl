@@ -18,6 +18,21 @@
   let error = '';
   let loading = false;
 
+  let ssoAvailable = false;
+
+  // Check if SSO is configured
+  async function checkSso() {
+    try {
+      const res = await fetch('/api/license');
+      if (res.ok) {
+        const data = await res.json();
+        ssoAvailable = (data.features || []).includes('sso');
+      }
+    } catch { /* ignore */ }
+  }
+
+  checkSso();
+
   async function handleLogin() {
     if (!username.trim() || !password.trim()) return;
     loading = true;
@@ -90,6 +105,18 @@
       >
         Sign In
       </Button>
+
+      {#if ssoAvailable}
+        <div class="login-divider">
+          <span>or</span>
+        </div>
+        <a href="/api/auth/sso/login" class="sso-button">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+          </svg>
+          Sign in with SSO
+        </a>
+      {/if}
     </div>
   </div>
 </div>
@@ -152,5 +179,44 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+
+  .login-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #8b949e;
+    font-size: 0.8125rem;
+  }
+
+  .login-divider::before,
+  .login-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #30363d;
+  }
+
+  .sso-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 16px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .sso-button:hover {
+    background: #30363d;
+    color: #f0f6fc;
   }
 </style>

@@ -17,6 +17,7 @@ use Purl::Config;
 use Purl::API::Middleware::Auth;
 use Purl::API::Middleware::License;
 use Purl::API::Middleware::LDAP;
+use Purl::API::Middleware::SAML;
 
 # Controllers
 use Purl::API::Controller::Logs;
@@ -74,6 +75,22 @@ sub _build_ldap_middleware {
     return Purl::API::Middleware::LDAP->new(config => $ldap_config);
 }
 
+sub _build_saml_middleware {
+    my $saml_config  = $settings ? $settings->get_section('saml') : {};
+    my $saml_enabled = $ENV{PURL_SAML_ENABLED} // $saml_config->{enabled} // 0;
+    return undef unless $saml_enabled;
+
+    for my $key (qw(entity_id idp_entity_id idp_sso_url idp_slo_url idp_cert
+                    acs_url name_id_format sign_requests sp_cert sp_key
+                    username_attr groups_attr allowed_groups force_authn)) {
+        my $env_var = 'PURL_SAML_' . uc($key);
+        $saml_config->{$key} = $ENV{$env_var}
+            if defined $ENV{$env_var} && $ENV{$env_var} ne '';
+    }
+
+    return Purl::API::Middleware::SAML->new(config => $saml_config);
+}
+
 # Shared cache for all controllers
 my %cache;
 my $cache_ttl = 60;
@@ -86,6 +103,9 @@ my $license_middleware;
 
 # LDAP middleware instance
 my $ldap_middleware;
+
+# SAML middleware instance
+my $saml_middleware;
 
 sub create {
     my ($class, %args) = @_;
@@ -182,6 +202,7 @@ sub setup_routes {
 
     # Initialize LDAP middleware if configured
     $ldap_middleware = _build_ldap_middleware();
+    $saml_middleware = _build_saml_middleware();
 
     # Activate license on startup
     my $license_key = $license_middleware->get_license_key();
@@ -230,6 +251,7 @@ sub setup_routes {
         auth_middleware    => $auth_middleware,
         license_middleware => $license_middleware,
         ldap_middleware    => $ldap_middleware,
+        saml_middleware    => $saml_middleware,
         settings           => $settings,
     );
     my $traces_c = Purl::API::Controller::Traces->new(%c_args);
@@ -260,6 +282,12 @@ sub setup_routes {
         rebuild_ldap => sub {
             $ldap_middleware = _build_ldap_middleware();
             $settings_c->ldap_middleware($ldap_middleware) if $settings_c;
+        },
+        saml_middleware => $saml_middleware,
+        rebuild_saml    => sub {
+            $saml_middleware = _build_saml_middleware();
+            $settings_c->saml_middleware($saml_middleware) if $settings_c;
+            $auth_c->saml_middleware($saml_middleware)     if $auth_c;
         },
         auth_middleware    => $auth_middleware,
         ldap_middleware    => $ldap_middleware,
@@ -420,6 +448,11 @@ sub setup_routes {
     $api->post('/auth/logout' => sub ($c) { $auth_c->logout($c) });
     $api->get('/auth/me' => sub ($c) { $auth_c->me($c) });
 
+    # SSO/SAML 2.0 endpoints (public — no auth required)
+    $api->get('/auth/sso/login'     => sub ($c) { $auth_c->sso_login($c) });
+    $api->post('/auth/sso/callback' => sub ($c) { $auth_c->sso_callback($c) });
+    $api->get('/auth/sso/metadata'  => sub ($c) { $auth_c->sso_metadata($c) });
+
     # ============================================
     # License endpoint (public - needed before auth to determine plan)
     # ============================================
@@ -520,6 +553,11 @@ sub setup_routes {
     $protected->get('/settings/ldap' => sub ($c) { $settings_c->get_ldap($c) });
     $protected->put('/settings/ldap' => sub ($c) { $settings_c->update_ldap($c) });
     $protected->post('/settings/ldap/test' => sub ($c) { $settings_c->test_ldap($c) });
+
+    # SSO/SAML settings (Enterprise)
+    $protected->get('/settings/sso'       => sub ($c) { $settings_c->get_sso($c) });
+    $protected->put('/settings/sso'       => sub ($c) { $settings_c->update_sso($c) });
+    $protected->post('/settings/sso/test' => sub ($c) { $settings_c->test_sso($c) });
 
     # ============================================
     # Audit log endpoints (Enterprise)

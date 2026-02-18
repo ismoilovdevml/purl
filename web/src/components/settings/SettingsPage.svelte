@@ -13,6 +13,7 @@
   import LicenseSettings from './LicenseSettings.svelte';
   import UsersSettings from './UsersSettings.svelte';
   import LDAPSettings from './LDAPSettings.svelte';
+  import SSOSettings from './SSOSettings.svelte';
   import AboutSettings from './AboutSettings.svelte';
   import { isPaidPlan, isEnterprise } from '../../stores/license.js';
 
@@ -26,6 +27,7 @@
     { id: 'license', label: 'License', icon: 'key' },
     ...($isPaidPlan ? [{ id: 'users', label: 'Users', icon: 'users' }] : []),
     ...($isEnterprise ? [{ id: 'ldap', label: 'LDAP / AD', icon: 'ldap' }] : []),
+    ...($isEnterprise ? [{ id: 'sso', label: 'SSO / SAML', icon: 'sso' }] : []),
     { id: 'about', label: 'About', icon: 'info' },
   ];
 </script>
@@ -68,6 +70,10 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v4c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 9v4c0 1.66 4 3 9 3s9-1.34 9-3V9"/><path d="M3 13v4c0 1.66 4 3 9 3s9-1.34 9-3v-4"/>
             </svg>
+          {:else if section.icon === 'sso'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+            </svg>
           {:else if section.icon === 'info'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
@@ -94,6 +100,8 @@
       <UsersSettings />
     {:else if activeSection === 'ldap'}
       <LDAPSettings />
+    {:else if activeSection === 'sso'}
+      <SSOSettings />
     {:else if activeSection === 'about'}
       <AboutSettings />
     {/if}

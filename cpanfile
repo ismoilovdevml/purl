@@ -32,3 +32,6 @@ requires 'IO::Socket::SSL', '2.0';
 
 # License verification (JWT RS256)
 requires 'Crypt::JWT', '0.035';
+
+# SAML 2.0 authentication (Enterprise SSO)
+requires 'Net::SAML2', '0.63';
