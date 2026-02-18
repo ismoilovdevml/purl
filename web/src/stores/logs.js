@@ -3,6 +3,7 @@ import { escapeHtml } from '../utils/dom.js';
 import { settings } from './settings.js';
 import { currentUser } from './auth.js';
 import { error as toastError } from './toast.js';
+import { selectedCluster } from './cluster.js';
 
 // State stores
 export const logs = writable([]);
@@ -68,8 +69,16 @@ export async function searchLogs() {
       params.set('range', currentRange);
     }
 
-    if (currentQuery) {
-      params.set('q', currentQuery);
+    // Build query with optional cluster filter
+    const cluster = get(selectedCluster);
+    let finalQuery = currentQuery;
+    if (cluster && cluster !== 'all') {
+      const clusterFilter = `meta.cluster:${cluster}`;
+      finalQuery = currentQuery ? `${currentQuery} ${clusterFilter}` : clusterFilter;
+    }
+
+    if (finalQuery) {
+      params.set('q', finalQuery);
     }
 
     const response = await fetch(`${API_BASE}/logs?${params}`, { signal });

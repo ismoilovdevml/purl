@@ -1,4 +1,4 @@
-{{- if and .Values.clickhouse.enabled .Values.podDisruptionBudget.enabled }}
+{{- if and .Values.clickhouse.enabled (or .Values.podDisruptionBudget.enabled .Values.clickhouse.cluster.enabled) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -6,7 +6,11 @@ metadata:
   labels:
     {{- include "purl.clickhouse.labels" . | nindent 4 }}
 spec:
+  {{- if .Values.clickhouse.cluster.enabled }}
+  minAvailable: {{ sub (int .Values.clickhouse.cluster.replicas) 1 }}
+  {{- else }}
   minAvailable: 1
+  {{- end }}
   selector:
     matchLabels:
       {{- include "purl.clickhouse.selectorLabels" . | nindent 6 }}

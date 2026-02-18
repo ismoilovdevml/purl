@@ -27,7 +27,7 @@ sub _init_dashboard_schema {
             created_at DateTime DEFAULT now(),
             updated_at DateTime DEFAULT now()
         )
-        ENGINE = ReplacingMergeTree(updated_at)
+        ENGINE = @{[$self->_engine_replacing_mergetree('dashboards', 'updated_at')]}
         ORDER BY (id)
     });
 }

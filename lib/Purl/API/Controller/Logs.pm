@@ -14,70 +14,98 @@ use Purl::Util::Time qw(parse_time_range epoch_to_iso);
 
 extends 'Purl::API::Controller::Base';
 
-# Shared state for live tail
+# Shared state for live tail WebSocket connections
 has 'websockets' => (
     is => 'ro',
     default => sub { [] },
+);
+
+# Broadcast backend (Purl::Broadcast::Local or Purl::Broadcast::Redis)
+has 'broadcaster' => (
+    is      => 'rw',
+    default => sub { undef },
 );
 
 sub _broadcast_logs {
     my ($self, $logs) = @_;
     return unless @$logs;
 
+    if ($self->broadcaster) {
+        # Publish via broadcast system (Redis or Local)
+        # Other instances receive this via their subscription callbacks
+        $self->broadcaster->publish(
+            $self->broadcaster->default_channel,
+            $logs,
+        );
+    } else {
+        # Direct local delivery (backward-compatible fallback)
+        $self->_deliver_to_websockets($logs);
+    }
+}
+
+# Apply per-connection filters and send matching logs to WebSocket clients
+sub _deliver_to_websockets {
+    my ($self, $logs) = @_;
+    return unless @$logs;
+
     my $conns = $self->websockets;
-    
+
     for my $ws (@$conns) {
         next unless $ws;
         eval {
-            my $filter = $ws->{filter} // {};
-            my @matches;
-
-            for my $log (@$logs) {
-                # Apply all filters server-side to reduce bandwidth
-
-                # Level filter (exact match or array)
-                if ($filter->{level}) {
-                    if (ref $filter->{level} eq 'ARRAY') {
-                        my %allowed = map { uc($_) => 1 } @{$filter->{level}};
-                        next unless $allowed{uc($log->{level} // '')};
-                    } else {
-                        next if uc($log->{level} // '') ne uc($filter->{level});
-                    }
-                }
-
-                # Service filter (exact match or wildcard)
-                if ($filter->{service}) {
-                    my $service = $log->{service} // '';
-                    my $pattern = $filter->{service};
-                    if ($pattern =~ /\*/) {
-                        # Convert wildcard to regex
-                        $pattern =~ s/\./\\./g;
-                        $pattern =~ s/\*/.*/g;
-                        next unless $service =~ /^$pattern$/i;
-                    } else {
-                        next if lc($service) ne lc($pattern);
-                    }
-                }
-
-                # Host filter
-                if ($filter->{host}) {
-                    next if lc($log->{host} // '') ne lc($filter->{host});
-                }
-
-                # Message contains filter (case-insensitive)
-                if ($filter->{query}) {
-                    my $message = $log->{message} // '';
-                    next unless index(lc($message), lc($filter->{query})) >= 0;
-                }
-                
-                push @matches, $log;
-            }
-            
+            my @matches = $self->_filter_logs($ws->{filter} // {}, $logs);
             if (@matches) {
                 $ws->send({json => \@matches});
             }
         };
     }
+}
+
+# Filter logs against a subscriber filter — returns matching logs
+sub _filter_logs {
+    my ($self, $filter, $logs) = @_;
+    my @matches;
+
+    for my $log (@$logs) {
+        # Level filter (exact match or array)
+        if ($filter->{level}) {
+            if (ref $filter->{level} eq 'ARRAY') {
+                my %allowed = map { uc($_) => 1 } @{$filter->{level}};
+                next unless $allowed{uc($log->{level} // '')};
+            } else {
+                next if uc($log->{level} // '') ne uc($filter->{level});
+            }
+        }
+
+        # Service filter (exact match or wildcard)
+        if ($filter->{service}) {
+            my $service = $log->{service} // '';
+            my $pattern = $filter->{service};
+            if ($pattern =~ /\*/) {
+                # Convert wildcard to regex
+                $pattern =~ s/\./\\./g;
+                $pattern =~ s/\*/.*/g;
+                next unless $service =~ /^$pattern$/i;
+            } else {
+                next if lc($service) ne lc($pattern);
+            }
+        }
+
+        # Host filter
+        if ($filter->{host}) {
+            next if lc($log->{host} // '') ne lc($filter->{host});
+        }
+
+        # Message contains filter (case-insensitive)
+        if ($filter->{query}) {
+            my $message = $log->{message} // '';
+            next unless index(lc($message), lc($filter->{query})) >= 0;
+        }
+
+        push @matches, $log;
+    }
+
+    return @matches;
 }
 
 sub query {

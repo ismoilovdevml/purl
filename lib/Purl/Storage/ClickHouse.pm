@@ -21,6 +21,7 @@ with 'Purl::Storage::ClickHouse::Audit';
 with 'Purl::Storage::ClickHouse::Backup';
 with 'Purl::Storage::ClickHouse::Pipeline';
 with 'Purl::Storage::ClickHouse::Dashboard';
+with 'Purl::Storage::ClickHouse::K8sHealth';
 
 # Configuration
 has 'host' => (
@@ -56,6 +57,13 @@ has 'table' => (
 has 'retention_days' => (
     is      => 'ro',
     default => 30,
+);
+
+# Cluster name: when set, enables ReplicatedMergeTree engines.
+# Reads from PURL_CLICKHOUSE_CLUSTER env var or constructor arg.
+has 'cluster_name' => (
+    is      => 'ro',
+    default => sub { $ENV{PURL_CLICKHOUSE_CLUSTER} // '' },
 );
 
 # Performance tuning
@@ -159,6 +167,45 @@ has '_circuit_cooldown' => (
 sub BUILD {
     my ($self) = @_;
     $self->_init_schema();
+}
+
+# ============================================
+# Cluster / Replication Helpers
+# ============================================
+
+# Returns true when running in ClickHouse cluster mode
+sub is_cluster_mode {
+    my ($self) = @_;
+    return $self->cluster_name ne '';
+}
+
+# Build the appropriate MergeTree engine clause.
+# In cluster mode: ReplicatedMergeTree with ZooKeeper paths.
+# In single mode:  Plain MergeTree (default, backward compatible).
+sub _engine_mergetree {
+    my ($self, $table_path) = @_;
+    if ($self->is_cluster_mode) {
+        return "ReplicatedMergeTree('/clickhouse/tables/{shard}/$table_path', '{replica}')";
+    }
+    return 'MergeTree()';
+}
+
+# Build engine clause for ReplacingMergeTree (used by pipelines, dashboards, patterns)
+sub _engine_replacing_mergetree {
+    my ($self, $table_path, $ver_column) = @_;
+    if ($self->is_cluster_mode) {
+        return "ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/$table_path', '{replica}', $ver_column)";
+    }
+    return "ReplacingMergeTree($ver_column)";
+}
+
+# Build engine clause for SummingMergeTree (used by materialized view targets)
+sub _engine_summing_mergetree {
+    my ($self, $table_path) = @_;
+    if ($self->is_cluster_mode) {
+        return "ReplicatedSummingMergeTree('/clickhouse/tables/{shard}/$table_path', '{replica}')";
+    }
+    return 'SummingMergeTree()';
 }
 
 # Note: SQL injection prevention helpers are provided by Purl::Storage::ClickHouse::Query role
@@ -320,8 +367,9 @@ sub _init_schema {
         die "ClickHouse error creating database: $response->{status} - $response->{content}";
     }
 
-    # Create logs table with MergeTree engine - optimized schema
+    # Create logs table — engine adapts to cluster mode automatically
     my $table = $self->database . '.' . $self->table;
+    my $logs_engine = $self->_engine_mergetree('logs');
 
     $self->_query(qq{
         CREATE TABLE IF NOT EXISTS $table (
@@ -344,7 +392,7 @@ sub _init_schema {
             INDEX idx_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 4,
             INDEX idx_request_id request_id TYPE bloom_filter(0.01) GRANULARITY 4
         )
-        ENGINE = MergeTree()
+        ENGINE = $logs_engine
         PARTITION BY toYYYYMMDD(timestamp)
         ORDER BY (service, level, timestamp)
         TTL toDateTime(timestamp) + INTERVAL $self->{retention_days} DAY
@@ -378,9 +426,10 @@ sub _init_schema {
     };
 
     # Create materialized view for level stats
+    my $level_stats_engine = $self->_engine_summing_mergetree('logs_level_stats');
     $self->_query(qq{
         CREATE MATERIALIZED VIEW IF NOT EXISTS ${table}_level_stats
-        ENGINE = SummingMergeTree()
+        ENGINE = $level_stats_engine
         ORDER BY (date, level)
         AS SELECT
             toDate(timestamp) as date,
@@ -391,9 +440,10 @@ sub _init_schema {
     });
 
     # Create materialized view for service stats
+    my $service_stats_engine = $self->_engine_summing_mergetree('logs_service_stats');
     $self->_query(qq{
         CREATE MATERIALIZED VIEW IF NOT EXISTS ${table}_service_stats
-        ENGINE = SummingMergeTree()
+        ENGINE = $service_stats_engine
         ORDER BY (date, service)
         AS SELECT
             toDate(timestamp) as date,
@@ -405,6 +455,7 @@ sub _init_schema {
 
     # Create saved searches table
     my $db = $self->database;
+    my $saved_engine = $self->_engine_mergetree('saved_searches');
     $self->_query(qq{
         CREATE TABLE IF NOT EXISTS ${db}.saved_searches (
             id UUID DEFAULT generateUUIDv4(),
@@ -413,11 +464,12 @@ sub _init_schema {
             time_range String DEFAULT '15m',
             created_at DateTime DEFAULT now()
         )
-        ENGINE = MergeTree()
+        ENGINE = $saved_engine
         ORDER BY created_at
     });
 
     # Create alerts table
+    my $alerts_engine = $self->_engine_mergetree('alerts');
     $self->_query(qq{
         CREATE TABLE IF NOT EXISTS ${db}.alerts (
             id UUID DEFAULT generateUUIDv4(),
@@ -432,11 +484,12 @@ sub _init_schema {
             last_triggered DateTime DEFAULT toDateTime(0),
             created_at DateTime DEFAULT now()
         )
-        ENGINE = MergeTree()
+        ENGINE = $alerts_engine
         ORDER BY created_at
     });
 
     # Create log patterns table for pattern-based grouping
+    my $patterns_engine = $self->_engine_replacing_mergetree('log_patterns', 'last_seen');
     $self->_query(qq{
         CREATE TABLE IF NOT EXISTS ${db}.log_patterns (
             pattern_hash UInt64,
@@ -448,7 +501,7 @@ sub _init_schema {
             last_seen DateTime64(3),
             occurrence_count UInt64
         )
-        ENGINE = ReplacingMergeTree(last_seen)
+        ENGINE = $patterns_engine
         ORDER BY (pattern_hash, service, level)
         TTL toDateTime(first_seen) + INTERVAL $self->{retention_days} DAY
     });
@@ -1187,6 +1240,13 @@ Purl::Storage::ClickHouse - ClickHouse storage backend for high-volume logs
         retention_days => 30,
     );
 
+    # Cluster mode (via env or constructor):
+    # PURL_CLICKHOUSE_CLUSTER=purl_cluster
+    my $clustered = Purl::Storage::ClickHouse->new(
+        host         => 'clickhouse-0.clickhouse-headless',
+        cluster_name => 'purl_cluster',
+    );
+
     # Insert logs
     $storage->insert_batch(\@normalized_logs);
 
@@ -1203,6 +1263,8 @@ Purl::Storage::ClickHouse - ClickHouse storage backend for high-volume logs
 =over 4
 
 =item * MergeTree engine with automatic partitioning by day
+
+=item * ReplicatedMergeTree in cluster mode (set PURL_CLICKHOUSE_CLUSTER)
 
 =item * TTL-based automatic data retention
 

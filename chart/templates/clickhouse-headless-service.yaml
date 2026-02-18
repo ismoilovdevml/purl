@@ -17,6 +17,12 @@ spec:
       targetPort: native
       protocol: TCP
       name: native
+    {{- if and .Values.clickhouse.cluster.enabled .Values.clickhouse.cluster.keeper.enabled }}
+    - port: {{ .Values.clickhouse.cluster.keeper.port }}
+      targetPort: keeper
+      protocol: TCP
+      name: keeper
+    {{- end }}
   selector:
     {{- include "purl.clickhouse.selectorLabels" . | nindent 4 }}
 {{- end }}

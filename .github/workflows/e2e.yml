@@ -1,0 +1,49 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly: Sunday at 3am UTC
+    - cron: '0 3 * * 0'
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ismoilovdev/purl
+
+jobs:
+  # ==========================================
+  # Job 1: Docker Compose E2E
+  # ==========================================
+  docker-compose-e2e:
+    name: Docker Compose E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Docker Compose E2E test
+        run: ./tests/e2e/docker-compose-test.sh
+
+  # ==========================================
+  # Job 2: Kubernetes E2E (Kind cluster)
+  # ==========================================
+  k8s-e2e:
+    name: K8s E2E (Kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Kind
+        run: |
+          [ $(uname -m) = x86_64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.25.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run K8s E2E smoke test
+        run: ./tests/e2e/k8s-smoke.sh

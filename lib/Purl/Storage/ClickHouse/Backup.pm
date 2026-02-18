@@ -36,7 +36,7 @@ sub _init_backup_schema {
             created_at DateTime DEFAULT now(),
             completed_at DateTime DEFAULT toDateTime(0)
         )
-        ENGINE = MergeTree()
+        ENGINE = @{[$self->_engine_mergetree('backups')]}
         ORDER BY created_at
     });
 }

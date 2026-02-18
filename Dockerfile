@@ -24,6 +24,11 @@ RUN cpanm --notest --installdeps .
 # Final image (no build-essential = ~400MB smaller)
 FROM perl:5.40-slim-bookworm
 LABEL maintainer="Purl Contributors"
+LABEL org.opencontainers.image.source="https://github.com/ismoilovdevml/purl"
+LABEL org.opencontainers.image.title="Purl"
+LABEL org.opencontainers.image.description="Lightweight log aggregation system"
+LABEL org.opencontainers.image.vendor="Purl"
+LABEL org.opencontainers.image.licenses="BSL-1.1"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 libxml2 curl ca-certificates \

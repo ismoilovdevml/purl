@@ -25,7 +25,7 @@ sub _init_audit_schema {
             details String DEFAULT '',
             ip_address String DEFAULT '',
             status LowCardinality(String) DEFAULT 'success'
-        ) ENGINE = MergeTree()
+        ) ENGINE = @{[$self->_engine_mergetree('audit_logs')]}
         ORDER BY (timestamp, actor)
         TTL toDateTime(timestamp) + INTERVAL 90 DAY
         SETTINGS index_granularity = 8192

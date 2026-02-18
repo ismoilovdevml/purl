@@ -1,4 +1,4 @@
-.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint
+.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint e2e-k8s e2e-docker
 
 # Variables
 PERL5LIB := lib
@@ -22,6 +22,10 @@ help:
 	@echo "  web-dev       Start frontend dev server"
 	@echo "  web-build     Build frontend assets"
 	@echo "  test          Run tests"
+	@echo ""
+	@echo "E2E Testing:"
+	@echo "  e2e-k8s       K8s E2E test (requires Kind + Helm)"
+	@echo "  e2e-docker    Docker Compose E2E test"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean         Remove containers and volumes"
@@ -87,6 +91,13 @@ helm-lint:
 		--set vector.enabled=true \
 		> /dev/null
 	@echo "Helm validation passed."
+
+# E2E Testing
+e2e-k8s: ## K8s E2E test (requires Kind + Helm)
+	./tests/e2e/k8s-smoke.sh
+
+e2e-docker: ## Docker Compose E2E test
+	./tests/e2e/docker-compose-test.sh
 
 # Maintenance
 clean:

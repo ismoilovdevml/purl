@@ -13,7 +13,7 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic only from Purl pods
+    # Allow traffic from Purl pods
     - from:
         - podSelector:
             matchLabels:
@@ -21,11 +21,43 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.clickhouse.port }}
+    {{- if .Values.clickhouse.cluster.enabled }}
+    # Allow inter-node ClickHouse traffic (native protocol + Keeper)
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "purl.clickhouse.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 9000
+        - protocol: TCP
+          port: 8123
+        {{- if .Values.clickhouse.cluster.keeper.enabled }}
+        - protocol: TCP
+          port: {{ .Values.clickhouse.cluster.keeper.port }}
+        {{- end }}
+    {{- end }}
   egress:
-    # Allow DNS resolution only
+    # Allow DNS resolution
     - ports:
         - protocol: UDP
           port: 53
         - protocol: TCP
           port: 53
+    {{- if .Values.clickhouse.cluster.enabled }}
+    # Allow outbound to other ClickHouse replicas
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "purl.clickhouse.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 9000
+        - protocol: TCP
+          port: 8123
+        {{- if .Values.clickhouse.cluster.keeper.enabled }}
+        - protocol: TCP
+          port: {{ .Values.clickhouse.cluster.keeper.port }}
+        {{- end }}
+    {{- end }}
 {{- end }}

@@ -7,12 +7,20 @@ metadata:
     {{- include "purl.clickhouse.labels" . | nindent 4 }}
 spec:
   serviceName: {{ include "purl.clickhouse.fullname" . }}-headless
+  {{- if .Values.clickhouse.cluster.enabled }}
+  replicas: {{ .Values.clickhouse.cluster.replicas }}
+  {{- else }}
   replicas: 1
+  {{- end }}
   selector:
     matchLabels:
       {{- include "purl.clickhouse.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      {{- if .Values.clickhouse.cluster.enabled }}
+      annotations:
+        checksum/cluster-config: {{ include (print $.Template.BasePath "/clickhouse-cluster-config.yaml") . | sha256sum }}
+      {{- end }}
       labels:
         {{- include "purl.clickhouse.selectorLabels" . | nindent 8 }}
     spec:
@@ -31,6 +39,11 @@ spec:
             - name: native
               containerPort: 9000
               protocol: TCP
+            {{- if and .Values.clickhouse.cluster.enabled .Values.clickhouse.cluster.keeper.enabled }}
+            - name: keeper
+              containerPort: {{ .Values.clickhouse.cluster.keeper.port }}
+              protocol: TCP
+            {{- end }}
           env:
             - name: CLICKHOUSE_DB
               value: {{ .Values.clickhouse.database | quote }}
@@ -44,6 +57,12 @@ spec:
                 secretKeyRef:
                   name: {{ include "purl.fullname" . }}
                   key: PURL_CLICKHOUSE_PASSWORD
+            {{- end }}
+            {{- if and .Values.clickhouse.cluster.enabled .Values.clickhouse.cluster.keeper.enabled }}
+            - name: CH_KEEPER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
             {{- end }}
           startupProbe:
             httpGet:
@@ -75,11 +94,41 @@ spec:
               mountPath: /var/lib/clickhouse
             - name: logs
               mountPath: /var/log/clickhouse-server
+            {{- if .Values.clickhouse.cluster.enabled }}
+            - name: cluster-config
+              mountPath: /etc/clickhouse-server/config.d/cluster.xml
+              subPath: cluster.xml
+            {{- end }}
+      {{- if .Values.clickhouse.cluster.enabled }}
+      initContainers:
+        - name: set-keeper-id
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              # Extract ordinal index from hostname (e.g., purl-clickhouse-0 -> 1)
+              ORDINAL=$(echo $HOSTNAME | grep -o '[0-9]*$')
+              KEEPER_ID=$((ORDINAL + 1))
+              echo "Setting CH_KEEPER_ID=$KEEPER_ID for $HOSTNAME"
+              # Write keeper ID to shared file for the main container
+              echo "$KEEPER_ID" > /etc/clickhouse-keeper/keeper_id
+          volumeMounts:
+            - name: keeper-id
+              mountPath: /etc/clickhouse-keeper
+      {{- end }}
       volumes:
         - name: logs
           emptyDir: {}
         {{- if not .Values.clickhouse.persistence.enabled }}
         - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- if .Values.clickhouse.cluster.enabled }}
+        - name: cluster-config
+          configMap:
+            name: {{ include "purl.clickhouse.fullname" . }}-cluster
+        - name: keeper-id
           emptyDir: {}
         {{- end }}
       {{- with .Values.nodeSelector }}
@@ -89,6 +138,17 @@ spec:
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.clickhouse.cluster.enabled }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "purl.clickhouse.selectorLabels" . | nindent 20 }}
+                topologyKey: kubernetes.io/hostname
       {{- end }}
   {{- if .Values.clickhouse.persistence.enabled }}
   volumeClaimTemplates:

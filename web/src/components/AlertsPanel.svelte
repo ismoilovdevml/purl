@@ -5,6 +5,7 @@
   import Select from './ui/Select.svelte';
   import Modal from './ui/Modal.svelte';
   import ConfirmDialog from './ui/ConfirmDialog.svelte';
+  import AlertTemplateGallery from './alerts/AlertTemplateGallery.svelte';
 
   let alerts = [];
   let showModal = false;
@@ -32,6 +33,9 @@
   // Confirm dialog state
   let showDeleteConfirm = false;
   let deleteTargetId = null;
+
+  // Template gallery state
+  let showTemplateGallery = false;
 
   onMount(() => {
     loadAlerts();
@@ -158,6 +162,26 @@
     e.stopPropagation();
     openModal();
   }
+
+  function handleTemplatesClick(e) {
+    e.stopPropagation();
+    showTemplateGallery = true;
+  }
+
+  function handleUseTemplate(event) {
+    const template = event.detail;
+    showTemplateGallery = false;
+    editingAlert = null;
+    form = {
+      name: template.name,
+      query: template.query,
+      threshold: template.threshold,
+      window_minutes: template.window_minutes,
+      notify_type: 'webhook',
+      notify_target: ''
+    };
+    showModal = true;
+  }
 </script>
 
 <div class="alerts-panel">
@@ -169,6 +193,14 @@
     {#if alerts.length > 0}
       <span class="count">{alerts.length}</span>
     {/if}
+    <Button icon size="sm" variant="ghost" on:click={handleTemplatesClick} title="Browse K8s Templates">
+      <svg width="14" height="14" viewBox="0 0 14 14">
+        <rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/>
+        <rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/>
+        <rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/>
+        <rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor"/>
+      </svg>
+    </Button>
     <Button icon size="sm" variant="ghost" on:click={handleAddClick} title="Create alert">
       <svg width="14" height="14" viewBox="0 0 14 14">
         <path fill="currentColor" d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -273,6 +305,10 @@
   variant="danger"
   onConfirm={confirmDeleteAlert}
 />
+
+<Modal bind:open={showTemplateGallery} title="K8s Alert Templates" size="lg">
+  <AlertTemplateGallery on:use-template={handleUseTemplate} />
+</Modal>
 
 <style>
   .alerts-panel {

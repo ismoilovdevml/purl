@@ -15,6 +15,7 @@
   import Onboarding from './components/Onboarding.svelte';
   import SearchHelp from './components/SearchHelp.svelte';
   import Toast from './components/ui/Toast.svelte';
+  import ClusterSelector from './components/ui/ClusterSelector.svelte';
   import {
     logs,
     loading,
@@ -29,6 +30,7 @@
   import { fetchLicense, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining } from './stores/license.js';
   import { currentUser, checkAuth, logout } from './stores/auth.js';
   import { success as toastSuccess } from './stores/toast.js';
+  import { fetchClusters, clusters } from './stores/cluster.js';
 
   let savedSearchesRef;
   let currentPage = 'logs'; // 'logs' | 'analytics' | 'dashboards' | 'settings'
@@ -137,6 +139,9 @@
     checkMobile();
     window.addEventListener('resize', checkMobile);
 
+    // Fetch available clusters (non-blocking)
+    fetchClusters();
+
     if (currentPage === 'logs') {
       await searchLogs();
     }
@@ -179,6 +184,10 @@
   }
 
   function handleSearch() {
+    searchLogs();
+  }
+
+  function handleClusterChange() {
     searchLogs();
   }
 
@@ -422,6 +431,9 @@
       <button class="search-help-btn" on:click={() => showSearchHelp = true} title="Search syntax help">?</button>
 
       <div class="header-actions">
+        {#if $clusters.length > 0}
+          <ClusterSelector on:change={handleClusterChange} />
+        {/if}
         <TimeRangePicker value={$timeRange} on:change={handleTimeRangeChange} />
 
         {#if selectedLogs.length > 0}

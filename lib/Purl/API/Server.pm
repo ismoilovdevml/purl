@@ -19,6 +19,7 @@ use Purl::API::Middleware::License;
 use Purl::API::Middleware::LDAP;
 use Purl::API::Middleware::SAML;
 use Purl::API::Middleware::NamespaceScope;
+use Purl::Broadcast::Local;
 
 # Controllers
 use Purl::API::Controller::Logs;
@@ -40,13 +41,17 @@ use Purl::API::Controller::Syslog;
 use Purl::API::Controller::Pipeline;
 use Purl::API::Controller::Dashboard;
 use Purl::API::Controller::K8sAudit;
+use Purl::API::Controller::K8sHealth;
+use Purl::API::Controller::AlertTemplates;
 use Purl::API::Controller::AI;
+use Purl::API::Controller::Clusters;
 
 # Package-level state
 my $storage;
 my $config = {};
 my $settings;  # Purl::Config instance
 my $websockets = [];
+my $broadcaster;
 my %notifiers;
 
 # Metrics counters
@@ -189,12 +194,54 @@ sub _build_notifiers {
     return \%notifiers;
 }
 
+sub _build_broadcaster {
+    my $redis_url = $ENV{PURL_REDIS_URL}
+        // ($settings ? $settings->get('redis', 'url') : '');
+    my $mode = $ENV{PURL_BROADCAST_MODE}
+        // ($settings ? $settings->get('redis', 'mode') : 'auto');
+
+    # Explicit local mode
+    if ($mode eq 'local') {
+        app->log->info("Broadcast: local mode (in-memory only)");
+        return Purl::Broadcast::Local->new();
+    }
+
+    # Try Redis if URL is configured and mode is auto or redis
+    if ($redis_url && $redis_url ne '') {
+        my $redis_broadcaster;
+        eval {
+            require Purl::Broadcast::Redis;
+            $redis_broadcaster = Purl::Broadcast::Redis->new(redis_url => $redis_url);
+            if ($redis_broadcaster->is_connected) {
+                app->log->info("Broadcast: Redis mode ($redis_url)");
+            } else {
+                app->log->warn("Broadcast: Redis configured but not connected, falling back to local");
+                $redis_broadcaster = undef;
+            }
+        };
+        if ($@) {
+            app->log->warn("Broadcast: Redis init failed ($@), falling back to local");
+        }
+        return $redis_broadcaster if $redis_broadcaster;
+
+        # If mode is explicitly redis but failed, still warn
+        if ($mode eq 'redis') {
+            app->log->warn("Broadcast: Redis mode requested but unavailable, using local fallback");
+        }
+    }
+
+    # Default: local broadcast
+    app->log->info("Broadcast: local mode (no Redis configured)");
+    return Purl::Broadcast::Local->new();
+}
+
 sub setup_routes {
     my ($self) = @_;
 
     $settings //= Purl::Config->new();
     $storage //= _build_storage();
     _build_notifiers();
+    $broadcaster //= _build_broadcaster();
 
     # Initialize auth middleware
     $auth_middleware = Purl::API::Middleware::Auth->new(
@@ -315,7 +362,7 @@ sub setup_routes {
     );
     my $traces_c = Purl::API::Controller::Traces->new(%c_args);
     my $analytics_c = Purl::API::Controller::Analytics->new(%c_args, notifier_list => \%notifiers);
-    my $logs_c   = Purl::API::Controller::Logs->new(%c_args, websockets => $websockets);
+    my $logs_c   = Purl::API::Controller::Logs->new(%c_args, websockets => $websockets, broadcaster => $broadcaster);
     my $stats_c  = Purl::API::Controller::Stats->new(%c_args);
     my $patterns_c = Purl::API::Controller::Patterns->new(%c_args);
     my $saved_c  = Purl::API::Controller::SavedSearches->new(%c_args);
@@ -360,7 +407,10 @@ sub setup_routes {
     my $pipeline_c  = Purl::API::Controller::Pipeline->new(%c_args);
     my $dashboard_c = Purl::API::Controller::Dashboard->new(%c_args);
     my $k8saudit_c  = Purl::API::Controller::K8sAudit->new(%c_args);
-    my $ai_c        = Purl::API::Controller::AI->new(%c_args, settings => $settings);
+    my $k8shealth_c      = Purl::API::Controller::K8sHealth->new(%c_args);
+    my $alert_templates_c = Purl::API::Controller::AlertTemplates->new(%c_args);
+    my $ai_c             = Purl::API::Controller::AI->new(%c_args, settings => $settings);
+    my $clusters_c       = Purl::API::Controller::Clusters->new(%c_args);
 
     # Initialize audit schema (non-fatal)
     eval { $storage->_init_audit_schema() };
@@ -660,6 +710,7 @@ sub setup_routes {
     $protected->delete('/alerts/:id' => sub ($c) { $alerts_c->remove($c) });
     $protected->post('/alerts/check' => sub ($c) { $alerts_c->check($c) });
     $protected->post('/alerts/test-notification' => sub ($c) { $alerts_c->test_notification($c) });
+    $protected->get('/alerts/templates' => sub ($c) { $alert_templates_c->list($c) });
 
     # ============================================
     # Config endpoints
@@ -756,10 +807,21 @@ sub setup_routes {
     $protected->post('/v1/k8s-audit' => sub ($c) { $k8saudit_c->ingest($c) });
 
     # ============================================
+    # K8s Health endpoints
+    # ============================================
+    $protected->get('/k8s/health' => sub ($c) { $k8shealth_c->summary($c) });
+    $protected->get('/k8s/health/pods' => sub ($c) { $k8shealth_c->pods($c) });
+
+    # ============================================
     # AI query endpoints
     # ============================================
     $protected->post('/ai/query' => sub ($c) { $ai_c->query($c) });
     $protected->get('/ai/suggest' => sub ($c) { $ai_c->suggest($c) });
+
+    # ============================================
+    # Clusters endpoint (multi-cluster support)
+    # ============================================
+    $protected->get('/clusters' => sub ($c) { $clusters_c->list($c) });
 
     # ============================================
     # WebSocket for live tail
@@ -767,6 +829,25 @@ sub setup_routes {
     $api->websocket('/logs/stream' => sub ($c) {
         my $ws = $c->tx;
         push @$websockets, $ws;
+
+        # Subscribe to broadcast channel for cross-replica delivery
+        my $sub_id;
+        if ($broadcaster) {
+            $sub_id = $broadcaster->subscribe(
+                $broadcaster->default_channel,
+                sub {
+                    my ($json_msg) = @_;
+                    eval {
+                        my $logs = ref $json_msg ? $json_msg : decode_json($json_msg);
+                        $logs = [$logs] unless ref $logs eq 'ARRAY';
+                        my @matches = $logs_c->_filter_logs($ws->{filter} // {}, $logs);
+                        if (@matches) {
+                            $ws->send({json => \@matches});
+                        }
+                    };
+                },
+            );
+        }
 
         $c->on(message => sub ($c, $msg) {
             my $data = eval { decode_json($msg) };
@@ -776,7 +857,11 @@ sub setup_routes {
         });
 
         $c->on(finish => sub ($c, $code, $reason) {
-            # Use splice for O(1) removal instead of grep O(n) copy
+            # Unsubscribe from broadcast channel
+            if ($broadcaster && defined $sub_id) {
+                $broadcaster->unsubscribe($sub_id);
+            }
+            # Remove from local websockets array
             for my $i (0 .. $#$websockets) {
                 if ($websockets->[$i] == $ws) {
                     splice @$websockets, $i, 1;
@@ -785,9 +870,11 @@ sub setup_routes {
             }
         });
 
+        my $mode = $broadcaster ? (ref($broadcaster) =~ /Redis/ ? 'redis' : 'local') : 'direct';
         $c->send(encode_json({
             type    => 'connected',
             message => 'Connected to log stream',
+            broadcast_mode => $mode,
         }));
     });
 

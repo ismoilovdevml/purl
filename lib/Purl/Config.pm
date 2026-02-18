@@ -87,6 +87,10 @@ my $DEFAULTS = {
         allowed_groups  => '',
         force_authn     => 0,
     },
+    redis => {
+        url  => '',
+        mode => 'auto',   # auto | local | redis
+    },
     notifications => {
         telegram => {
             enabled   => 0,
@@ -222,6 +226,8 @@ sub get {
         'saml.groups_attr'    => 'PURL_SAML_GROUPS_ATTR',
         'saml.allowed_groups' => 'PURL_SAML_ALLOWED_GROUPS',
         'saml.force_authn'    => 'PURL_SAML_FORCE_AUTHN',
+        'redis.url'           => 'PURL_REDIS_URL',
+        'redis.mode'          => 'PURL_BROADCAST_MODE',
     );
 
     my $full_key = "$section.$key";
@@ -396,6 +402,8 @@ sub is_from_env {
         'saml.groups_attr'    => 'PURL_SAML_GROUPS_ATTR',
         'saml.allowed_groups' => 'PURL_SAML_ALLOWED_GROUPS',
         'saml.force_authn'    => 'PURL_SAML_FORCE_AUTHN',
+        'redis.url'           => 'PURL_REDIS_URL',
+        'redis.mode'          => 'PURL_BROADCAST_MODE',
     );
 
     my $full_key = "$section.$key";

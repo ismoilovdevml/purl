@@ -14,3 +14,9 @@ data:
   PURL_CLICKHOUSE_USER: {{ .Values.clickhouse.user | quote }}
   PURL_RETENTION_DAYS: {{ .Values.purl.retentionDays | quote }}
   PURL_AUTH_ENABLED: {{ ternary "1" "0" .Values.purl.authEnabled | quote }}
+  {{- if .Values.clickhouse.cluster.enabled }}
+  PURL_CLICKHOUSE_CLUSTER: {{ .Values.clickhouse.cluster.name | quote }}
+  {{- end }}
+  {{- if and .Values.purl.redis.enabled .Values.purl.redis.url }}
+  PURL_REDIS_URL: {{ .Values.purl.redis.url | quote }}
+  {{- end }}

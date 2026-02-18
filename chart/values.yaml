@@ -93,6 +93,13 @@ purl:
     # -- Slack channel override
     channel: ""
 
+  # -- Redis for cross-replica WebSocket live tail broadcast
+  redis:
+    # -- Enable Redis Pub/Sub for multi-replica WebSocket support
+    enabled: false
+    # -- External Redis URL (e.g., redis://redis:6379)
+    url: ""
+
   # -- Generic webhook alerting
   alertWebhook:
     # -- Webhook URL for alerts
@@ -124,6 +131,27 @@ clickhouse:
   user: purl
   # -- ClickHouse password for the Purl user
   password: ""
+
+  # -- ClickHouse cluster / replication settings
+  # All cluster features are DISABLED by default for backward compatibility.
+  # Enable for HA deployments with automatic data replication.
+  cluster:
+    # -- Enable ClickHouse cluster mode (multi-replica with ClickHouse Keeper)
+    enabled: false
+    # -- Cluster name used in remote_servers config and ReplicatedMergeTree paths
+    name: "purl_cluster"
+    # -- Number of ClickHouse replicas in the cluster
+    replicas: 3
+    # -- ClickHouse Keeper settings (embedded consensus for replication)
+    keeper:
+      # -- Enable embedded ClickHouse Keeper (required for replication)
+      enabled: true
+      # -- Keeper Raft consensus port
+      port: 9181
+    # -- Replication settings
+    replication:
+      # -- Replication factor (informational; all replicas participate in the single shard)
+      factor: 2
 
   # -- Persistence settings for ClickHouse data
   persistence:
@@ -212,6 +240,23 @@ config:
     size: 1Gi
     # -- Storage class (empty = cluster default)
     storageClass: ""
+
+# -- Prometheus monitoring
+metrics:
+  serviceMonitor:
+    # -- Enable ServiceMonitor for Prometheus Operator
+    enabled: false
+    # -- Scrape interval
+    interval: 30s
+    # -- Scrape timeout
+    scrapeTimeout: 10s
+    # -- Additional labels for ServiceMonitor (e.g., release: prometheus)
+    labels: {}
+  prometheusRule:
+    # -- Enable PrometheusRule for alerting
+    enabled: false
+    # -- Additional labels for PrometheusRule
+    labels: {}
 
 # -- Node selector constraints
 nodeSelector: {}

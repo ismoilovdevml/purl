@@ -1,0 +1,55 @@
+{{- if .Values.metrics.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "purl.fullname" . }}
+  labels:
+    {{- include "purl.labels" . | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: purl.rules
+      rules:
+        - alert: PurlDown
+          expr: up{job=~".*purl.*"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Purl instance is down"
+            description: "Purl instance {{ "{{" }} $labels.instance {{ "}}" }} has been down for 5 minutes."
+        - alert: PurlHighErrorRate
+          expr: rate(purl_errors_total[5m]) > 10
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High error rate in Purl"
+            description: "Error rate is {{ "{{" }} $value {{ "}}" }}/s for 2 minutes."
+        - alert: PurlClickHouseDown
+          expr: purl_clickhouse_healthy == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ClickHouse connection lost"
+            description: "Purl cannot connect to ClickHouse."
+        - alert: PurlHighLatency
+          expr: purl_query_latency_p99 > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High query latency"
+            description: "P99 query latency is {{ "{{" }} $value {{ "}}" }}s."
+        - alert: PurlHighMemoryUsage
+          expr: purl_memory_usage_bytes / purl_memory_limit_bytes > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High memory usage"
+            description: "Memory usage is above 90%."
+{{- end }}
