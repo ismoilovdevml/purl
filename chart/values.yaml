@@ -1,0 +1,172 @@
+# -- Number of Purl replicas
+replicaCount: 1
+
+image:
+  # -- Purl container image repository
+  repository: ismoilovdev/purl
+  # -- Image tag (defaults to Chart appVersion)
+  tag: ""
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Annotations for the service account
+  annotations: {}
+  # -- Service account name (auto-generated if empty)
+  name: ""
+
+# -- Pod-level annotations
+podAnnotations: {}
+
+# -- Pod-level security context
+podSecurityContext:
+  fsGroup: 1000
+
+# -- Container-level security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  readOnlyRootFilesystem: false
+
+service:
+  # -- Kubernetes service type (ClusterIP, NodePort, LoadBalancer)
+  type: ClusterIP
+  # -- Service port
+  port: 3000
+
+ingress:
+  # -- Enable ingress
+  enabled: false
+  # -- Ingress class name (e.g. nginx, traefik)
+  className: nginx
+  # -- Ingress annotations
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  # -- Ingress hosts
+  hosts:
+    - host: purl.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS configuration
+  tls: []
+  #  - secretName: purl-tls
+  #    hosts:
+  #      - purl.example.com
+
+# -- Purl application configuration
+purl:
+  # -- Server listen port (inside container)
+  port: 3000
+  # -- Storage backend type
+  storageType: clickhouse
+  # -- Comma-separated API keys for log ingest authentication
+  apiKeys: ""
+  # -- Enable API key authentication for ingest
+  authEnabled: true
+  # -- Log retention in days
+  retentionDays: 30
+
+  # -- Telegram alerting
+  telegram:
+    # -- Telegram bot token
+    botToken: ""
+    # -- Telegram chat ID for alerts
+    chatId: ""
+
+  # -- Slack alerting
+  slack:
+    # -- Slack incoming webhook URL
+    webhookUrl: ""
+    # -- Slack channel override
+    channel: ""
+
+  # -- Generic webhook alerting
+  alertWebhook:
+    # -- Webhook URL for alerts
+    url: ""
+    # -- Bearer token for webhook auth
+    token: ""
+
+# -- ClickHouse configuration
+clickhouse:
+  # -- Deploy ClickHouse as part of this chart.
+  # Set to false if using an external ClickHouse instance.
+  enabled: true
+
+  image:
+    # -- ClickHouse image repository
+    repository: clickhouse/clickhouse-server
+    # -- ClickHouse image tag
+    tag: "25.11-alpine"
+    # -- ClickHouse image pull policy
+    pullPolicy: IfNotPresent
+
+  # -- External ClickHouse host (used when clickhouse.enabled=false)
+  host: ""
+  # -- ClickHouse HTTP port
+  port: 8123
+  # -- ClickHouse database name
+  database: purl
+  # -- ClickHouse user for Purl
+  user: purl
+  # -- ClickHouse password for the Purl user
+  password: ""
+
+  # -- Persistence settings for ClickHouse data
+  persistence:
+    # -- Enable persistent storage
+    enabled: true
+    # -- PVC size
+    size: 10Gi
+    # -- Storage class (empty = cluster default)
+    storageClass: ""
+    # -- Access modes
+    accessModes:
+      - ReadWriteOnce
+
+  # -- ClickHouse resource limits and requests
+  resources:
+    limits:
+      memory: 4Gi
+      cpu: "2"
+    requests:
+      memory: 1Gi
+      cpu: "500m"
+
+# -- Purl container resource limits and requests
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+# -- Config volume for settings.json, users, license files
+config:
+  volume:
+    # -- Mount a PVC at /app/config
+    enabled: false
+    # -- PVC size for config data
+    size: 1Gi
+    # -- Storage class (empty = cluster default)
+    storageClass: ""
+
+# -- Node selector constraints
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling
+tolerations: []
+
+# -- Affinity rules for pod scheduling
+affinity: {}

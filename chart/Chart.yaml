@@ -1,0 +1,15 @@
+apiVersion: v2
+name: purl
+description: Lightweight self-hosted log aggregation system
+type: application
+version: 1.0.0
+appVersion: "1.2.0"
+keywords:
+  - logging
+  - log-aggregation
+  - observability
+  - clickhouse
+home: https://github.com/ismoilovdevml/purl
+maintainers:
+  - name: ismoilovdevml
+    email: ismoilovdevarchlinux@gmail.com

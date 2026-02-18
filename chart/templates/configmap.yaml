@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "purl.fullname" . }}
+  labels:
+    {{- include "purl.labels" . | nindent 4 }}
+data:
+  PURL_HOST: "0.0.0.0"
+  PURL_PORT: {{ .Values.purl.port | quote }}
+  PURL_STORAGE_TYPE: {{ .Values.purl.storageType | quote }}
+  PURL_CLICKHOUSE_HOST: {{ include "purl.clickhouse.host" . | quote }}
+  PURL_CLICKHOUSE_PORT: {{ .Values.clickhouse.port | quote }}
+  PURL_CLICKHOUSE_DATABASE: {{ .Values.clickhouse.database | quote }}
+  PURL_CLICKHOUSE_USER: {{ .Values.clickhouse.user | quote }}
+  PURL_RETENTION_DAYS: {{ .Values.purl.retentionDays | quote }}
+  PURL_AUTH_ENABLED: {{ ternary "1" "0" .Values.purl.authEnabled | quote }}

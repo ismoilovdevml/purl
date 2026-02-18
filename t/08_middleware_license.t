@@ -7,30 +7,100 @@ use Test::More;
 use Test::MockModule;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
+use File::Temp qw(tempdir);
+use JSON::XS ();
 
 use Purl::API::Middleware::License;
 
+# Helper: create a temp config dir with an expired trial (forces free plan)
+sub _expired_trial_dir {
+    my $dir = tempdir(CLEANUP => 1);
+    my $trial_file = "$dir/trial.json";
+    open my $fh, '>', $trial_file or die "Cannot write $trial_file: $!";
+    print $fh JSON::XS::encode_json({ started_at => 1000000, expires_at => 1000001 });
+    close $fh;
+    return $dir;
+}
+
 # ============================================
-# Free plan defaults (no license key)
+# Free plan defaults (no license key, expired trial)
 # ============================================
 subtest 'free plan when no license key' => sub {
     local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
     my $lic = Purl::API::Middleware::License->new;
     my $info = $lic->get_license_info;
     is $info->{plan}, 'free', 'defaults to free plan';
     ok $info->{valid}, 'free plan is valid';
     is_deeply $info->{features}, ['log_search', 'live_tail', 'basic_alerts'], 'free features';
     is $info->{limits}{servers}, 3, 'free server limit';
-    is $info->{limits}{retention_days}, 7, 'free retention limit';
+    is $info->{limits}{retention_days}, 30, 'free retention limit';
     is $info->{limits}{users}, 1, 'free user limit';
     is $info->{limits}{alerts}, 3, 'free alert limit';
 };
 
 subtest 'free plan when PURL_LICENSE_KEY not set' => sub {
     delete $ENV{PURL_LICENSE_KEY};
+    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
     my $lic = Purl::API::Middleware::License->new;
     my $info = $lic->get_license_info;
     is $info->{plan}, 'free', 'no env var = free plan';
+};
+
+# ============================================
+# Trial plan (14-day Pro trial, no license key)
+# ============================================
+subtest 'trial plan auto-starts when no trial file exists' => sub {
+    local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = tempdir(CLEANUP => 1);
+    my $lic = Purl::API::Middleware::License->new;
+    my $info = $lic->get_license_info;
+    is $info->{plan}, 'trial', 'auto-starts trial plan';
+    ok $info->{valid}, 'trial is valid';
+    ok $info->{trial}, 'trial flag set';
+    ok $info->{trial_days_remaining} > 0, 'trial days remaining > 0';
+    ok $info->{trial_days_remaining} <= 14, 'trial days remaining <= 14';
+    ok $info->{trial_expires_at}, 'trial_expires_at set';
+    ok $info->{trial_started_at}, 'trial_started_at set';
+    ok grep({ $_ eq 'pattern_analysis' } @{$info->{features}}), 'trial has pattern_analysis';
+    ok grep({ $_ eq 'saved_searches' } @{$info->{features}}), 'trial has saved_searches';
+    is $info->{limits}{servers}, 10, 'trial server limit';
+    is $info->{limits}{users}, 5, 'trial user limit';
+};
+
+subtest 'trial plan expires to free plan' => sub {
+    local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
+    my $lic = Purl::API::Middleware::License->new;
+    my $info = $lic->get_license_info;
+    is $info->{plan}, 'free', 'expired trial = free plan';
+    ok !$info->{trial}, 'no trial flag on free plan';
+};
+
+subtest 'trial skipped when license key exists' => sub {
+    local $ENV{PURL_LICENSE_KEY} = 'some-jwt-key';
+    local $ENV{PURL_CONFIG_DIR} = tempdir(CLEANUP => 1);
+    delete $ENV{PURL_LICENSE_PUBLIC_KEY};
+    my $lic = Purl::API::Middleware::License->new;
+    my $info = $lic->get_license_info;
+    isnt $info->{plan}, 'trial', 'trial not used when license key present';
+};
+
+subtest 'trial file persisted across instances' => sub {
+    local $ENV{PURL_LICENSE_KEY} = '';
+    my $dir = tempdir(CLEANUP => 1);
+    local $ENV{PURL_CONFIG_DIR} = $dir;
+
+    # First instance creates trial
+    my $lic1 = Purl::API::Middleware::License->new;
+    my $info1 = $lic1->get_license_info;
+    is $info1->{plan}, 'trial', 'first instance starts trial';
+
+    # Second instance reads same trial
+    my $lic2 = Purl::API::Middleware::License->new;
+    my $info2 = $lic2->get_license_info;
+    is $info2->{plan}, 'trial', 'second instance reads existing trial';
+    is $info2->{trial_expires_at}, $info1->{trial_expires_at}, 'same expiry timestamp';
 };
 
 # ============================================
@@ -67,6 +137,7 @@ subtest 'get_cache_ttl default (no settings)' => sub {
 # ============================================
 subtest 'license info is cached' => sub {
     local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
     my $lic = Purl::API::Middleware::License->new;
     my $info1 = $lic->get_license_info;
     my $info2 = $lic->get_license_info;
@@ -78,6 +149,7 @@ subtest 'license info is cached' => sub {
 # ============================================
 subtest 'is_feature_allowed for free plan' => sub {
     local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
     my $lic = Purl::API::Middleware::License->new;
     ok $lic->is_feature_allowed('log_search'), 'log_search allowed on free';
     ok $lic->is_feature_allowed('live_tail'), 'live_tail allowed on free';
@@ -91,12 +163,14 @@ subtest 'is_feature_allowed for free plan' => sub {
 # ============================================
 subtest 'get_plan returns free' => sub {
     local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
     my $lic = Purl::API::Middleware::License->new;
     is $lic->get_plan, 'free', 'free plan returned';
 };
 
 subtest 'check_server_limit free plan' => sub {
     local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
     my $lic = Purl::API::Middleware::License->new;
     ok $lic->check_server_limit(1), '1 server within limit';
     ok $lic->check_server_limit(3), '3 servers within limit';
@@ -105,8 +179,9 @@ subtest 'check_server_limit free plan' => sub {
 
 subtest 'get_retention_limit free plan' => sub {
     local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
     my $lic = Purl::API::Middleware::License->new;
-    is $lic->get_retention_limit, 7, 'free plan 7-day retention';
+    is $lic->get_retention_limit, 30, 'free plan 30-day retention';
 };
 
 # ============================================
@@ -114,6 +189,7 @@ subtest 'get_retention_limit free plan' => sub {
 # ============================================
 subtest 'check_license attaches info to stash' => sub {
     local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
     my $lic = Purl::API::Middleware::License->new;
 
     my %stash;

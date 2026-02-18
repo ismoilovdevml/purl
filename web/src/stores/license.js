@@ -16,8 +16,22 @@ export const isFreePlan = {
   subscribe: (fn) => licenseInfo.subscribe(info => fn(!info || info.plan === 'free'))
 };
 
+export const isTrialPlan = {
+  subscribe: (fn) => licenseInfo.subscribe(info => fn(info?.plan === 'trial'))
+};
+
+export const trialDaysRemaining = {
+  subscribe: (fn) => licenseInfo.subscribe(info => fn(info?.trial ? info.trial_days_remaining : 0))
+};
+
+export const trialExpiresAt = {
+  subscribe: (fn) => licenseInfo.subscribe(info => fn(info?.trial ? info.trial_expires_at : null))
+};
+
 export const isPaidPlan = {
-  subscribe: (fn) => licenseInfo.subscribe(info => fn(info?.plan === 'pro' || info?.plan === 'enterprise'))
+  subscribe: (fn) => licenseInfo.subscribe(info => fn(
+    info?.plan === 'pro' || info?.plan === 'enterprise' || info?.plan === 'trial'
+  ))
 };
 
 export const isEnterprise = {

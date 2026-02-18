@@ -14,7 +14,7 @@
 <script>
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { fade, scale } from 'svelte/transition';
-  import { trapFocus } from '../../utils/dom.js';
+  import { trapFocus, FOCUSABLE_SELECTOR } from '../../utils/dom.js';
 
   /** Whether modal is open */
   export let open = false;
@@ -65,10 +65,13 @@
     setTimeout(() => {
       if (modalElement) {
         cleanupTrapFocus = trapFocus(modalElement);
-        const firstFocusable = modalElement.querySelector(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        );
-        firstFocusable?.focus();
+        const firstFocusable = modalElement.querySelector(FOCUSABLE_SELECTOR);
+        if (firstFocusable) {
+          firstFocusable.focus();
+        } else {
+          // Fallback: focus the modal container itself so Escape still works
+          modalElement.focus();
+        }
       }
     }, 0);
   } else {

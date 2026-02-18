@@ -1,0 +1,21 @@
+{{- if .Values.clickhouse.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "purl.clickhouse.fullname" . }}
+  labels:
+    {{- include "purl.clickhouse.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8123
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 9000
+      targetPort: native
+      protocol: TCP
+      name: native
+  selector:
+    {{- include "purl.clickhouse.selectorLabels" . | nindent 4 }}
+{{- end }}

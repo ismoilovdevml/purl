@@ -1,0 +1,51 @@
+
+Purl has been deployed successfully!
+
+{{- if .Values.ingress.enabled }}
+
+Access Purl at:
+{{- range .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}{{ .path }}
+  {{- end }}
+{{- end }}
+
+{{- else if contains "NodePort" .Values.service.type }}
+
+Get the Purl URL by running:
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "purl.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo "Purl dashboard: http://$NODE_IP:$NODE_PORT"
+
+{{- else if contains "LoadBalancer" .Values.service.type }}
+
+Get the Purl URL by running:
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+  kubectl get --namespace {{ .Release.Namespace }} svc {{ include "purl.fullname" . }} -w
+
+{{- else }}
+
+Access Purl by running:
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "purl.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  echo "Purl dashboard: http://127.0.0.1:{{ .Values.service.port }}"
+
+{{- end }}
+
+{{- if .Values.clickhouse.enabled }}
+
+ClickHouse is running in-cluster at:
+  {{ include "purl.clickhouse.fullname" . }}:{{ .Values.clickhouse.port }}
+{{- else }}
+
+ClickHouse is configured to use an external instance at:
+  {{ .Values.clickhouse.host }}:{{ .Values.clickhouse.port }}
+{{- end }}
+
+To send logs to Purl, use the ingest API:
+
+  curl -X POST http://<PURL_URL>/api/v1/logs \
+    -H "Content-Type: application/json" \
+    -H "X-API-Key: <your-api-key>" \
+    -d '{"level":"info","message":"Hello from Purl!","service":"my-app"}'
+
+For more information, visit: https://github.com/ismoilovdevml/purl

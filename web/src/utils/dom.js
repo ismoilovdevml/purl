@@ -110,30 +110,41 @@ export function debounce(fn, delay = 300) {
   };
 }
 
+/** Selector for all focusable elements (excludes disabled) */
+export const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 /**
- * Trap focus within a container (for modals)
+ * Trap focus within a container (for modals/dialogs).
+ * Queries focusable elements dynamically on each Tab press so
+ * dynamically added/removed content is handled correctly.
  * @param {HTMLElement} container - Container element
  * @returns {Function} Cleanup function
  */
 export function trapFocus(container) {
-  const focusableElements = container.querySelectorAll(
-    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-  );
-  const firstElement = focusableElements[0];
-  const lastElement = focusableElements[focusableElements.length - 1];
+  const getFocusable = () =>
+    [...container.querySelectorAll(FOCUSABLE_SELECTOR)].filter(
+      (el) => el.offsetParent !== null      // skip hidden elements
+    );
 
   const handleKeydown = (e) => {
     if (e.key !== 'Tab') return;
 
+    const focusable = getFocusable();
+    if (focusable.length === 0) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
     if (e.shiftKey) {
-      if (document.activeElement === firstElement) {
+      if (document.activeElement === first) {
         e.preventDefault();
-        lastElement?.focus();
+        last.focus();
       }
     } else {
-      if (document.activeElement === lastElement) {
+      if (document.activeElement === last) {
         e.preventDefault();
-        firstElement?.focus();
+        first.focus();
       }
     }
   };

@@ -33,6 +33,7 @@ use Purl::API::Controller::Settings;
 use Purl::API::Controller::Config;
 use Purl::API::Controller::Audit;
 use Purl::API::Controller::Backup;
+use Purl::API::Controller::OTLP;
 
 # Package-level state
 my $storage;
@@ -217,7 +218,12 @@ sub setup_routes {
             app->log->info("Running with plan: $license_info->{plan}");
         }
     } else {
-        app->log->info("No license key configured, running as Free plan");
+        my $trial_info = $license_middleware->get_license_info();
+        if ($trial_info && $trial_info->{trial}) {
+            app->log->info("No license key — Pro trial active ($trial_info->{trial_days_remaining} days remaining)");
+        } else {
+            app->log->info("No license key configured, running as Free plan");
+        }
     }
 
     # Session secret for signed cookies — persist across restarts
@@ -330,6 +336,7 @@ sub setup_routes {
     my $config_c = Purl::API::Controller::Config->new(%c_args, main_config => $config);
     my $audit_c  = Purl::API::Controller::Audit->new(%c_args);
     my $backup_c = Purl::API::Controller::Backup->new(%c_args);
+    my $otlp_c   = Purl::API::Controller::OTLP->new(%c_args);
 
     # Initialize audit schema (non-fatal)
     eval { $storage->_init_audit_schema() };
@@ -554,6 +561,12 @@ sub setup_routes {
             valid      => $info->{valid} // 0,
             expires_at => $info->{expires_at} // undef,
             ($info->{error} ? (error => $info->{error}) : ()),
+            ($info->{trial} ? (
+                trial                => \1,
+                trial_days_remaining => $info->{trial_days_remaining},
+                trial_expires_at     => $info->{trial_expires_at},
+                trial_started_at     => $info->{trial_started_at},
+            ) : ()),
         });
     });
 
@@ -564,6 +577,11 @@ sub setup_routes {
     $protected->post('/logs' => sub ($c) { $logs_c->ingest($c) });
     $protected->get('/logs/:id/context' => sub ($c) { $logs_c->context($c) });
     $protected->post('/query' => sub ($c) { $logs_c->query($c) });
+
+    # ============================================
+    # OTLP ingest endpoints
+    # ============================================
+    $protected->post('/v1/otlp/logs' => sub ($c) { $otlp_c->ingest($c) });
 
     # ============================================
     # Trace endpoints
@@ -790,5 +808,6 @@ Main API server that routes requests to specialized controllers:
     Purl::API::Controller::Alerts      - Alert management
     Purl::API::Controller::Settings    - Runtime settings
     Purl::API::Controller::Config      - Read-only configuration
+    Purl::API::Controller::OTLP       - OpenTelemetry OTLP/JSON log ingest
 
 =cut

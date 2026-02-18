@@ -10,6 +10,8 @@ use HTTP::Tiny;
 use Time::HiRes qw(time);
 use Sys::Hostname;
 use Digest::SHA qw(sha256_hex);
+use POSIX qw(strftime ceil);
+use File::Path qw(make_path);
 
 has 'config' => (
     is      => 'ro',
@@ -92,13 +94,18 @@ my $FREE_PLAN = {
     features => ['log_search', 'live_tail', 'basic_alerts'],
     limits   => {
         servers        => 3,
-        retention_days => 7,
+        retention_days => 30,
         users          => 1,
         alerts         => 3,
     },
     activated => 0,
     valid     => 1,
 };
+
+# Trial plan (14-day Pro features)
+my $TRIAL_FEATURES = ['log_search', 'live_tail', 'basic_alerts', 'pattern_analysis', 'saved_searches', 'audit_logs'];
+my $TRIAL_LIMITS   = { servers => 10, retention_days => 90, users => 5, alerts => 10 };
+my $TRIAL_DAYS     = 14;
 
 # ============================================
 # License Verification
@@ -135,8 +142,14 @@ sub get_license_info {
 
     my $license_key = $self->get_license_key();
 
-    # No license key = free plan
+    # No license key = check trial, then free plan
     unless ($license_key && $license_key ne '') {
+        my $trial = $self->_check_trial();
+        if ($trial) {
+            $self->_license_info($trial);
+            $self->_cache_expires(time() + 300);  # Cache for 5 min
+            return $trial;
+        }
         $self->_license_info($FREE_PLAN);
         $self->_cache_expires(time() + 300);  # Cache for 5 min
         return $FREE_PLAN;
@@ -156,6 +169,106 @@ sub get_license_info {
     $self->_license_info($result);
     $self->_cache_expires(time() + 60);  # Short cache on failure
     return $result;
+}
+
+# ============================================
+# Trial Management
+# ============================================
+
+sub _get_trial_file {
+    my ($self) = @_;
+    my $config_dir = $ENV{PURL_CONFIG_DIR} // '/app/config';
+    return "$config_dir/trial.json";
+}
+
+sub _read_trial {
+    my ($self) = @_;
+    my $file = $self->_get_trial_file();
+
+    return undef unless -f $file;
+
+    my $data = eval {
+        open my $fh, '<', $file or die "Cannot open $file: $!";
+        local $/;
+        my $json = <$fh>;
+        close $fh;
+        $self->_json->decode($json);
+    };
+    if ($@) {
+        warn "Failed to read trial file $file: $@";
+        return undef;
+    }
+
+    return $data;
+}
+
+sub _write_trial {
+    my ($self, $data) = @_;
+    my $file = $self->_get_trial_file();
+
+    my $dir = $file;
+    $dir =~ s{/[^/]+$}{};
+    if ($dir && !-d $dir) {
+        eval { make_path($dir) };
+        if ($@) {
+            warn "Failed to create trial directory $dir: $@";
+            return 0;
+        }
+    }
+
+    eval {
+        open my $fh, '>', $file or die "Cannot write $file: $!";
+        print $fh $self->_json->encode($data);
+        close $fh;
+    };
+    if ($@) {
+        warn "Failed to write trial file $file: $@";
+        return 0;
+    }
+
+    return 1;
+}
+
+sub _check_trial {
+    my ($self) = @_;
+
+    my $trial = $self->_read_trial();
+
+    # No trial file — start a new trial
+    unless ($trial) {
+        my $now = int(time());
+        $trial = {
+            started_at => $now,
+            expires_at => $now + ($TRIAL_DAYS * 86400),
+        };
+        $self->_write_trial($trial);
+    }
+
+    my $now = time();
+    my $expires_at = $trial->{expires_at} // 0;
+
+    # Trial expired — fall through to free plan
+    if ($now >= $expires_at) {
+        return undef;
+    }
+
+    # Trial still active
+    my $remaining_seconds = $expires_at - $now;
+    my $remaining_days    = ceil($remaining_seconds / 86400);
+    my $expires_at_iso    = strftime('%Y-%m-%dT%H:%M:%SZ', gmtime($expires_at));
+    my $started_at_iso    = strftime('%Y-%m-%dT%H:%M:%SZ', gmtime($trial->{started_at}));
+
+    return {
+        valid               => 1,
+        activated           => 0,
+        plan                => 'trial',
+        trial               => 1,
+        trial_days_remaining => $remaining_days,
+        trial_expires_at    => $expires_at_iso,
+        trial_started_at    => $started_at_iso,
+        features            => [@$TRIAL_FEATURES],
+        limits              => {%$TRIAL_LIMITS},
+    };
 }
 
 sub _verify_jwt_offline {

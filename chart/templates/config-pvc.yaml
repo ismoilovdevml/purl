@@ -1,0 +1,17 @@
+{{- if .Values.config.volume.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "purl.fullname" . }}-config
+  labels:
+    {{- include "purl.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.config.volume.storageClass }}
+  storageClassName: {{ .Values.config.volume.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.config.volume.size }}
+{{- end }}

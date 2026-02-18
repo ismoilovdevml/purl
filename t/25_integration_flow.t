@@ -16,6 +16,19 @@ $ENV{PURL_LDAP_ENABLED}    = '0';
 $ENV{PURL_SAML_ENABLED}    = '0';
 $ENV{PURL_SESSION_SECRET}  = 'integration-test-secret-key-1234567890abcdef';
 $ENV{PURL_CONFIG_FILE}     = '/tmp/purl_test_integration_$$.json';
+$ENV{PURL_CONFIG_DIR}      = '/tmp/purl_test_config_$$';
+
+# Create expired trial so tests run on Free plan (not auto-started trial)
+use File::Path qw(make_path remove_tree);
+make_path($ENV{PURL_CONFIG_DIR});
+{
+    open my $fh, '>', "$ENV{PURL_CONFIG_DIR}/trial.json" or die $!;
+    # Trial expired 1 day ago
+    my $expired = time() - 86400;
+    my $started = $expired - 14 * 86400;
+    print $fh "{\"started_at\":$started,\"expires_at\":$expired}";
+    close $fh;
+}
 
 # Ensure no real ClickHouse connection is attempted
 $ENV{PURL_CLICKHOUSE_HOST} = '127.0.0.1';
@@ -685,6 +698,7 @@ subtest 'metrics endpoint returns text content type' => sub {
 # Cleanup
 # ============================================
 unlink $ENV{PURL_CONFIG_FILE} if -f $ENV{PURL_CONFIG_FILE};
+remove_tree($ENV{PURL_CONFIG_DIR}) if -d $ENV{PURL_CONFIG_DIR};
 
 done_testing;
 

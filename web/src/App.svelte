@@ -25,7 +25,7 @@
     searchLogs,
   } from './stores/logs.js';
   import { refreshInterval, defaultTimeRange } from './stores/settings.js';
-  import { fetchLicense, currentPlan, isPaidPlan } from './stores/license.js';
+  import { fetchLicense, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining } from './stores/license.js';
   import { currentUser, checkAuth, logout } from './stores/auth.js';
   import { success as toastSuccess } from './stores/toast.js';
 
@@ -325,7 +325,9 @@
         />
       </svg>
       <span>Purl</span>
-      {#if $isPaidPlan}
+      {#if $isTrialPlan}
+        <span class="plan-badge trial">Trial</span>
+      {:else if $isPaidPlan}
         <span class="plan-badge" class:enterprise={$currentPlan === 'enterprise'}>
           {$currentPlan === 'enterprise' ? 'Enterprise' : 'Pro'}
         </span>
@@ -493,6 +495,21 @@
       </div>
     {/if}
   </header>
+
+  {#if $isTrialPlan}
+    <div class="trial-banner">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M12 6v6l4 2"/>
+      </svg>
+      <span>
+        <strong>Pro Trial</strong> — {$trialDaysRemaining} {$trialDaysRemaining === 1 ? 'day' : 'days'} remaining
+      </span>
+      <a href="https://purlogs.com/pricing" target="_blank" rel="noopener" class="trial-upgrade-btn">
+        Upgrade to Pro
+      </a>
+    </div>
+  {/if}
 
   {#if exportStatus === 'preparing'}
     <div class="info-banner" role="status">
@@ -1151,5 +1168,48 @@
     .user-name {
       display: none;
     }
+  }
+
+  /* Trial banner */
+  .trial-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 20px;
+    background: rgba(210, 153, 34, 0.1);
+    border-bottom: 1px solid rgba(210, 153, 34, 0.3);
+    color: #d29922;
+    font-size: 13px;
+  }
+
+  .trial-banner svg {
+    flex-shrink: 0;
+  }
+
+  .trial-banner span {
+    flex: 1;
+  }
+
+  .trial-upgrade-btn {
+    padding: 4px 12px;
+    background: rgba(210, 153, 34, 0.15);
+    border: 1px solid rgba(210, 153, 34, 0.4);
+    border-radius: 6px;
+    color: #d29922;
+    font-size: 12px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+
+  .trial-upgrade-btn:hover {
+    background: rgba(210, 153, 34, 0.25);
+    color: #e3b341;
+  }
+
+  .plan-badge.trial {
+    background: rgba(210, 153, 34, 0.15);
+    color: #d29922;
   }
 </style>
