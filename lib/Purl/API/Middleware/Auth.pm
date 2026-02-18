@@ -6,8 +6,9 @@ use 5.024;
 use Moo;
 use namespace::clean;
 use Digest::SHA qw(sha256_hex hmac_sha256_hex);
-use MIME::Base64 qw(decode_base64);
+use MIME::Base64 qw(decode_base64 encode_base64);
 use Time::HiRes qw(time);
+use Crypt::Eksblowfish::Bcrypt qw(bcrypt_hash en_base64 de_base64);
 
 has 'config' => (
     is      => 'ro',
@@ -79,26 +80,65 @@ has 'settings' => (
 # Password Hashing
 # ============================================
 
+sub _generate_bcrypt_salt {
+    my $bytes = '';
+    if (open(my $fh, '<:raw', '/dev/urandom')) {
+        read($fh, $bytes, 16);
+        close($fh);
+    } else {
+        $bytes = pack('C*', map { int(rand(256)) } 1..16);
+    }
+    return en_base64($bytes);
+}
+
 sub hash_password {
     my ($self, $password, $salt) = @_;
     return undef if !defined $password || length($password) < 8;
-    $salt //= join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..16);
-    my $hash = sha256_hex($salt . $password . $salt);
-    return "$salt\$$hash";
+    $salt //= _generate_bcrypt_salt();
+    my $hash = bcrypt_hash({
+        key_nul => 1,
+        cost    => 12,
+        salt    => de_base64($salt),
+    }, $password);
+    return '$2b$12$' . $salt . en_base64($hash);
 }
 
 sub verify_password {
     my ($self, $password, $stored) = @_;
-    return 0 unless defined $password && length($password);
-    return 0 unless $stored && $stored =~ /^([^\$]+)\$([a-f0-9]+)$/;
-    my ($salt, $hash) = ($1, $2);
-    my $check = sha256_hex($salt . $password . $salt);
+    return (0, undef) unless defined $password && length($password);
 
-    # Constant-time comparison to prevent timing attacks
-    return 0 unless length($check) == length($hash);
-    my $result = 0;
-    $result |= ord(substr($check, $_, 1)) ^ ord(substr($hash, $_, 1)) for 0..length($check)-1;
-    return $result == 0;
+    # Bcrypt format: $2b$12$<22-char-salt><31-char-hash>
+    if ($stored && $stored =~ /^\$2[aby]\$(\d{2})\$(.{22})(.+)$/) {
+        my ($cost, $salt, $hash) = ($1, $2, $3);
+        my $check = bcrypt_hash({
+            key_nul => 1,
+            cost    => $cost,
+            salt    => de_base64($salt),
+        }, $password);
+        my $check_hash = en_base64($check);
+        # Constant-time comparison
+        return (0, undef) unless length($check_hash) == length($hash);
+        my $result = 0;
+        $result |= ord(substr($check_hash, $_, 1)) ^ ord(substr($hash, $_, 1)) for 0..length($check_hash)-1;
+        return ($result == 0, undef);
+    }
+
+    # Legacy SHA256 format: salt$hexhash — verify and migrate to bcrypt
+    if ($stored && $stored =~ /^([^\$]+)\$([a-f0-9]+)$/) {
+        my ($salt, $hash) = ($1, $2);
+        my $check = sha256_hex($salt . $password . $salt);
+        return (0, undef) unless length($check) == length($hash);
+        my $result = 0;
+        $result |= ord(substr($check, $_, 1)) ^ ord(substr($hash, $_, 1)) for 0..length($check)-1;
+        if ($result == 0) {
+            # Migration: re-hash with bcrypt
+            my $new_hash = $self->hash_password($password);
+            return (1, $new_hash);
+        }
+        return (0, undef);
+    }
+
+    return (0, undef);
 }
 
 # ============================================
@@ -328,9 +368,11 @@ sub _check_basic_auth {
 
     my $stored = $users->{$user};
 
-    # Hashed password (salt$hash format)
-    if ($stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/) {
-        return $self->verify_password($pass, $stored);
+    # Bcrypt or legacy SHA256 hash
+    if ($stored =~ /^\$2[aby]\$/ || $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/) {
+        my ($valid, $new_hash) = $self->verify_password($pass, $stored);
+        # Auto-migrate hash if needed (basic auth won't save, but login will)
+        return $valid;
     }
 
     # Legacy plaintext (log warning in caller)

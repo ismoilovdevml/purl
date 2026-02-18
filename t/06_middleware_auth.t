@@ -15,19 +15,23 @@ my $auth = Purl::API::Middleware::Auth->new;
 # ============================================
 # Password Hashing
 # ============================================
-subtest 'hash_password returns salt$hash format' => sub {
+subtest 'hash_password returns bcrypt format' => sub {
     my $hash = $auth->hash_password('secretpass');
     ok defined $hash, 'hash returned';
-    like $hash, qr/^[a-zA-Z0-9]+\$[a-f0-9]{64}$/, 'salt$sha256 format';
+    like $hash, qr/^\$2[aby]\$12\$.+$/, 'bcrypt $2b$12$ format';
 };
 
-subtest 'hash_password with explicit salt' => sub {
-    my $h1 = $auth->hash_password('password1', 'mysalt');
-    my $h2 = $auth->hash_password('password1', 'mysalt');
-    is $h1, $h2, 'same salt + password = same hash (deterministic)';
+subtest 'hash_password deterministic with same input' => sub {
+    # Generate two hashes from same password (different random salts)
+    my $h1 = $auth->hash_password('password1');
+    my $h2 = $auth->hash_password('password1');
+    isnt $h1, $h2, 'different salts produce different hashes';
 
-    my $h3 = $auth->hash_password('password2', 'mysalt');
-    isnt $h1, $h3, 'different password = different hash';
+    # Both should verify correctly
+    my ($v1) = $auth->verify_password('password1', $h1);
+    my ($v2) = $auth->verify_password('password1', $h2);
+    ok $v1, 'first hash verifies';
+    ok $v2, 'second hash verifies';
 };
 
 subtest 'hash_password rejects short passwords' => sub {
@@ -43,22 +47,45 @@ subtest 'hash_password rejects undef' => sub {
 # ============================================
 # Password Verification
 # ============================================
-subtest 'verify_password correct' => sub {
+subtest 'verify_password correct (bcrypt)' => sub {
     my $hash = $auth->hash_password('mypassword');
-    ok $auth->verify_password('mypassword', $hash), 'correct password verified';
+    my ($valid, $migrated) = $auth->verify_password('mypassword', $hash);
+    ok $valid, 'correct password verified';
+    ok !$migrated, 'no migration needed for bcrypt hash';
 };
 
 subtest 'verify_password wrong password' => sub {
     my $hash = $auth->hash_password('mypassword');
-    ok !$auth->verify_password('wrongpassword', $hash), 'wrong password rejected';
+    my ($valid) = $auth->verify_password('wrongpassword', $hash);
+    ok !$valid, 'wrong password rejected';
+};
+
+subtest 'verify_password legacy SHA256 migration' => sub {
+    # Create a legacy SHA256 hash manually
+    require Digest::SHA;
+    my $salt = 'testsalt12345678';
+    my $legacy_hash = $salt . '$' . Digest::SHA::sha256_hex($salt . 'legacypassword' . $salt);
+    my ($valid, $new_hash) = $auth->verify_password('legacypassword', $legacy_hash);
+    ok $valid, 'legacy SHA256 password verified';
+    ok defined $new_hash, 'migration hash returned';
+    like $new_hash, qr/^\$2[aby]\$12\$/, 'migrated to bcrypt format';
+
+    # Verify migrated hash works
+    my ($valid2) = $auth->verify_password('legacypassword', $new_hash);
+    ok $valid2, 'migrated bcrypt hash works';
 };
 
 subtest 'verify_password edge cases' => sub {
-    ok !$auth->verify_password(undef, 'salt$hash'), 'undef password rejected';
-    ok !$auth->verify_password('', 'salt$hash'), 'empty password rejected';
-    ok !$auth->verify_password('password', undef), 'undef stored rejected';
-    ok !$auth->verify_password('password', ''), 'empty stored rejected';
-    ok !$auth->verify_password('password', 'invalid_format'), 'bad format rejected';
+    my ($v1) = $auth->verify_password(undef, 'salt$hash');
+    ok !$v1, 'undef password rejected';
+    my ($v2) = $auth->verify_password('', 'salt$hash');
+    ok !$v2, 'empty password rejected';
+    my ($v3) = $auth->verify_password('password', undef);
+    ok !$v3, 'undef stored rejected';
+    my ($v4) = $auth->verify_password('password', '');
+    ok !$v4, 'empty stored rejected';
+    my ($v5) = $auth->verify_password('password', 'invalid_format');
+    ok !$v5, 'bad format rejected';
 };
 
 # ============================================

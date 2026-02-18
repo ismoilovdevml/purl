@@ -4,6 +4,7 @@
   import Input from './ui/Input.svelte';
   import Select from './ui/Select.svelte';
   import Modal from './ui/Modal.svelte';
+  import ConfirmDialog from './ui/ConfirmDialog.svelte';
   import { isFreePlan } from '../stores/license.js';
 
   const dispatch = createEventDispatcher();
@@ -14,6 +15,10 @@
   let newName = '';
   let newQuery = '';
   let newTimeRange = '15m';
+
+  // Confirm dialog state
+  let showDeleteConfirm = false;
+  let deleteTargetId = null;
 
   const timeRangeOptions = [
     { value: '5m', label: '5 minutes' },
@@ -59,13 +64,20 @@
     }
   }
 
-  async function deleteSearch(id) {
+  function requestDeleteSearch(id) {
+    deleteTargetId = id;
+    showDeleteConfirm = true;
+  }
+
+  async function confirmDeleteSearch() {
+    if (!deleteTargetId) return;
     try {
-      await fetch(`${API_BASE}/saved-searches/${id}`, { method: 'DELETE' });
+      await fetch(`${API_BASE}/saved-searches/${deleteTargetId}`, { method: 'DELETE' });
       await loadSearches();
     } catch (err) {
       console.error('Failed to delete search:', err);
     }
+    deleteTargetId = null;
   }
 
   function applySearch(search) {
@@ -120,7 +132,7 @@
                 <span class="name">{search.name}</span>
                 <span class="query">{search.query}</span>
               </button>
-              <Button icon size="sm" variant="ghost" on:click={() => deleteSearch(search.id)} class="delete-btn">
+              <Button icon size="sm" variant="ghost" on:click={() => requestDeleteSearch(search.id)} class="delete-btn">
                 <svg width="12" height="12" viewBox="0 0 12 12">
                   <path fill="currentColor" d="M9.5 3L3 9.5M3 3l6.5 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
@@ -160,6 +172,15 @@
     <Button variant="success" on:click={saveSearch}>Save</Button>
   </svelte:fragment>
 </Modal>
+
+<ConfirmDialog
+  bind:show={showDeleteConfirm}
+  title="Delete Saved Search"
+  message="Are you sure you want to delete this saved search?"
+  confirmText="Delete"
+  variant="danger"
+  onConfirm={confirmDeleteSearch}
+/>
 
 <style>
   .saved-searches {

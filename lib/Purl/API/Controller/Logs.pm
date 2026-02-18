@@ -229,7 +229,8 @@ sub ingest {
         }
 
         if (scalar(@$logs) > 10_000) {
-            return $self->render_error($c, 400, 'Batch too large: maximum 10000 logs per request');
+            $self->render_error($c, 'Batch too large: maximum 10000 logs per request', 400);
+            return;
         }
 
         my $count = 0;
@@ -244,6 +245,24 @@ sub ingest {
                 $log->{meta} = {};
             }
             $log->{meta} //= {};
+
+            # Field length validation
+            if (defined $log->{message} && length($log->{message}) > 65536) {
+                $log->{message} = substr($log->{message}, 0, 65536);
+            }
+            if (defined $log->{service} && length($log->{service}) > 256) {
+                $log->{service} = substr($log->{service}, 0, 256);
+            }
+            if (defined $log->{host} && length($log->{host}) > 256) {
+                $log->{host} = substr($log->{host}, 0, 256);
+            }
+            if (defined $log->{raw} && length($log->{raw}) > 131072) {
+                $log->{raw} = substr($log->{raw}, 0, 131072);
+            }
+            if (defined $log->{level} && length($log->{level}) > 32) {
+                $self->render_error($c, 'Invalid log level: exceeds maximum length', 400);
+                return;
+            }
 
             $self->storage->insert($log);
             $count++;

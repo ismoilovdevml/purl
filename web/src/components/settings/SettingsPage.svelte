@@ -25,9 +25,9 @@
     { id: 'display', label: 'Display', icon: 'monitor' },
     { id: 'data', label: 'Data', icon: 'database' },
     { id: 'license', label: 'License', icon: 'key' },
-    ...($isPaidPlan ? [{ id: 'users', label: 'Users', icon: 'users' }] : []),
-    ...($isEnterprise ? [{ id: 'ldap', label: 'LDAP / AD', icon: 'ldap' }] : []),
-    ...($isEnterprise ? [{ id: 'sso', label: 'SSO / SAML', icon: 'sso' }] : []),
+    { id: 'users', label: 'Users', icon: 'users', requiresPlan: 'pro', locked: !$isPaidPlan },
+    { id: 'ldap', label: 'LDAP / AD', icon: 'ldap', requiresPlan: 'enterprise', locked: !$isEnterprise },
+    { id: 'sso', label: 'SSO / SAML', icon: 'sso', requiresPlan: 'enterprise', locked: !$isEnterprise },
     { id: 'about', label: 'About', icon: 'info' },
   ];
 </script>
@@ -40,7 +40,9 @@
         <button
           class="nav-item"
           class:active={activeSection === section.id}
-          on:click={() => activeSection = section.id}
+          class:locked={section.locked}
+          on:click={() => { if (!section.locked) activeSection = section.id; }}
+          title={section.locked ? `Requires ${section.requiresPlan === 'enterprise' ? 'Enterprise' : 'Pro'} plan` : ''}
         >
           {#if section.icon === 'server'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -80,6 +82,11 @@
             </svg>
           {/if}
           {section.label}
+          {#if section.locked}
+            <svg class="lock-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          {/if}
         </button>
       {/each}
     </nav>
@@ -163,6 +170,23 @@
     background: rgba(31, 111, 235, 0.15);
     color: var(--color-primary, #58a6ff);
     border-left: 2px solid var(--color-primary, #58a6ff);
+  }
+
+  .nav-item.locked {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .nav-item.locked:hover {
+    background: none;
+    color: var(--text-secondary, #8b949e);
+  }
+
+  .lock-icon {
+    margin-left: auto;
+    opacity: 0.5;
+    color: #8b949e;
+    flex-shrink: 0;
   }
 
   .settings-content {

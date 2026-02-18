@@ -13,6 +13,7 @@
   import LoginPage from './components/LoginPage.svelte';
   import Onboarding from './components/Onboarding.svelte';
   import SearchHelp from './components/SearchHelp.svelte';
+  import Toast from './components/ui/Toast.svelte';
   import {
     logs,
     loading,
@@ -579,6 +580,8 @@
   {/if}
 </main>
 {/if}
+
+<Toast />
 
 <style>
   :global(*) {

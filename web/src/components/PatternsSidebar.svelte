@@ -82,11 +82,14 @@
     <div class="patterns-content">
       {#if $isFreePlan}
         <div class="upgrade-cta">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
-          <span>Requires Pro</span>
-          <a href="https://purlogs.com/pricing" target="_blank" rel="noopener">Upgrade</a>
+          <div class="upgrade-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </div>
+          <h4 class="upgrade-title">Pattern Detection</h4>
+          <p class="upgrade-desc">Automatically detect and group similar log patterns. Upgrade to Pro to unlock.</p>
+          <a href="https://purlogs.com/pricing" target="_blank" rel="noopener" class="upgrade-btn">Upgrade to Pro</a>
         </div>
       {:else if $patternsError}
         <div class="error-state">
@@ -338,24 +341,53 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 24px 16px;
+    gap: 10px;
+    padding: 28px 20px;
     text-align: center;
-    color: #6e7681;
-    font-size: 13px;
   }
 
-  .upgrade-cta svg {
-    color: #6e7681;
-  }
-
-  .upgrade-cta a {
+  .upgrade-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: rgba(88, 166, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     color: #58a6ff;
-    text-decoration: none;
-    font-size: 12px;
+    margin-bottom: 4px;
   }
 
-  .upgrade-cta a:hover {
-    text-decoration: underline;
+  .upgrade-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #c9d1d9;
+    margin: 0;
+  }
+
+  .upgrade-desc {
+    font-size: 12px;
+    color: #8b949e;
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  .upgrade-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 20px;
+    background: #58a6ff;
+    color: #ffffff;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: background 0.15s ease;
+    margin-top: 4px;
+  }
+
+  .upgrade-btn:hover {
+    background: #79b8ff;
   }
 </style>

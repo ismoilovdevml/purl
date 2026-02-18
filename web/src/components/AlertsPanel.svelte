@@ -4,6 +4,7 @@
   import Input from './ui/Input.svelte';
   import Select from './ui/Select.svelte';
   import Modal from './ui/Modal.svelte';
+  import ConfirmDialog from './ui/ConfirmDialog.svelte';
 
   let alerts = [];
   let showModal = false;
@@ -27,6 +28,10 @@
 
   const API_BASE = '/api';
   let checkInterval;
+
+  // Confirm dialog state
+  let showDeleteConfirm = false;
+  let deleteTargetId = null;
 
   onMount(() => {
     loadAlerts();
@@ -133,14 +138,20 @@
     }
   }
 
-  async function deleteAlert(id) {
-    if (!confirm('Delete this alert?')) return;
+  function requestDeleteAlert(id) {
+    deleteTargetId = id;
+    showDeleteConfirm = true;
+  }
+
+  async function confirmDeleteAlert() {
+    if (!deleteTargetId) return;
     try {
-      await fetch(`${API_BASE}/alerts/${id}`, { method: 'DELETE' });
+      await fetch(`${API_BASE}/alerts/${deleteTargetId}`, { method: 'DELETE' });
       await loadAlerts();
     } catch (err) {
       console.error('Failed to delete alert:', err);
     }
+    deleteTargetId = null;
   }
 
   function handleAddClick(e) {
@@ -186,7 +197,7 @@
                   <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="#6e7681" stroke-width="1.5"/></svg>
                 {/if}
               </Button>
-              <Button icon size="sm" variant="ghost" on:click={() => deleteAlert(alert.id)} class="delete-btn">
+              <Button icon size="sm" variant="ghost" on:click={() => requestDeleteAlert(alert.id)} class="delete-btn">
                 <svg width="12" height="12" viewBox="0 0 12 12">
                   <path fill="currentColor" d="M9.5 3L3 9.5M3 3l6.5 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
@@ -253,6 +264,15 @@
     <Button variant="success" on:click={saveAlert}>Save</Button>
   </svelte:fragment>
 </Modal>
+
+<ConfirmDialog
+  bind:show={showDeleteConfirm}
+  title="Delete Alert"
+  message="Are you sure you want to delete this alert? This action cannot be undone."
+  confirmText="Delete"
+  variant="danger"
+  onConfirm={confirmDeleteAlert}
+/>
 
 <style>
   .alerts-panel {

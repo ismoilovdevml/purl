@@ -253,9 +253,10 @@ sub setup_routes {
             my $stored = $users->{$username};
 
             # Check hashed passwords against common weak passwords
-            if ($stored && $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/) {
+            if ($stored && ($stored =~ /^\$2[aby]\$/ || $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/)) {
                 for my $weak (@weak_passwords) {
-                    if ($auth_middleware->verify_password($weak, $stored)) {
+                    my ($is_weak) = $auth_middleware->verify_password($weak, $stored);
+                    if ($is_weak) {
                         app->log->warn("Default password detected for user '$username'. Please change it immediately.");
                         last;
                     }
@@ -385,13 +386,21 @@ sub setup_routes {
             $c->res->headers->header('Cross-Origin-Embedder-Policy' => 'require-corp');
         }
 
+        # CORS — whitelist-based origin checking
+        my $allowed_origins_str = $ENV{PURL_ALLOWED_ORIGINS}
+            // 'http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173';
+        my %allowed_origins = map { $_ => 1 } split(/\s*,\s*/, $allowed_origins_str);
+
         my $origin = $c->req->headers->header('Origin') // '';
-        if ($origin && $origin =~ /^https?:\/\/localhost(:\d+)?$/) {
+        if ($origin && $allowed_origins{$origin}) {
             $c->res->headers->header('Access-Control-Allow-Origin' => $origin);
             $c->res->headers->header('Access-Control-Allow-Credentials' => 'true');
-        } else {
-            $c->res->headers->header('Access-Control-Allow-Origin' => '*');
+        } elsif ($origin && $origin =~ /^https?:\/\/(?:localhost|127\.0\.0\.1)(:\d+)?$/) {
+            # Always allow localhost variants for development
+            $c->res->headers->header('Access-Control-Allow-Origin' => $origin);
+            $c->res->headers->header('Access-Control-Allow-Credentials' => 'true');
         }
+        # No Access-Control-Allow-Origin header = browser blocks the request
         $c->res->headers->header('Access-Control-Allow-Methods' => 'GET, POST, PUT, DELETE, OPTIONS');
         $c->res->headers->header('Access-Control-Allow-Headers' => 'Content-Type, Authorization, X-API-Key, X-CSRF-Token');
 

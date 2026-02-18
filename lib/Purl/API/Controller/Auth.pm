@@ -136,16 +136,35 @@ sub login {
         my $stored = $users->{$username};
         my $valid = 0;
 
-        if ($stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/) {
-            $valid = $self->auth_middleware->verify_password($password, $stored);
+        my $new_hash;
+        if ($self->auth_middleware && ($stored =~ /^\$2[aby]\$/ || $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/)) {
+            ($valid, $new_hash) = $self->auth_middleware->verify_password($password, $stored);
         } else {
             $valid = ($stored eq $password);
+            # Migrate plaintext to bcrypt
+            if ($valid && $self->auth_middleware) {
+                $new_hash = $self->auth_middleware->hash_password($password);
+            }
         }
 
         unless ($valid) {
             $c->audit_event(action => 'login', status => 'failure', actor => $username);
             $self->render_error($c, 'Invalid username or password', 401);
             return;
+        }
+
+        # Migrate legacy hash to bcrypt on successful login
+        if ($new_hash && $self->settings) {
+            my $section = $self->settings->get_section('auth') // {};
+            $section->{users}{$username} = $new_hash;
+            $self->settings->set_section('auth', $section);
+            $c->app->log->info("Password hash migrated to bcrypt for user: $username");
+        }
+
+        # Check if user needs to change default password
+        my $password_change_required = 0;
+        if ($username eq 'admin' && $password eq 'admin') {
+            $password_change_required = 1;
         }
 
         # Set session
@@ -155,11 +174,13 @@ sub login {
         $c->session(expiration => 86400);  # 24 hours
 
         $c->audit_event(action => 'login', status => 'success');
-        $c->render(json => {
+        my $response = {
             authenticated => 1,
             username      => $username,
             auth_method   => 'local',
-        });
+        };
+        $response->{password_change_required} = \1 if $password_change_required;
+        $c->render(json => $response);
     });
 }
 

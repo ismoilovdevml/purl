@@ -18,6 +18,7 @@ use Purl::API::Controller::Auth;
     sub new { bless {}, $_[0] }
     sub error { }
     sub warn { }
+    sub info { }
 
     package MockApp;
     sub new { bless { log => MockLog->new }, $_[0] }
@@ -82,14 +83,15 @@ use Purl::API::Controller::Auth;
     sub new { bless {}, $_[0] }
     sub verify_password {
         my ($self, $pass, $stored) = @_;
-        # Simple mock: check if password matches stored (in real life: salt$hash)
-        return $pass eq 'correctpassword' ? 1 : 0;
+        # Simple mock: returns (valid, new_hash) like bcrypt version
+        return $pass eq 'correctpassword' ? (1, undef) : (0, undef);
     }
-    sub hash_password { 'salt$' . ('a' x 64) }
+    sub hash_password { '$2b$12$' . ('a' x 53) }
 
     package MockSettings;
     sub new { bless { sections => $_[1] // {} }, $_[0] }
     sub get_section { $_[0]->{sections}{$_[1]} // {} }
+    sub set_section { $_[0]->{sections}{$_[1]} = $_[2] }
 
     package MockStorage;
     sub new { bless {}, $_[0] }

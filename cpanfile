@@ -25,6 +25,7 @@ requires 'Digest::MD5';
 
 # Auth
 requires 'MIME::Base64';
+requires 'Crypt::Eksblowfish::Bcrypt', '0.009';
 
 # LDAP/AD authentication (Enterprise)
 requires 'Net::LDAP';
