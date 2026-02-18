@@ -303,9 +303,12 @@ sub _check_api_key {
         return 1 if grep { $_ eq $api_key } @keys;
     }
 
-    # Check config API keys
+    # Check config API keys (supports both plain strings and hash entries)
     my $valid_keys = $auth_config->{api_keys} // [];
-    return 1 if grep { $_ eq $api_key } @$valid_keys;
+    for my $entry (@$valid_keys) {
+        my $stored = ref $entry eq 'HASH' ? ($entry->{key} // '') : $entry;
+        return 1 if $stored eq $api_key;
+    }
 
     return 0;
 }
@@ -332,6 +335,18 @@ sub _check_basic_auth {
 
     # Legacy plaintext (log warning in caller)
     return $stored eq $pass;
+}
+
+# ============================================
+# API Key Reload
+# ============================================
+
+sub reload_api_keys {
+    my ($self) = @_;
+    return unless $self->settings;
+    my $auth_section = $self->settings->get_section('auth') // {};
+    $self->config->{auth}{api_keys} = $auth_section->{api_keys} // [];
+    return 1;
 }
 
 # ============================================

@@ -241,6 +241,33 @@ sub setup_routes {
         }
     }
 
+    # Warn about default/weak passwords on startup
+    my $auth_enabled = $ENV{PURL_AUTH_ENABLED}
+        // ($settings ? $settings->get('auth', 'enabled') : 0) // 0;
+    if ($auth_enabled) {
+        my $auth_section = $settings->get_section('auth') // {};
+        my $users = $auth_section->{users} // {};
+        my @weak_passwords = qw(admin password 12345678 changeme admin123 password123 qwerty123);
+
+        for my $username (sort keys %$users) {
+            my $stored = $users->{$username};
+
+            # Check hashed passwords against common weak passwords
+            if ($stored && $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/) {
+                for my $weak (@weak_passwords) {
+                    if ($auth_middleware->verify_password($weak, $stored)) {
+                        app->log->warn("Default password detected for user '$username'. Please change it immediately.");
+                        last;
+                    }
+                }
+            }
+            # Check plaintext passwords (legacy format)
+            elsif ($stored && grep { $stored eq $_ } @weak_passwords) {
+                app->log->warn("Default password detected for user '$username'. Please change it immediately.");
+            }
+        }
+    }
+
     # Common controller args
     my %c_args = (storage => $storage, config => $config, cache => \%cache);
 
@@ -323,12 +350,40 @@ sub setup_routes {
         my $start = time();
         $c->stash(request_start => $start);
 
+        # Core security headers
         $c->res->headers->header('X-Content-Type-Options' => 'nosniff');
         $c->res->headers->header('X-Frame-Options' => 'SAMEORIGIN');
         $c->res->headers->header('X-XSS-Protection' => '1; mode=block');
         $c->res->headers->header('Referrer-Policy' => 'strict-origin-when-cross-origin');
-        $c->res->headers->header('Content-Security-Policy' =>
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:");
+
+        # Comprehensive Content-Security-Policy
+        $c->res->headers->header('Content-Security-Policy' => join('; ',
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob:",
+            "font-src 'self' data:",
+            "connect-src 'self' ws: wss:",
+            "frame-ancestors 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+        ));
+
+        # Transport security
+        $c->res->headers->header('Strict-Transport-Security' => 'max-age=31536000; includeSubDomains; preload');
+
+        # Permissions policy — disable sensitive browser features
+        $c->res->headers->header('Permissions-Policy' => 'camera=(), microphone=(), geolocation=(), payment=()');
+
+        # Cross-origin isolation headers
+        $c->res->headers->header('Cross-Origin-Opener-Policy' => 'same-origin');
+        $c->res->headers->header('Cross-Origin-Resource-Policy' => 'same-origin');
+
+        # Cross-Origin-Embedder-Policy only for non-static (API) requests
+        my $path = $c->req->url->path->to_string;
+        unless ($path =~ m{^/(?:assets|favicon|static)/} || $path =~ m{\.\w+$}) {
+            $c->res->headers->header('Cross-Origin-Embedder-Policy' => 'require-corp');
+        }
 
         my $origin = $c->req->headers->header('Origin') // '';
         if ($origin && $origin =~ /^https?:\/\/localhost(:\d+)?$/) {
@@ -346,7 +401,7 @@ sub setup_routes {
         }
 
         $metrics{requests_total}++;
-        my $path = $c->req->url->path->to_string;
+        $path = $c->req->url->path->to_string;
         $path =~ s/\/[0-9a-f-]{36}/:id/g;
         $metrics{requests_by_path}{$path}++;
     });
@@ -542,6 +597,11 @@ sub setup_routes {
     $protected->post('/settings/notifications/:type/test' => sub ($c) { $settings_c->test_notification($c) });
     $protected->put('/settings/retention' => sub ($c) { $settings_c->update_retention($c) });
     $protected->put('/settings/license' => sub ($c) { $settings_c->update_license($c) });
+
+    # API key rotation endpoints
+    $protected->get('/settings/api-keys' => sub ($c) { $settings_c->list_api_keys($c) });
+    $protected->post('/settings/api-keys' => sub ($c) { $settings_c->generate_api_key($c) });
+    $protected->delete('/settings/api-keys/:key_id' => sub ($c) { $settings_c->revoke_api_key($c) });
 
     # User management endpoints (Pro/Enterprise)
     $protected->get('/settings/users' => sub ($c) { $settings_c->list_users($c) });

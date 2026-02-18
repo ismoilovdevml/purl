@@ -1,9 +1,11 @@
 # Purl — Lightweight Log Aggregation System
 
 ## Project Overview
-Self-hosted log aggregation platform. Backend: Perl 5.24+ / Mojolicious. Frontend: Svelte 5 / Vite. Storage: ClickHouse. Deployment: Docker.
+
+Self-hosted log aggregation platform. Backend: Perl 5.40 / Mojolicious. Frontend: Svelte 5 / Vite. Storage: ClickHouse. Deployment: Docker.
 
 ## Tech Stack
+
 - **Backend**: Perl 5.40, Mojolicious, Moo OOP, ClickHouse HTTP API
 - **Frontend**: Svelte 5, Vite, vanilla CSS (dark theme)
 - **Storage**: ClickHouse (time-series logs, patterns, alerts)
@@ -13,25 +15,50 @@ Self-hosted log aggregation platform. Backend: Perl 5.24+ / Mojolicious. Fronten
 - **Docker tags**: `main` → `:latest`, `dev` → `:dev`
 
 ## Key Commands
+
 ```bash
 make up              # Start Purl + ClickHouse
 make down            # Stop services
-make lint            # Perl::Critic + ESLint
-make web-dev         # Frontend dev server (Vite HMR)
+make lint            # Perl::Critic + ESLint (both)
+make lint-perl       # Perl syntax + Perl::Critic only
+make lint-js         # ESLint only
+make test            # Run Perl tests (prove -r t/)
 make web-build       # Build frontend assets
-make test            # Run Perl tests
-make clickhouse-client  # ClickHouse shell
-docker compose up -d    # Direct Docker
+make web-dev         # Frontend dev server (Vite HMR)
+make preflight       # FULL verification: lint + test + build (run before push)
+make clickhouse-client
+```
+
+## Pre-Push Gate — MANDATORY
+
+**NEVER push without running `make preflight`.** This runs lint + test + build sequentially and fails fast on any error.
+
+```bash
+# Before ANY git push:
+make preflight       # Runs: lint-perl → lint-js → test → web-build
+```
+
+If preflight fails, fix ALL errors before pushing. No exceptions. No `--no-verify`. CI runs the same checks — failing locally saves time.
+
+When using subagents, run verification in parallel:
+
+```text
+Task(Bash): "make lint-perl"   # Parallel
+Task(Bash): "make lint-js"     # Parallel
+Task(Bash): "make test"        # Parallel
+# Wait for all three, then:
+Task(Bash): "make web-build"   # After lint passes
 ```
 
 ## Directory Structure
-```
+
+```text
 lib/Purl/
 ├── API/Server.pm              # Mojolicious app, routes, middleware
-├── API/Controller/*.pm        # 13 controllers (Logs, Alerts, Patterns, Auth, etc.)
+├── API/Controller/*.pm        # Controllers (Logs, Alerts, Patterns, Auth, etc.)
 ├── API/Middleware/Auth.pm      # API key & session auth
 ├── API/Middleware/License.pm   # JWT license verification
-├── Storage/ClickHouse/*.pm    # 6 storage modules (Query, Cache, Alerts, Patterns, etc.)
+├── Storage/ClickHouse/*.pm    # Storage modules (Query, Cache, Alerts, Patterns, etc.)
 ├── Alert/*.pm                 # Telegram, Slack, Webhook
 ├── Config.pm                  # ENV-based configuration
 └── Util/Time.pm               # Time range parser
@@ -43,15 +70,16 @@ web/src/
 ```
 
 ## Code Conventions
+
 - Perl: `use strict; use warnings; use 5.024;` — Moo for OOP, `namespace::clean`
 - Controllers extend `Purl::API::Controller::Base` (provides safe_execute, render_error, caching)
 - Feature gating: `$self->require_feature($c, 'feature_name')` checks license JWT
 - JSON responses: `$c->render(json => { ... })` or manual JSON for BigInt-safe strings
 - Svelte: stores in `web/src/stores/`, UI components in `web/src/components/ui/`
-- Perl::Critic config: `.perlcriticrc`
-- ESLint config: `web/eslint.config.js`
+- Perl::Critic config: `.perlcriticrc` | ESLint config: `web/eslint.config.js`
 
 ## Environment Variables (.env.example)
+
 - `PURL_PORT`, `PURL_HOST` — Server config
 - `PURL_CLICKHOUSE_*` — Database connection
 - `PURL_API_KEYS` — Comma-separated ingest API keys
@@ -59,150 +87,209 @@ web/src/
 - `PURL_TELEGRAM_*`, `PURL_SLACK_*`, `PURL_ALERT_WEBHOOK_*` — Alert channels
 
 ## Deployment
+
 - **Production server**: `172.17.4.16:3000` (Docker Compose, Enterprise license)
 - **Docker image**: `ismoilovdev/purl:latest` (prod), `ismoilovdev/purl:dev` (dev)
 - **Config volume**: `./config:/app/config:ro` (settings.json, users, license)
 
 ## Related Project
+
 - **purl-web** (SaaS marketing/dashboard): `/Users/macbook/Documents/devops/personal/purl-web`
-  - Next.js 16, Supabase, Stripe, Vercel
-  - Generates license keys for purl instances
-  - See its own CLAUDE.md for details
-
-## Issue Tracking (bd / beads)
-
-This project uses `bd` for issue tracking. **ALWAYS** follow this workflow:
-
-### Session Start — MANDATORY EVERY TIME
-
-Before doing ANY work, run these commands to understand the current state:
-
-```bash
-bd list --status=closed --limit=10  # FIRST: recent history — what was done before?
-bd list --status=in_progress        # Is there work already claimed?
-bd ready                            # What's ready to work on (no blockers)?
-bd list --status=open               # All open issues
-bd stats                            # Project health overview
-```
-
-**Why history first?** New sessions lose context. Reading recent closed issues tells you what was just completed, what decisions were made, and what the current state of the project is. Never start work without checking this.
-
-### During Work
-
-```bash
-bd create --title="..." --type=task|bug|feature --priority=2  # Create issue
-bd update <id> --status=in_progress   # Claim work BEFORE starting
-bd show <id>                          # View issue details
-bd dep add <issue> <depends-on>       # Add dependency
-```
-
-### Session End — MANDATORY CHECKLIST
-
-```bash
-bd close <id> --reason="..."    # Close completed issues (with context for next session)
-bd sync --from-main             # Sync beads with main
-git add . && git commit -m "..." && git push
-```
-
-**Rules**:
-
-- **ALWAYS** run `bd list --status=closed --limit=10` FIRST — history is your memory
-- Check `bd ready` before picking any task
-- Create `bd` issues for any multi-step or cross-session work
-- Close issues immediately when done — include meaningful `--reason` for next session context
-- Priority: 0=critical, 1=high, 2=medium, 3=low, 4=backlog
+  - Next.js 16, Supabase, Stripe, Vercel — see its own CLAUDE.md
 
 ## Credentials
 
-**ALL credentials are in `CREDENTIALS.md`** (git-ignored, never commit). This file contains:
-- Production server credentials (172.17.4.16 SSH, .env values)
-- Supabase project refs, anon keys, service role keys (prod + dev)
-- Stripe API keys (test mode), webhook secrets, product/price IDs
-- Docker Hub credentials
-- RSA keypairs for license JWT signing
-- purl-web Vercel project info
-
-**Read `CREDENTIALS.md` FIRST** whenever you need any API key, token, password, or service credential. Do not guess or ask — it's all documented there.
-
-Quick reference for fresh env vars:
-```bash
-# purl-web: pull all Vercel env vars
-cd /Users/macbook/Documents/devops/personal/purl-web && vercel env pull .env.local
-```
+**ALL credentials are in `CREDENTIALS.md`** (git-ignored, never commit). Read it FIRST for any API key, token, password, or service credential. Do not guess or ask.
 
 ## Git Workflow
 
 - `main` = production, `dev` = development
-- Push to `main` → CI builds Docker `:latest` + SHA tag
-- Push to `dev` → CI builds Docker `:dev` + SHA tag
-- PRs: lint + build test only (no push)
+- Push `main` → Docker `:latest` + SHA tag | Push `dev` → Docker `:dev` + SHA tag
 
-**ALWAYS set local git identity before committing** (do NOT use global git config):
+**Git identity** (set before first commit):
 
 ```bash
-git config --global --unset user.name  2>/dev/null || true
-git config --global --unset user.email 2>/dev/null || true
 git config --local user.name  "ismoilovdevml"
 git config --local user.email "ismoilovdevarchlinux@gmail.com"
 ```
 
-## Claude Agent Best Practices (Max 20x)
-
-### Context Window — Asosiy Muammo va Yechim
-
-Context to'lib qolishi eng katta failure mode. Qoidalar:
-
-- **Har yangi vazifada `/clear`** — eski tarix tokenlarni ifloslantiradi
-- **`/compact`** — context 70%+ bo'lganda, muhim kontekst yo'qolishidan oldin
-- **Context 50% dan oshmasin** — 80% da indicator chiqsa allaqachon kech
-- **Katta fayllarni to'liq o'qitma** — kerakli qismga yo'naltir (`offset` + `limit`)
-- **Subagentlar** — tadqiqot va izlash uchun Task tool ishlatish (asosiy contextni ifloslantirmaydi)
-
-### Subagentlar — Parallel Ishning Asosi
-
-Har bir subagent o'z izolyatsiya qilingan context window-ida ishlaydi:
-
-```
-# Parallel ishga tushirish — bir xabar ichida bir nechta Task tool call:
-Task(Explore): "lib/Purl/API/ ni tahlil qil"     → o'z context-ida
-Task(Bash):    "make lint chiqishini tekshir"      → o'z context-ida
-Task(Plan):    "feature X implementatsiya rejasi"  → o'z context-ida
-```
-
-Subagent turlar:
-- `Explore` — faqat o'qish, codebase izlash (Glob, Grep, Read)
-- `Plan` — arxitektura va implementatsiya rejasi
-- `Bash` — git, npm, docker, terminal operatsiyalari
-- `general-purpose` — murakkab ko'p bosqichli vazifalar
-
-### Git Worktree — 5-10 Agent Parallel
-
-Bir vaqtda bir nechta feature ishlab chiqish uchun:
+**Push checklist** (har doim shu tartibda):
 
 ```bash
-# Har feature uchun alohida worktree
-git worktree add ../purl-auth    -b feature/auth
-git worktree add ../purl-api     -b feature/new-api
-git worktree add ../purl-tests   -b feature/tests
-
-# Tugatgach tozalash
-git worktree remove ../purl-auth
+make preflight                    # 1. FULL verification (lint + test + build)
+git add <specific-files>          # 2. Stage only relevant files
+git commit -m "type: description" # 3. Commit
+git push                          # 4. Push ONLY after preflight passes
 ```
 
-Har bir worktree-da alohida Claude Code sessiyasi — parallel, izolyatsiya qilingan.
+## Issue Tracking (bd / beads)
 
-### CLAUDE.md Yozish Qoidalari
+### Session Start — HAR DOIM
 
-- **Qisqa saqlang**: 150-300 qator maksimum. LLM qancha ko'p o'qisa shuncha yaxshi emas
-- **"Qayerdan topish" ko'rsatish**: "CREDENTIALS.md da API kalitlar bor" — narsani o'zini emas
-- **Faqat xato qiladigan narsalar**: standart Perl/Svelte qoidalari emas, loyiha-spesifik narsalar
-- **Subfolder CLAUDE.md**: `lib/CLAUDE.md`, `web/CLAUDE.md` — katta loyihalarda ajratish
-- **Har sessiya boshida bd**: context yo'qolishi muammosini hal qiladi
+```bash
+bd list --status=closed --limit=10  # Tarix — oldingi sessiyada nima qilindi?
+bd list --status=in_progress        # Hozir kim nimada ishlayapti?
+bd ready                            # Blokersiz tayyor ishlar
+bd stats                            # Umumiy holat
+```
 
-### Invocation Best Practices
+### Session End — MANDATORY
 
-Subagentga vazifa topshirganda:
-1. **Aniq maqsad**: nima qilishi, nima qaytarishi
-2. **Fayl yo'llari**: qaysi fayllarga qarashi kerak
-3. **Muvaffaqiyat mezoni**: nima bo'lganda tugatadi
-4. **Yozish yoki faqat o'qish**: ikkalasini aralashtirma
+```bash
+make preflight                       # 1. Lint + Test + Build MUST pass
+bd close <id> --reason="..."         # 2. Close completed issues
+bd sync --from-main                  # 3. Sync beads
+git add . && git commit -m "..."     # 4. Commit
+```
+
+**Rules**: `bd ready` → `bd update <id> --status=in_progress` → ish qil → `bd close <id>` → `make preflight` → commit
+
+### Beads Task Management — Senior Level Qoidalar
+
+**Katta tasklarni DOIM subtasklarga bo'l.** Bitta bead 1-2 soatlik ish bo'lsin, undan katta bo'lsa — bo'l.
+
+```bash
+# Epic yaratish
+bd create --title="User authentication system" --type=epic --priority=1
+
+# Subtasklar (parallel yaratish mumkin)
+bd create --title="Add session middleware" --type=task --priority=1
+bd create --title="Create login/logout endpoints" --type=task --priority=1
+bd create --title="Add auth store in Svelte" --type=task --priority=2
+bd create --title="Write auth integration tests" --type=task --priority=2
+
+# Dependency bog'lash (task → epic: parent-child, task → task: blocks)
+bd dep add <subtask-id> <epic-id> --type=parent-child
+bd dep add <test-task-id> <endpoint-task-id>  # testlar endpointga depend
+```
+
+**Task description DOIM to'liq bo'lsin:**
+
+```bash
+bd create \
+  --title="Add rate limiting to ingest API" \
+  --type=feature \
+  --priority=1 \
+  --description="Ingest endpoint /api/v1/logs ga rate limiting qo'shish. \
+    Hozir cheksiz request qabul qilyapti. IP-based throttle kerak, \
+    429 Too Many Requests qaytarsin. Config: PURL_RATE_LIMIT env var." \
+  --design="Middleware sifatida: lib/Purl/API/Middleware/RateLimit.pm. \
+    In-memory counter (hash), ClickHouse ga yozmaslik. \
+    Server.pm da startup_hook ichida enable qilish." \
+  --acceptance="1. 100 req/min limitdan keyin 429 qaytadi \
+    2. X-RateLimit-Remaining header bor \
+    3. PURL_RATE_LIMIT=0 bo'lsa disable \
+    4. make preflight o'tadi"
+```
+
+**Qoidalar:**
+
+- Katta task (3+ soat) → epic + subtasklar. HECH QACHON katta monolith task yaratma
+- Description: muammo nima, hozir nima bo'lyapti, nima kerak — 2-3 gap yetarli
+- Design: qaysi fayllarga tegish, qanday yondashuv — keyingi sessiya tushunsin
+- Acceptance: "tayyor" deganda nima tekshiriladi — aniq, o'lchovli mezonlar
+- `--reason` bilan close qil — keyingi sessiya nima qilinganini bilsin
+- Bitta sessiyada 1 ta in_progress task — parallel ishlama, ketma-ket tugat
+
+### Kod Yozish — Senior Level Printsiplar
+
+**Bitta faylga ko'p narsa yozma.** Single Responsibility — har fayl bitta vazifa.
+
+- Controller: faqat request/response. Biznes logika Storage yoki alohida modulda
+- 200+ qatorlik fayl → bo'lish kerakmi deb o'yla. 400+ → albatta bo'l
+- Yangi feature = yangi fayl. Mavjud faylga "yana bitta method" qo'shma
+- Helper/util faqat 2+ joyda ishlatilsa yaratilsin. 1 joyda — inline yoz
+
+**Fayl bo'lish misollari:**
+
+```text
+# YOMON: bitta katta controller
+lib/Purl/API/Controller/Admin.pm  (500+ qator, users + settings + license)
+
+# YAXSHI: alohida controllerlar
+lib/Purl/API/Controller/Users.pm
+lib/Purl/API/Controller/Settings.pm
+lib/Purl/API/Controller/License.pm
+```
+
+**Commit granularity:** Bitta commit = bitta mantiqiy o'zgartirish. "Fix everything" commit yo'q.
+
+## Multi-Agent Workflow — ASOSIY QOIDA
+
+**Har doim subagentlarni parallel ishga tushir.** Asosiy context window ni toza saqlash uchun tadqiqot va verifikatsiyani subagentlarga topshir.
+
+### Pattern 1: Tadqiqot (Explore parallel)
+
+Yangi sessiya yoki katta feature boshlaganda:
+
+```text
+Task(Explore): "lib/Purl/API/Controller/ — barcha controllerlarni tahlil qil, patterns top"
+Task(Explore): "web/src/ — Svelte komponentlar arxitekturasini tahlil qil"
+Task(Explore): "t/ — mavjud testlarni o'qib, qanday test pattern ishlatilganini ayt"
+```
+
+### Pattern 2: Implementatsiya + Verifikatsiya
+
+Kod yozganingdan keyin — parallel tekshir:
+
+```text
+Task(Bash): "cd /Users/macbook/Documents/devops/personal/purl && make lint-perl"
+Task(Bash): "cd /Users/macbook/Documents/devops/personal/purl && make lint-js"
+Task(Bash): "cd /Users/macbook/Documents/devops/personal/purl && make test"
+```
+
+Hammasi o'tsa → `make web-build` → commit.
+
+### Pattern 3: Katta feature — Plan + Parallel Build
+
+```text
+Task(Plan): "Feature X ni qanday implement qilish — lib/ va web/ arxitekturaga mos"
+# Plan tasdiqlangach:
+Task(Bash): "Perl backend o'zgartirish — lint-perl bilan tekshir"
+Task(Bash): "Svelte frontend o'zgartirish — lint-js bilan tekshir"
+# Ikkalasi tugagach:
+Task(Bash): "make preflight"  # Final verification
+```
+
+### Pattern 4: Bug fix — Tez tsikl
+
+```text
+Task(Explore): "Bug ni toping — <xato tavsifi>, qaysi faylda ekanini aniqlang"
+# Natija asosida fix yoz, keyin:
+Task(Bash): "make preflight"  # Tekshir va tamom
+```
+
+### Subagent turlari
+
+| Tur | Ishlatish | Misol |
+| --- | --------- | ----- |
+| `Explore` | Faqat o'qish, codebase izlash | "Bu error qayerdan kelyapti?" |
+| `Plan` | Arxitektura, implementatsiya rejasi | "RBAC ni qanday qo'shish kerak?" |
+| `Bash` | Terminal: lint, test, build, git | "make lint-perl natijasini ko'rsat" |
+| `general-purpose` | Murakkab ko'p bosqichli | "Bu API ni refactor qil va test yoz" |
+
+### Context Window Qoidalari
+
+- **`/clear`** har yangi vazifada — eski tokenlarni tozala
+- **`/compact`** context 60%+ bo'lganda
+- **Katta fayllarni to'liq o'qitma** — `offset` + `limit` ishlatish
+- **Subagentlarni ishlat** — asosiy context ni toza saqla
+- Bitta xabarda bir nechta Tool call — parallel ishlaydi, tezroq
+
+### Git Worktree — Ko'p Agent Parallel
+
+```bash
+git worktree add ../purl-feature-x -b feature/x
+git worktree add ../purl-fix-y     -b fix/y
+# Har birida alohida Claude Code sessiyasi
+git worktree remove ../purl-feature-x  # Tugatgach tozala
+```
+
+### Invocation Qoidalari
+
+Subagentga vazifa berganda 4 ta narsa majburiy:
+
+1. **Aniq maqsad** — nima qilishi va nima qaytarishi
+2. **Fayl yo'llari** — qaysi fayllar bilan ishlashi
+3. **Muvaffaqiyat mezoni** — qachon "tayyor" deyish mumkin
+4. **Yozish/O'qish** — faqat birini berish, aralashtirmaslik

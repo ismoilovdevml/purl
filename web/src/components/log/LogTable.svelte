@@ -50,6 +50,13 @@
   const pageSize = 100;
   let currentPage = 1;
 
+  // Virtual scroll
+  const ROW_HEIGHT = 36;
+  const BUFFER_ROWS = 10;
+  let containerHeight = 0;
+  let scrollTop = 0;
+  let tableContainer;
+
   // Multi-row selection
   let selectedIds = new Set();
   let lastCheckedIndex = null;
@@ -114,11 +121,13 @@
     if (unsubscribeMaxResults) unsubscribeMaxResults();
   });
 
-  // Reset pagination and selection when logs array changes
+  // Reset pagination, selection, and scroll when logs array changes
   $: if (logs) {
     currentPage = 1;
     selectedIds = new Set();
     lastCheckedIndex = null;
+    scrollTop = 0;
+    if (tableContainer) tableContainer.scrollTop = 0;
     dispatch('selectionChange', { selected: [] });
   }
 
@@ -132,10 +141,24 @@
   $: pageStart = logs.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   $: pageEnd = Math.min(currentPage * pageSize, logs.length);
 
+  // Virtual scroll: derived values from paginated logs
+  $: totalItems = paginatedLogs.length;
+  $: visibleCount = Math.ceil(containerHeight / ROW_HEIGHT) + BUFFER_ROWS * 2;
+  $: startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - BUFFER_ROWS);
+  $: endIndex = Math.min(totalItems, startIndex + visibleCount);
+  $: visibleItems = paginatedLogs.slice(startIndex, endIndex);
+  $: topPadding = startIndex * ROW_HEIGHT;
+  $: bottomPadding = Math.max(0, (totalItems - endIndex) * ROW_HEIGHT);
+
   // Derived: selection state for current page
   $: allSelected = paginatedLogs.length > 0 && paginatedLogs.every(l => selectedIds.has(l.id));
   $: someSelected = paginatedLogs.some(l => selectedIds.has(l.id)) && !allSelected;
   $: selectionCount = selectedIds.size;
+
+  // Virtual scroll handler
+  function handleScroll(e) {
+    scrollTop = e.target.scrollTop;
+  }
 
   function saveColumnConfig() {
     localStorage.setItem('purl_column_config', JSON.stringify(
@@ -251,11 +274,19 @@
 
   // Pagination controls
   function goToPrevPage() {
-    if (currentPage > 1) currentPage -= 1;
+    if (currentPage > 1) {
+      currentPage -= 1;
+      scrollTop = 0;
+      if (tableContainer) tableContainer.scrollTop = 0;
+    }
   }
 
   function goToNextPage() {
-    if (currentPage < totalPages) currentPage += 1;
+    if (currentPage < totalPages) {
+      currentPage += 1;
+      scrollTop = 0;
+      if (tableContainer) tableContainer.scrollTop = 0;
+    }
   }
 
   // Selection handlers
@@ -388,127 +419,140 @@
       </div>
     {/if}
 
-    <table class="log-table" class:resizing={resizing !== null} class:compact={isCompact} class:no-wrap={!shouldWrap}>
-      <thead>
-        <tr>
-          <!-- Checkbox column header -->
-          <th class="checkbox-col">
-              <input
-              type="checkbox"
-              class="row-checkbox"
-              checked={allSelected}
-              use:indeterminate={someSelected}
-              on:change={toggleSelectAll}
-              aria-label="Select all on current page"
-            />
-          </th>
-          {#each orderedVisibleColumns as col}
-            <th
-              style={col.width ? `width: ${col.width}px` : ''}
-              class:pinned={col.pinned}
-            >
-              {#if col.pinned}
-                <svg class="pin-icon" width="10" height="10" viewBox="0 0 16 16">
-                  <path fill="currentColor" d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z"/>
-                </svg>
-              {/if}
-              {col.label}
-              {#if col.id !== 'message'}
-                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                <div
-                  class="resize-handle"
-                  role="separator"
-                  aria-orientation="vertical"
-                  tabindex="-1"
-                  on:mousedown={(e) => startResize(e, col.id)}
-                ></div>
-              {/if}
-            </th>
-          {/each}
-        </tr>
-      </thead>
-      <tbody>
-        {#each paginatedLogs as log, i (log.id || i)}
-          <tr
-            class="log-row"
-            class:selected={selectedLog?.id === log.id}
-            class:row-checked={selectedIds.has(log.id)}
-            class:error-row={shouldHighlightErrors && (log.level === 'ERROR' || log.level === 'FATAL')}
-            on:click={() => selectLog(log)}
-          >
-            <!-- Checkbox cell -->
-            <td class="checkbox-col" on:click|stopPropagation>
+    <div
+      class="virtual-scroll-container"
+      bind:this={tableContainer}
+      bind:clientHeight={containerHeight}
+      on:scroll={handleScroll}
+    >
+      <table class="log-table" class:resizing={resizing !== null} class:compact={isCompact} class:no-wrap={!shouldWrap}>
+        <thead>
+          <tr>
+            <!-- Checkbox column header -->
+            <th class="checkbox-col">
                 <input
                 type="checkbox"
                 class="row-checkbox"
-                checked={selectedIds.has(log.id)}
-                on:change={(e) => toggleRowSelection(e, log, i)}
-                on:click|stopPropagation
-                aria-label="Select row"
+                checked={allSelected}
+                use:indeterminate={someSelected}
+                on:change={toggleSelectAll}
+                aria-label="Select all on current page"
               />
-            </td>
-            {#each orderedVisibleColumns as col (col.id)}
-              <td
+            </th>
+            {#each orderedVisibleColumns as col}
+              <th
                 style={col.width ? `width: ${col.width}px` : ''}
                 class:pinned={col.pinned}
               >
-                {#if col.id === 'time'}
-                  <span class="timestamp" title={formatFullTimestamp(log.timestamp)}>
-                    {formatTimestamp(log.timestamp, timeFormat)}
-                  </span>
-                {:else if col.id === 'level'}
-                  <span class="level-badge" style="background: {getLevelBgColor(log.level)}; color: {getLevelColor(log.level)}">
-                    {log.level}
-                  </span>
-                {:else if col.id === 'service'}
-                  <span class="service">{log.service}</span>
-                {:else if col.id === 'host'}
-                  <span class="host">{log.host}</span>
-                {:else if col.id === 'namespace'}
-                  <span class="namespace">{getMetaField(log, 'namespace')}</span>
-                {:else if col.id === 'pod'}
-                  <span class="pod">{getMetaField(log, 'pod')}</span>
-                {:else if col.id === 'node'}
-                  <span class="node">{getMetaField(log, 'node')}</span>
-                {:else if col.id === 'message'}
-                  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                  <span class="message">{@html highlightText(log.message, searchQuery)}</span>
+                {#if col.pinned}
+                  <svg class="pin-icon" width="10" height="10" viewBox="0 0 16 16">
+                    <path fill="currentColor" d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z"/>
+                  </svg>
                 {/if}
-              </td>
+                {col.label}
+                {#if col.id !== 'message'}
+                  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                  <div
+                    class="resize-handle"
+                    role="separator"
+                    aria-orientation="vertical"
+                    tabindex="-1"
+                    on:mousedown={(e) => startResize(e, col.id)}
+                  ></div>
+                {/if}
+              </th>
             {/each}
           </tr>
-
-          {#if selectedLog?.id === log.id}
-            <tr class="detail-row">
-              <td colspan={colspanCount}>
-                <LogDetail
-                  {log}
-                  {searchQuery}
-                  contextLoading={contextLoading[log.id]}
-                  contextOpen={!!contextData[log.id]}
-                  on:filterTrace={handleFilterTrace}
-                  on:filterRequest={handleFilterRequest}
-                  on:showContext={() => loadContext(log.id)}
-                >
-                  <svelte:fragment slot="context">
-                    {#if contextData[log.id]}
-                      <LogContextPanel
-                        currentLog={log}
-                        beforeLogs={contextData[log.id].before_logs}
-                        afterLogs={contextData[log.id].after_logs}
-                        beforeCount={contextData[log.id].before_count}
-                        afterCount={contextData[log.id].after_count}
-                        on:close={() => closeContext(log.id)}
-                      />
-                    {/if}
-                  </svelte:fragment>
-                </LogDetail>
-              </td>
-            </tr>
+        </thead>
+        <tbody>
+          {#if topPadding > 0}
+            <tr class="virtual-padding-row"><td colspan={colspanCount} style="height: {topPadding}px; padding: 0; border: none;"></td></tr>
           {/if}
-        {/each}
-      </tbody>
-    </table>
+          {#each visibleItems as log, i (log.id || startIndex + i)}
+            <tr
+              class="log-row"
+              class:selected={selectedLog?.id === log.id}
+              class:row-checked={selectedIds.has(log.id)}
+              class:error-row={shouldHighlightErrors && (log.level === 'ERROR' || log.level === 'FATAL')}
+              on:click={() => selectLog(log)}
+            >
+              <!-- Checkbox cell -->
+              <td class="checkbox-col" on:click|stopPropagation>
+                  <input
+                  type="checkbox"
+                  class="row-checkbox"
+                  checked={selectedIds.has(log.id)}
+                  on:change={(e) => toggleRowSelection(e, log, startIndex + i)}
+                  on:click|stopPropagation
+                  aria-label="Select row"
+                />
+              </td>
+              {#each orderedVisibleColumns as col (col.id)}
+                <td
+                  style={col.width ? `width: ${col.width}px` : ''}
+                  class:pinned={col.pinned}
+                >
+                  {#if col.id === 'time'}
+                    <span class="timestamp" title={formatFullTimestamp(log.timestamp)}>
+                      {formatTimestamp(log.timestamp, timeFormat)}
+                    </span>
+                  {:else if col.id === 'level'}
+                    <span class="level-badge" style="background: {getLevelBgColor(log.level)}; color: {getLevelColor(log.level)}">
+                      {log.level}
+                    </span>
+                  {:else if col.id === 'service'}
+                    <span class="service">{log.service}</span>
+                  {:else if col.id === 'host'}
+                    <span class="host">{log.host}</span>
+                  {:else if col.id === 'namespace'}
+                    <span class="namespace">{getMetaField(log, 'namespace')}</span>
+                  {:else if col.id === 'pod'}
+                    <span class="pod">{getMetaField(log, 'pod')}</span>
+                  {:else if col.id === 'node'}
+                    <span class="node">{getMetaField(log, 'node')}</span>
+                  {:else if col.id === 'message'}
+                    <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                    <span class="message">{@html highlightText(log.message, searchQuery)}</span>
+                  {/if}
+                </td>
+              {/each}
+            </tr>
+
+            {#if selectedLog?.id === log.id}
+              <tr class="detail-row">
+                <td colspan={colspanCount}>
+                  <LogDetail
+                    {log}
+                    {searchQuery}
+                    contextLoading={contextLoading[log.id]}
+                    contextOpen={!!contextData[log.id]}
+                    on:filterTrace={handleFilterTrace}
+                    on:filterRequest={handleFilterRequest}
+                    on:showContext={() => loadContext(log.id)}
+                  >
+                    <svelte:fragment slot="context">
+                      {#if contextData[log.id]}
+                        <LogContextPanel
+                          currentLog={log}
+                          beforeLogs={contextData[log.id].before_logs}
+                          afterLogs={contextData[log.id].after_logs}
+                          beforeCount={contextData[log.id].before_count}
+                          afterCount={contextData[log.id].after_count}
+                          on:close={() => closeContext(log.id)}
+                        />
+                      {/if}
+                    </svelte:fragment>
+                  </LogDetail>
+                </td>
+              </tr>
+            {/if}
+          {/each}
+          {#if bottomPadding > 0}
+            <tr class="virtual-padding-row"><td colspan={colspanCount} style="height: {bottomPadding}px; padding: 0; border: none;"></td></tr>
+          {/if}
+        </tbody>
+      </table>
+    </div>
 
     <!-- Pagination footer -->
     <div class="pagination-footer">
@@ -550,8 +594,40 @@
     background: var(--bg-secondary, #161b22);
     border: 1px solid var(--border-color, #30363d);
     border-radius: var(--radius-md, 6px);
-    overflow: auto;
+    overflow: hidden;
     max-height: calc(100vh - 280px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .virtual-scroll-container {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+    position: relative;
+    min-height: 0;
+  }
+
+  .virtual-scroll-container::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .virtual-scroll-container::-webkit-scrollbar-track {
+    background: var(--bg-primary, #1a1a2e);
+  }
+
+  .virtual-scroll-container::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+  }
+
+  .virtual-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+
+  .virtual-padding-row td {
+    padding: 0 !important;
+    border: none !important;
   }
 
   .table-toolbar {

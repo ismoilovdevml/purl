@@ -11,6 +11,8 @@
   import AnalyticsPage from './components/AnalyticsPage.svelte';
   import SettingsPage from './components/settings/SettingsPage.svelte';
   import LoginPage from './components/LoginPage.svelte';
+  import Onboarding from './components/Onboarding.svelte';
+  import SearchHelp from './components/SearchHelp.svelte';
   import {
     logs,
     loading,
@@ -27,12 +29,23 @@
 
   let savedSearchesRef;
   let currentPage = 'logs'; // 'logs' | 'analytics' | 'settings'
+  let showOnboarding = true;
+  let showSearchHelp = false;
   let refreshIntervalId = null;
   let currentRefreshInterval = 30;
   let hasAppliedDefaultRange = false;
   let unsubscribeRefresh = null;
   let unsubscribeDefaultRange = null;
   let appReady = false;
+
+  // Mobile responsive state
+  let mobileMenuOpen = false;
+  let isMobile = false;
+
+  function checkMobile() {
+    isMobile = window.innerWidth < 768;
+    if (!isMobile) mobileMenuOpen = false;
+  }
 
   // Enhanced error state with retry callback and severity
   let errorState = { message: '', retryFn: null, severity: 'error' };
@@ -117,11 +130,18 @@
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
 
+    // Mobile responsive: check on mount and listen for resize
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+
     if (currentPage === 'logs') {
       await searchLogs();
     }
 
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener('resize', checkMobile);
+    };
   });
 
   onDestroy(() => {
@@ -145,6 +165,7 @@
   function navigate(page) {
     currentPage = page;
     window.location.hash = page;
+    mobileMenuOpen = false;
     // Restart refresh interval when navigating to logs
     if (page === 'logs') {
       setupRefreshInterval();
@@ -275,6 +296,13 @@
 {:else}
 <main>
   <header>
+    {#if isMobile}
+      <button class="hamburger" on:click={() => mobileMenuOpen = !mobileMenuOpen} aria-label="Toggle menu">
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+      </button>
+    {/if}
     <button class="logo" on:click={() => navigate('logs')}>
       <svg width="32" height="32" viewBox="0 0 32 32">
         <circle
@@ -365,6 +393,7 @@
 
     {#if currentPage === 'logs'}
       <SearchBar bind:value={$query} on:search={handleSearch} />
+      <button class="search-help-btn" on:click={() => showSearchHelp = true} title="Search syntax help">?</button>
 
       <div class="header-actions">
         <TimeRangePicker value={$timeRange} on:change={handleTimeRangeChange} />
@@ -498,43 +527,55 @@
   {/if}
 
   {#if currentPage === 'logs'}
-    <div class="stats-bar">
-      <span>{$total.toLocaleString()} logs</span>
-      <span class="separator">|</span>
-      <span>Time range: {$timeRange}</span>
-      {#if $query}
+    {#if showOnboarding && $logs.length === 0}
+      <Onboarding onDismiss={() => showOnboarding = false} />
+    {:else}
+      <div class="stats-bar">
+        <span>{$total.toLocaleString()} logs</span>
         <span class="separator">|</span>
-        <span>Query: <code>{$query}</code></span>
-      {/if}
-      {#if selectedLogs.length > 0}
-        <span class="separator">|</span>
-        <span class="selection-info">{selectedLogs.length} selected</span>
-      {/if}
-    </div>
-
-    <div class="container">
-      <aside class="sidebar">
-        <FieldsSidebar on:filter={handleFieldFilter} />
-        <SavedSearches
-          bind:this={savedSearchesRef}
-          on:apply={handleApplySavedSearch}
-        />
-        <AlertsPanel />
-      </aside>
-
-      <div class="main-content">
-        <Histogram on:filter={handleHistogramFilter} on:zoom={handleHistogramZoom} />
-        <LogTable logs={$logs} on:selectionChange={handleSelectionChange} />
+        <span>Time range: {$timeRange}</span>
+        {#if $query}
+          <span class="separator">|</span>
+          <span>Query: <code>{$query}</code></span>
+        {/if}
+        {#if selectedLogs.length > 0}
+          <span class="separator">|</span>
+          <span class="selection-info">{selectedLogs.length} selected</span>
+        {/if}
       </div>
 
-      <aside class="patterns-aside">
-        <PatternsSidebar />
-      </aside>
-    </div>
+      <div class="container">
+        {#if isMobile && mobileMenuOpen}
+          <div class="sidebar-backdrop visible" on:click={() => mobileMenuOpen = false} on:keydown={() => mobileMenuOpen = false} role="button" tabindex="-1" aria-label="Close menu"></div>
+        {/if}
+
+        <aside class="sidebar" class:mobile-open={isMobile && mobileMenuOpen}>
+          <FieldsSidebar on:filter={handleFieldFilter} />
+          <SavedSearches
+            bind:this={savedSearchesRef}
+            on:apply={handleApplySavedSearch}
+          />
+          <AlertsPanel />
+        </aside>
+
+        <div class="main-content">
+          <Histogram on:filter={handleHistogramFilter} on:zoom={handleHistogramZoom} />
+          <LogTable logs={$logs} on:selectionChange={handleSelectionChange} />
+        </div>
+
+        <aside class="patterns-aside">
+          <PatternsSidebar />
+        </aside>
+      </div>
+    {/if}
   {:else if currentPage === 'analytics'}
     <AnalyticsPage />
   {:else if currentPage === 'settings'}
     <SettingsPage />
+  {/if}
+
+  {#if showSearchHelp}
+    <SearchHelp onClose={() => showSearchHelp = false} />
   {/if}
 </main>
 {/if}
@@ -966,5 +1007,143 @@
 
   .error-banner.severity-info .dismiss-btn:hover {
     background: rgba(56, 139, 253, 0.2);
+  }
+
+  .search-help-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid #555;
+    background: #2a2a3a;
+    color: #888;
+    font-size: 0.85rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .search-help-btn:hover {
+    border-color: #7c3aed;
+    color: #7c3aed;
+  }
+
+  /* Mobile responsive styles */
+  .hamburger {
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    background: none;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .hamburger-line {
+    display: block;
+    width: 20px;
+    height: 2px;
+    background: #c9d1d9;
+    transition: transform 0.2s;
+  }
+
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 99;
+  }
+
+  .sidebar-backdrop.visible {
+    display: block;
+  }
+
+  @media (max-width: 768px) {
+    .hamburger {
+      display: flex;
+    }
+
+    .sidebar {
+      position: fixed;
+      left: -280px;
+      top: 0;
+      height: 100vh;
+      z-index: 100;
+      transition: left 0.3s ease;
+      background: #161b22;
+    }
+
+    .sidebar.mobile-open {
+      left: 0;
+    }
+
+    .main-content {
+      margin-left: 0 !important;
+    }
+
+    .patterns-aside {
+      display: none;
+    }
+
+    .header-actions {
+      gap: 4px;
+    }
+
+    .nav-tabs button {
+      padding: 8px 10px;
+      font-size: 12px;
+    }
+
+    .nav-tabs button svg {
+      display: none;
+    }
+  }
+
+  @media (max-width: 480px) {
+    header {
+      padding: 8px 12px;
+      gap: 8px;
+    }
+
+    .logo span {
+      font-size: 1rem;
+    }
+
+    .logo svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .stats-bar {
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 6px 12px;
+    }
+
+    .nav-tabs {
+      padding: 2px;
+    }
+
+    .nav-tabs button {
+      padding: 6px 8px;
+      font-size: 11px;
+    }
+
+    .btn {
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+
+    .user-menu {
+      gap: 4px;
+    }
+
+    .user-name {
+      display: none;
+    }
   }
 </style>

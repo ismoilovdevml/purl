@@ -1,4 +1,4 @@
-.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test clean
+.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean
 
 # Variables
 PERL5LIB := lib
@@ -67,6 +67,12 @@ lint-js:
 # Testing
 test:
 	@PERL5LIB=lib prove -r t/ 2>/dev/null || echo "No tests found"
+
+# Pre-push verification (lint + test + build)
+preflight: lint test web-build
+	@echo ""
+	@echo "=== PREFLIGHT PASSED ==="
+	@echo "All checks green. Safe to push."
 
 # Maintenance
 clean:

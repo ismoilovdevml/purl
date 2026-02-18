@@ -46,6 +46,7 @@ nytprof.out
 .env
 .env.local
 .env.*.local
+CREDENTIALS.md
 
 # Local development
 docker-compose.local.yml

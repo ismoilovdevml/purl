@@ -324,6 +324,173 @@ sub update_license {
 }
 
 # ============================================
+# API Key Rotation
+# ============================================
+
+sub list_api_keys {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $auth_config = $self->settings->get_section('auth') // {};
+        my $api_keys = $auth_config->{api_keys} // [];
+
+        my @masked;
+        for my $entry (@$api_keys) {
+            if (ref $entry eq 'HASH') {
+                my $key = $entry->{key} // '';
+                push @masked, {
+                    id         => substr($key, 0, 8),
+                    masked_key => _mask_key($key),
+                    label      => $entry->{label} // '',
+                    created_at => $entry->{created_at} // '',
+                };
+            } else {
+                # Legacy plain string key
+                push @masked, {
+                    id         => substr($entry, 0, 8),
+                    masked_key => _mask_key($entry),
+                    label      => '',
+                    created_at => '',
+                };
+            }
+        }
+
+        $c->render(json => {
+            api_keys => \@masked,
+            from_env => $self->settings->is_from_env('auth', 'api_keys') ? 1 : 0,
+        });
+    });
+}
+
+sub generate_api_key {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        if ($self->settings->is_from_env('auth', 'api_keys')) {
+            $c->render(json => {
+                error    => 'Cannot modify - API keys configured via PURL_API_KEYS',
+                from_env => 1,
+            }, status => 400);
+            return;
+        }
+
+        my $body = eval { decode_json($c->req->body) };
+        my $label = ($body && $body->{label}) ? $body->{label} : '';
+
+        # Validate label if provided
+        if ($label && $label !~ /^[\w\s\-\.]{1,64}$/) {
+            $self->render_error($c, 'Label must be 1-64 alphanumeric characters, spaces, hyphens, dots', 400);
+            return;
+        }
+
+        # Generate secure 48-char API key
+        my $new_key = join '', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..48;
+
+        my $auth_config = $self->settings->get_section('auth') // {};
+        my $api_keys = $auth_config->{api_keys} // [];
+
+        # Ensure all entries are hash format
+        my @normalized;
+        for my $entry (@$api_keys) {
+            if (ref $entry eq 'HASH') {
+                push @normalized, $entry;
+            } else {
+                push @normalized, { key => $entry, label => '', created_at => '' };
+            }
+        }
+
+        my ($sec, $min, $hour, $mday, $mon, $year) = gmtime(time);
+        my $created_at = sprintf('%04d-%02d-%02dT%02d:%02d:%02dZ',
+            $year + 1900, $mon + 1, $mday, $hour, $min, $sec);
+
+        push @normalized, {
+            key        => $new_key,
+            label      => $label,
+            created_at => $created_at,
+        };
+
+        $auth_config->{api_keys} = \@normalized;
+
+        if ($self->settings->set_section('auth', $auth_config)) {
+            # Reload keys in auth middleware
+            $self->auth_middleware->reload_api_keys() if $self->auth_middleware;
+
+            $c->render(json => {
+                status     => 'ok',
+                api_key    => $new_key,
+                label      => $label,
+                created_at => $created_at,
+                message    => 'API key generated. Store it securely — it will not be shown again.',
+            });
+        } else {
+            $self->render_error($c, 'Failed to save API key', 500);
+        }
+    });
+}
+
+sub revoke_api_key {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        if ($self->settings->is_from_env('auth', 'api_keys')) {
+            $c->render(json => {
+                error    => 'Cannot modify - API keys configured via PURL_API_KEYS',
+                from_env => 1,
+            }, status => 400);
+            return;
+        }
+
+        my $key_id = $c->param('key_id');
+        unless ($key_id && length($key_id) >= 1) {
+            $self->render_error($c, 'Key identifier required', 400);
+            return;
+        }
+
+        my $auth_config = $self->settings->get_section('auth') // {};
+        my $api_keys = $auth_config->{api_keys} // [];
+
+        my $found = 0;
+        my @remaining;
+        for my $entry (@$api_keys) {
+            my $key   = ref $entry eq 'HASH' ? ($entry->{key} // '') : $entry;
+            my $label = ref $entry eq 'HASH' ? ($entry->{label} // '') : '';
+
+            # Match by prefix (first 8 chars) or by label
+            if (substr($key, 0, 8) eq $key_id || ($label ne '' && $label eq $key_id)) {
+                $found = 1;
+                next;
+            }
+            push @remaining, $entry;
+        }
+
+        unless ($found) {
+            $self->render_error($c, 'API key not found', 404);
+            return;
+        }
+
+        $auth_config->{api_keys} = \@remaining;
+
+        if ($self->settings->set_section('auth', $auth_config)) {
+            # Reload keys in auth middleware
+            $self->auth_middleware->reload_api_keys() if $self->auth_middleware;
+
+            $c->render(json => {
+                status  => 'ok',
+                message => 'API key revoked.',
+            });
+        } else {
+            $self->render_error($c, 'Failed to revoke API key', 500);
+        }
+    });
+}
+
+sub _mask_key {
+    my ($key) = @_;
+    return '' unless defined $key && length($key) >= 12;
+    return substr($key, 0, 8) . '...' . substr($key, -4);
+}
+
+# ============================================
 # User Management (Pro/Enterprise)
 # ============================================
 
