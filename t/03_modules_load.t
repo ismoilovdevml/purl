@@ -9,9 +9,25 @@ use lib "$Bin/../lib";
 my @modules = qw(
     Purl::Config
     Purl::Util::Time
-    Purl::API::Controller::Base
+    Purl::API::Middleware
     Purl::API::Middleware::Auth
     Purl::API::Middleware::License
+    Purl::API::Controller::Base
+    Purl::API::Controller::Logs
+    Purl::API::Controller::Auth
+    Purl::API::Controller::Alerts
+    Purl::API::Controller::Settings
+    Purl::API::Controller::Patterns
+    Purl::API::Controller::Traces
+    Purl::API::Controller::System
+    Purl::API::Controller::Analytics
+    Purl::API::Controller::Stats
+    Purl::API::Controller::SavedSearches
+    Purl::API::Controller::Config
+    Purl::API::Controller::Audit
+    Purl::Alert::Telegram
+    Purl::Alert::Slack
+    Purl::Alert::Webhook
     Purl::Storage::ClickHouse
 );
 
