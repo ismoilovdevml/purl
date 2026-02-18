@@ -34,6 +34,11 @@ use Purl::API::Controller::Config;
 use Purl::API::Controller::Audit;
 use Purl::API::Controller::Backup;
 use Purl::API::Controller::OTLP;
+use Purl::API::Controller::ESCompat;
+use Purl::API::Controller::Syslog;
+use Purl::API::Controller::Pipeline;
+use Purl::API::Controller::Dashboard;
+use Purl::API::Controller::AI;
 
 # Package-level state
 my $storage;
@@ -336,7 +341,12 @@ sub setup_routes {
     my $config_c = Purl::API::Controller::Config->new(%c_args, main_config => $config);
     my $audit_c  = Purl::API::Controller::Audit->new(%c_args);
     my $backup_c = Purl::API::Controller::Backup->new(%c_args);
-    my $otlp_c   = Purl::API::Controller::OTLP->new(%c_args);
+    my $otlp_c      = Purl::API::Controller::OTLP->new(%c_args);
+    my $escompat_c  = Purl::API::Controller::ESCompat->new(%c_args);
+    my $syslog_c    = Purl::API::Controller::Syslog->new(%c_args);
+    my $pipeline_c  = Purl::API::Controller::Pipeline->new(%c_args);
+    my $dashboard_c = Purl::API::Controller::Dashboard->new(%c_args);
+    my $ai_c        = Purl::API::Controller::AI->new(%c_args, settings => $settings);
 
     # Initialize audit schema (non-fatal)
     eval { $storage->_init_audit_schema() };
@@ -345,6 +355,14 @@ sub setup_routes {
     # Initialize backup schema (non-fatal)
     eval { $storage->_init_backup_schema() };
     app->log->warn("Backup schema init failed: $@") if $@;
+
+    # Initialize pipeline schema (non-fatal)
+    eval { $storage->_init_pipeline_schema() };
+    app->log->warn("Pipeline schema init failed: $@") if $@;
+
+    # Initialize dashboard schema (non-fatal)
+    eval { $storage->_init_dashboard_schema() };
+    app->log->warn("Dashboard schema init failed: $@") if $@;
 
     # Periodic buffer flush
     Mojo::IOLoop->recurring(2 => sub {
@@ -683,6 +701,44 @@ sub setup_routes {
     # ============================================
     $protected->get('/audit' => sub ($c) { $audit_c->list($c) });
     $protected->get('/audit/stats' => sub ($c) { $audit_c->stats($c) });
+
+    # ============================================
+    # Elasticsearch-compatible endpoints
+    # ============================================
+    $protected->post('/es/_search' => sub ($c) { $escompat_c->search($c) });
+    $protected->post('/es/_msearch' => sub ($c) { $escompat_c->msearch($c) });
+    $protected->get('/es/_field_caps' => sub ($c) { $escompat_c->field_caps($c) });
+
+    # ============================================
+    # Syslog ingest endpoint
+    # ============================================
+    $protected->post('/v1/syslog' => sub ($c) { $syslog_c->ingest($c) });
+
+    # ============================================
+    # Pipeline endpoints
+    # ============================================
+    $protected->get('/pipelines' => sub ($c) { $pipeline_c->list($c) });
+    $protected->get('/pipelines/:id' => sub ($c) { $pipeline_c->get($c) });
+    $protected->post('/pipelines' => sub ($c) { $pipeline_c->create($c) });
+    $protected->put('/pipelines/:id' => sub ($c) { $pipeline_c->update($c) });
+    $protected->delete('/pipelines/:id' => sub ($c) { $pipeline_c->remove($c) });
+    $protected->post('/pipelines/test' => sub ($c) { $pipeline_c->test($c) });
+
+    # ============================================
+    # Dashboard endpoints
+    # ============================================
+    $protected->get('/dashboards' => sub ($c) { $dashboard_c->list($c) });
+    $protected->get('/dashboards/:id' => sub ($c) { $dashboard_c->get($c) });
+    $protected->post('/dashboards' => sub ($c) { $dashboard_c->create($c) });
+    $protected->put('/dashboards/:id' => sub ($c) { $dashboard_c->update($c) });
+    $protected->delete('/dashboards/:id' => sub ($c) { $dashboard_c->remove($c) });
+    $protected->post('/dashboards/widget' => sub ($c) { $dashboard_c->execute_widget($c) });
+
+    # ============================================
+    # AI query endpoints
+    # ============================================
+    $protected->post('/ai/query' => sub ($c) { $ai_c->query($c) });
+    $protected->get('/ai/suggest' => sub ($c) { $ai_c->suggest($c) });
 
     # ============================================
     # WebSocket for live tail

@@ -10,6 +10,7 @@
   import PatternsSidebar from './components/PatternsSidebar.svelte';
   import AnalyticsPage from './components/AnalyticsPage.svelte';
   import SettingsPage from './components/settings/SettingsPage.svelte';
+  import DashboardPage from './components/dashboard/DashboardPage.svelte';
   import LoginPage from './components/LoginPage.svelte';
   import Onboarding from './components/Onboarding.svelte';
   import SearchHelp from './components/SearchHelp.svelte';
@@ -30,7 +31,7 @@
   import { success as toastSuccess } from './stores/toast.js';
 
   let savedSearchesRef;
-  let currentPage = 'logs'; // 'logs' | 'analytics' | 'settings'
+  let currentPage = 'logs'; // 'logs' | 'analytics' | 'dashboards' | 'settings'
   let showOnboarding = true;
   let showSearchHelp = false;
   let refreshIntervalId = null;
@@ -159,7 +160,7 @@
 
   function handleHashChange() {
     const hash = window.location.hash.slice(1) || 'logs';
-    if (['logs', 'analytics', 'settings'].includes(hash)) {
+    if (['logs', 'analytics', 'dashboards', 'settings'].includes(hash)) {
       currentPage = hash;
     }
   }
@@ -368,6 +369,25 @@
           <path d="M18 9l-5-6-4 8-3-2" />
         </svg>
         Analytics
+      </button>
+      <button
+        class:active={currentPage === 'dashboards'}
+        on:click={() => navigate('dashboards')}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <rect x="14" y="14" width="7" height="7" rx="1" />
+        </svg>
+        Dashboards
       </button>
       <button
         class:active={currentPage === 'settings'}
@@ -591,6 +611,8 @@
     {/if}
   {:else if currentPage === 'analytics'}
     <AnalyticsPage />
+  {:else if currentPage === 'dashboards'}
+    <DashboardPage />
   {:else if currentPage === 'settings'}
     <SettingsPage />
   {/if}
