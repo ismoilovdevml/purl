@@ -462,6 +462,7 @@ sub check_server_limit {
     my $info = $self->get_license_info();
     return 1 unless $info && $info->{valid};
     my $max = $info->{limits}{servers} // 999;
+    return 1 if $max < 0;  # -1 means unlimited
     return $current_count <= $max;
 }
 
