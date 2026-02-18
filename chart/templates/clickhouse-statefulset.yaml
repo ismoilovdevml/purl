@@ -45,6 +45,13 @@ spec:
                   name: {{ include "purl.fullname" . }}
                   key: PURL_CLICKHOUSE_PASSWORD
             {{- end }}
+          startupProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /ping

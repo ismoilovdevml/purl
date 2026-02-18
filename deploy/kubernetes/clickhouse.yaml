@@ -87,6 +87,13 @@ spec:
             limits:
               memory: "2Gi"
               cpu: "1000m"
+          startupProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /ping

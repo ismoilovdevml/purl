@@ -1,0 +1,42 @@
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  # Don't log read-only endpoints
+  - level: None
+    nonResourceURLs:
+      - "/healthz*"
+      - "/readyz*"
+      - "/livez*"
+      - "/metrics"
+
+  # Don't log watch/list of events
+  - level: None
+    resources:
+      - group: ""
+        resources: ["events"]
+
+  # Log auth failures at Metadata level
+  - level: Metadata
+    users: ["system:anonymous"]
+
+  # Log write operations on core resources
+  - level: Request
+    verbs: ["create", "update", "patch", "delete", "deletecollection"]
+    resources:
+      - group: ""
+        resources: ["pods", "services", "configmaps", "secrets", "namespaces"]
+      - group: "apps"
+        resources: ["deployments", "statefulsets", "daemonsets"]
+      - group: "rbac.authorization.k8s.io"
+        resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+
+  # Log pod exec/attach
+  - level: Request
+    resources:
+      - group: ""
+        resources: ["pods/exec", "pods/attach", "pods/portforward"]
+
+  # Default: Metadata level for everything else
+  - level: Metadata
+    omitStages:
+      - "RequestReceived"

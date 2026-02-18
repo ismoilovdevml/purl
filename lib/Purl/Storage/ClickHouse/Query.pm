@@ -14,6 +14,7 @@ my %ALLOWED_FIELDS = map { $_ => 1 } qw(
 # Allowed meta sub-fields for K8s support
 my %ALLOWED_META_FIELDS = map { $_ => 1 } qw(
     namespace pod container node cluster source
+    deployment team environment version unit
 );
 
 # Allowed level values

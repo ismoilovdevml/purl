@@ -1,4 +1,4 @@
-.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean
+.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint
 
 # Variables
 PERL5LIB := lib
@@ -73,6 +73,20 @@ preflight: lint test web-build
 	@echo ""
 	@echo "=== PREFLIGHT PASSED ==="
 	@echo "All checks green. Safe to push."
+
+# Kubernetes
+helm-lint:
+	@echo "Running Helm lint..."
+	@helm lint chart/
+	@echo "Running Helm template..."
+	@helm template purl chart/ > /dev/null
+	@helm template purl chart/ \
+		--set autoscaling.enabled=true \
+		--set podDisruptionBudget.enabled=true \
+		--set networkPolicy.enabled=true \
+		--set vector.enabled=true \
+		> /dev/null
+	@echo "Helm validation passed."
 
 # Maintenance
 clean:

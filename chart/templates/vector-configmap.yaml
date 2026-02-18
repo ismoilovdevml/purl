@@ -19,6 +19,10 @@ data:
     auto_partial_merge = true
     exclude_paths_glob_patterns = ["**/kube-system_*/**", "**/vector-*/**"]
 
+    [sources.journald]
+    type = "journald"
+    include_units = ["kubelet", "containerd", "docker"]
+
     [transforms.exclude_internal]
     type = "filter"
     inputs = ["kubernetes"]
@@ -52,13 +56,33 @@ data:
     cont_str = to_string(.kubernetes.container_name) ?? ""
     node_str = to_string(.kubernetes.pod_node_name) ?? ""
     cluster_str = get_env_var("CLUSTER_NAME") ?? "default"
+
+    # Pod owner reference enrichment
+    deploy_val, deploy_err = get(.kubernetes.pod_labels, ["app.kubernetes.io/instance"])
+    if deploy_err != null || deploy_val == null {
+      deploy_val, deploy_err = get(.kubernetes.pod_labels, ["app.kubernetes.io/name"])
+    }
+    if deploy_err != null || deploy_val == null {
+      deploy_val = .kubernetes.pod_name
+    }
+    deployment_str = to_string!(deploy_val)
+
+    # Annotation enrichment
+    team_val = get(.kubernetes.pod_annotations, ["team"]) ?? null
+    env_val = get(.kubernetes.pod_annotations, ["environment"]) ?? null
+    version_val = get(.kubernetes.pod_annotations, ["app.kubernetes.io/version"]) ?? null
+
     .meta = encode_json({
       "pod": pod_str,
       "namespace": ns_str,
       "container": cont_str,
       "node": node_str,
       "cluster": cluster_str,
-      "source": "kubernetes"
+      "source": "kubernetes",
+      "deployment": deployment_str,
+      "team": to_string(team_val) ?? "",
+      "environment": to_string(env_val) ?? "",
+      "version": to_string(version_val) ?? ""
     })
 
     msg = upcase(string!(.message))
@@ -104,9 +128,40 @@ data:
     del(.kubernetes); del(.file); del(.stream)
     '''
 
+    [transforms.journald_parsed]
+    type = "remap"
+    inputs = ["journald"]
+    source = '''
+    .service = to_string(.SYSLOG_IDENTIFIER) ?? "unknown"
+    .host = to_string(.host) ?? get_env_var("VECTOR_SELF_NODE_NAME") ?? "unknown"
+    .raw = .message
+    .timestamp = now()
+
+    cluster_str = get_env_var("CLUSTER_NAME") ?? "default"
+    node_str = to_string(.host) ?? ""
+    .meta = encode_json({
+      "node": node_str,
+      "cluster": cluster_str,
+      "source": "journald",
+      "unit": to_string(.SYSLOG_IDENTIFIER) ?? ""
+    })
+
+    priority = to_int(.PRIORITY) ?? 6
+    if priority <= 2 { .level = "FATAL" }
+    else if priority == 3 { .level = "ERROR" }
+    else if priority == 4 { .level = "WARN" }
+    else if priority <= 6 { .level = "INFO" }
+    else { .level = "DEBUG" }
+
+    .trace_id = ""
+    .request_id = ""
+    .span_id = ""
+    .parent_span_id = ""
+    '''
+
     [transforms.filtered]
     type = "filter"
-    inputs = ["parsed"]
+    inputs = ["parsed", "journald_parsed"]
     condition = 'length(string!(.message)) > 0 && !contains(string!(.message), "/health")'
 
     [sinks.purl]

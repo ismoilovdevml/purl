@@ -60,6 +60,9 @@ spec:
             - name: pods-logs
               mountPath: /var/log/pods
               readOnly: true
+            - name: journal
+              mountPath: /var/log/journal
+              readOnly: true
       volumes:
         - name: config
           configMap:
@@ -74,4 +77,8 @@ spec:
         - name: pods-logs
           hostPath:
             path: /var/log/pods
+        - name: journal
+          hostPath:
+            path: /var/log/journal
+            type: DirectoryOrCreate
 {{- end }}
