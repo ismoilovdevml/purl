@@ -1,0 +1,142 @@
+{{- if .Values.vector.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "purl.fullname" . }}-vector
+  labels:
+    {{- include "purl.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vector
+data:
+  vector.toml: |
+    data_dir = "/var/lib/vector"
+
+    [api]
+    enabled = true
+    address = "0.0.0.0:8686"
+
+    [sources.kubernetes]
+    type = "kubernetes_logs"
+    auto_partial_merge = true
+    exclude_paths_glob_patterns = ["**/kube-system_*/**", "**/vector-*/**"]
+
+    [transforms.exclude_internal]
+    type = "filter"
+    inputs = ["kubernetes"]
+    condition = '''
+    ns = string(.kubernetes.pod_namespace) ?? ""
+    pod = string(.kubernetes.pod_name) ?? ""
+    !(ns == "kube-system" || starts_with(pod, "vector-"))
+    '''
+
+    [transforms.parsed]
+    type = "remap"
+    inputs = ["exclude_internal"]
+    source = '''
+    svc, svc_err = get(.kubernetes.pod_labels, ["app"])
+    if svc_err != null || svc == null {
+      svc, svc_err = get(.kubernetes.pod_labels, ["app.kubernetes.io/name"])
+    }
+    if svc_err != null || svc == null {
+      svc = .kubernetes.pod_name
+    }
+    .service = to_string!(svc)
+
+    host_val = .kubernetes.pod_node_name
+    .host = if host_val != null { to_string!(host_val) } else { "unknown" }
+
+    .raw = .message
+    .timestamp = now()
+
+    pod_str = to_string(.kubernetes.pod_name) ?? ""
+    ns_str = to_string(.kubernetes.pod_namespace) ?? ""
+    cont_str = to_string(.kubernetes.container_name) ?? ""
+    node_str = to_string(.kubernetes.pod_node_name) ?? ""
+    cluster_str = get_env_var("CLUSTER_NAME") ?? "default"
+    .meta = encode_json({
+      "pod": pod_str,
+      "namespace": ns_str,
+      "container": cont_str,
+      "node": node_str,
+      "cluster": cluster_str,
+      "source": "kubernetes"
+    })
+
+    msg = upcase(string!(.message))
+    level = "INFO"
+    if contains(msg, "FATAL") || contains(msg, "PANIC") { level = "FATAL" }
+    if contains(msg, "ERROR") { level = "ERROR" }
+    if contains(msg, "WARN") { level = "WARN" }
+    if contains(msg, "DEBUG") { level = "DEBUG" }
+    .level = level
+
+    .trace_id = ""
+    .request_id = ""
+    .span_id = ""
+    .parent_span_id = ""
+
+    parsed, err = parse_json(.message)
+    if err == null && is_object(parsed) {
+      if exists(parsed.msg) {
+        .message = string!(parsed.msg)
+      } else if exists(parsed.message) {
+        .message = string!(parsed.message)
+      }
+
+      if exists(parsed.level) {
+        .level = upcase(string!(parsed.level))
+      } else if exists(parsed.severity) {
+        .level = upcase(string!(parsed.severity))
+      }
+
+      if exists(parsed.trace_id) {
+        .trace_id = string!(parsed.trace_id)
+      } else if exists(parsed.traceId) {
+        .trace_id = string!(parsed.traceId)
+      }
+
+      if exists(parsed.request_id) {
+        .request_id = string!(parsed.request_id)
+      } else if exists(parsed.requestId) {
+        .request_id = string!(parsed.requestId)
+      }
+    }
+
+    del(.kubernetes); del(.file); del(.stream)
+    '''
+
+    [transforms.filtered]
+    type = "filter"
+    inputs = ["parsed"]
+    condition = 'length(string!(.message)) > 0 && !contains(string!(.message), "/health")'
+
+    [sinks.purl]
+    type = "http"
+    inputs = ["filtered"]
+    uri = "http://{{ include "purl.fullname" . }}:{{ .Values.service.port }}/api/logs"
+    method = "post"
+    compression = "gzip"
+
+    [sinks.purl.encoding]
+    codec = "json"
+
+    [sinks.purl.batch]
+    max_events = 100
+    timeout_secs = 5
+
+    [sinks.purl.buffer]
+    type = "disk"
+    max_size = 268435488
+    when_full = "block"
+
+    [sinks.purl.request]
+    headers.X-API-Key = "${PURL_API_KEY}"
+    headers.Content-Type = "application/json"
+
+    [sources.internal_metrics]
+    type = "internal_metrics"
+
+    [sinks.prometheus]
+    type = "prometheus_exporter"
+    inputs = ["internal_metrics"]
+    address = "0.0.0.0:9598"
+{{- end }}

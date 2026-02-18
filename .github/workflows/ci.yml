@@ -156,13 +156,32 @@ jobs:
             echo "tag=dev" >> $GITHUB_OUTPUT
           fi
 
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ github.run_id }}
+          restore-keys: trivy-db-
+
       - name: Scan Docker image for vulnerabilities
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'ismoilovdev/purl:${{ steps.docker-tag.outputs.tag }}'
           format: 'table'
-          severity: 'CRITICAL,HIGH'
+          severity: 'CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+          trivyignores: '.trivyignore'
+
+      - name: Check HIGH severity (warning only)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'ismoilovdev/purl:${{ steps.docker-tag.outputs.tag }}'
+          format: 'table'
+          severity: 'HIGH'
           exit-code: '0'
+          ignore-unfixed: true
+          trivyignores: '.trivyignore'
 
       - name: Scan filesystem for secrets
         uses: aquasecurity/trivy-action@master
@@ -171,7 +190,8 @@ jobs:
           scan-ref: '.'
           format: 'table'
           severity: 'CRITICAL,HIGH'
-          exit-code: '0'
+          exit-code: '1'
+          trivyignores: '.trivyignore'
 
   # ==========================================
   # Stage 4: Build test (for PRs)

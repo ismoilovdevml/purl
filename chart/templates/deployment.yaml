@@ -5,7 +5,9 @@ metadata:
   labels:
     {{- include "purl.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "purl.selectorLabels" . | nindent 6 }}

@@ -1,14 +1,13 @@
 {{- if .Values.clickhouse.enabled }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "purl.clickhouse.fullname" . }}
   labels:
     {{- include "purl.clickhouse.labels" . | nindent 4 }}
 spec:
+  serviceName: {{ include "purl.clickhouse.fullname" . }}-headless
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       {{- include "purl.clickhouse.selectorLabels" . | nindent 6 }}
@@ -70,16 +69,12 @@ spec:
             - name: logs
               mountPath: /var/log/clickhouse-server
       volumes:
-        {{- if .Values.clickhouse.persistence.enabled }}
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ include "purl.clickhouse.fullname" . }}-data
-        {{- else }}
+        - name: logs
+          emptyDir: {}
+        {{- if not .Values.clickhouse.persistence.enabled }}
         - name: data
           emptyDir: {}
         {{- end }}
-        - name: logs
-          emptyDir: {}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -88,4 +83,18 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+  {{- if .Values.clickhouse.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.clickhouse.persistence.accessModes | nindent 10 }}
+        {{- if .Values.clickhouse.persistence.storageClass }}
+        storageClassName: {{ .Values.clickhouse.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.clickhouse.persistence.size }}
+  {{- end }}
 {{- end }}

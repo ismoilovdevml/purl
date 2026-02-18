@@ -1,0 +1,77 @@
+{{- if .Values.vector.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "purl.fullname" . }}-vector
+  labels:
+    {{- include "purl.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "purl.name" . }}-vector
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/vector-configmap.yaml") . | sha256sum }}
+      labels:
+        app.kubernetes.io/name: {{ include "purl.name" . }}-vector
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: vector
+    spec:
+      serviceAccountName: {{ include "purl.fullname" . }}-vector
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: vector
+          image: "{{ .Values.vector.image.repository }}:{{ .Values.vector.image.tag }}"
+          args: ["--config-dir", "/etc/vector"]
+          env:
+            - name: VECTOR_SELF_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: PURL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "purl.fullname" . }}
+                  key: PURL_API_KEYS
+            - name: CLUSTER_NAME
+              value: {{ .Values.vector.clusterName | quote }}
+          ports:
+            - name: api
+              containerPort: 8686
+              protocol: TCP
+            - name: metrics
+              containerPort: 9598
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.vector.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vector
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/vector
+            - name: var-log
+              mountPath: /var/log
+              readOnly: true
+            - name: pods-logs
+              mountPath: /var/log/pods
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "purl.fullname" . }}-vector
+        - name: data
+          hostPath:
+            path: /var/lib/vector
+            type: DirectoryOrCreate
+        - name: var-log
+          hostPath:
+            path: /var/log
+        - name: pods-logs
+          hostPath:
+            path: /var/log/pods
+{{- end }}

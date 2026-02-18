@@ -1,0 +1,49 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "purl.fullname" . }}
+  labels:
+    {{- include "purl.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "purl.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from Vector DaemonSet
+    {{- if .Values.vector.enabled }}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "purl.name" . }}-vector
+      ports:
+        - protocol: TCP
+          port: {{ .Values.purl.port }}
+    {{- end }}
+    # Allow traffic from Ingress controller and other pods
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.purl.port }}
+  egress:
+    # Allow traffic to ClickHouse
+    {{- if .Values.clickhouse.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "purl.clickhouse.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.clickhouse.port }}
+    {{- end }}
+    # Allow DNS resolution
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- end }}

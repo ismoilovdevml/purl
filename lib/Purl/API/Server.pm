@@ -234,12 +234,15 @@ sub setup_routes {
     # Session secret for signed cookies — persist across restarts
     my $session_secret = $ENV{PURL_SESSION_SECRET}
         // ($settings ? $settings->get('server', 'session_secret') : undef);
-    unless ($session_secret && $session_secret ne '') {
+    if ($session_secret && $session_secret ne '') {
+        app->log->info("Using persistent session secret");
+    } else {
         $session_secret = join('', map { ('a'..'z', 'A'..'Z', 0..9)[rand 62] } 1..64);
         if ($settings) {
             $settings->set('server', 'session_secret', $session_secret);
             app->log->info("Generated and persisted new session secret to config");
         }
+        app->log->warn("WARNING: Using ephemeral session secret — sessions won't survive restart. Set PURL_SESSION_SECRET env var for multi-replica deployments.");
     }
     app->secrets([$session_secret]);
     app->sessions->samesite('Strict');

@@ -1,0 +1,6 @@
+# Trivy ignore file for Purl
+# Add CVE IDs here to suppress known/accepted vulnerabilities
+# Format: one CVE ID per line
+# Example:
+# CVE-2023-12345
+# CVE-2024-67890

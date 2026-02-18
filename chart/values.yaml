@@ -76,6 +76,8 @@ purl:
   authEnabled: true
   # -- Log retention in days
   retentionDays: 30
+  # -- Session secret for signed cookies (empty = auto-generate, NOT safe for multi-replica)
+  sessionSecret: ""
 
   # -- Telegram alerting
   telegram:
@@ -143,6 +145,53 @@ clickhouse:
     requests:
       memory: 1Gi
       cpu: "500m"
+
+# -- Autoscaling (HPA) for Purl pods
+autoscaling:
+  # -- Enable HorizontalPodAutoscaler
+  enabled: false
+  # -- Minimum number of replicas
+  minReplicas: 1
+  # -- Maximum number of replicas
+  maxReplicas: 10
+  # -- Target CPU utilization percentage
+  targetCPUUtilizationPercentage: 70
+  # -- Target memory utilization percentage
+  targetMemoryUtilizationPercentage: 80
+
+# -- PodDisruptionBudget for Purl and ClickHouse
+podDisruptionBudget:
+  # -- Enable PodDisruptionBudget
+  enabled: false
+  # -- Minimum number of pods that must be available
+  minAvailable: 1
+
+# -- NetworkPolicy for zero-trust pod networking
+networkPolicy:
+  # -- Enable NetworkPolicy resources
+  enabled: false
+
+# -- Vector log collector (DaemonSet) for Kubernetes pod log collection
+vector:
+  # -- Deploy Vector as part of this chart
+  enabled: false
+  image:
+    # -- Vector image repository
+    repository: timberio/vector
+    # -- Vector image tag
+    tag: "0.51.1-alpine"
+    # -- Vector image pull policy
+    pullPolicy: IfNotPresent
+  # -- Vector resource limits and requests
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  # -- Kubernetes cluster name for log metadata
+  clusterName: "default"
 
 # -- Purl container resource limits and requests
 resources:
