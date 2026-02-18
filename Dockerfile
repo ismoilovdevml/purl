@@ -30,7 +30,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY --from=perl-builder /usr/local/lib/perl5 /usr/local/lib/perl5
-COPY --from=perl-builder /usr/local/share/perl5 /usr/local/share/perl5
 COPY --from=perl-builder /usr/local/bin /usr/local/bin
 COPY lib/ ./lib/
 COPY --from=web-builder /app/web/public ./web/public
