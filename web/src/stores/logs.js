@@ -22,6 +22,8 @@ export const hostStats = writable([]);
 export const namespaceStats = writable([]);
 export const podStats = writable([]);
 export const nodeStats = writable([]);
+export const deploymentStats = writable([]);
+export const teamStats = writable([]);
 
 // Histogram data
 export const histogram = writable([]);
@@ -130,6 +132,8 @@ async function fetchAllStats() {
       fetchFieldStats('meta.namespace', signal),
       fetchFieldStats('meta.pod', signal),
       fetchFieldStats('meta.node', signal),
+      fetchFieldStats('meta.deployment', signal),
+      fetchFieldStats('meta.team', signal),
       fetchHistogram(signal),
     ]);
   } catch (err) {
@@ -167,6 +171,8 @@ async function fetchFieldStats(field, signal = null) {
     if (field === 'meta.namespace') namespaceStats.set(data.values || []);
     if (field === 'meta.pod') podStats.set(data.values || []);
     if (field === 'meta.node') nodeStats.set(data.values || []);
+    if (field === 'meta.deployment') deploymentStats.set(data.values || []);
+    if (field === 'meta.team') teamStats.set(data.values || []);
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error(`Failed to fetch ${field} stats:`, err);

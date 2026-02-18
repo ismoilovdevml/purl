@@ -192,6 +192,8 @@ vector:
       memory: 64Mi
   # -- Kubernetes cluster name for log metadata
   clusterName: "default"
+  # -- Collect logs from kube-system namespace (control plane components)
+  collectKubeSystem: false
 
 # -- Purl container resource limits and requests
 resources:

@@ -12,6 +12,9 @@
     updateDashboard,
     deleteDashboard,
     executeWidget,
+    templates,
+    fetchTemplates,
+    createFromTemplate,
   } from '../../stores/dashboard.js';
 
   let view = 'list'; // 'list' | 'edit'
@@ -29,7 +32,15 @@
 
   onMount(async () => {
     await fetchDashboards();
+    await fetchTemplates();
   });
+
+  async function handleCreateFromTemplate(templateId, name) {
+    const ok = await createFromTemplate(templateId, name);
+    if (ok) {
+        await fetchDashboards();
+    }
+  }
 
   async function handleCreate() {
     if (!newDashName.trim()) return;
@@ -137,6 +148,20 @@
             </div>
           </button>
         {/each}
+      </div>
+    {/if}
+
+    {#if $templates.length > 0}
+      <div class="templates-section">
+        <h3>Templates</h3>
+        <div class="template-grid">
+          {#each $templates as tmpl}
+            <button class="template-card" on:click={() => handleCreateFromTemplate(tmpl.id, tmpl.name)}>
+              <div class="template-name">{tmpl.name}</div>
+              <div class="template-desc">{tmpl.description}</div>
+            </button>
+          {/each}
+        </div>
       </div>
     {/if}
 
@@ -538,6 +563,54 @@
   .form-group input:focus {
     outline: none;
     border-color: #58a6ff;
+  }
+
+  .templates-section {
+    margin-top: 24px;
+  }
+
+  .templates-section h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #8b949e;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+
+  .template-card {
+    padding: 16px;
+    background: #0d1117;
+    border: 1px dashed #30363d;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+    color: #c9d1d9;
+    transition: all 0.15s;
+  }
+
+  .template-card:hover {
+    border-color: #58a6ff;
+    border-style: solid;
+    background: #161b22;
+  }
+
+  .template-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #58a6ff;
+    margin-bottom: 6px;
+  }
+
+  .template-desc {
+    font-size: 12px;
+    color: #8b949e;
   }
 
   @media (max-width: 768px) {

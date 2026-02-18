@@ -21,6 +21,11 @@ has 'cache' => (
     default => sub { {} },
 );
 
+has 'namespace_scope' => (
+    is      => 'ro',
+    default => sub { undef },
+);
+
 sub get_cached {
     my ($self, $key) = @_;
     my $entry = $self->cache->{$key};

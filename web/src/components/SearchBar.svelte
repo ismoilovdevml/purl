@@ -32,6 +32,8 @@
     { field: 'meta.container', label: 'Container', group: 'Metadata' },
     { field: 'meta.node', label: 'Node', group: 'Metadata' },
     { field: 'meta.cluster', label: 'Cluster', group: 'Metadata' },
+    { field: 'meta.deployment', label: 'Deployment', group: 'Metadata' },
+    { field: 'meta.team', label: 'Team', group: 'Metadata' },
     { field: 'meta.environment', label: 'Environment', group: 'Metadata' },
     { field: 'meta.region', label: 'Region', group: 'Metadata' },
     { field: 'meta.version', label: 'Version', group: 'Metadata' },

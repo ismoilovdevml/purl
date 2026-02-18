@@ -301,7 +301,7 @@ sub setup_routes {
     }
 
     # Common controller args
-    my %c_args = (storage => $storage, config => $config, cache => \%cache);
+    my %c_args = (storage => $storage, config => $config, cache => \%cache, namespace_scope => $namespace_scope);
 
     # Instantiate controllers
     my $sys_c    = Purl::API::Controller::System->new(%c_args);

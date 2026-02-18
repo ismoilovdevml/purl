@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
-  import { levelStats, serviceStats, hostStats, namespaceStats, podStats, nodeStats } from '../stores/logs.js';
+  import { levelStats, serviceStats, hostStats, namespaceStats, podStats, nodeStats, deploymentStats, teamStats } from '../stores/logs.js';
   import { getLevelColor } from '../utils/colors.js';
   import Button from './ui/Button.svelte';
   import Badge from './ui/Badge.svelte';
@@ -18,6 +18,8 @@
     namespace: false,
     pod: false,
     node: false,
+    deployment: false,
+    team: false,
   };
 
   let fieldFilter = '';
@@ -34,6 +36,8 @@
       namespace: expand,
       pod: expand,
       node: expand,
+      deployment: expand,
+      team: expand,
     };
   }
 
@@ -54,9 +58,11 @@
   $: filteredNamespaceStats = $namespaceStats.filter(s => !fieldFilter || s.value.toLowerCase().includes(fieldFilter.toLowerCase()));
   $: filteredPodStats = $podStats.filter(s => !fieldFilter || s.value.toLowerCase().includes(fieldFilter.toLowerCase()));
   $: filteredNodeStats = $nodeStats.filter(s => !fieldFilter || s.value.toLowerCase().includes(fieldFilter.toLowerCase()));
+  $: filteredDeploymentStats = $deploymentStats.filter(s => !fieldFilter || s.value.toLowerCase().includes(fieldFilter.toLowerCase()));
+  $: filteredTeamStats = $teamStats.filter(s => !fieldFilter || s.value.toLowerCase().includes(fieldFilter.toLowerCase()));
 
   // Check if K8s data exists
-  $: hasK8sData = $namespaceStats.length > 0 || $podStats.length > 0 || $nodeStats.length > 0;
+  $: hasK8sData = $namespaceStats.length > 0 || $podStats.length > 0 || $nodeStats.length > 0 || $deploymentStats.length > 0 || $teamStats.length > 0;
 </script>
 
 <div class="fields-sidebar" aria-busy={loading} aria-live="polite">
@@ -336,6 +342,88 @@
               on:click|stopPropagation={() => handleFilter('meta.node', item.value, true)}
               title="Exclude"
               aria-label="Exclude meta.node:{item.value} from results"
+            >×</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+  {/if}
+
+  <!-- Deployment Section -->
+  {#if $deploymentStats.length > 0}
+  <div class="field-section">
+    <button
+      class="section-header"
+      on:click={() => toggleSection('deployment')}
+      aria-expanded={expandedSections.deployment}
+    >
+      <svg class="chevron" class:expanded={expandedSections.deployment} width="12" height="12" viewBox="0 0 12 12">
+        <path fill="currentColor" d="M4.7 10a.5.5 0 0 1-.354-.854L7.293 6 4.346 3.054a.5.5 0 0 1 .708-.708l3.3 3.3a.5.5 0 0 1 0 .708l-3.3 3.3A.5.5 0 0 1 4.7 10Z"/>
+      </svg>
+      <span class="section-name">deployment</span>
+      <Badge variant="default" size="sm">{$deploymentStats.length}</Badge>
+    </button>
+    {#if expandedSections.deployment}
+      <div class="field-values" role="list">
+        {#each filteredDeploymentStats as item}
+          <div class="field-value-row" role="listitem">
+            <button
+              class="field-value"
+              on:click={() => handleFilter('meta.deployment', item.value)}
+              aria-label="Filter by meta.deployment:{item.value}"
+            >
+              <span class="value-dot" style="background: var(--color-success, #3fb950)"></span>
+              <span class="value-name">{item.value}</span>
+              <span class="value-count">{formatCount(item.count)}</span>
+              <span class="value-percent">{getPercentage(item.count, $deploymentStats).toFixed(0)}%</span>
+            </button>
+            <button
+              class="exclude-btn"
+              on:click|stopPropagation={() => handleFilter('meta.deployment', item.value, true)}
+              title="Exclude"
+              aria-label="Exclude meta.deployment:{item.value} from results"
+            >×</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+  {/if}
+
+  <!-- Team Section -->
+  {#if $teamStats.length > 0}
+  <div class="field-section">
+    <button
+      class="section-header"
+      on:click={() => toggleSection('team')}
+      aria-expanded={expandedSections.team}
+    >
+      <svg class="chevron" class:expanded={expandedSections.team} width="12" height="12" viewBox="0 0 12 12">
+        <path fill="currentColor" d="M4.7 10a.5.5 0 0 1-.354-.854L7.293 6 4.346 3.054a.5.5 0 0 1 .708-.708l3.3 3.3a.5.5 0 0 1 0 .708l-3.3 3.3A.5.5 0 0 1 4.7 10Z"/>
+      </svg>
+      <span class="section-name">team</span>
+      <Badge variant="default" size="sm">{$teamStats.length}</Badge>
+    </button>
+    {#if expandedSections.team}
+      <div class="field-values" role="list">
+        {#each filteredTeamStats as item}
+          <div class="field-value-row" role="listitem">
+            <button
+              class="field-value"
+              on:click={() => handleFilter('meta.team', item.value)}
+              aria-label="Filter by meta.team:{item.value}"
+            >
+              <span class="value-dot" style="background: var(--color-orange, #f0883e)"></span>
+              <span class="value-name">{item.value}</span>
+              <span class="value-count">{formatCount(item.count)}</span>
+              <span class="value-percent">{getPercentage(item.count, $teamStats).toFixed(0)}%</span>
+            </button>
+            <button
+              class="exclude-btn"
+              on:click|stopPropagation={() => handleFilter('meta.team', item.value, true)}
+              title="Exclude"
+              aria-label="Exclude meta.team:{item.value} from results"
             >×</button>
           </div>
         {/each}

@@ -232,6 +232,20 @@ sub _build_where_clause {
         }
     }
 
+    # Namespace scope enforcement (RBAC)
+    if ($params{_allowed_namespaces} && ref $params{_allowed_namespaces} eq 'ARRAY') {
+        my @ns_list = @{$params{_allowed_namespaces}};
+        if (@ns_list) {
+            my @ns_conditions;
+            for my $i (0 .. $#ns_list) {
+                my $pname = "p_ns_$i";
+                push @ns_conditions, "position(meta, {${pname}:String}) > 0";
+                $bind_params{$pname} = qq{"namespace":"$ns_list[$i]"};
+            }
+            push @where, '(' . join(' OR ', @ns_conditions) . ')';
+        }
+    }
+
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
     return ($where_sql, \%bind_params);
 }
