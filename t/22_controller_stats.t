@@ -82,6 +82,22 @@ subtest 'field_stats with meta field' => sub {
     is $c->rendered->{json}{field}, 'meta.namespace', 'meta field accepted';
 };
 
+subtest 'field_stats with meta.deployment field' => sub {
+    my $ctrl = Purl::API::Controller::Stats->new(storage => MockStatsStorage->new);
+    my $c = MockStatsCtrl->new({ field => 'meta.deployment' });
+
+    $ctrl->field_stats($c);
+    is $c->rendered->{json}{field}, 'meta.deployment', 'meta.deployment accepted';
+};
+
+subtest 'field_stats with meta.team field' => sub {
+    my $ctrl = Purl::API::Controller::Stats->new(storage => MockStatsStorage->new);
+    my $c = MockStatsCtrl->new({ field => 'meta.team' });
+
+    $ctrl->field_stats($c);
+    is $c->rendered->{json}{field}, 'meta.team', 'meta.team accepted';
+};
+
 subtest 'field_stats with invalid field returns 400' => sub {
     my $ctrl = Purl::API::Controller::Stats->new(storage => MockStatsStorage->new);
     my $c = MockStatsCtrl->new({ field => 'DROP TABLE' });

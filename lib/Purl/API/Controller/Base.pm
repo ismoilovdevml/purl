@@ -74,9 +74,13 @@ sub safe_execute {
 sub require_feature {
     my ($self, $c, $feature) = @_;
     my $info = $c->stash('license_info') // return 1;
+    my $plan = $info->{plan} // 'free';
+
+    # Enterprise plan has access to all features
+    return 1 if $plan eq 'enterprise';
+
     my @features = @{ $info->{features} // [] };
     return 1 if grep { $_ eq $feature } @features;
-    my $plan = $info->{plan} // 'free';
     $c->render(json => {
         error   => "This feature requires a Pro or Enterprise license",
         feature => $feature,

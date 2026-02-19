@@ -26,7 +26,7 @@ sub field_stats {
         }
 
         # Validate field (allow standard fields and meta.* K8s fields)
-        unless ($field =~ /^(level|service|host|meta\.(namespace|pod|node|container|cluster))$/) {
+        unless ($field =~ /^(level|service|host|meta\.(namespace|pod|node|container|cluster|deployment|team))$/) {
             $self->render_error($c, 'Invalid field', 400);
             return;
         }

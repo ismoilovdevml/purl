@@ -184,6 +184,20 @@ subtest 'require_feature with missing feature returns 403' => sub {
     is $c->rendered->{json}{feature}, 'audit_log', 'requested feature in response';
 };
 
+subtest 'require_feature with enterprise plan bypasses feature check' => sub {
+    my $ctrl = Purl::API::Controller::Base->new(storage => MockStorage->new);
+    my $c = MockMojoCtrl->new({
+        license_info => {
+            plan     => 'enterprise',
+            features => [],
+        },
+    });
+    ok $ctrl->require_feature($c, 'dashboards'), 'enterprise plan passes dashboards';
+    ok $ctrl->require_feature($c, 'backup'), 'enterprise plan passes backup';
+    ok $ctrl->require_feature($c, 'any_feature'), 'enterprise plan passes any feature';
+    is $c->rendered, undef, 'no error rendered';
+};
+
 # ============================================
 # check_limit
 # ============================================

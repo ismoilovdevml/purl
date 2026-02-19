@@ -42,6 +42,7 @@
   let unsubscribeRefresh = null;
   let unsubscribeDefaultRange = null;
   let appReady = false;
+  let initialSearchDone = false;
 
   // Mobile responsive state
   let mobileMenuOpen = false;
@@ -146,6 +147,7 @@
       if (currentPage === 'logs') {
         await searchLogs();
       }
+      initialSearchDone = true;
     }
 
     return () => {
@@ -308,7 +310,7 @@
     </svg>
   </div>
 {:else if $isPaidPlan && (!$currentUser || $passwordChangeRequired)}
-  <LoginPage on:login={() => { fetchClusters(); searchLogs(); }} />
+  <LoginPage on:login={() => { fetchClusters(); searchLogs().then(() => { initialSearchDone = true; }); }} />
 {:else}
 <main>
   <header>
@@ -582,7 +584,7 @@
   {/if}
 
   {#if currentPage === 'logs'}
-    {#if showOnboarding && $logs.length === 0}
+    {#if showOnboarding && $logs.length === 0 && initialSearchDone}
       <Onboarding onDismiss={() => { showOnboarding = false; localStorage.setItem('purl_onboarding_done', '1'); }} />
     {:else}
       <div class="stats-bar">
