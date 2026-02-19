@@ -38,10 +38,12 @@ export async function login(username, password) {
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Login failed');
-  currentUser.set({ username: data.username });
+  // Set passwordChangeRequired BEFORE currentUser to avoid a brief render
+  // of the main app (which would fire API calls that get 403'd)
   if (data.password_change_required) {
     passwordChangeRequired.set(true);
   }
+  currentUser.set({ username: data.username });
   return data;
 }
 

@@ -19,6 +19,7 @@
   let loading = false;
 
   // Password change state
+  let currentPassword = '';
   let newPassword = '';
   let confirmPassword = '';
 
@@ -56,7 +57,7 @@
   }
 
   async function handleChangePassword() {
-    if (!newPassword.trim() || !confirmPassword.trim()) return;
+    if (!currentPassword.trim() || !newPassword.trim() || !confirmPassword.trim()) return;
     if (newPassword !== confirmPassword) {
       error = 'Passwords do not match';
       return;
@@ -72,7 +73,7 @@
     loading = true;
     error = '';
     try {
-      await changePassword(password, newPassword);
+      await changePassword(currentPassword, newPassword);
       dispatch('login');
     } catch (err) {
       error = err.message;
@@ -124,6 +125,16 @@
 
       <div class="login-form">
         <Input
+          bind:value={currentPassword}
+          label="Current Password"
+          placeholder="Enter current password"
+          type="password"
+          fullWidth
+          autocomplete="current-password"
+          on:keydown={handleKeydown}
+        />
+
+        <Input
           bind:value={newPassword}
           label="New Password"
           placeholder="Enter new password"
@@ -149,7 +160,7 @@
           size="lg"
           on:click={handleChangePassword}
           {loading}
-          disabled={!newPassword.trim() || !confirmPassword.trim()}
+          disabled={!currentPassword.trim() || !newPassword.trim() || !confirmPassword.trim()}
         >
           Change Password
         </Button>
