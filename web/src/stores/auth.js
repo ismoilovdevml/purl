@@ -13,10 +13,10 @@ export async function checkAuth() {
     if (res.ok) {
       const data = await res.json();
       if (data.authenticated) {
-        currentUser.set({ username: data.username });
         if (data.must_change_password) {
           passwordChangeRequired.set(true);
         }
+        currentUser.set({ username: data.username });
       } else {
         currentUser.set(null);
       }

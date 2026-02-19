@@ -93,8 +93,8 @@
       refreshIntervalId = null;
     }
 
-    // Set up new interval if enabled (> 0) and on logs page
-    if (currentRefreshInterval > 0 && currentPage === 'logs') {
+    // Set up new interval if enabled (> 0), on logs page, and not awaiting password change
+    if (currentRefreshInterval > 0 && currentPage === 'logs' && !$passwordChangeRequired) {
       refreshIntervalId = setInterval(() => {
         searchLogs();
       }, currentRefreshInterval * 1000);

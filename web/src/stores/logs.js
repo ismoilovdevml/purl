@@ -1,7 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { escapeHtml } from '../utils/dom.js';
 import { settings } from './settings.js';
-import { currentUser } from './auth.js';
+import { currentUser, passwordChangeRequired } from './auth.js';
 import { error as toastError } from './toast.js';
 import { selectedCluster } from './cluster.js';
 
@@ -42,6 +42,9 @@ let statsController = null;
 
 // Search logs with proper request cancellation
 export async function searchLogs() {
+  // Skip if password change is required (all API calls would return 403)
+  if (get(passwordChangeRequired)) return;
+
   // Abort previous request properly
   if (searchController) {
     searchController.abort();
@@ -85,6 +88,10 @@ export async function searchLogs() {
 
     if (response.status === 401) {
       currentUser.set(null);
+      return;
+    }
+
+    if (response.status === 403) {
       return;
     }
 
