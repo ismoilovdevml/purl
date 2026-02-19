@@ -235,6 +235,121 @@ sub restore_backup {
     };
 }
 
+sub create_backup_archive {
+    my ($self, $id) = @_;
+
+    my $backup = $self->get_backup($id);
+    die "Backup not found" unless $backup;
+    die "Backup not completed" unless $backup->{status} eq 'completed';
+
+    my $path = $backup->{target_path};
+    die "Backup directory not found: $path" unless -d $path;
+
+    require Archive::Tar;
+
+    my $archive_path = "${path}.tar.gz";
+
+    # Reuse recent archive if it exists (less than 15 min old)
+    if (-f $archive_path && -M $archive_path < 0.01) {
+        return $archive_path;
+    }
+
+    my $tar = Archive::Tar->new();
+
+    opendir(my $dh, $path) or die "Cannot open $path: $!";
+    while (my $file = readdir($dh)) {
+        next if $file =~ /^\./;
+        my $full = File::Spec->catfile($path, $file);
+        next unless -f $full;
+        # Read file and add with relative name
+        open my $fh, '<:raw', $full or die "Cannot read $full: $!";
+        local $/;
+        my $content = <$fh>;
+        close $fh;
+        $tar->add_data($file, $content);
+    }
+    closedir($dh);
+
+    $tar->write($archive_path, Archive::Tar::COMPRESS_GZIP());
+
+    return $archive_path;
+}
+
+sub cleanup_old_backups {
+    my ($self, $retention_days) = @_;
+    $retention_days //= 30;
+
+    my $db = $self->database;
+    my $cutoff = strftime('%Y-%m-%d %H:%M:%S', localtime(time() - $retention_days * 86400));
+    my $safe_cutoff = $self->_quote_string($cutoff);
+
+    my $old_backups = $self->_query_json(qq{
+        SELECT id, target_path
+        FROM ${db}.backups
+        WHERE status = 'completed'
+          AND created_at < parseDateTimeBestEffort($safe_cutoff)
+        ORDER BY created_at ASC
+    }, no_cache => 1);
+
+    my $deleted = 0;
+    for my $backup (@$old_backups) {
+        eval {
+            if ($backup->{target_path} && -d $backup->{target_path}) {
+                remove_tree($backup->{target_path}) if $backup->{target_path} =~ m{/backups/};
+            }
+            # Remove tar.gz archive if exists
+            my $archive = "$backup->{target_path}.tar.gz";
+            unlink $archive if -f $archive;
+
+            my $safe_id = $self->_quote_string($backup->{id});
+            $self->_query("ALTER TABLE ${db}.backups DELETE WHERE id = $safe_id");
+            $deleted++;
+        };
+        warn "Failed to clean backup $backup->{id}: $@" if $@;
+    }
+
+    return $deleted;
+}
+
+sub upload_backup_to_s3 {
+    my ($self, $id, $s3_config) = @_;
+
+    my $archive_path = $self->create_backup_archive($id);
+
+    require Purl::Storage::S3;
+    my $s3 = Purl::Storage::S3->new(
+        bucket     => $s3_config->{bucket},
+        region     => $s3_config->{region}     // 'us-east-1',
+        access_key => $s3_config->{access_key},
+        secret_key => $s3_config->{secret_key},
+        prefix     => $s3_config->{prefix}     // 'purl-backups/',
+        endpoint   => $s3_config->{endpoint}   // '',
+    );
+
+    my $s3_key = "${id}.tar.gz";
+    my $s3_uri = $s3->upload_file(
+        file_path => $archive_path,
+        s3_key    => $s3_key,
+    );
+
+    # Update backup metadata
+    my $db = $self->database;
+    my $safe_id   = $self->_quote_string($id);
+    my $safe_path = $self->_quote_string($s3_uri);
+    $self->_query(qq{
+        ALTER TABLE ${db}.backups UPDATE
+            target_type = 's3',
+            target_path = $safe_path
+        WHERE id = $safe_id
+    });
+
+    return {
+        id          => $id,
+        target_type => 's3',
+        target_path => $s3_uri,
+    };
+}
+
 sub delete_backup {
     my ($self, $id) = @_;
 

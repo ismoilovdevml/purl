@@ -25,6 +25,7 @@ services:
       - PURL_ALERT_WEBHOOK_TOKEN=${PURL_ALERT_WEBHOOK_TOKEN:-}
     volumes:
       - ./config:/app/config:ro
+      - purl_backups:/app/backups
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -133,3 +134,4 @@ networks:
 volumes:
   clickhouse_data:
   clickhouse_logs:
+  purl_backups:

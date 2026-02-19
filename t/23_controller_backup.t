@@ -119,6 +119,24 @@ use Purl::API::Controller::Backup;
         $self->{deleted} = $id;
         return { status => 'deleted', id => $id };
     }
+    sub create_backup_archive {
+        my ($self, $id) = @_;
+        die "Backup not found" unless $id;
+        die "Archive creation failed" if $self->{fail_archive};
+        $self->{archived} = $id;
+        return "/app/backups/${id}.tar.gz";
+    }
+    sub cleanup_old_backups {
+        my ($self, $retention_days) = @_;
+        $self->{cleaned_retention} = $retention_days;
+        return 2;
+    }
+    sub upload_backup_to_s3 {
+        my ($self, $id, $s3_config) = @_;
+        die "S3 upload failed" if $self->{fail_s3};
+        $self->{s3_uploaded} = $id;
+        return { id => $id, target_type => 's3', target_path => "s3://bucket/$id.tar.gz" };
+    }
 }
 
 # ============================================
@@ -274,6 +292,86 @@ subtest 'delete failure returns 500' => sub {
     $ctrl->remove($c);
 
     is $c->rendered->{status}, 500, 'returns 500 on failure';
+};
+
+# ============================================
+# download
+# ============================================
+subtest 'download without id returns 400' => sub {
+    my $storage = MockBackupStorage->new;
+    my $ctrl    = Purl::API::Controller::Backup->new(storage => $storage);
+    my $c       = MockCtrl->new;
+
+    $ctrl->download($c);
+
+    is $c->rendered->{status}, 400, 'returns 400';
+    like $c->rendered->{json}{error}, qr/required/i, 'error about required id';
+};
+
+subtest 'download calls create_backup_archive' => sub {
+    my $storage = MockBackupStorage->new;
+    my $ctrl    = Purl::API::Controller::Backup->new(storage => $storage);
+    my $c       = MockCtrl->new(undef, { id => 'test_backup_001' });
+
+    # download calls reply->asset which MockCtrl doesn't support,
+    # so it will fail in safe_execute — but we verify archive was requested
+    $ctrl->download($c);
+
+    is $storage->{archived}, 'test_backup_001', 'archive requested for correct id';
+};
+
+# ============================================
+# schedule
+# ============================================
+subtest 'get_schedule returns defaults' => sub {
+    my $storage = MockBackupStorage->new;
+    my $ctrl    = Purl::API::Controller::Backup->new(storage => $storage);
+    my $c       = MockCtrl->new;
+
+    $ctrl->get_schedule($c);
+
+    ok $c->rendered, 'rendered response';
+    is $c->rendered->{json}{schedule}{enabled}, 0, 'schedule disabled by default';
+    is $c->rendered->{json}{schedule}{interval_hours}, 24, 'default interval 24h';
+    is $c->rendered->{json}{schedule}{retention_days}, 30, 'default retention 30d';
+};
+
+# ============================================
+# S3 config
+# ============================================
+subtest 'get_s3_config returns defaults' => sub {
+    my $storage = MockBackupStorage->new;
+    my $ctrl    = Purl::API::Controller::Backup->new(storage => $storage);
+    my $c       = MockCtrl->new;
+
+    $ctrl->get_s3_config($c);
+
+    ok $c->rendered, 'rendered response';
+    is $c->rendered->{json}{s3}{enabled}, 0, 'S3 disabled by default';
+    is $c->rendered->{json}{s3}{region}, 'us-east-1', 'default region';
+};
+
+subtest 'upload_to_s3 without id returns 400' => sub {
+    my $storage = MockBackupStorage->new;
+    my $ctrl    = Purl::API::Controller::Backup->new(storage => $storage);
+    my $c       = MockCtrl->new('{}');
+
+    $ctrl->upload_to_s3($c);
+
+    is $c->rendered->{status}, 400, 'returns 400';
+    like $c->rendered->{json}{error}, qr/required/i, 'error about required id';
+};
+
+subtest 'upload_to_s3 without s3 config returns 400' => sub {
+    my $storage = MockBackupStorage->new;
+    my $ctrl    = Purl::API::Controller::Backup->new(storage => $storage);
+    my $body    = Mojo::JSON::encode_json({ id => 'test_backup_001' });
+    my $c       = MockCtrl->new($body);
+
+    $ctrl->upload_to_s3($c);
+
+    is $c->rendered->{status}, 400, 'returns 400';
+    like $c->rendered->{json}{error}, qr/S3 not configured/i, 'error about S3 config';
 };
 
 done_testing;

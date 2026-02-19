@@ -402,7 +402,7 @@ sub setup_routes {
     );
     my $config_c = Purl::API::Controller::Config->new(%c_args, main_config => $config);
     my $audit_c  = Purl::API::Controller::Audit->new(%c_args);
-    my $backup_c = Purl::API::Controller::Backup->new(%c_args);
+    my $backup_c = Purl::API::Controller::Backup->new(%c_args, settings => $settings);
     my $otlp_c      = Purl::API::Controller::OTLP->new(%c_args);
     my $escompat_c  = Purl::API::Controller::ESCompat->new(%c_args);
     my $syslog_c    = Purl::API::Controller::Syslog->new(%c_args);
@@ -443,6 +443,56 @@ sub setup_routes {
         Mojo::IOLoop->recurring(21600 => sub {
             eval { $license_middleware->send_heartbeat(); };
             app->log->debug("License heartbeat sent") unless $@;
+        });
+    }
+
+    # Scheduled backup (configurable interval, disabled by default)
+    my $backup_schedule_enabled = $ENV{PURL_BACKUP_SCHEDULE_ENABLED}
+        // ($settings ? $settings->get('backup', 'schedule_enabled') : 0);
+    if ($backup_schedule_enabled) {
+        my $backup_interval_hours = $ENV{PURL_BACKUP_SCHEDULE_INTERVAL_HOURS}
+            // ($settings ? $settings->get('backup', 'schedule_interval_hours') : 24);
+        my $backup_retention_days = $ENV{PURL_BACKUP_RETENTION_DAYS}
+            // ($settings ? $settings->get('backup', 'retention_days') : 30);
+        my $backup_dir = $ENV{PURL_BACKUP_DIR} // '/app/backups';
+        my $interval_seconds = $backup_interval_hours * 3600;
+
+        app->log->info("Scheduled backup enabled: every ${backup_interval_hours}h, retention ${backup_retention_days}d");
+
+        Mojo::IOLoop->recurring($interval_seconds => sub {
+            eval {
+                require POSIX;
+                app->log->info("Starting scheduled backup...");
+                my $result = $storage->create_backup(
+                    name       => 'scheduled_' . POSIX::strftime('%Y%m%d_%H%M%S', localtime),
+                    backup_dir => $backup_dir,
+                );
+                app->log->info("Scheduled backup completed: id=$result->{id}, size=$result->{size_bytes}");
+
+                # Auto-upload to S3 if enabled
+                my $s3_enabled = $ENV{PURL_BACKUP_S3_ENABLED}
+                    // ($settings ? $settings->get('backup', 's3_enabled') : 0);
+                if ($s3_enabled) {
+                    eval {
+                        my $s3_config = {
+                            bucket     => $ENV{PURL_BACKUP_S3_BUCKET}     // ($settings ? $settings->get('backup', 's3_bucket')     : ''),
+                            region     => $ENV{PURL_BACKUP_S3_REGION}     // ($settings ? $settings->get('backup', 's3_region')     : 'us-east-1'),
+                            prefix     => $ENV{PURL_BACKUP_S3_PREFIX}     // ($settings ? $settings->get('backup', 's3_prefix')     : 'purl-backups/'),
+                            access_key => $ENV{AWS_ACCESS_KEY_ID}          // ($settings ? $settings->get('backup', 's3_access_key') : ''),
+                            secret_key => $ENV{AWS_SECRET_ACCESS_KEY}      // ($settings ? $settings->get('backup', 's3_secret_key') : ''),
+                            endpoint   => $ENV{PURL_BACKUP_S3_ENDPOINT}   // ($settings ? $settings->get('backup', 's3_endpoint')   : ''),
+                        };
+                        my $s3_result = $storage->upload_backup_to_s3($result->{id}, $s3_config);
+                        app->log->info("Backup uploaded to S3: $s3_result->{target_path}");
+                    };
+                    app->log->error("S3 upload failed: $@") if $@;
+                }
+
+                # Auto-cleanup old backups
+                my $cleaned = $storage->cleanup_old_backups($backup_retention_days);
+                app->log->info("Cleaned up $cleaned old backups") if $cleaned > 0;
+            };
+            app->log->error("Scheduled backup failed: $@") if $@;
         });
     }
 
@@ -758,9 +808,15 @@ sub setup_routes {
     # ============================================
     # Backup endpoints
     # ============================================
+    $protected->get('/backup/schedule' => sub ($c) { $backup_c->get_schedule($c) });
+    $protected->put('/backup/schedule' => sub ($c) { $backup_c->update_schedule($c) });
+    $protected->get('/backup/s3' => sub ($c) { $backup_c->get_s3_config($c) });
+    $protected->put('/backup/s3' => sub ($c) { $backup_c->update_s3_config($c) });
+    $protected->post('/backup/upload-s3' => sub ($c) { $backup_c->upload_to_s3($c) });
     $protected->get('/backup' => sub ($c) { $backup_c->list($c) });
     $protected->post('/backup' => sub ($c) { $backup_c->create($c) });
     $protected->post('/backup/restore' => sub ($c) { $backup_c->restore($c) });
+    $protected->get('/backup/:id/download' => sub ($c) { $backup_c->download($c) });
     $protected->delete('/backup/:id' => sub ($c) { $backup_c->remove($c) });
 
     # ============================================
