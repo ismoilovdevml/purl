@@ -303,7 +303,9 @@ sub setup_routes {
     }
     app->secrets([$session_secret]);
     app->sessions->samesite('Strict');
-    app->sessions->secure(1);
+    my $secure_cookies = $ENV{PURL_SECURE_COOKIES} // 0;
+    app->sessions->secure($secure_cookies);
+    app->log->info("Session cookies: secure=$secure_cookies, samesite=Strict");
 
     # Create default admin for Pro/Enterprise if no users exist
     my $info = $license_middleware->get_license_info();
