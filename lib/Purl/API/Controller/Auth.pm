@@ -207,13 +207,15 @@ sub me {
         my $logged_in = $c->session->{logged_in};
 
         if ($logged_in && $username) {
-            $c->render(json => {
+            my $response = {
                 authenticated => 1,
                 username      => $username,
                 auth_method   => $c->session->{auth_method} // 'local',
                 ldap_groups   => $c->session->{ldap_groups} // [],
                 saml_groups   => $c->session->{saml_groups} // [],
-            });
+            };
+            $response->{must_change_password} = \1 if $c->session->{must_change_password};
+            $c->render(json => $response);
         } else {
             $c->render(json => { authenticated => 0 });
         }

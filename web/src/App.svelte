@@ -28,13 +28,13 @@
   } from './stores/logs.js';
   import { refreshInterval, defaultTimeRange } from './stores/settings.js';
   import { fetchLicense, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining } from './stores/license.js';
-  import { currentUser, checkAuth, logout } from './stores/auth.js';
+  import { currentUser, checkAuth, logout, passwordChangeRequired } from './stores/auth.js';
   import { success as toastSuccess } from './stores/toast.js';
   import { fetchClusters, clusters } from './stores/cluster.js';
 
   let savedSearchesRef;
   let currentPage = 'logs'; // 'logs' | 'analytics' | 'dashboards' | 'settings'
-  let showOnboarding = true;
+  let showOnboarding = !localStorage.getItem('purl_onboarding_done');
   let showSearchHelp = false;
   let refreshIntervalId = null;
   let currentRefreshInterval = 30;
@@ -139,11 +139,13 @@
     checkMobile();
     window.addEventListener('resize', checkMobile);
 
-    // Fetch available clusters (non-blocking)
-    fetchClusters();
-
-    if (currentPage === 'logs') {
-      await searchLogs();
+    // Only fetch data if user is authenticated (or free plan)
+    const needsAuth = $isPaidPlan && !$currentUser;
+    if (!needsAuth && !$passwordChangeRequired) {
+      fetchClusters();
+      if (currentPage === 'logs') {
+        await searchLogs();
+      }
     }
 
     return () => {
@@ -305,8 +307,8 @@
       <path d="M10 12 L22 12 M10 16 L22 16 M10 20 L18 20" stroke="#58a6ff" stroke-width="2" stroke-linecap="round"/>
     </svg>
   </div>
-{:else if $isPaidPlan && !$currentUser}
-  <LoginPage on:login={() => { appReady = true; searchLogs(); }} />
+{:else if $isPaidPlan && (!$currentUser || $passwordChangeRequired)}
+  <LoginPage on:login={() => { fetchClusters(); searchLogs(); }} />
 {:else}
 <main>
   <header>
@@ -581,7 +583,7 @@
 
   {#if currentPage === 'logs'}
     {#if showOnboarding && $logs.length === 0}
-      <Onboarding onDismiss={() => showOnboarding = false} />
+      <Onboarding onDismiss={() => { showOnboarding = false; localStorage.setItem('purl_onboarding_done', '1'); }} />
     {:else}
       <div class="stats-bar">
         <span>{$total.toLocaleString()} logs</span>

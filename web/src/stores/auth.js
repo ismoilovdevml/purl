@@ -4,6 +4,7 @@ const API_BASE = '/api';
 
 export const currentUser = writable(null);
 export const authLoading = writable(true);
+export const passwordChangeRequired = writable(false);
 
 export async function checkAuth() {
   authLoading.set(true);
@@ -13,6 +14,9 @@ export async function checkAuth() {
       const data = await res.json();
       if (data.authenticated) {
         currentUser.set({ username: data.username });
+        if (data.must_change_password) {
+          passwordChangeRequired.set(true);
+        }
       } else {
         currentUser.set(null);
       }
@@ -35,6 +39,21 @@ export async function login(username, password) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Login failed');
   currentUser.set({ username: data.username });
+  if (data.password_change_required) {
+    passwordChangeRequired.set(true);
+  }
+  return data;
+}
+
+export async function changePassword(currentPassword, newPassword) {
+  const res = await fetch(`${API_BASE}/auth/change-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Password change failed');
+  passwordChangeRequired.set(false);
   return data;
 }
 
