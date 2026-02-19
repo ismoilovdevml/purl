@@ -26,19 +26,29 @@ sub _build_sp_object {
 
         my $cfg = $self->config;
 
+        my $acs_url = $cfg->{acs_url} // '';
+
         my $sp = Net::SAML2::SP->new(
             id               => $cfg->{entity_id}  // 'purl-sp',
-            url              => $cfg->{acs_url}     // '',
+            url              => $acs_url,
             cert             => $cfg->{sp_cert}     || undef,
             key              => $cfg->{sp_key}      || undef,
             cacert           => $cfg->{idp_cert}    || undef,
             org_name         => 'Purl',
             org_display_name => 'Purl Log Aggregation',
             org_contact      => 'admin@purl.local',
+            assertion_consumer_service => [
+                {
+                    Binding  => 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST',
+                    Location => $acs_url,
+                    isDefault => 'true',
+                    index     => 1,
+                },
+            ],
             single_logout_service => [
                 {
                     Binding  => 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect',
-                    Location => ($cfg->{acs_url} // '') . '/slo',
+                    Location => $acs_url . '/slo',
                 },
             ],
         );

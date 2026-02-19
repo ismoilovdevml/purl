@@ -101,10 +101,19 @@ sub login {
                 $c->app->log->warn("LDAP unavailable, falling back to local auth for: $username");
             } elsif ($result->{success}) {
                 # LDAP login successful
+                my @ldap_groups = @{ $result->{groups} // [] };
                 $c->session->{username}    = $username;
                 $c->session->{logged_in}   = 1;
                 $c->session->{auth_method} = 'ldap';
-                $c->session->{ldap_groups} = $result->{groups} // [];
+                $c->session->{ldap_groups} = \@ldap_groups;
+
+                # Detect admin role from LDAP groups
+                my $ldap_cfg = $self->ldap_middleware->config // {};
+                my $admin_group = $ldap_cfg->{admin_group} // 'admins';
+                if (grep { lc($_) eq lc($admin_group) } @ldap_groups) {
+                    $c->session->{is_admin} = 1;
+                }
+
                 $c->session(expiration => 86400);
 
                 $c->audit_event(action => 'login', status => 'success');
@@ -345,10 +354,19 @@ sub sso_callback {
         }
 
         # Create session — same shape as LDAP session
+        my @saml_groups = @{ $result->{groups} // [] };
         $c->session->{username}    = $result->{username};
         $c->session->{logged_in}   = 1;
         $c->session->{auth_method} = 'saml';
-        $c->session->{saml_groups} = $result->{groups} // [];
+        $c->session->{saml_groups} = \@saml_groups;
+
+        # Detect admin role from SAML groups
+        my $saml_mw_cfg = $saml_mw->config // {};
+        my $admin_group = $saml_mw_cfg->{admin_group} // 'admins';
+        if (grep { lc($_) eq lc($admin_group) } @saml_groups) {
+            $c->session->{is_admin} = 1;
+        }
+
         $c->session(expiration => 86400);
 
         # Safe redirect — only allow relative paths

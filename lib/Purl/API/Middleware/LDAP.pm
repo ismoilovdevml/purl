@@ -136,7 +136,6 @@ sub _build_connection {
                 port    => ($port == 389 ? 636 : $port),
                 timeout => $timeout,
                 verify  => $verify,
-                onerror => 'return',
             );
         };
         if ($@ || !$ldap) {
@@ -152,7 +151,6 @@ sub _build_connection {
                 $clean_server,
                 port    => $port,
                 timeout => $timeout,
-                onerror => 'return',
             );
         };
         if ($@ || !$ldap) {
