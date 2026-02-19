@@ -127,6 +127,16 @@ sub _build_where_clause {
         }
     }
 
+    # Range shorthand (e.g., '15m', '1h', '24h', '7d') — used by dashboard widgets
+    if ($params{range} && !$params{from}) {
+        my $range = $params{range};
+        if ($range =~ /^(\d+)([mhd])$/i) {
+            my ($num, $unit) = ($1, lc($2));
+            my $seconds = $num * ($unit eq 'm' ? 60 : $unit eq 'h' ? 3600 : 86400);
+            push @where, "timestamp >= now() - toIntervalSecond($seconds)";
+        }
+    }
+
     # Level filter
     if ($params{level}) {
         if (ref $params{level} eq 'ARRAY') {

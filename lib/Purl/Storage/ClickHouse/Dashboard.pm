@@ -152,11 +152,64 @@ sub delete_dashboard {
     return { status => 'deleted' };
 }
 
+# Normalize widget config: templates store query as a string with top-level
+# timeRange/groupBy/limit, but _widget_* methods expect a hashref with
+# filter/level/service/time_range/field/limit/interval keys.
+sub _normalize_widget_query {
+    my ($self, $widget) = @_;
+    my $raw = $widget->{query};
+
+    # Already a hashref — merge in any top-level overrides
+    if (ref $raw eq 'HASH') {
+        $raw->{time_range} //= $widget->{timeRange} if $widget->{timeRange};
+        $raw->{field}      //= $widget->{groupBy}   if $widget->{groupBy};
+        $raw->{limit}      //= $widget->{limit}     if defined $widget->{limit};
+        $raw->{interval}   //= $widget->{interval}  if $widget->{interval};
+        return $raw;
+    }
+
+    # String query (old template format) — normalize to hashref
+    my %q;
+    $q{time_range} = $widget->{timeRange} if $widget->{timeRange};
+    $q{field}      = $widget->{groupBy}   if $widget->{groupBy};
+    $q{limit}      = $widget->{limit}     if defined $widget->{limit};
+    $q{interval}   = $widget->{interval}  if $widget->{interval};
+
+    my $str = defined $raw ? "$raw" : '';
+    return \%q if $str eq '' || $str eq '*';
+
+    # Simple "level:X"
+    if ($str =~ /^level:(\w+)$/i) {
+        $q{level} = uc($1);
+        return \%q;
+    }
+
+    # Simple "service:X"
+    if ($str =~ /^service:([\w._-]+)$/i) {
+        $q{service} = $1;
+        return \%q;
+    }
+
+    # "level:X OR level:Y OR ..."
+    if ($str =~ /^level:\w+(?:\s+OR\s+level:\w+)+$/i) {
+        my @levels;
+        while ($str =~ /level:(\w+)/gi) {
+            push @levels, uc($1);
+        }
+        $q{level} = \@levels if @levels;
+        return \%q;
+    }
+
+    # Fallback: pass as text filter
+    $q{filter} = $str;
+    return \%q;
+}
+
 # Execute a widget query (for counter, chart, table widgets)
 sub execute_widget_query {
     my ($self, $widget) = @_;
     my $type  = $widget->{type}  // 'counter';
-    my $query = $widget->{query} // {};
+    my $query = $self->_normalize_widget_query($widget);
 
     if ($type eq 'counter') {
         return $self->_widget_counter($query);
@@ -213,6 +266,7 @@ sub _widget_log_stream {
     $params{query}   = $query->{filter}  if $query->{filter};
     $params{level}   = $query->{level}   if $query->{level};
     $params{service} = $query->{service} if $query->{service};
+    $params{range}   = $query->{time_range} if $query->{time_range};
     $params{limit}   = $query->{limit}   // 20;
     $params{order}   = 'DESC';
 
