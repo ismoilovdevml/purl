@@ -104,6 +104,15 @@ my $DEFAULTS = {
         url  => '',
         mode => 'auto',   # auto | local | redis
     },
+    ai => {
+        provider        => 'openai',  # openai | anthropic | gemini | ollama
+        api_key         => '',
+        model           => '',        # empty = use provider default
+        base_url        => '',        # for ollama: http://localhost:11434
+        enabled         => 1,
+        max_log_context => 20,        # max logs to send for analysis
+        cache_ttl       => 300,       # cache AI responses (seconds)
+    },
     notifications => {
         telegram => {
             enabled   => 0,
@@ -252,6 +261,10 @@ sub get {
         'backup.s3_endpoint'             => 'PURL_BACKUP_S3_ENDPOINT',
         'redis.url'           => 'PURL_REDIS_URL',
         'redis.mode'          => 'PURL_BROADCAST_MODE',
+        'ai.provider'         => 'PURL_AI_PROVIDER',
+        'ai.api_key'          => 'PURL_AI_API_KEY',
+        'ai.model'            => 'PURL_AI_MODEL',
+        'ai.base_url'         => 'PURL_AI_BASE_URL',
     );
 
     my $full_key = "$section.$key";
@@ -439,6 +452,10 @@ sub is_from_env {
         'backup.s3_endpoint'             => 'PURL_BACKUP_S3_ENDPOINT',
         'redis.url'           => 'PURL_REDIS_URL',
         'redis.mode'          => 'PURL_BROADCAST_MODE',
+        'ai.provider'         => 'PURL_AI_PROVIDER',
+        'ai.api_key'          => 'PURL_AI_API_KEY',
+        'ai.model'            => 'PURL_AI_MODEL',
+        'ai.base_url'         => 'PURL_AI_BASE_URL',
     );
 
     my $full_key = "$section.$key";

@@ -805,6 +805,11 @@ sub setup_routes {
     $protected->put('/settings/sso'       => sub ($c) { $settings_c->update_sso($c) });
     $protected->post('/settings/sso/test' => sub ($c) { $settings_c->test_sso($c) });
 
+    # AI settings
+    $protected->get('/settings/ai'        => sub ($c) { $settings_c->get_ai($c) });
+    $protected->put('/settings/ai'        => sub ($c) { $settings_c->update_ai($c) });
+    $protected->post('/settings/ai/test'  => sub ($c) { $settings_c->test_ai($c) });
+
     # ============================================
     # Backup endpoints
     # ============================================
@@ -873,8 +878,11 @@ sub setup_routes {
     # ============================================
     # AI query endpoints
     # ============================================
-    $protected->post('/ai/query' => sub ($c) { $ai_c->query($c) });
-    $protected->get('/ai/suggest' => sub ($c) { $ai_c->suggest($c) });
+    $protected->post('/ai/query'    => sub ($c) { $ai_c->query($c) });
+    $protected->get('/ai/suggest'   => sub ($c) { $ai_c->suggest($c) });
+    $protected->post('/ai/analyze'  => sub ($c) { $ai_c->analyze($c) });
+    $protected->post('/ai/explain'  => sub ($c) { $ai_c->explain($c) });
+    $protected->get('/ai/providers' => sub ($c) { $ai_c->providers($c) });
 
     # ============================================
     # Clusters endpoint (multi-cluster support)

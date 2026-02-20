@@ -31,6 +31,7 @@
   import { currentUser, checkAuth, logout, passwordChangeRequired } from './stores/auth.js';
   import { success as toastSuccess } from './stores/toast.js';
   import { fetchClusters, clusters } from './stores/cluster.js';
+  import { initAI } from './stores/ai.js';
 
   let savedSearchesRef;
   let currentPage = 'logs'; // 'logs' | 'analytics' | 'dashboards' | 'settings'
@@ -144,6 +145,7 @@
     const needsAuth = $isPaidPlan && !$currentUser;
     if (!needsAuth && !$passwordChangeRequired) {
       fetchClusters();
+      initAI();
       if (currentPage === 'logs') {
         await searchLogs();
       }

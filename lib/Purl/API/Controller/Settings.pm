@@ -876,6 +876,115 @@ sub test_sso {
     });
 }
 
+# ============================================
+# AI Settings
+# ============================================
+
+sub get_ai {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $ai = $self->settings->get_section('ai') // {};
+
+        # Mask API key
+        my $safe = { %$ai };
+        $safe->{api_key} = $safe->{api_key} ? '********' : '';
+
+        $c->render(json => {
+            config   => $safe,
+            from_env => {
+                provider => $self->settings->is_from_env('ai', 'provider') ? 1 : 0,
+                api_key  => $self->settings->is_from_env('ai', 'api_key')  ? 1 : 0,
+                model    => $self->settings->is_from_env('ai', 'model')    ? 1 : 0,
+                base_url => $self->settings->is_from_env('ai', 'base_url') ? 1 : 0,
+            },
+        });
+    });
+}
+
+sub update_ai {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body) {
+            $self->render_error($c, 'Invalid JSON', 400);
+            return;
+        }
+
+        my %allowed_providers = map { $_ => 1 } qw(openai anthropic gemini ollama);
+        if (exists $body->{provider} && !$allowed_providers{$body->{provider}}) {
+            $self->render_error($c, "Invalid provider. Allowed: openai, anthropic, gemini, ollama", 400);
+            return;
+        }
+
+        my $current = $self->settings->get_section('ai') // {};
+
+        for my $key (qw(provider model base_url enabled max_log_context cache_ttl)) {
+            next unless exists $body->{$key};
+            next if $self->settings->is_from_env('ai', $key);
+            $current->{$key} = $body->{$key};
+        }
+
+        # Only update api_key if not masked
+        if (exists $body->{api_key} && $body->{api_key} ne '********') {
+            unless ($self->settings->is_from_env('ai', 'api_key')) {
+                $current->{api_key} = $body->{api_key};
+            }
+        }
+
+        if ($self->settings->set_section('ai', $current)) {
+            $c->render(json => { status => 'ok', message => 'AI settings updated.' });
+        } else {
+            $self->render_error($c, 'Failed to save AI settings', 500);
+        }
+    });
+}
+
+sub test_ai {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        require Purl::AI::Factory;
+
+        my $provider_name = $self->settings->get('ai', 'provider') // 'openai';
+        my $api_key       = $self->settings->get('ai', 'api_key')  // '';
+        my $model         = $self->settings->get('ai', 'model')    // '';
+        my $base_url      = $self->settings->get('ai', 'base_url') // '';
+
+        unless ($provider_name eq 'ollama' || ($api_key && $api_key ne '')) {
+            $c->render(json => {
+                status  => 'error',
+                message => 'API key is required for this provider.',
+            });
+            return;
+        }
+
+        my %opts = (api_key => $api_key);
+        $opts{model}    = $model    if $model    && $model    ne '';
+        $opts{base_url} = $base_url if $base_url && $base_url ne '';
+
+        my $provider = eval { Purl::AI::Factory->create($provider_name, %opts) };
+        if ($@) {
+            $c->render(json => { status => 'error', message => "Provider init failed: $@" });
+            return;
+        }
+
+        my $response = eval { $provider->generate('Reply with: OK', 'You are a test assistant. Reply with just: OK') };
+        if ($@) {
+            $c->render(json => { status => 'error', message => "Connection failed: $@" });
+            return;
+        }
+
+        $c->render(json => {
+            status   => 'ok',
+            provider => $provider_name,
+            model    => $provider->model,
+            message  => 'AI provider connected successfully.',
+        });
+    });
+}
+
 1;
 
 __END__

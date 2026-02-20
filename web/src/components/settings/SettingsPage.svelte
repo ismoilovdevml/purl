@@ -17,6 +17,7 @@
   import BackupSettings from './BackupSettings.svelte';
   import PipelineSettings from './PipelineSettings.svelte';
   import AboutSettings from './AboutSettings.svelte';
+  import AISettings from './AISettings.svelte';
   import { isPaidPlan, isEnterprise } from '../../stores/license.js';
 
   let activeSection = 'database';
@@ -32,6 +33,7 @@
     { id: 'users', label: 'Users', icon: 'users', requiresPlan: 'pro', locked: !$isPaidPlan },
     { id: 'ldap', label: 'LDAP / AD', icon: 'ldap', requiresPlan: 'enterprise', locked: !$isEnterprise },
     { id: 'sso', label: 'SSO / SAML', icon: 'sso', requiresPlan: 'enterprise', locked: !$isEnterprise },
+    { id: 'ai', label: 'AI', icon: 'ai', requiresPlan: 'pro', locked: !$isPaidPlan },
     { id: 'about', label: 'About', icon: 'info' },
   ];
 </script>
@@ -88,6 +90,10 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
+          {:else if section.icon === 'ai'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2a10 10 0 0 1 10 10 10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
           {:else if section.icon === 'info'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
@@ -125,6 +131,8 @@
       <PipelineSettings />
     {:else if activeSection === 'backup'}
       <BackupSettings />
+    {:else if activeSection === 'ai'}
+      <AISettings />
     {:else if activeSection === 'about'}
       <AboutSettings />
     {/if}

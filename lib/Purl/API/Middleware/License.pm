@@ -103,7 +103,7 @@ my $FREE_PLAN = {
 };
 
 # Trial plan (14-day Pro features)
-my $TRIAL_FEATURES = ['log_search', 'live_tail', 'basic_alerts', 'pattern_analysis', 'saved_searches', 'audit_logs'];
+my $TRIAL_FEATURES = ['log_search', 'live_tail', 'basic_alerts', 'pattern_analysis', 'saved_searches', 'audit_logs', 'ai_query'];
 my $TRIAL_LIMITS   = { servers => 10, retention_days => 90, users => 5, alerts => 10 };
 my $TRIAL_DAYS     = 14;
 

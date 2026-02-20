@@ -3,10 +3,15 @@
   import { levelStats, serviceStats, hostStats, connectWebSocket, isLive } from '../stores/logs.js';
   import Button from './ui/Button.svelte';
   import { debounce } from '../utils/dom.js';
+  import { aiConfigured } from '../stores/ai.js';
+  import AIQueryBar from './ai/AIQueryBar.svelte';
 
   export let value = '';
 
   const dispatch = createEventDispatcher();
+
+  // AI mode
+  let aiMode = false;
 
   // Autocomplete state
   let showSuggestions = false;
@@ -260,6 +265,17 @@
   $: hasCoreSuggestions = suggestions.some(s => !s.group && s.type === 'field');
 </script>
 
+<div class="search-bar-wrapper">
+{#if aiMode && $aiConfigured}
+  <div class="ai-bar-wrap">
+    <button class="mode-toggle-btn active-kql" on:click={() => { aiMode = false; }} title="Switch to KQL mode">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z"/></svg>
+      KQL
+    </button>
+    <AIQueryBar on:apply={(e) => { aiMode = false; dispatch('ai-apply', e.detail); }} />
+  </div>
+{:else}
+
 <div class="search-bar" role="search">
   <Button
     variant={$isLive ? 'success' : 'default'}
@@ -403,9 +419,81 @@
     </div>
   {/if}
   </div>
+
+  {#if $aiConfigured}
+    <button
+      class="ai-toggle-btn"
+      on:click={() => { aiMode = true; }}
+      title="Ask AI"
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l1.872 1.094a.75.75 0 0 1-.992 1.126l-2.25-1.314a.75.75 0 0 1-.378-.654V4.75a.75.75 0 0 1 1.5 0h-.252Z"/>
+      </svg>
+      Ask AI
+    </button>
+  {/if}
+</div>
+{/if}
 </div>
 
 <style>
+  .search-bar-wrapper {
+    flex: 1;
+    max-width: 600px;
+  }
+
+  .ai-bar-wrap {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  .mode-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-tertiary, #21262d);
+    color: var(--text-secondary, #8b949e);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+
+  .mode-toggle-btn:hover {
+    color: var(--text-primary, #c9d1d9);
+  }
+
+  .ai-bar-wrap > :global(.ai-query-bar) {
+    flex: 1;
+  }
+
+  .ai-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(88, 166, 255, 0.3);
+    background: rgba(88, 166, 255, 0.08);
+    color: #58a6ff;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+
+  .ai-toggle-btn:hover {
+    background: rgba(88, 166, 255, 0.15);
+  }
+
   .search-bar {
     flex: 1;
     max-width: 600px;
