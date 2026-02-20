@@ -127,9 +127,9 @@ subtest 'get_api_url from ENV' => sub {
 
 subtest 'get_cache_ttl default (no settings)' => sub {
     delete $ENV{PURL_LICENSE_CACHE_TTL};
-    # Without settings object, returns empty string (defined value short-circuits //)
+    # Without settings object, falls through to default 3600
     my $lic = Purl::API::Middleware::License->new;
-    is $lic->get_cache_ttl, '', 'no settings = empty string';
+    is $lic->get_cache_ttl, 3600, 'no settings = default 3600';
 };
 
 # ============================================

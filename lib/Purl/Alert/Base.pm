@@ -110,14 +110,15 @@ sub notify {
 sub format_message {
     my ($self, $alert, $context) = @_;
 
+    my $name = $alert->{name} // 'Unknown';
     my $count = $context->{count} // 0;
     my $threshold = $alert->{threshold} // 0;
     my $window = $alert->{window_minutes} // 5;
     my $query = $alert->{query} // '';
 
     return {
-        title     => "Alert: $alert->{name}",
-        alert     => $alert->{name},
+        title     => "Alert: $name",
+        alert     => $name,
         query     => $query,
         count     => $count,
         threshold => $threshold,

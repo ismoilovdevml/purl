@@ -69,7 +69,7 @@ use Purl::API::Controller::Alerts;
     package MockAlertStorage;
     sub new { bless { alerts => $_[1] // [] }, $_[0] }
     sub get_alerts { return $_[0]->{alerts} }
-    sub create_alert { $_[0]->{created} = { @_[2..$#_] }; return 1 }
+    sub create_alert { $_[0]->{created} = { @_[1..$#_] }; return 1 }
     sub update_alert { $_[0]->{updated_id} = $_[1]; return 1 }
     sub delete_alert { $_[0]->{deleted_id} = $_[1]; return 1 }
     sub check_alerts { return $_[0]->{triggered} // [] }

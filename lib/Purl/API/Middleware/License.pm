@@ -128,7 +128,7 @@ sub get_api_url {
 sub get_cache_ttl {
     my ($self) = @_;
     return $ENV{PURL_LICENSE_CACHE_TTL}
-        // ($self->settings ? $self->settings->get('license', 'cache_ttl') : '')
+        // ($self->settings ? $self->settings->get('license', 'cache_ttl') : undef)
         // 3600;
 }
 
