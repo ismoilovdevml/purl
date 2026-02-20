@@ -15,6 +15,9 @@
   import ColumnPicker from './ColumnPicker.svelte';
   import LogDetail from './LogDetail.svelte';
   import LogContextPanel from './LogContextPanel.svelte';
+  import AIAnalysisPanel from '../ai/AIAnalysisPanel.svelte';
+  import AIExplainModal from '../ai/AIExplainModal.svelte';
+  import { aiEnabled, aiConfigured } from '../../stores/ai.js';
 
   export let logs = [];
 
@@ -45,6 +48,11 @@
 
   let selectedLog = null;
   let showColumnMenu = false;
+
+  // AI state
+  let showAnalysisPanel = false;
+  let showExplainModal = false;
+  let logToExplain = null;
 
   // Pagination
   const pageSize = 100;
@@ -155,9 +163,13 @@
   $: someSelected = paginatedLogs.some(l => selectedIds.has(l.id)) && !allSelected;
   $: selectionCount = selectedIds.size;
 
-  // Virtual scroll handler
+  // Virtual scroll handler — auto-advance page when near bottom
   function handleScroll(e) {
     scrollTop = e.target.scrollTop;
+    const { scrollHeight, clientHeight } = e.target;
+    if (currentPage < totalPages && scrollTop + clientHeight >= scrollHeight - ROW_HEIGHT * 3) {
+      goToNextPage();
+    }
   }
 
   function saveColumnConfig() {
@@ -412,6 +424,12 @@
           <svg width="12" height="12" viewBox="0 0 14 14"><path fill="currentColor" d="M2 1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1Zm1 3h6v1H3V4Zm0 2h6v1H3V6Zm0 2h4v1H3V8Z"/></svg>
           Export selected
         </button>
+        {#if $aiEnabled && $aiConfigured}
+          <button class="selection-action-btn ai-analyze-btn" on:click={() => { showAnalysisPanel = true; }}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1Zm0 1.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM7 4.75h2v4.5H7v-4.5Zm0 5.5h2v2H7v-2Z"/></svg>
+            AI Analyze
+          </button>
+        {/if}
         <button class="selection-clear-btn" on:click={clearSelection}>
           <svg width="12" height="12" viewBox="0 0 14 14"><path fill="currentColor" d="M7 5.586 3.707 2.293a1 1 0 0 0-1.414 1.414L5.586 7 2.293 10.293a1 1 0 1 0 1.414 1.414L7 8.414l3.293 3.293a1 1 0 0 0 1.414-1.414L8.414 7l3.293-3.293a1 1 0 0 0-1.414-1.414L7 5.586Z"/></svg>
           Clear selection
@@ -543,6 +561,14 @@
                       {/if}
                     </svelte:fragment>
                   </LogDetail>
+                  {#if $aiEnabled && $aiConfigured}
+                    <div class="ai-explain-bar">
+                      <button class="ai-explain-btn" on:click|stopPropagation={() => { logToExplain = log; showExplainModal = true; }}>
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1Zm-.75 4.75v3.5h1.5v-3.5h-1.5Zm0 5v1.5h1.5v-1.5h-1.5Z"/></svg>
+                        Explain with AI
+                      </button>
+                    </div>
+                  {/if}
                 </td>
               </tr>
             {/if}
@@ -586,6 +612,20 @@
         </button>
       </div>
     </div>
+  {/if}
+
+  <!-- AI Modals -->
+  {#if showAnalysisPanel}
+    <AIAnalysisPanel
+      bind:open={showAnalysisPanel}
+      selectedLogs={logs.filter(l => selectedIds.has(l.id))}
+    />
+  {/if}
+  {#if showExplainModal && logToExplain}
+    <AIExplainModal
+      bind:open={showExplainModal}
+      log={logToExplain}
+    />
   {/if}
 </div>
 
@@ -1005,5 +1045,39 @@
     color: var(--text-secondary, #8b949e);
     min-width: 80px;
     text-align: center;
+  }
+
+  .ai-analyze-btn {
+    background: rgba(163, 113, 247, 0.1);
+    border-color: rgba(163, 113, 247, 0.4);
+    color: #a371f7;
+  }
+
+  .ai-analyze-btn:hover {
+    background: rgba(163, 113, 247, 0.2);
+  }
+
+  .ai-explain-bar {
+    padding: 6px 12px;
+    border-top: 1px solid var(--bg-tertiary, #21262d);
+    background: var(--bg-primary, #0d1117);
+  }
+
+  .ai-explain-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    background: rgba(163, 113, 247, 0.08);
+    border: 1px solid rgba(163, 113, 247, 0.3);
+    border-radius: var(--radius-sm, 4px);
+    color: #a371f7;
+    font-size: var(--text-sm, 12px);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .ai-explain-btn:hover {
+    background: rgba(163, 113, 247, 0.15);
   }
 </style>

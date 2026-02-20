@@ -300,7 +300,8 @@
         data: item,
         prevData: prevItem,
         changePercent,
-        isAnomaly: anomalies.includes(barIndex)
+        isAnomaly: anomalies.includes(barIndex),
+        avgCount
       };
 
       // Handle drag selection
@@ -462,6 +463,9 @@
             <span class="tooltip-anomaly-tag">ANOMALY</span>
           {/if}
         </div>
+        {#if tooltip.isAnomaly}
+          <div class="tooltip-anomaly-desc">Spike: {tooltip.data.count} vs avg {tooltip.avgCount} logs</div>
+        {/if}
         <div class="tooltip-stats">
           <div class="tooltip-row">
             <span class="tooltip-dot total"></span>
@@ -712,6 +716,14 @@
     color: #fff;
     border-radius: 3px;
     font-weight: 700;
+  }
+
+  .tooltip-anomaly-desc {
+    font-size: 11px;
+    color: #f85149;
+    padding: 3px 0 2px;
+    border-bottom: 1px solid rgba(248, 81, 73, 0.2);
+    margin-bottom: 2px;
   }
 
   .tooltip-stats {

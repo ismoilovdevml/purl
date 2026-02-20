@@ -12,7 +12,6 @@
   import SettingsPage from './components/settings/SettingsPage.svelte';
   import DashboardPage from './components/dashboard/DashboardPage.svelte';
   import LoginPage from './components/LoginPage.svelte';
-  import Onboarding from './components/Onboarding.svelte';
   import SearchHelp from './components/SearchHelp.svelte';
   import Toast from './components/ui/Toast.svelte';
   import ClusterSelector from './components/ui/ClusterSelector.svelte';
@@ -35,7 +34,6 @@
 
   let savedSearchesRef;
   let currentPage = 'logs'; // 'logs' | 'analytics' | 'dashboards' | 'settings'
-  let showOnboarding = !localStorage.getItem('purl_onboarding_done');
   let showSearchHelp = false;
   let refreshIntervalId = null;
   let currentRefreshInterval = 30;
@@ -43,7 +41,6 @@
   let unsubscribeRefresh = null;
   let unsubscribeDefaultRange = null;
   let appReady = false;
-  let initialSearchDone = false;
 
   // Mobile responsive state
   let mobileMenuOpen = false;
@@ -149,7 +146,6 @@
       if (currentPage === 'logs') {
         await searchLogs();
       }
-      initialSearchDone = true;
     }
 
     return () => {
@@ -312,7 +308,7 @@
     </svg>
   </div>
 {:else if $isPaidPlan && (!$currentUser || $passwordChangeRequired)}
-  <LoginPage on:login={() => { fetchClusters(); searchLogs().then(() => { initialSearchDone = true; }); }} />
+  <LoginPage on:login={() => { fetchClusters(); searchLogs(); }} />
 {:else}
 <main>
   <header>
@@ -586,10 +582,7 @@
   {/if}
 
   {#if currentPage === 'logs'}
-    {#if showOnboarding && $logs.length === 0 && initialSearchDone}
-      <Onboarding onDismiss={() => { showOnboarding = false; localStorage.setItem('purl_onboarding_done', '1'); }} />
-    {:else}
-      <div class="stats-bar">
+    <div class="stats-bar">
         <span>{$total.toLocaleString()} logs</span>
         <span class="separator">|</span>
         <span>Time range: {$timeRange}</span>
@@ -626,7 +619,6 @@
           <PatternsSidebar />
         </aside>
       </div>
-    {/if}
   {:else if currentPage === 'analytics'}
     <AnalyticsPage />
   {:else if currentPage === 'dashboards'}
