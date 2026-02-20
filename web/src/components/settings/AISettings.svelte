@@ -18,7 +18,7 @@
   const PROVIDERS = [
     {
       id: 'openai', label: 'OpenAI', requiresKey: true, requiresUrl: false, placeholder: 'sk-...',
-      models: ['gpt-4.1-mini-2025-04-14', 'gpt-4.1-2025-04-14', 'gpt-5-2025-08-07', 'o3-2025-04-16', 'o4-mini-2025-04-16'],
+      models: ['gpt-5.2', 'gpt-5.2-pro', 'gpt-5.1', 'gpt-5-2025-08-07', 'o3-2025-04-16', 'o4-mini-2025-04-16', 'gpt-4.1-2025-04-14', 'gpt-4.1-mini-2025-04-14'],
     },
     {
       id: 'anthropic', label: 'Anthropic', requiresKey: true, requiresUrl: false, placeholder: 'sk-ant-...',
