@@ -985,6 +985,58 @@ sub test_ai {
     });
 }
 
+# ============================================
+# Redis / Broadcast settings
+# ============================================
+
+sub get_redis {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $redis = $self->settings->get_section('redis') // {};
+
+        $c->render(json => {
+            config   => $redis,
+            from_env => {
+                url  => $self->settings->is_from_env('redis', 'url')  ? 1 : 0,
+                mode => $self->settings->is_from_env('redis', 'mode') ? 1 : 0,
+            },
+        });
+    });
+}
+
+sub update_redis {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $body = eval { decode_json($c->req->body) };
+        unless ($body) {
+            $self->render_error($c, 'Invalid JSON', 400);
+            return;
+        }
+
+        my %valid_modes = map { $_ => 1 } qw(auto local redis);
+        if (exists $body->{mode} && !$valid_modes{ $body->{mode} }) {
+            $self->render_error($c, 'Invalid mode. Allowed: auto, local, redis', 400);
+            return;
+        }
+
+        my $current = $self->settings->get_section('redis') // {};
+
+        for my $key (qw(url mode)) {
+            next unless exists $body->{$key};
+            next if $self->settings->is_from_env('redis', $key);
+            $current->{$key} = $body->{$key};
+        }
+
+        if ($self->settings->set_section('redis', $current)) {
+            $c->render(json => { status => 'ok', message => 'Redis settings updated.' });
+        } else {
+            $self->render_error($c, 'Failed to save Redis settings', 500);
+        }
+    });
+}
+
 1;
 
 __END__

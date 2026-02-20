@@ -118,6 +118,20 @@
   {:else}
     <div class="form">
 
+      <!-- Enable AI toggle -->
+      <div class="field toggle-field">
+        <div class="toggle-row">
+          <div>
+            <div class="field-label">Enable AI</div>
+            <p class="field-hint">When disabled, AI features are hidden throughout the dashboard.</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" bind:checked={config.enabled} />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+      </div>
+
       <!-- Provider -->
       <div class="field">
         <label for="ai-provider" class="field-label">
@@ -127,7 +141,7 @@
         <select
           id="ai-provider"
           bind:value={config.provider}
-          disabled={fromEnv.provider}
+          disabled={fromEnv.provider || !config.enabled}
           class="field-select"
           on:change={clearModel}
         >
@@ -149,7 +163,7 @@
               id="ai-api-key"
               type={showKey ? 'text' : 'password'}
               bind:value={config.api_key}
-              disabled={fromEnv.api_key}
+              disabled={fromEnv.api_key || !config.enabled}
               placeholder={currentProvider.placeholder || 'Enter API key…'}
               class="field-input"
             />
@@ -171,7 +185,7 @@
             id="ai-base-url"
             type="text"
             bind:value={config.base_url}
-            disabled={fromEnv.base_url}
+            disabled={fromEnv.base_url || !config.enabled}
             placeholder="http://localhost:11434"
             class="field-input"
           />
@@ -187,7 +201,7 @@
           <span class="optional">(optional)</span>
         </label>
         <div class="model-row">
-          <select id="ai-model" bind:value={config.model} disabled={fromEnv.model} class="field-select">
+          <select id="ai-model" bind:value={config.model} disabled={fromEnv.model || !config.enabled} class="field-select">
             <option value="">Default ({currentProvider.models[0]})</option>
             {#each currentProvider.models as m}
               <option value={m}>{m}</option>
@@ -446,5 +460,61 @@
     background: rgba(63, 185, 80, 0.15);
     color: #3fb950;
     border: 1px solid rgba(63, 185, 80, 0.3);
+  }
+
+  .toggle-field {
+    padding: 12px;
+    background: var(--bg-primary, #0d1117);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 6px;
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .toggle {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  .toggle input { opacity: 0; width: 0; height: 0; }
+
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-tertiary, #21262d);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 20px;
+    transition: background 0.2s, border-color 0.2s;
+  }
+
+  .toggle-track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: var(--text-secondary, #8b949e);
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+  }
+
+  .toggle input:checked + .toggle-track {
+    background: rgba(35, 134, 54, 0.3);
+    border-color: #238636;
+  }
+
+  .toggle input:checked + .toggle-track::after {
+    transform: translateX(16px);
+    background: #3fb950;
   }
 </style>

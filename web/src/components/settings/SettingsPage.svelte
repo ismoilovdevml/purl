@@ -18,6 +18,7 @@
   import PipelineSettings from './PipelineSettings.svelte';
   import AboutSettings from './AboutSettings.svelte';
   import AISettings from './AISettings.svelte';
+  import RedisSettings from './RedisSettings.svelte';
   import { isPaidPlan, isEnterprise } from '../../stores/license.js';
 
   let activeSection = 'database';
@@ -34,6 +35,7 @@
     { id: 'ldap', label: 'LDAP / AD', icon: 'ldap', requiresPlan: 'enterprise', locked: !$isEnterprise },
     { id: 'sso', label: 'SSO / SAML', icon: 'sso', requiresPlan: 'enterprise', locked: !$isEnterprise },
     { id: 'ai', label: 'AI', icon: 'ai', requiresPlan: 'pro', locked: !$isPaidPlan },
+    { id: 'redis', label: 'Redis', icon: 'redis' },
     { id: 'about', label: 'About', icon: 'info' },
   ];
 </script>
@@ -94,6 +96,10 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 2a10 10 0 0 1 10 10 10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
             </svg>
+          {:else if section.icon === 'redis'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v4c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 9v4c0 1.66 4 3 9 3s9-1.34 9-3V9"/>
+            </svg>
           {:else if section.icon === 'info'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
@@ -133,6 +139,8 @@
       <BackupSettings />
     {:else if activeSection === 'ai'}
       <AISettings />
+    {:else if activeSection === 'redis'}
+      <RedisSettings />
     {:else if activeSection === 'about'}
       <AboutSettings />
     {/if}

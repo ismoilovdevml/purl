@@ -32,6 +32,7 @@ sub _get_ai_config {
             api_key  => $self->settings->get('ai', 'api_key')  // '',
             model    => $self->settings->get('ai', 'model')    // '',
             base_url => $self->settings->get('ai', 'base_url') // '',
+            enabled  => $self->settings->get('ai', 'enabled')  // 1,
         };
     }
     return {
@@ -39,6 +40,7 @@ sub _get_ai_config {
         api_key  => $ENV{PURL_AI_API_KEY}  // '',
         model    => $ENV{PURL_AI_MODEL}    // '',
         base_url => $ENV{PURL_AI_BASE_URL} // '',
+        enabled  => 1,
     };
 }
 
@@ -54,6 +56,7 @@ sub _build_provider {
 sub _ai_configured {
     my ($self) = @_;
     my $cfg = $self->_get_ai_config();
+    return 0 unless $cfg->{enabled} // 1;
     return 1 if $cfg->{provider} eq 'ollama';
     return $cfg->{api_key} && $cfg->{api_key} ne '';
 }

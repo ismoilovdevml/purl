@@ -810,6 +810,10 @@ sub setup_routes {
     $protected->put('/settings/ai'        => sub ($c) { $settings_c->update_ai($c) });
     $protected->post('/settings/ai/test'  => sub ($c) { $settings_c->test_ai($c) });
 
+    # Redis / Broadcast settings
+    $protected->get('/settings/redis' => sub ($c) { $settings_c->get_redis($c) });
+    $protected->put('/settings/redis' => sub ($c) { $settings_c->update_redis($c) });
+
     # ============================================
     # Backup endpoints
     # ============================================
