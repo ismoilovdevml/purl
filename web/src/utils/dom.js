@@ -110,6 +110,24 @@ export function debounce(fn, delay = 300) {
   };
 }
 
+/**
+ * Svelte action: portal — moves element to document.body (or custom target).
+ * Fixes modals rendered inside overflow containers where event handling breaks.
+ * @param {HTMLElement} node - DOM node to teleport
+ * @param {HTMLElement} [target=document.body] - Target container
+ * @returns {object} Svelte action object
+ */
+export function portal(node, target = document.body) {
+  target.appendChild(node);
+  return {
+    destroy() {
+      if (node.parentNode) {
+        node.parentNode.removeChild(node);
+      }
+    }
+  };
+}
+
 /** Selector for all focusable elements (excludes disabled) */
 export const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';

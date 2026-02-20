@@ -15,7 +15,7 @@
 <script>
   import { onDestroy } from 'svelte';
   import { fade, scale } from 'svelte/transition';
-  import { trapFocus } from '../../utils/dom.js';
+  import { trapFocus, portal } from '../../utils/dom.js';
 
   /** Whether dialog is visible */
   export let show = false;
@@ -99,6 +99,7 @@
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
   <div
     class="confirm-overlay"
+    use:portal
     transition:fade={{ duration: 150 }}
     on:click={handleOverlayClick}
   >
