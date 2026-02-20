@@ -9,10 +9,11 @@ use namespace::clean;
 with 'Purl::AI::Provider::Base';
 
 # ============================================
-# OpenAI provider (GPT-4o, GPT-4o-mini, etc.)
+# OpenAI provider (GPT-4.1, GPT-5, o3, etc.)
+# Default: gpt-4.1-mini-2025-04-14 (cost-efficient, 1M ctx)
 # ============================================
 
-sub default_model { 'gpt-4o-mini' }
+sub default_model { 'gpt-4.1-mini-2025-04-14' }
 
 sub call_api {
     my ($self, $prompt, $system_prompt) = @_;
@@ -59,6 +60,6 @@ Purl::AI::Provider::OpenAI - OpenAI GPT provider
 =head1 DESCRIPTION
 
 Implements Purl::AI::Provider::Base for OpenAI API.
-Default model: gpt-4o-mini
+Default model: gpt-4.1-mini-2025-04-14
 
 =cut

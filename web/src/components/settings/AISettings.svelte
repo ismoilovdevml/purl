@@ -16,10 +16,22 @@
   let showKey = false;
 
   const PROVIDERS = [
-    { id: 'openai',    label: 'OpenAI',             requiresKey: true,  requiresUrl: false, models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'], placeholder: 'sk-...' },
-    { id: 'anthropic', label: 'Anthropic',           requiresKey: true,  requiresUrl: false, models: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'], placeholder: 'sk-ant-...' },
-    { id: 'gemini',    label: 'Google Gemini',       requiresKey: true,  requiresUrl: false, models: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'], placeholder: 'AIza...' },
-    { id: 'ollama',    label: 'Ollama (Self-hosted)', requiresKey: false, requiresUrl: true,  models: ['llama3.2', 'llama3.1', 'mistral', 'deepseek-r1', 'qwen2.5'], placeholder: '' },
+    {
+      id: 'openai', label: 'OpenAI', requiresKey: true, requiresUrl: false, placeholder: 'sk-...',
+      models: ['gpt-4.1-mini-2025-04-14', 'gpt-4.1-2025-04-14', 'gpt-5-2025-08-07', 'o3-2025-04-16', 'o4-mini-2025-04-16'],
+    },
+    {
+      id: 'anthropic', label: 'Anthropic', requiresKey: true, requiresUrl: false, placeholder: 'sk-ant-...',
+      models: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'],
+    },
+    {
+      id: 'gemini', label: 'Google Gemini', requiresKey: true, requiresUrl: false, placeholder: 'AIza...',
+      models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite'],
+    },
+    {
+      id: 'ollama', label: 'Ollama (Self-hosted)', requiresKey: false, requiresUrl: true, placeholder: '',
+      models: ['llama3.3', 'qwen2.5', 'deepseek-r1', 'gemma3', 'phi4', 'mistral', 'deepseek-v3'],
+    },
   ];
 
   $: currentProvider = PROVIDERS.find(p => p.id === config.provider) || PROVIDERS[0];

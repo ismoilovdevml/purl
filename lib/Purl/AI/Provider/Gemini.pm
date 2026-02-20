@@ -10,9 +10,10 @@ with 'Purl::AI::Provider::Base';
 
 # ============================================
 # Google Gemini provider
+# Default: gemini-2.5-flash (2.0 series retiring March 31, 2026)
 # ============================================
 
-sub default_model { 'gemini-2.0-flash' }
+sub default_model { 'gemini-2.5-flash' }
 
 sub call_api {
     my ($self, $prompt, $system_prompt) = @_;
@@ -68,6 +69,6 @@ Purl::AI::Provider::Gemini - Google Gemini provider
 =head1 DESCRIPTION
 
 Implements Purl::AI::Provider::Base for Google Gemini API.
-Default model: gemini-2.0-flash
+Default model: gemini-2.5-flash (2.0 series retiring March 31, 2026)
 
 =cut

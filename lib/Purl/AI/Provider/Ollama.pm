@@ -10,10 +10,10 @@ with 'Purl::AI::Provider::Base';
 
 # ============================================
 # Ollama self-hosted provider (local LLMs)
-# Supports: llama3.2, mistral, deepseek, etc.
+# Supports: llama3.3, qwen2.5, deepseek-r1, gemma3, phi4, etc.
 # ============================================
 
-sub default_model { 'llama3.2' }
+sub default_model { 'llama3.3' }
 
 # Override base_url default for Ollama
 around 'base_url' => sub {
@@ -64,7 +64,7 @@ Purl::AI::Provider::Ollama - Ollama self-hosted LLM provider
 =head1 DESCRIPTION
 
 Implements Purl::AI::Provider::Base for Ollama local API.
-Default model: llama3.2
+Default model: llama3.3
 Default base_url: http://localhost:11434
 
 No API key required — runs locally.
