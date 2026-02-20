@@ -24,7 +24,8 @@
   const notifyOptions = [
     { value: 'browser', label: 'Browser' },
     { value: 'webhook', label: 'Webhook' },
-    { value: 'slack', label: 'Slack' }
+    { value: 'slack', label: 'Slack' },
+    { value: 'telegram', label: 'Telegram' }
   ];
 
   const API_BASE = '/api';
@@ -280,14 +281,27 @@
       fullWidth
     />
 
-    {#if form.notify_type !== 'browser'}
+    {#if form.notify_type === 'webhook'}
       <Input
-        label={form.notify_type === 'slack' ? 'Slack Webhook URL' : 'Webhook URL'}
+        label="Webhook URL"
         type="url"
         bind:value={form.notify_target}
         placeholder="https://..."
         fullWidth
       />
+    {:else if form.notify_type === 'slack'}
+      <Input
+        label="Slack Webhook URL"
+        type="url"
+        bind:value={form.notify_target}
+        placeholder="https://hooks.slack.com/services/..."
+        fullWidth
+      />
+    {:else if form.notify_type === 'telegram'}
+      <div class="notify-info">
+        Telegram bot token va chat ID server konfiguratsiyasidan olinadi
+        (<code>PURL_TELEGRAM_BOT_TOKEN</code>, <code>PURL_TELEGRAM_CHAT_ID</code>).
+      </div>
     {/if}
   </div>
 
@@ -430,5 +444,24 @@
 
   .row > :global(*) {
     flex: 1;
+  }
+
+  .notify-info {
+    padding: 10px 12px;
+    background: rgba(88, 166, 255, 0.08);
+    border: 1px solid rgba(88, 166, 255, 0.2);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-secondary, #8b949e);
+    line-height: 1.5;
+  }
+
+  .notify-info code {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 11px;
+    color: var(--color-primary, #58a6ff);
+    background: rgba(88, 166, 255, 0.1);
+    padding: 1px 4px;
+    border-radius: 3px;
   }
 </style>
