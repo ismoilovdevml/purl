@@ -235,9 +235,11 @@
     savedSearchesRef?.openSaveModal($query, $timeRange);
   }
 
-  // Handle selection changes from LogTable
+  // Handle selection changes from LogTable (receives IDs, resolve to full log objects)
   function handleSelectionChange(event) {
-    selectedLogs = event.detail?.selected || [];
+    const selectedIds = event.detail?.selected || [];
+    const idSet = new Set(selectedIds);
+    selectedLogs = $logs.filter(l => idSet.has(l.id));
   }
 
   function exportCSV(logsToExport) {
