@@ -209,7 +209,7 @@ function getIntervalForRange(range, customFrom, customTo) {
   }
 
   if (range === '5m' || range === '15m' || range === '30m') return '1 minute';
-  if (range === '1h' || range === '3h' || range === '4h' || range === '6h') return '1 minute';
+  if (range === '1h' || range === '4h') return '1 minute';
   if (range === '12h' || range === '24h') return '1 hour';
   if (range === '7d') return '1 hour';
   if (range === '30d') return '1 day';

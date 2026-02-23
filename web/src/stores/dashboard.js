@@ -9,7 +9,13 @@ export async function fetchDashboards() {
   dashboardLoading.set(true);
   try {
     const res = await fetch('/api/dashboards');
-    if (!res.ok) throw new Error('Failed to fetch dashboards');
+    if (!res.ok) {
+      if (res.status === 403) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'This feature requires a Pro or Enterprise license');
+      }
+      throw new Error('Failed to fetch dashboards');
+    }
     const data = await res.json();
     dashboards.set(data.dashboards || []);
   } catch (err) {
@@ -91,7 +97,13 @@ export const templates = writable([]);
 export async function fetchTemplates() {
   try {
     const res = await fetch('/api/dashboards/templates');
-    if (!res.ok) throw new Error('Failed to fetch templates');
+    if (!res.ok) {
+      if (res.status === 403) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'This feature requires a Pro or Enterprise license');
+      }
+      throw new Error('Failed to fetch templates');
+    }
     const data = await res.json();
     templates.set(data.templates || []);
   } catch (err) {

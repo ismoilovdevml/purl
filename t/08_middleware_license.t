@@ -63,8 +63,8 @@ subtest 'trial plan auto-starts when no trial file exists' => sub {
     ok $info->{trial_expires_at}, 'trial_expires_at set';
     ok $info->{trial_started_at}, 'trial_started_at set';
     ok grep({ $_ eq 'pattern_analysis' } @{$info->{features}}), 'trial has pattern_analysis';
-    ok grep({ $_ eq 'saved_searches' } @{$info->{features}}), 'trial has saved_searches';
-    is $info->{limits}{servers}, 10, 'trial server limit';
+    ok grep({ $_ eq 'saved_searches_unlimited' } @{$info->{features}}), 'trial has saved_searches_unlimited';
+    is $info->{limits}{servers}, 5, 'trial server limit';
     is $info->{limits}{users}, 5, 'trial user limit';
 };
 

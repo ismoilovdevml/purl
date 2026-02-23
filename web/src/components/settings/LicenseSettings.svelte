@@ -24,7 +24,7 @@
     live_tail: 'Live Tail',
     basic_alerts: 'Basic Alerts',
     pattern_analysis: 'Log Patterns',
-    custom_dashboards: 'Custom Dashboards',
+    dashboards: 'Custom Dashboards',
     telegram_alerts: 'Telegram Alerts',
     slack_alerts: 'Slack Alerts',
     webhook_alerts: 'Webhook Alerts',

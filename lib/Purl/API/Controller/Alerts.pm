@@ -34,6 +34,16 @@ sub create {
             return;
         }
 
+        # Enforce alert type feature gating
+        my $notify_type = $body->{notify_type} // 'browser';
+        if ($notify_type eq 'telegram') {
+            return unless $self->require_feature($c, 'telegram_alerts');
+        } elsif ($notify_type eq 'slack') {
+            return unless $self->require_feature($c, 'slack_alerts');
+        } elsif ($notify_type eq 'webhook') {
+            return unless $self->require_feature($c, 'webhook_alerts');
+        }
+
         # Enforce alert count limit (count only enabled alerts)
         my $existing = $self->storage->get_alerts();
         my $count = ref $existing eq 'ARRAY'
@@ -56,6 +66,17 @@ sub update {
         unless ($id) {
             $self->render_error($c, 'ID required', 400);
             return;
+        }
+
+        # Enforce alert type feature gating on update
+        if (my $notify_type = $body->{notify_type}) {
+            if ($notify_type eq 'telegram') {
+                return unless $self->require_feature($c, 'telegram_alerts');
+            } elsif ($notify_type eq 'slack') {
+                return unless $self->require_feature($c, 'slack_alerts');
+            } elsif ($notify_type eq 'webhook') {
+                return unless $self->require_feature($c, 'webhook_alerts');
+            }
         }
 
         $self->storage->update_alert($id, %$body);
@@ -107,6 +128,16 @@ sub test_notification {
 
     $self->safe_execute($c, sub {
         my $type = $c->param('type') // 'telegram';
+
+        # Enforce alert type feature gating on test
+        if ($type eq 'telegram') {
+            return unless $self->require_feature($c, 'telegram_alerts');
+        } elsif ($type eq 'slack') {
+            return unless $self->require_feature($c, 'slack_alerts');
+        } elsif ($type eq 'webhook') {
+            return unless $self->require_feature($c, 'webhook_alerts');
+        }
+
         my $notifiers = $self->notifiers;
 
         unless ($notifiers->{$type}) {

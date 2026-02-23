@@ -26,9 +26,9 @@
     searchLogs,
   } from './stores/logs.js';
   import { refreshInterval, defaultTimeRange } from './stores/settings.js';
-  import { fetchLicense, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining } from './stores/license.js';
+  import { fetchLicense, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining, licenseFeatures } from './stores/license.js';
   import { currentUser, checkAuth, logout, passwordChangeRequired } from './stores/auth.js';
-  import { success as toastSuccess } from './stores/toast.js';
+  import { success as toastSuccess, warning as toastWarning } from './stores/toast.js';
   import { fetchClusters, clusters } from './stores/cluster.js';
   import { initAI } from './stores/ai.js';
 
@@ -41,6 +41,8 @@
   let unsubscribeRefresh = null;
   let unsubscribeDefaultRange = null;
   let appReady = false;
+
+  $: hasDashboards = ($licenseFeatures || []).includes('dashboards');
 
   // Mobile responsive state
   let mobileMenuOpen = false;
@@ -168,11 +170,21 @@
   function handleHashChange() {
     const hash = window.location.hash.slice(1) || 'logs';
     if (['logs', 'analytics', 'dashboards', 'settings'].includes(hash)) {
+      if (hash === 'dashboards' && !hasDashboards) {
+        currentPage = 'logs';
+        window.location.hash = 'logs';
+        toastWarning('Custom Dashboards requires a Pro or Enterprise license');
+        return;
+      }
       currentPage = hash;
     }
   }
 
   function navigate(page) {
+    if (page === 'dashboards' && !hasDashboards) {
+      toastWarning('Custom Dashboards requires a Pro or Enterprise license');
+      return;
+    }
     currentPage = page;
     window.location.hash = page;
     mobileMenuOpen = false;
@@ -385,22 +397,40 @@
       </button>
       <button
         class:active={currentPage === 'dashboards'}
+        class:locked={!hasDashboards}
         on:click={() => navigate('dashboards')}
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <rect x="3" y="3" width="7" height="7" rx="1" />
-          <rect x="14" y="3" width="7" height="7" rx="1" />
-          <rect x="3" y="14" width="7" height="7" rx="1" />
-          <rect x="14" y="14" width="7" height="7" rx="1" />
-        </svg>
+        {#if hasDashboards}
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" />
+            <rect x="14" y="14" width="7" height="7" rx="1" />
+          </svg>
+        {:else}
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        {/if}
         Dashboards
+        {#if !hasDashboards}
+          <span class="pro-badge">Pro</span>
+        {/if}
       </button>
       <button
         class:active={currentPage === 'settings'}
@@ -777,6 +807,24 @@
 
   .nav-tabs button.active svg {
     opacity: 1;
+  }
+
+  .nav-tabs button.locked {
+    opacity: 0.5;
+  }
+
+  .nav-tabs button.locked:hover {
+    opacity: 0.7;
+  }
+
+  .pro-badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: #388bfd26;
+    color: #58a6ff;
+    font-weight: 600;
+    line-height: 1.4;
   }
 
   .header-actions {
