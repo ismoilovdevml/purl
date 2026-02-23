@@ -16,7 +16,7 @@ export async function checkAuth() {
         if (data.must_change_password) {
           passwordChangeRequired.set(true);
         }
-        currentUser.set({ username: data.username });
+        currentUser.set({ username: data.username, role: data.role || 'admin' });
       } else {
         currentUser.set(null);
       }
@@ -43,7 +43,7 @@ export async function login(username, password) {
   if (data.password_change_required) {
     passwordChangeRequired.set(true);
   }
-  currentUser.set({ username: data.username });
+  currentUser.set({ username: data.username, role: data.role || 'admin' });
   return data;
 }
 

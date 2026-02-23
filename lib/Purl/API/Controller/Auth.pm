@@ -142,13 +142,15 @@ sub login {
             return;
         }
 
-        my $stored = $users->{$username};
+        my $entry = $users->{$username};
+        my $stored = ref $entry eq 'HASH' ? $entry->{password} : $entry;
+        my $user_role = ref $entry eq 'HASH' ? ($entry->{role} // 'viewer') : 'admin';
         my $valid = 0;
 
         my $new_hash;
-        if ($self->auth_middleware && ($stored =~ /^\$2[aby]\$/ || $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/)) {
+        if ($self->auth_middleware && $stored && ($stored =~ /^\$2[aby]\$/ || $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/)) {
             ($valid, $new_hash) = $self->auth_middleware->verify_password($password, $stored);
-        } else {
+        } elsif ($stored) {
             $valid = ($stored eq $password);
             # Migrate plaintext to bcrypt
             if ($valid && $self->auth_middleware) {
@@ -165,7 +167,7 @@ sub login {
         # Migrate legacy hash to bcrypt on successful login
         if ($new_hash && $self->settings) {
             my $section = $self->settings->get_section('auth') // {};
-            $section->{users}{$username} = $new_hash;
+            $section->{users}{$username} = { password => $new_hash, role => $user_role };
             $self->settings->set_section('auth', $section);
             $c->app->log->info("Password hash migrated to bcrypt for user: $username");
         }
@@ -185,6 +187,7 @@ sub login {
         $c->session->{username}    = $username;
         $c->session->{logged_in}   = 1;
         $c->session->{auth_method} = 'local';
+        $c->session->{role}        = $user_role;
         $c->session(expiration => 86400);  # 24 hours
 
         $c->audit_event(action => 'login', status => 'success');
@@ -192,6 +195,7 @@ sub login {
             authenticated => 1,
             username      => $username,
             auth_method   => 'local',
+            role          => $user_role,
         };
         $response->{password_change_required} = \1 if $password_change_required;
         $c->render(json => $response);
@@ -220,6 +224,7 @@ sub me {
                 authenticated => 1,
                 username      => $username,
                 auth_method   => $c->session->{auth_method} // 'local',
+                role          => $c->session->{role} // 'admin',
                 ldap_groups   => $c->session->{ldap_groups} // [],
                 saml_groups   => $c->session->{saml_groups} // [],
             };
@@ -274,7 +279,9 @@ sub change_password {
             return;
         }
 
-        my $stored = $users->{$username};
+        my $entry = $users->{$username};
+        my $stored = ref $entry eq 'HASH' ? $entry->{password} : $entry;
+        my $role = ref $entry eq 'HASH' ? ($entry->{role} // 'viewer') : 'admin';
         my ($valid) = $self->auth_middleware->verify_password($current_password, $stored);
 
         unless ($valid) {
@@ -286,7 +293,7 @@ sub change_password {
         # Hash and store new password
         my $new_hash = $self->auth_middleware->hash_password($new_password);
         my $section = $self->settings->get_section('auth') // {};
-        $section->{users}{$username} = $new_hash;
+        $section->{users}{$username} = { password => $new_hash, role => $role };
         $self->settings->set_section('auth', $section);
 
         # Clear the forced password change flag

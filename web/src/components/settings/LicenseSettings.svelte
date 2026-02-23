@@ -29,7 +29,6 @@
     slack_alerts: 'Slack Alerts',
     webhook_alerts: 'Webhook Alerts',
     saved_searches_unlimited: 'Saved Searches',
-    self_hosted: 'Self-Hosted',
     sso: 'SSO',
     audit_logs: 'Audit Logs',
     priority_support: 'Priority Support',

@@ -366,10 +366,11 @@ sub _check_basic_auth {
     my $users = $auth_config->{users} // {};
     return 0 unless exists $users->{$user};
 
-    my $stored = $users->{$user};
+    my $entry = $users->{$user};
+    my $stored = ref $entry eq 'HASH' ? $entry->{password} : $entry;
 
     # Bcrypt or legacy SHA256 hash
-    if ($stored =~ /^\$2[aby]\$/ || $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/) {
+    if ($stored && ($stored =~ /^\$2[aby]\$/ || $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/)) {
         my ($valid, $new_hash) = $self->verify_password($pass, $stored);
         # Auto-migrate hash if needed (basic auth won't save, but login will)
         return $valid;

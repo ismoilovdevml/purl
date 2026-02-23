@@ -501,7 +501,11 @@ sub list_users {
         my $auth_config = $self->settings->get_section('auth') // {};
         my $users = $auth_config->{users} // {};
 
-        my @user_list = map { { username => $_ } } sort keys %$users;
+        my @user_list = map {
+            my $entry = $users->{$_};
+            my $role = ref $entry eq 'HASH' ? ($entry->{role} // 'viewer') : 'admin';
+            { username => $_, role => $role }
+        } sort keys %$users;
 
         $c->render(json => { users => \@user_list });
     });
@@ -525,9 +529,14 @@ sub create_user {
             return;
         }
 
-        unless (length($password) >= 6) {
-            $self->render_error($c, 'Password must be at least 6 characters', 400);
+        unless (length($password) >= 8) {
+            $self->render_error($c, 'Password must be at least 8 characters', 400);
             return;
+        }
+
+        my $role = $body->{role} // 'viewer';
+        unless ($role =~ /^(viewer|operator|admin)$/) {
+            $role = 'viewer';
         }
 
         my $auth_config = $self->settings->get_section('auth') // {};
@@ -548,7 +557,11 @@ sub create_user {
 
         # Hash password
         my $hashed = $self->auth_middleware->hash_password($password);
-        $users->{$username} = $hashed;
+        unless ($hashed) {
+            $self->render_error($c, 'Failed to hash password', 500);
+            return;
+        }
+        $users->{$username} = { password => $hashed, role => $role };
         $auth_config->{users} = $users;
 
         if ($self->settings->set_section('auth', $auth_config)) {
@@ -566,13 +579,8 @@ sub update_user {
         my $username = $c->param('username');
         my $body = eval { decode_json($c->req->body) };
 
-        unless ($body && $body->{password}) {
-            $self->render_error($c, 'New password required', 400);
-            return;
-        }
-
-        unless (length($body->{password}) >= 6) {
-            $self->render_error($c, 'Password must be at least 6 characters', 400);
+        unless ($body && ($body->{password} || $body->{role})) {
+            $self->render_error($c, 'Password or role required', 400);
             return;
         }
 
@@ -584,11 +592,33 @@ sub update_user {
             return;
         }
 
-        $users->{$username} = $self->auth_middleware->hash_password($body->{password});
+        my $entry = $users->{$username};
+        my $current_hash = ref $entry eq 'HASH' ? $entry->{password} : $entry;
+        my $current_role = ref $entry eq 'HASH' ? ($entry->{role} // 'viewer') : 'admin';
+
+        my $new_hash = $current_hash;
+        if ($body->{password} && length($body->{password}) > 0) {
+            unless (length($body->{password}) >= 8) {
+                $self->render_error($c, 'Password must be at least 8 characters', 400);
+                return;
+            }
+            $new_hash = $self->auth_middleware->hash_password($body->{password});
+            unless ($new_hash) {
+                $self->render_error($c, 'Failed to hash password', 500);
+                return;
+            }
+        }
+
+        my $new_role = $body->{role} // $current_role;
+        unless ($new_role =~ /^(viewer|operator|admin)$/) {
+            $new_role = $current_role;
+        }
+
+        $users->{$username} = { password => $new_hash, role => $new_role };
         $auth_config->{users} = $users;
 
         if ($self->settings->set_section('auth', $auth_config)) {
-            $c->render(json => { status => 'ok', message => 'Password updated' });
+            $c->render(json => { status => 'ok', message => 'User updated' });
         } else {
             $self->render_error($c, 'Failed to update user', 500);
         }
