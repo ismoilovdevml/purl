@@ -307,17 +307,22 @@ sub setup_routes {
     app->sessions->secure($secure_cookies);
     app->log->info("Session cookies: secure=$secure_cookies, samesite=Strict");
 
-    # Create default admin for Pro/Enterprise if no users exist
+    # Create default admin if no users exist
     my $info = $license_middleware->get_license_info();
-    if ($info && $info->{plan} ne 'free') {
+    {
         my $auth_section = $settings->get_section('auth') // {};
         my $users = $auth_section->{users} // {};
         if (!keys %$users) {
-            my $default_hash = $auth_middleware->hash_password('admin');
+            my $admin_pass = $ENV{PURL_ADMIN_PASSWORD} // 'admin';
+            my $default_hash = $auth_middleware->hash_password($admin_pass);
             $auth_section->{users} = { admin => $default_hash };
             $auth_section->{enabled} = 1;
             $settings->set_section('auth', $auth_section);
-            app->log->warn("Default admin user created (admin/admin). CHANGE PASSWORD IMMEDIATELY!");
+            if ($ENV{PURL_ADMIN_PASSWORD}) {
+                app->log->info("Admin user created with password from PURL_ADMIN_PASSWORD env var");
+            } else {
+                app->log->warn("Default admin user created (admin/admin). CHANGE PASSWORD IMMEDIATELY!");
+            }
         }
     }
 

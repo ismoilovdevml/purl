@@ -23,8 +23,10 @@ services:
       - PURL_SLACK_CHANNEL=${PURL_SLACK_CHANNEL:-}
       - PURL_ALERT_WEBHOOK_URL=${PURL_ALERT_WEBHOOK_URL:-}
       - PURL_ALERT_WEBHOOK_TOKEN=${PURL_ALERT_WEBHOOK_TOKEN:-}
+      - PURL_SESSION_SECRET=${PURL_SESSION_SECRET:-}
+      - PURL_ADMIN_PASSWORD=${PURL_ADMIN_PASSWORD:-}
     volumes:
-      - ./config:/app/config:ro
+      - ./config:/app/config
       - purl_backups:/app/backups
     depends_on:
       clickhouse:
