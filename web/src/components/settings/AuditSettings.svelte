@@ -1,0 +1,745 @@
+<!--
+  AuditSettings Component
+  View and filter audit log events with statistics
+
+  Usage:
+  <AuditSettings />
+-->
+<script>
+  import { onMount } from 'svelte';
+  import Card from '../ui/Card.svelte';
+  import Button from '../ui/Button.svelte';
+  import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+
+  const API_BASE = '/api';
+
+  // Log list state
+  let logs = [];
+  let loading = true;
+  let error = '';
+
+  // Stats state
+  let stats = [];
+  let loadingStats = true;
+
+  // Filters
+  let filterActor = '';
+  let filterAction = '';
+  let filterResourceType = '';
+  let filterFrom = '';
+  let filterTo = '';
+
+  // Pagination
+  let limit = 50;
+  let offset = 0;
+  let hasMore = false;
+
+  onMount(() => {
+    fetchStats();
+    fetchLogs();
+  });
+
+  async function fetchStats() {
+    loadingStats = true;
+    try {
+      const res = await fetch(`${API_BASE}/audit/stats`);
+      if (res.ok) {
+        const data = await res.json();
+        stats = data.stats || [];
+      }
+    } catch {
+      // stats are optional, don't block
+    }
+    loadingStats = false;
+  }
+
+  async function fetchLogs() {
+    loading = true;
+    error = '';
+    try {
+      const params = new URLSearchParams();
+      params.set('limit', limit + 1); // fetch 1 extra to detect "has more"
+      params.set('offset', offset);
+      if (filterActor.trim()) params.set('actor', filterActor.trim());
+      if (filterAction) params.set('action', filterAction);
+      if (filterResourceType) params.set('resource_type', filterResourceType);
+      if (filterFrom) {
+        params.set('from', Math.floor(new Date(filterFrom).getTime() / 1000));
+      }
+      if (filterTo) {
+        params.set('to', Math.floor(new Date(filterTo).getTime() / 1000));
+      }
+
+      const res = await fetch(`${API_BASE}/audit?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        const fetched = data.logs || [];
+        hasMore = fetched.length > limit;
+        logs = fetched.slice(0, limit);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        error = data.error || 'Failed to load audit logs';
+      }
+    } catch {
+      error = 'Failed to load audit logs';
+    }
+    loading = false;
+  }
+
+  function applyFilters() {
+    offset = 0;
+    fetchLogs();
+  }
+
+  function clearFilters() {
+    filterActor = '';
+    filterAction = '';
+    filterResourceType = '';
+    filterFrom = '';
+    filterTo = '';
+    offset = 0;
+    fetchLogs();
+  }
+
+  function nextPage() {
+    offset += limit;
+    fetchLogs();
+  }
+
+  function prevPage() {
+    offset = Math.max(0, offset - limit);
+    fetchLogs();
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return '—';
+    try {
+      const d = new Date(dateStr);
+      const now = new Date();
+      const diffMs = now - d;
+      const diffMin = Math.floor(diffMs / 60000);
+      const diffHr = Math.floor(diffMs / 3600000);
+
+      if (diffMin < 1) return 'Just now';
+      if (diffMin < 60) return `${diffMin}m ago`;
+      if (diffHr < 24) return `${diffHr}h ago`;
+
+      return d.toLocaleString('en-US', {
+        month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+        hour12: false
+      });
+    } catch {
+      return dateStr;
+    }
+  }
+
+  function formatFullDate(dateStr) {
+    if (!dateStr) return '';
+    try {
+      return new Date(dateStr).toLocaleString('en-US', {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+      });
+    } catch {
+      return dateStr;
+    }
+  }
+
+  function actionColor(action) {
+    if (!action) return '';
+    if (action.startsWith('delete') || action === 'revoke') return 'action-danger';
+    if (action.startsWith('create') || action === 'login') return 'action-success';
+    if (action.startsWith('update') || action === 'change_password') return 'action-warning';
+    return '';
+  }
+
+  function statusIcon(status) {
+    return status === 'success' ? 'success' : 'failure';
+  }
+
+  // Compute total events from stats
+  $: totalEvents24h = stats.reduce((sum, s) => sum + (s.count || 0), 0);
+  $: uniqueActions = [...new Set(stats.map(s => s.action))];
+  $: failureCount = stats.filter(s => s.status === 'failure').reduce((sum, s) => sum + (s.count || 0), 0);
+
+  // Known actions for filter dropdown
+  const knownActions = [
+    'login', 'logout', 'login_failed',
+    'create_user', 'update_user', 'delete_user', 'change_password',
+    'create_alert', 'update_alert', 'delete_alert',
+    'update_settings', 'update_license',
+    'generate_api_key', 'revoke_api_key',
+    'create_backup', 'restore_backup', 'delete_backup',
+  ];
+
+  const knownResourceTypes = [
+    'user', 'alert', 'settings', 'license', 'api_key', 'backup', 'session',
+  ];
+</script>
+
+<section class="settings-section">
+  <div class="section-header">
+    <h3>Audit Logs</h3>
+    <p>Track security events and user activity</p>
+  </div>
+
+  <!-- 24h Stats Overview -->
+  <div class="stats-row">
+    {#if loadingStats}
+      <Card padding="md">
+        <LoadingSpinner size="sm" label="Loading stats..." />
+      </Card>
+    {:else}
+      <div class="stat-card">
+        <span class="stat-value">{totalEvents24h}</span>
+        <span class="stat-label">Events (24h)</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-value">{uniqueActions.length}</span>
+        <span class="stat-label">Action Types</span>
+      </div>
+      <div class="stat-card" class:stat-danger={failureCount > 0}>
+        <span class="stat-value">{failureCount}</span>
+        <span class="stat-label">Failures (24h)</span>
+      </div>
+
+      {#if stats.length > 0}
+        <div class="stat-card stat-breakdown">
+          <span class="stat-label">Top Actions</span>
+          <div class="breakdown-list">
+            {#each stats.slice(0, 5) as entry}
+              <div class="breakdown-item">
+                <span class="breakdown-action {actionColor(entry.action)}">{entry.action}</span>
+                <span class="breakdown-count">{entry.count}</span>
+                <span class="breakdown-status status-{entry.status}">{entry.status === 'success' ? '✓' : '✗'}</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
+    {/if}
+  </div>
+
+  <!-- Filters -->
+  <Card padding="none">
+    <div class="group-header">
+      <span class="group-title">Filters</span>
+      <div class="filter-actions">
+        <Button variant="primary" size="sm" on:click={applyFilters}>Search</Button>
+        <Button variant="ghost" size="sm" on:click={clearFilters}>Clear</Button>
+      </div>
+    </div>
+    <div class="filters-form">
+      <div class="filter-row">
+        <div class="filter-field">
+          <label class="filter-label" for="audit-actor">Actor</label>
+          <input
+            id="audit-actor"
+            type="text"
+            class="filter-input"
+            bind:value={filterActor}
+            placeholder="Username..."
+            on:keydown={(e) => e.key === 'Enter' && applyFilters()}
+          />
+        </div>
+        <div class="filter-field">
+          <label class="filter-label" for="audit-action">Action</label>
+          <select id="audit-action" class="filter-select" bind:value={filterAction}>
+            <option value="">All actions</option>
+            {#each knownActions as action}
+              <option value={action}>{action}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="filter-field">
+          <label class="filter-label" for="audit-resource">Resource Type</label>
+          <select id="audit-resource" class="filter-select" bind:value={filterResourceType}>
+            <option value="">All resources</option>
+            {#each knownResourceTypes as rt}
+              <option value={rt}>{rt}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+      <div class="filter-row">
+        <div class="filter-field">
+          <label class="filter-label" for="audit-from">From</label>
+          <input
+            id="audit-from"
+            type="datetime-local"
+            class="filter-input"
+            bind:value={filterFrom}
+          />
+        </div>
+        <div class="filter-field">
+          <label class="filter-label" for="audit-to">To</label>
+          <input
+            id="audit-to"
+            type="datetime-local"
+            class="filter-input"
+            bind:value={filterTo}
+          />
+        </div>
+      </div>
+    </div>
+  </Card>
+
+  <!-- Log Table -->
+  <Card padding="none">
+    <div class="group-header">
+      <span class="group-title">
+        Events
+        {#if !loading}
+          <span class="event-count">
+            ({offset + 1}–{offset + logs.length}{hasMore ? '+' : ''})
+          </span>
+        {/if}
+      </span>
+      <Button variant="ghost" size="sm" on:click={() => { fetchLogs(); fetchStats(); }}>Refresh</Button>
+    </div>
+
+    {#if error}
+      <div class="error-box">{error}</div>
+    {/if}
+
+    {#if loading}
+      <div class="empty-state">
+        <LoadingSpinner size="sm" label="Loading audit logs..." />
+      </div>
+    {:else if logs.length === 0}
+      <div class="empty-state">No audit events found.</div>
+    {:else}
+      <div class="log-table">
+        <div class="table-header">
+          <span class="col-time">Time</span>
+          <span class="col-actor">Actor</span>
+          <span class="col-action">Action</span>
+          <span class="col-resource">Resource</span>
+          <span class="col-status">Status</span>
+          <span class="col-ip">IP Address</span>
+        </div>
+        <div class="table-body">
+          {#each logs as log}
+            <div class="log-row">
+              <span class="col-time" title={formatFullDate(log.timestamp)}>
+                {formatDate(log.timestamp)}
+              </span>
+              <span class="col-actor">
+                <span class="actor-name">{log.actor || '—'}</span>
+              </span>
+              <span class="col-action">
+                <span class="action-badge {actionColor(log.action)}">
+                  {log.action || '—'}
+                </span>
+              </span>
+              <span class="col-resource">
+                {#if log.resource_type}
+                  <span class="resource-type">{log.resource_type}</span>
+                  {#if log.resource_id}
+                    <span class="resource-id">{log.resource_id}</span>
+                  {/if}
+                {:else}
+                  <span class="text-muted">—</span>
+                {/if}
+              </span>
+              <span class="col-status">
+                <span class="status-dot status-{statusIcon(log.status)}"></span>
+                {log.status || '—'}
+              </span>
+              <span class="col-ip">
+                <span class="ip-text">{log.ip_address || '—'}</span>
+              </span>
+            </div>
+            {#if log.details}
+              <div class="log-details">
+                <span class="details-text">{log.details}</span>
+              </div>
+            {/if}
+          {/each}
+        </div>
+      </div>
+
+      <!-- Pagination -->
+      <div class="pagination">
+        <Button variant="ghost" size="sm" disabled={offset === 0} on:click={prevPage}>
+          ← Previous
+        </Button>
+        <span class="page-info">
+          Page {Math.floor(offset / limit) + 1}
+        </span>
+        <Button variant="ghost" size="sm" disabled={!hasMore} on:click={nextPage}>
+          Next →
+        </Button>
+      </div>
+    {/if}
+  </Card>
+</section>
+
+<style>
+  .settings-section {
+    max-width: 1000px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .section-header {
+    margin-bottom: 0;
+  }
+
+  .section-header h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary, #f0f6fc);
+    margin: 0 0 4px;
+  }
+
+  .section-header p {
+    font-size: 0.875rem;
+    color: var(--text-secondary, #8b949e);
+    margin: 0;
+  }
+
+  /* Stats row */
+  .stats-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .stat-card {
+    background: var(--bg-secondary, #161b22);
+    border: 1px solid var(--border-color, #21262d);
+    border-radius: 8px;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 120px;
+  }
+
+  .stat-card.stat-danger .stat-value {
+    color: #f85149;
+  }
+
+  .stat-card.stat-breakdown {
+    flex: 1;
+    min-width: 220px;
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-primary, #f0f6fc);
+    line-height: 1;
+  }
+
+  .stat-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary, #8b949e);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .breakdown-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+  }
+
+  .breakdown-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.75rem;
+  }
+
+  .breakdown-action {
+    flex: 1;
+    color: var(--text-secondary, #8b949e);
+  }
+
+  .breakdown-count {
+    font-weight: 600;
+    color: var(--text-primary, #c9d1d9);
+    min-width: 28px;
+    text-align: right;
+  }
+
+  .breakdown-status {
+    font-size: 0.7rem;
+  }
+
+  .status-success {
+    color: #3fb950;
+  }
+
+  .status-failure {
+    color: #f85149;
+  }
+
+  /* Group header */
+  .group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color, #21262d);
+  }
+
+  .group-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary, #8b949e);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .event-count {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .filter-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  /* Filters */
+  .filters-form {
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .filter-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 160px;
+  }
+
+  .filter-label {
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--text-muted, #6e7681);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .filter-input,
+  .filter-select {
+    background: var(--bg-tertiary, #161b22);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 6px;
+    color: var(--text-primary, #c9d1d9);
+    padding: 6px 10px;
+    font-size: 0.8125rem;
+    transition: border-color 0.15s;
+  }
+
+  .filter-input:focus,
+  .filter-select:focus {
+    outline: none;
+    border-color: var(--color-primary, #58a6ff);
+    box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
+  }
+
+  .filter-select {
+    cursor: pointer;
+  }
+
+  /* Error */
+  .error-box {
+    padding: 10px 16px;
+    background: rgba(248, 81, 73, 0.1);
+    color: #f85149;
+    font-size: 0.8125rem;
+    border-bottom: 1px solid rgba(248, 81, 73, 0.2);
+  }
+
+  /* Table */
+  .log-table {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .table-header {
+    display: grid;
+    grid-template-columns: 100px 100px 140px 1fr 80px 120px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-color, #30363d);
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted, #6e7681);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .table-body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .log-row {
+    display: grid;
+    grid-template-columns: 100px 100px 140px 1fr 80px 120px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-color, #21262d);
+    font-size: 0.8125rem;
+    align-items: center;
+    transition: background 0.1s;
+  }
+
+  .log-row:hover {
+    background: var(--bg-tertiary, #161b22);
+  }
+
+  .log-row:last-child {
+    border-bottom: none;
+  }
+
+  .col-time {
+    color: var(--text-secondary, #8b949e);
+    font-size: 0.75rem;
+    cursor: default;
+  }
+
+  .actor-name {
+    color: var(--text-primary, #c9d1d9);
+    font-weight: 500;
+  }
+
+  .action-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    background: rgba(110, 118, 129, 0.15);
+    color: var(--text-secondary, #8b949e);
+  }
+
+  .action-success {
+    background: rgba(63, 185, 80, 0.15);
+    color: #3fb950;
+  }
+
+  .action-danger {
+    background: rgba(248, 81, 73, 0.15);
+    color: #f85149;
+  }
+
+  .action-warning {
+    background: rgba(210, 153, 34, 0.15);
+    color: #d29922;
+  }
+
+  .col-resource {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .resource-type {
+    font-size: 0.7rem;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(56, 139, 253, 0.1);
+    color: #58a6ff;
+    white-space: nowrap;
+  }
+
+  .resource-id {
+    font-size: 0.75rem;
+    color: var(--text-secondary, #8b949e);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .col-status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.75rem;
+    color: var(--text-secondary, #8b949e);
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .status-dot.status-success {
+    background: #3fb950;
+  }
+
+  .status-dot.status-failure {
+    background: #f85149;
+  }
+
+  .ip-text {
+    font-size: 0.75rem;
+    color: var(--text-muted, #6e7681);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .text-muted {
+    color: var(--text-muted, #6e7681);
+  }
+
+  .log-details {
+    padding: 4px 16px 8px 116px;
+    border-bottom: 1px solid var(--border-color, #21262d);
+  }
+
+  .details-text {
+    font-size: 0.75rem;
+    color: var(--text-muted, #6e7681);
+    font-style: italic;
+  }
+
+  /* Pagination */
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color, #21262d);
+  }
+
+  .page-info {
+    font-size: 0.8125rem;
+    color: var(--text-secondary, #8b949e);
+  }
+
+  .empty-state {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--text-secondary, #8b949e);
+    font-size: 0.875rem;
+  }
+</style>
