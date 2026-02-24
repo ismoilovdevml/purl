@@ -68,11 +68,13 @@
   // Sync the logs store error into local errorState (auto-set retry to searchLogs)
   $: if ($error) {
     setError($error, searchLogs, 'error');
-  } else if (!$error && errorState.retryFn === searchLogs) {
+  } else if (!$error && errorState.message && errorState.retryFn === searchLogs) {
     clearError();
   }
 
   function setError(message, retryFn = null, severity = 'error') {
+    // Avoid reactive loop: skip if same error already displayed
+    if (errorState.message === message && errorState.severity === severity) return;
     if (errorDismissTimer) clearTimeout(errorDismissTimer);
     errorState = { message, retryFn, severity };
     // Auto-dismiss after 10 seconds
@@ -252,8 +254,15 @@
 
   // Handle selection changes from LogTable (receives IDs, resolve to full log objects)
   function handleSelectionChange(event) {
-    const selectedIds = event.detail?.selected || [];
-    const idSet = new Set(selectedIds);
+    const ids = event.detail?.selected || [];
+    // Short-circuit empty selection to avoid reading $logs inside
+    // a reactive tracking scope (dispatch from child reactive block)
+    if (ids.length === 0) {
+      if (selectedLogs.length === 0) return;
+      selectedLogs = [];
+      return;
+    }
+    const idSet = new Set(ids);
     selectedLogs = $logs.filter(l => idSet.has(l.id));
   }
 

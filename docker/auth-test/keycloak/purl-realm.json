@@ -1,0 +1,171 @@
+{
+  "realm": "purl",
+  "enabled": true,
+  "displayName": "Purl Test Realm",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": false,
+  "roles": {
+    "realm": [
+      {
+        "name": "purl-admin",
+        "description": "Purl administrator role"
+      },
+      {
+        "name": "purl-developer",
+        "description": "Purl developer role"
+      },
+      {
+        "name": "purl-viewer",
+        "description": "Purl read-only role"
+      }
+    ]
+  },
+  "groups": [
+    {
+      "name": "admins",
+      "realmRoles": ["purl-admin"]
+    },
+    {
+      "name": "developers",
+      "realmRoles": ["purl-developer"]
+    },
+    {
+      "name": "viewers",
+      "realmRoles": ["purl-viewer"]
+    }
+  ],
+  "users": [
+    {
+      "username": "john.doe",
+      "email": "john.doe@purl.test",
+      "firstName": "John",
+      "lastName": "Doe",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password123",
+          "temporary": false
+        }
+      ],
+      "groups": ["admins", "developers"]
+    },
+    {
+      "username": "jane.smith",
+      "email": "jane.smith@purl.test",
+      "firstName": "Jane",
+      "lastName": "Smith",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password123",
+          "temporary": false
+        }
+      ],
+      "groups": ["developers"]
+    },
+    {
+      "username": "bob.wilson",
+      "email": "bob.wilson@purl.test",
+      "firstName": "Bob",
+      "lastName": "Wilson",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password123",
+          "temporary": false
+        }
+      ],
+      "groups": ["viewers"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "purl-saml",
+      "name": "Purl Log Dashboard",
+      "description": "Purl SAML Service Provider",
+      "enabled": true,
+      "protocol": "saml",
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml.assertion.signature": "true",
+        "saml.server.signature": "true",
+        "saml.signature.algorithm": "RSA_SHA256",
+        "saml.client.signature": "false",
+        "saml_force_name_id_format": "true",
+        "saml_name_id_format": "email",
+        "saml.authnstatement": "true",
+        "saml_single_logout_service_url_redirect": "",
+        "saml.allow.ecp.flow": "false",
+        "saml.encrypt": "false"
+      },
+      "redirectUris": [
+        "http://172.17.4.16:3000/*",
+        "http://localhost:3000/*"
+      ],
+      "adminUrl": "http://172.17.4.16:3000/api/auth/saml/acs",
+      "baseUrl": "http://172.17.4.16:3000",
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-idp-mapper",
+          "consentRequired": false,
+          "config": {
+            "attribute.nameformat": "urn:oasis:names:tc:SAML:2.0:attrname-format:uri",
+            "user.attribute": "email",
+            "friendly.name": "email",
+            "attribute.name": "email"
+          }
+        },
+        {
+          "name": "firstName",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-idp-mapper",
+          "consentRequired": false,
+          "config": {
+            "attribute.nameformat": "urn:oasis:names:tc:SAML:2.0:attrname-format:uri",
+            "user.attribute": "firstName",
+            "friendly.name": "givenName",
+            "attribute.name": "firstName"
+          }
+        },
+        {
+          "name": "lastName",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-idp-mapper",
+          "consentRequired": false,
+          "config": {
+            "attribute.nameformat": "urn:oasis:names:tc:SAML:2.0:attrname-format:uri",
+            "user.attribute": "lastName",
+            "friendly.name": "surname",
+            "attribute.name": "lastName"
+          }
+        },
+        {
+          "name": "groups",
+          "protocol": "saml",
+          "protocolMapper": "saml-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "attribute.nameformat": "urn:oasis:names:tc:SAML:2.0:attrname-format:basic",
+            "single.group.attribute": "true",
+            "friendly.name": "groups",
+            "attribute.name": "groups",
+            "full.path": "false"
+          }
+        }
+      ]
+    }
+  ]
+}

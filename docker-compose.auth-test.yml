@@ -1,0 +1,107 @@
+# Auth Test Environment — OpenLDAP + KeyCloak
+# Usage: docker compose -f docker-compose.auth-test.yml up -d
+#
+# Services:
+#   - OpenLDAP:      ldap://localhost:3389  (test LDAP/AD auth)
+#   - phpLDAPadmin:  https://localhost:6443  (LDAP browser)
+#   - KeyCloak:      http://localhost:8080  (SAML IdP)
+#
+# Test Users (LDAP):
+#   - john.doe / password123     (group: developers, admins)
+#   - jane.smith / password123   (group: developers)
+#   - bob.wilson / password123   (group: viewers)
+#
+# Test Users (KeyCloak):
+#   - admin / admin              (KeyCloak admin console)
+#   - john.doe / password123, jane.smith / password123, bob.wilson / password123
+
+services:
+  # ============================================================
+  # OpenLDAP — Test LDAP/AD Authentication
+  # ============================================================
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: purl-test-ldap
+    restart: unless-stopped
+    command: --copy-service
+    ports:
+      - "3389:389"      # LDAP
+      - "6636:636"      # LDAPS
+    environment:
+      LDAP_ORGANISATION: "Purl Test"
+      LDAP_DOMAIN: "purl.test"
+      LDAP_BASE_DN: "dc=purl,dc=test"
+      LDAP_ADMIN_PASSWORD: "admin_password"
+      LDAP_CONFIG_PASSWORD: "config_password"
+      LDAP_READONLY_USER: "true"
+      LDAP_READONLY_USER_USERNAME: "readonly"
+      LDAP_READONLY_USER_PASSWORD: "readonly_password"
+      LDAP_TLS: "false"
+      LDAP_TLS_VERIFY_CLIENT: "never"
+    volumes:
+      - ldap_data:/var/lib/ldap
+      - ldap_config:/etc/ldap/slapd.d
+      - ./docker/auth-test/ldap/bootstrap.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/50-bootstrap.ldif
+    networks:
+      - auth-test-network
+    healthcheck:
+      test: ["CMD", "ldapsearch", "-x", "-H", "ldap://localhost", "-b", "dc=purl,dc=test", "-D", "cn=admin,dc=purl,dc=test", "-w", "admin_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ============================================================
+  # phpLDAPadmin — Visual LDAP Browser
+  # ============================================================
+  phpldapadmin:
+    image: osixia/phpldapadmin:0.9.0
+    container_name: purl-test-ldapadmin
+    restart: unless-stopped
+    ports:
+      - "6443:443"
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: openldap
+      PHPLDAPADMIN_HTTPS: "true"
+    depends_on:
+      openldap:
+        condition: service_healthy
+    networks:
+      - auth-test-network
+
+  # ============================================================
+  # KeyCloak — SAML 2.0 Identity Provider
+  # ============================================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: purl-test-keycloak
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_PROXY_HEADERS: "xforwarded"
+    command: start-dev --import-realm
+    volumes:
+      - ./docker/auth-test/keycloak/purl-realm.json:/opt/keycloak/data/import/purl-realm.json:ro
+      - keycloak_data:/opt/keycloak/data
+    networks:
+      - auth-test-network
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q 'UP'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+networks:
+  auth-test-network:
+    driver: bridge
+
+volumes:
+  ldap_data:
+  ldap_config:
+  keycloak_data:
