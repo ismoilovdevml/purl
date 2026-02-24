@@ -110,8 +110,7 @@ sub check_limit {
 
 sub require_role {
     my ($self, $c, @allowed_roles) = @_;
-    my $username = $c->session('username');
-    my $role = $self->app->config->get_user_role($username);
+    my $role = $c->session('role') // 'viewer';
     return 1 if $role eq 'admin';
     return 1 if grep { $_ eq $role } @allowed_roles;
     $self->render_error($c, 'Insufficient permissions', 403);

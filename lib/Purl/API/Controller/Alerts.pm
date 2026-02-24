@@ -28,6 +28,8 @@ sub create {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin', 'operator');
+
         my $body = eval { decode_json($c->req->body) };
         unless ($body && $body->{name}) {
             $self->render_error($c, 'Name required', 400);
@@ -60,6 +62,8 @@ sub update {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin', 'operator');
+
         my $id = $c->param('id');
         my $body = eval { decode_json($c->req->body) };
 
@@ -88,6 +92,8 @@ sub remove {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $id = $c->param('id');
 
         unless ($id) {

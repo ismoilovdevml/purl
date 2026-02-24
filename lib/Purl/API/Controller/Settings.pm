@@ -116,6 +116,8 @@ sub update_clickhouse {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $body = eval { decode_json($c->req->body) };
         unless ($body) {
             $self->render_error($c, 'Invalid JSON', 400);
@@ -162,6 +164,8 @@ sub update_notifications {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $type = $c->param('type');
         my $body = eval { decode_json($c->req->body) };
 
@@ -212,6 +216,8 @@ sub test_notification {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $type = $c->param('type');
 
         unless ($type =~ /^(telegram|slack|webhook)$/) {
@@ -250,6 +256,8 @@ sub update_retention {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $body = eval { decode_json($c->req->body) };
         unless ($body && $body->{days}) {
             $self->render_error($c, 'days required', 400);
@@ -293,6 +301,8 @@ sub update_license {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $body = eval { decode_json($c->req->body) };
         unless ($body && defined $body->{key}) {
             $self->render_error($c, 'License key required', 400);
@@ -367,6 +377,8 @@ sub generate_api_key {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         if ($self->settings->is_from_env('auth', 'api_keys')) {
             $c->render(json => {
                 error    => 'Cannot modify - API keys configured via PURL_API_KEYS',
@@ -434,6 +446,8 @@ sub revoke_api_key {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         if ($self->settings->is_from_env('auth', 'api_keys')) {
             $c->render(json => {
                 error    => 'Cannot modify - API keys configured via PURL_API_KEYS',
@@ -517,6 +531,8 @@ sub create_user {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $body = eval { decode_json($c->req->body) };
         unless ($body && $body->{username} && $body->{password}) {
             $self->render_error($c, 'Username and password required', 400);
@@ -581,6 +597,8 @@ sub update_user {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $username = $c->param('username');
         my $body = eval { decode_json($c->req->body) };
 
@@ -637,6 +655,8 @@ sub delete_user {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $username = $c->param('username');
 
         $self->settings->_config->{auth} //= {};
@@ -705,6 +725,7 @@ sub update_ldap {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'ldap_auth');
+        return unless $self->require_role($c, 'admin');
 
         my $body = eval { decode_json($c->req->body) };
         unless ($body) {
@@ -764,6 +785,7 @@ sub test_ldap {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'ldap_auth');
+        return unless $self->require_role($c, 'admin');
 
         my $ldap_mw = $self->ldap_middleware;
         unless ($ldap_mw) {
@@ -880,6 +902,7 @@ sub test_sso {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'sso');
+        return unless $self->require_role($c, 'admin');
 
         my $saml_mw = $self->saml_middleware;
         unless ($saml_mw) {
@@ -946,6 +969,8 @@ sub update_ai {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $body = eval { decode_json($c->req->body) };
         unless ($body) {
             $self->render_error($c, 'Invalid JSON', 400);
@@ -985,6 +1010,8 @@ sub test_ai {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         require Purl::AI::Factory;
 
         my $provider_name = $self->settings->get('ai', 'provider') // 'openai';
@@ -1049,6 +1076,8 @@ sub update_redis {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $body = eval { decode_json($c->req->body) };
         unless ($body) {
             $self->render_error($c, 'Invalid JSON', 400);

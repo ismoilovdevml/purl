@@ -16,7 +16,7 @@ export async function checkAuth() {
         if (data.must_change_password) {
           passwordChangeRequired.set(true);
         }
-        currentUser.set({ username: data.username, role: data.role || 'admin' });
+        currentUser.set({ username: data.username, role: data.role || 'viewer' });
       } else {
         currentUser.set(null);
       }
@@ -43,7 +43,7 @@ export async function login(username, password) {
   if (data.password_change_required) {
     passwordChangeRequired.set(true);
   }
-  currentUser.set({ username: data.username, role: data.role || 'admin' });
+  currentUser.set({ username: data.username, role: data.role || 'viewer' });
   return data;
 }
 
@@ -66,4 +66,16 @@ export async function logout() {
 
 export function isAuthenticated() {
   return get(currentUser) !== null;
+}
+
+export function isAdmin() {
+  const user = get(currentUser);
+  return user?.role === 'admin';
+}
+
+export function hasRole(...roles) {
+  const user = get(currentUser);
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  return roles.includes(user.role);
 }

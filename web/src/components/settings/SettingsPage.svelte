@@ -24,26 +24,35 @@
   import SourcesSettings from './SourcesSettings.svelte';
   import IntegrationsSettings from './IntegrationsSettings.svelte';
   import { isPaidPlan, isEnterprise } from '../../stores/license.js';
+  import { currentUser } from '../../stores/auth.js';
 
   let activeSection = 'database';
 
+  $: userRole = $currentUser?.role || 'viewer';
+  $: isAdmin = userRole === 'admin';
+
+  // Non-admin users can't access admin-only sections; redirect to 'about'
+  $: if (!isAdmin && activeSection === 'database') {
+    activeSection = 'about';
+  }
+
   $: sections = [
-    { id: 'database', label: 'Database', icon: 'server' },
-    { id: 'notifications', label: 'Notifications', icon: 'bell' },
+    { id: 'database', label: 'Database', icon: 'server', locked: !isAdmin },
+    { id: 'notifications', label: 'Notifications', icon: 'bell', locked: !isAdmin },
     { id: 'display', label: 'Display', icon: 'monitor' },
-    { id: 'data', label: 'Data', icon: 'database' },
-    { id: 'backup', label: 'Backups', icon: 'backup' },
-    { id: 'api-keys', label: 'API Keys', icon: 'api-key', requiresPlan: 'pro', locked: !$isPaidPlan },
+    { id: 'data', label: 'Data', icon: 'database', locked: !isAdmin },
+    { id: 'backup', label: 'Backups', icon: 'backup', locked: !isAdmin },
+    { id: 'api-keys', label: 'API Keys', icon: 'api-key', requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
     { id: 'sources', label: 'Sources', icon: 'sources' },
     { id: 'audit', label: 'Audit Logs', icon: 'audit', requiresPlan: 'pro', locked: !$isPaidPlan },
-    { id: 'pipelines', label: 'Pipelines', icon: 'pipeline', requiresPlan: 'pro', locked: !$isPaidPlan },
-    { id: 'license', label: 'License', icon: 'key' },
-    { id: 'users', label: 'Users', icon: 'users', requiresPlan: 'pro', locked: !$isPaidPlan },
-    { id: 'ldap', label: 'LDAP / AD', icon: 'ldap', requiresPlan: 'enterprise', locked: !$isEnterprise },
-    { id: 'sso', label: 'SSO / SAML', icon: 'sso', requiresPlan: 'enterprise', locked: !$isEnterprise },
-    { id: 'ai', label: 'AI', icon: 'ai', requiresPlan: 'pro', locked: !$isPaidPlan },
+    { id: 'pipelines', label: 'Pipelines', icon: 'pipeline', requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
+    { id: 'license', label: 'License', icon: 'key', locked: !isAdmin },
+    { id: 'users', label: 'Users', icon: 'users', requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
+    { id: 'ldap', label: 'LDAP / AD', icon: 'ldap', requiresPlan: 'enterprise', locked: !$isEnterprise || !isAdmin },
+    { id: 'sso', label: 'SSO / SAML', icon: 'sso', requiresPlan: 'enterprise', locked: !$isEnterprise || !isAdmin },
+    { id: 'ai', label: 'AI', icon: 'ai', requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
     { id: 'integrations', label: 'Integrations', icon: 'integrations' },
-    { id: 'redis', label: 'Redis', icon: 'redis' },
+    { id: 'redis', label: 'Redis', icon: 'redis', locked: !isAdmin },
     { id: 'about', label: 'About', icon: 'info' },
   ];
 </script>
@@ -58,7 +67,11 @@
           class:active={activeSection === section.id}
           class:locked={section.locked}
           on:click={() => { if (!section.locked) activeSection = section.id; }}
-          title={section.locked ? `Requires ${section.requiresPlan === 'enterprise' ? 'Enterprise' : 'Pro'} plan` : ''}
+          title={section.locked
+            ? (section.requiresPlan && (section.requiresPlan === 'enterprise' ? !$isEnterprise : !$isPaidPlan)
+              ? `Requires ${section.requiresPlan === 'enterprise' ? 'Enterprise' : 'Pro'} plan`
+              : 'Admin access required')
+            : ''}
         >
           {#if section.icon === 'server'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

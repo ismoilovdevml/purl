@@ -112,6 +112,9 @@ sub login {
                 my $admin_group = $ldap_cfg->{admin_group} // 'admins';
                 if (grep { lc($_) eq lc($admin_group) } @ldap_groups) {
                     $c->session->{is_admin} = 1;
+                    $c->session->{role} = 'admin';
+                } else {
+                    $c->session->{role} = 'viewer';
                 }
 
                 $c->session(expiration => 86400);
@@ -121,6 +124,7 @@ sub login {
                     authenticated => 1,
                     username      => $username,
                     auth_method   => 'ldap',
+                    role          => $c->session->{role},
                 });
                 return;
             } else {
@@ -224,7 +228,7 @@ sub me {
                 authenticated => 1,
                 username      => $username,
                 auth_method   => $c->session->{auth_method} // 'local',
-                role          => $c->session->{role} // 'admin',
+                role          => $c->session->{role} // 'viewer',
                 ldap_groups   => $c->session->{ldap_groups} // [],
                 saml_groups   => $c->session->{saml_groups} // [],
             };
@@ -372,6 +376,9 @@ sub sso_callback {
         my $admin_group = $saml_mw_cfg->{admin_group} // 'admins';
         if (grep { lc($_) eq lc($admin_group) } @saml_groups) {
             $c->session->{is_admin} = 1;
+            $c->session->{role} = 'admin';
+        } else {
+            $c->session->{role} = 'viewer';
         }
 
         $c->session(expiration => 86400);

@@ -64,7 +64,11 @@ use Purl::API::Controller::Alerts;
         $self->{stash}{$key} = $val if defined $val;
         return $self->{stash}{$key};
     }
-    sub session { return {} }
+    sub session {
+        my ($self, $key) = @_;
+        my $s = { role => 'admin' };
+        return defined $key ? $s->{$key} : $s;
+    }
 
     package MockAlertStorage;
     sub new { bless { alerts => $_[1] // [] }, $_[0] }

@@ -13,6 +13,7 @@
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import ConfirmDialog from '../ui/ConfirmDialog.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
+  import { currentUser } from '../../stores/auth.js';
 
   const API_BASE = '/api';
 
@@ -20,6 +21,8 @@
   let loading = true;
   let error = '';
   let fromEnv = false;
+
+  $: isAdmin = $currentUser?.role === 'admin';
 
   // Create key form
   let showCreateForm = false;
@@ -192,11 +195,11 @@
           {keys.length} key{keys.length !== 1 ? 's' : ''}
           {#if fromEnv}<span class="env-badge">ENV</span>{/if}
         </span>
-        {#if !fromEnv}
+        {#if !fromEnv && isAdmin}
           <Button variant="primary" size="sm" on:click={() => { showCreateForm = !showCreateForm; }}>
             {showCreateForm ? 'Cancel' : 'Create Key'}
           </Button>
-        {:else}
+        {:else if fromEnv}
           <span class="env-note">Configured via PURL_API_KEYS</span>
         {/if}
       </div>
@@ -250,7 +253,7 @@
                 <span class="status-badge status-active">Active</span>
               </div>
               <div class="col-actions">
-                {#if !fromEnv}
+                {#if !fromEnv && isAdmin}
                   <Button variant="ghost" size="sm" on:click={() => confirmRevoke(key)}>
                     Revoke
                   </Button>

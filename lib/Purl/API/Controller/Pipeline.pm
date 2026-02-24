@@ -59,6 +59,7 @@ sub create {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'pipelines');
+        return unless $self->require_role($c, 'admin', 'operator');
 
         my $body = eval { decode_json($c->req->body) };
         unless ($body) {
@@ -95,6 +96,7 @@ sub update {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'pipelines');
+        return unless $self->require_role($c, 'admin', 'operator');
 
         my $id = $c->param('id');
         unless ($id && $id =~ /^[0-9a-f-]+$/i) {
@@ -123,6 +125,7 @@ sub remove {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'pipelines');
+        return unless $self->require_role($c, 'admin');
 
         my $id = $c->param('id');
         unless ($id && $id =~ /^[0-9a-f-]+$/i) {

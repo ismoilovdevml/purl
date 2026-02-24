@@ -30,6 +30,7 @@ sub create {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'backup');
+        return unless $self->require_role($c, 'admin');
 
         my $body = eval { decode_json($c->req->body) } // {};
         my $name = $body->{name};
@@ -52,6 +53,7 @@ sub restore {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'backup');
+        return unless $self->require_role($c, 'admin');
 
         my $body = eval { decode_json($c->req->body) } // {};
         my $id = $body->{id};
@@ -75,6 +77,7 @@ sub remove {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'backup');
+        return unless $self->require_role($c, 'admin');
 
         my $id = $c->param('id');
 
@@ -137,6 +140,7 @@ sub update_schedule {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'backup');
+        return unless $self->require_role($c, 'admin');
 
         if ($ENV{PURL_BACKUP_SCHEDULE_ENABLED}) {
             $self->render_error($c, 'Cannot modify - configured via environment variable', 400);
@@ -173,6 +177,7 @@ sub upload_to_s3 {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'backup');
+        return unless $self->require_role($c, 'admin');
 
         my $body = eval { decode_json($c->req->body) } // {};
         my $id = $body->{id};
@@ -232,6 +237,7 @@ sub update_s3_config {
 
     $self->safe_execute($c, sub {
         return unless $self->require_feature($c, 'backup');
+        return unless $self->require_role($c, 'admin');
 
         if ($ENV{PURL_BACKUP_S3_ENABLED}) {
             $self->render_error($c, 'Cannot modify - configured via environment variable', 400);

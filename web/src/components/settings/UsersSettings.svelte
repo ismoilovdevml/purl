@@ -41,6 +41,8 @@
   // Delete confirmation
   let deletingUser = null;
 
+  $: isAdmin = $currentUser?.role === 'admin';
+
   onMount(() => {
     fetchUsers();
     fetchLdapStatus();
@@ -196,9 +198,11 @@
             <span class="limit-info">/ {$licenseLimits.users === -1 || $licenseLimits.users === 999 ? '∞' : $licenseLimits.users} max</span>
           {/if}
         </span>
-        <Button variant="primary" size="sm" on:click={() => { showAddForm = !showAddForm; addError = ''; }}>
-          {showAddForm ? 'Cancel' : 'Add User'}
-        </Button>
+        {#if isAdmin}
+          <Button variant="primary" size="sm" on:click={() => { showAddForm = !showAddForm; addError = ''; }}>
+            {showAddForm ? 'Cancel' : 'Add User'}
+          </Button>
+        {/if}
       </div>
 
       {#if showAddForm}
@@ -251,21 +255,23 @@
                 </span>
               </div>
               <div class="user-actions col-actions">
-                <Button variant="ghost" size="sm" on:click={() => startChanging(user)}>
-                  Edit
-                </Button>
-                {#if $currentUser?.username !== user.username}
-                  {#if deletingUser === user.username}
-                    <Button variant="danger" size="sm" on:click={() => handleDeleteUser(user.username)}>
-                      Confirm
-                    </Button>
-                    <Button variant="ghost" size="sm" on:click={() => deletingUser = null}>
-                      Cancel
-                    </Button>
-                  {:else}
-                    <Button variant="ghost" size="sm" on:click={() => deletingUser = user.username}>
-                      Delete
-                    </Button>
+                {#if isAdmin}
+                  <Button variant="ghost" size="sm" on:click={() => startChanging(user)}>
+                    Edit
+                  </Button>
+                  {#if $currentUser?.username !== user.username}
+                    {#if deletingUser === user.username}
+                      <Button variant="danger" size="sm" on:click={() => handleDeleteUser(user.username)}>
+                        Confirm
+                      </Button>
+                      <Button variant="ghost" size="sm" on:click={() => deletingUser = null}>
+                        Cancel
+                      </Button>
+                    {:else}
+                      <Button variant="ghost" size="sm" on:click={() => deletingUser = user.username}>
+                        Delete
+                      </Button>
+                    {/if}
                   {/if}
                 {/if}
               </div>

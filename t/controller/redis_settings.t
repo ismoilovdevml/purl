@@ -61,7 +61,11 @@ use Purl::API::Controller::Settings;
         $self->{stash}{$key} = $val if defined $val;
         return $self->{stash}{$key};
     }
-    sub session { return {} }
+    sub session {
+        my ($self, $key) = @_;
+        my $s = { role => 'admin' };
+        return defined $key ? $s->{$key} : $s;
+    }
 
     package MockStorage;
     sub new { bless {}, $_[0] }
