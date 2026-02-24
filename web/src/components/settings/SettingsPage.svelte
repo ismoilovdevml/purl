@@ -20,6 +20,9 @@
   import AISettings from './AISettings.svelte';
   import RedisSettings from './RedisSettings.svelte';
   import AuditSettings from './AuditSettings.svelte';
+  import ApiKeysSettings from './ApiKeysSettings.svelte';
+  import SourcesSettings from './SourcesSettings.svelte';
+  import IntegrationsSettings from './IntegrationsSettings.svelte';
   import { isPaidPlan, isEnterprise } from '../../stores/license.js';
 
   let activeSection = 'database';
@@ -30,6 +33,8 @@
     { id: 'display', label: 'Display', icon: 'monitor' },
     { id: 'data', label: 'Data', icon: 'database' },
     { id: 'backup', label: 'Backups', icon: 'backup' },
+    { id: 'api-keys', label: 'API Keys', icon: 'api-key', requiresPlan: 'pro', locked: !$isPaidPlan },
+    { id: 'sources', label: 'Sources', icon: 'sources' },
     { id: 'audit', label: 'Audit Logs', icon: 'audit', requiresPlan: 'pro', locked: !$isPaidPlan },
     { id: 'pipelines', label: 'Pipelines', icon: 'pipeline', requiresPlan: 'pro', locked: !$isPaidPlan },
     { id: 'license', label: 'License', icon: 'key' },
@@ -37,6 +42,7 @@
     { id: 'ldap', label: 'LDAP / AD', icon: 'ldap', requiresPlan: 'enterprise', locked: !$isEnterprise },
     { id: 'sso', label: 'SSO / SAML', icon: 'sso', requiresPlan: 'enterprise', locked: !$isEnterprise },
     { id: 'ai', label: 'AI', icon: 'ai', requiresPlan: 'pro', locked: !$isPaidPlan },
+    { id: 'integrations', label: 'Integrations', icon: 'integrations' },
     { id: 'redis', label: 'Redis', icon: 'redis' },
     { id: 'about', label: 'About', icon: 'info' },
   ];
@@ -98,6 +104,18 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
+          {:else if section.icon === 'api-key'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+            </svg>
+          {:else if section.icon === 'sources'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+            </svg>
+          {:else if section.icon === 'integrations'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M16 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3"/><path d="M8 16h8a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2z"/>
+            </svg>
           {:else if section.icon === 'ai'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 2a10 10 0 0 1 10 10 10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
@@ -139,6 +157,10 @@
       <LDAPSettings />
     {:else if activeSection === 'sso'}
       <SSOSettings />
+    {:else if activeSection === 'api-keys'}
+      <ApiKeysSettings />
+    {:else if activeSection === 'sources'}
+      <SourcesSettings />
     {:else if activeSection === 'audit'}
       <AuditSettings />
     {:else if activeSection === 'pipelines'}
@@ -147,6 +169,8 @@
       <BackupSettings />
     {:else if activeSection === 'ai'}
       <AISettings />
+    {:else if activeSection === 'integrations'}
+      <IntegrationsSettings />
     {:else if activeSection === 'redis'}
       <RedisSettings />
     {:else if activeSection === 'about'}

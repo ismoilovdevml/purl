@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
+  import { aiProviders } from '../../stores/ai.js';
 
   let config = {
     provider: 'openai',
@@ -14,6 +15,9 @@
   let testing = false;
   let testResult = null;
   let showKey = false;
+  let providers = [];
+  let activeProvider = null;
+  let providersLoading = false;
 
   const PROVIDERS = [
     {
@@ -37,8 +41,25 @@
   $: currentProvider = PROVIDERS.find(p => p.id === config.provider) || PROVIDERS[0];
 
   onMount(async () => {
-    await loadConfig();
+    await Promise.all([loadConfig(), loadProviders()]);
   });
+
+  async function loadProviders() {
+    providersLoading = true;
+    try {
+      const res = await fetch('/api/ai/providers');
+      if (res.ok) {
+        const data = await res.json();
+        providers = data.providers || [];
+        activeProvider = data.current || null;
+        aiProviders.set(providers);
+      }
+    } catch {
+      // non-fatal — providers status is informational
+    } finally {
+      providersLoading = false;
+    }
+  }
 
   async function loadConfig() {
     loading = true;
@@ -75,7 +96,7 @@
       const data = await res.json();
       if (res.ok) {
         toastSuccess('AI settings saved');
-        await loadConfig();
+        await Promise.all([loadConfig(), loadProviders()]);
       } else {
         toastError(data.error || 'Failed to save settings');
       }
@@ -112,6 +133,40 @@
       <p class="settings-desc">Connect an AI provider to enable natural language log queries and analysis.</p>
     </div>
   </div>
+
+  <!-- Provider Status Card -->
+  {#if providersLoading}
+    <div class="provider-status-card">
+      <div class="provider-status-header">Provider Status</div>
+      <div class="loading-placeholder">Loading providers…</div>
+    </div>
+  {:else if providers.length > 0}
+    <div class="provider-status-card">
+      <div class="provider-status-header">Provider Status</div>
+      <div class="provider-list">
+        {#each providers as p}
+          <div class="provider-item" class:active={p.id === activeProvider}>
+            <div class="provider-left">
+              <span class="status-dot" class:configured={p.configured} class:not-configured={!p.configured}></span>
+              <span class="provider-name">{p.name}</span>
+              {#if p.id === activeProvider}
+                <span class="active-badge">Active</span>
+              {/if}
+            </div>
+            <div class="provider-right">
+              {#if p.model}
+                <span class="provider-model">{p.model}</span>
+              {:else if p.configured}
+                <span class="provider-model default">Default model</span>
+              {:else}
+                <span class="provider-model not-set">Not configured</span>
+              {/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
 
   {#if loading && !config.provider}
     <div class="loading-placeholder">Loading…</div>
@@ -516,5 +571,103 @@
   .toggle input:checked + .toggle-track::after {
     transform: translateX(16px);
     background: #3fb950;
+  }
+
+  /* Provider Status Card */
+  .provider-status-card {
+    background: var(--bg-primary, #0d1117);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 6px;
+    padding: 12px;
+  }
+
+  .provider-status-header {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary, #8b949e);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+  }
+
+  .provider-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .provider-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--bg-secondary, #161b22);
+    border: 1px solid transparent;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .provider-item.active {
+    border-color: rgba(88, 166, 255, 0.3);
+    background: rgba(88, 166, 255, 0.05);
+  }
+
+  .provider-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .status-dot.configured {
+    background: #3fb950;
+    box-shadow: 0 0 6px rgba(63, 185, 80, 0.4);
+  }
+
+  .status-dot.not-configured {
+    background: var(--text-secondary, #484f58);
+  }
+
+  .provider-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary, #c9d1d9);
+  }
+
+  .active-badge {
+    font-size: 10px;
+    font-weight: 700;
+    background: rgba(88, 166, 255, 0.15);
+    color: #58a6ff;
+    border: 1px solid rgba(88, 166, 255, 0.3);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  .provider-right {
+    display: flex;
+    align-items: center;
+  }
+
+  .provider-model {
+    font-size: 12px;
+    color: var(--text-secondary, #8b949e);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .provider-model.default {
+    font-style: italic;
+    font-family: inherit;
+  }
+
+  .provider-model.not-set {
+    color: var(--text-secondary, #484f58);
+    font-family: inherit;
   }
 </style>

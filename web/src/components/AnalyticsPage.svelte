@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { formatBytes, formatNumber } from '../utils/format.js';
+  import { success as toastSuccess, error as toastError } from '../stores/toast.js';
 
   let stats = null;
   let metrics = null;
@@ -150,6 +151,26 @@
     if (score >= 90) return '#3fb950';
     if (score >= 70) return '#d29922';
     return '#f85149';
+  }
+
+  let clearingCache = false;
+
+  async function clearCache() {
+    clearingCache = true;
+    try {
+      const res = await fetch(`${API_BASE}/cache`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toastSuccess(data.message || 'Cache cleared successfully');
+        await fetchAnalytics();
+      } else {
+        toastError(data.message || 'Failed to clear cache');
+      }
+    } catch (err) {
+      toastError('Failed to clear cache: ' + err.message);
+    } finally {
+      clearingCache = false;
+    }
   }
 
   function getLatencyColor(ms) {
@@ -346,7 +367,16 @@
 
       <!-- Cache -->
       <div class="card">
-        <h2>Cache</h2>
+        <div class="card-header">
+          <h2>Cache</h2>
+          <button class="clear-cache-btn" on:click={clearCache} disabled={clearingCache}>
+            {#if clearingCache}
+              Clearing...
+            {:else}
+              Clear Cache
+            {/if}
+          </button>
+        </div>
         <div class="cache-grid">
           <div class="cache-item">
             <span class="cache-value">{cacheHitRate}</span>
@@ -792,6 +822,39 @@
     color: #6e7681;
     min-width: 70px;
     text-align: right;
+  }
+
+  /* Card Header */
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .card-header h2 {
+    margin-bottom: 0;
+  }
+
+  .clear-cache-btn {
+    padding: 4px 10px;
+    font-size: 0.6875rem;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #c9d1d9;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .clear-cache-btn:hover {
+    background: #30363d;
+    border-color: #8b949e;
+  }
+
+  .clear-cache-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   /* Cache Grid */

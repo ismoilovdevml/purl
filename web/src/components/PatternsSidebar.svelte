@@ -10,18 +10,33 @@
   let patternLogsLoading = false;
   let expanded = true;
 
+  let patternStats = null;
+
   // Track previous time range to avoid cascade fetches
   let previousTimeRange = null;
+
+  async function fetchPatternStats() {
+    try {
+      const res = await fetch('/api/patterns/stats');
+      if (res.ok) {
+        patternStats = await res.json();
+      }
+    } catch {
+      // Stats are non-critical, silently ignore
+    }
+  }
 
   onMount(() => {
     previousTimeRange = $timeRange;
     fetchPatterns();
+    fetchPatternStats();
   });
 
   // Refetch when time range changes - only if actually changed
   $: if ($timeRange && previousTimeRange !== null && previousTimeRange !== $timeRange) {
     previousTimeRange = $timeRange;
     fetchPatterns();
+    fetchPatternStats();
     selectedPattern = null;
     patternLogs = null;
   }
@@ -105,6 +120,18 @@
           <span>No patterns found</span>
         </div>
       {:else}
+        {#if patternStats}
+          <div class="pattern-stats">
+            <div class="stat-item">
+              <span class="stat-value">{formatCount(patternStats.total_patterns)}</span>
+              <span class="stat-label">patterns</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-value">{patternStats.pattern_coverage}%</span>
+              <span class="stat-label">coverage</span>
+            </div>
+          </div>
+        {/if}
         <div class="patterns-list">
           {#each $patterns as pattern}
             <button
@@ -215,6 +242,32 @@
   .patterns-content {
     flex: 1;
     overflow-y: auto;
+  }
+
+  .pattern-stats {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    padding: 8px 12px;
+    background: #1c2128;
+    border-bottom: 1px solid #30363d;
+  }
+
+  .stat-item {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .stat-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: #58a6ff;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: #8b949e;
   }
 
   .loading-state,

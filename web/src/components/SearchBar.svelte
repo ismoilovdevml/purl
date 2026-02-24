@@ -3,7 +3,7 @@
   import { levelStats, serviceStats, hostStats, connectWebSocket, isLive } from '../stores/logs.js';
   import Button from './ui/Button.svelte';
   import { debounce } from '../utils/dom.js';
-  import { aiConfigured } from '../stores/ai.js';
+  import { aiConfigured, aiSuggestions, fetchSuggestions } from '../stores/ai.js';
   import AIQueryBar from './ai/AIQueryBar.svelte';
 
   export let value = '';
@@ -50,6 +50,15 @@
     if (saved) {
       searchHistory = JSON.parse(saved);
     }
+
+    // Fetch AI suggestions once on mount if AI is configured
+    const unsub = aiConfigured.subscribe(configured => {
+      if (configured) {
+        fetchSuggestions();
+      }
+    });
+    // Unsubscribe immediately — we only need the current value
+    unsub();
   });
 
   onDestroy(() => {
@@ -129,7 +138,7 @@
   }
 
   function handleFocus() {
-    if (!value && searchHistory.length > 0) {
+    if (!value && (searchHistory.length > 0 || ($aiConfigured && $aiSuggestions.length > 0))) {
       showHistory = true;
     } else {
       updateSuggestions();
@@ -246,6 +255,13 @@
   function applyHistory(query) {
     value = query;
     showHistory = false;
+    dispatch('search');
+  }
+
+  function applyAiSuggestion(query) {
+    value = query;
+    showHistory = false;
+    saveToHistory(query);
     dispatch('search');
   }
 
@@ -399,23 +415,44 @@
     </div>
   {/if}
 
-  {#if showHistory && searchHistory.length > 0}
-    <div class="suggestions history">
-      <div class="history-header">
-        <span>Recent searches</span>
-        <button class="history-clear" on:mousedown|preventDefault={clearHistory}>Clear</button>
-      </div>
-      {#each searchHistory as query}
-        <button
-          class="suggestion-item"
-          on:mousedown|preventDefault={() => applyHistory(query)}
-        >
-          <span class="suggestion-icon">
-            <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M6 1a5 5 0 1 0 5 5 5 5 0 0 0-5-5zm0 9a4 4 0 1 1 4-4 4 4 0 0 1-4 4zm.5-4V3.5a.5.5 0 0 0-1 0v3a.5.5 0 0 0 .15.35l2 2a.5.5 0 0 0 .7-.7L6.5 6z"/></svg>
-          </span>
-          <span class="suggestion-text history-query">{query}</span>
-        </button>
-      {/each}
+  {#if showHistory && (searchHistory.length > 0 || ($aiConfigured && $aiSuggestions.length > 0))}
+    <div class="suggestions history" bind:this={suggestionContainer}>
+      {#if searchHistory.length > 0}
+        <div class="history-header">
+          <span>Recent searches</span>
+          <button class="history-clear" on:mousedown|preventDefault={clearHistory}>Clear</button>
+        </div>
+        {#each searchHistory as query}
+          <button
+            class="suggestion-item"
+            on:mousedown|preventDefault={() => applyHistory(query)}
+          >
+            <span class="suggestion-icon">
+              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M6 1a5 5 0 1 0 5 5 5 5 0 0 0-5-5zm0 9a4 4 0 1 1 4-4 4 4 0 0 1-4 4zm.5-4V3.5a.5.5 0 0 0-1 0v3a.5.5 0 0 0 .15.35l2 2a.5.5 0 0 0 .7-.7L6.5 6z"/></svg>
+            </span>
+            <span class="suggestion-text history-query">{query}</span>
+          </button>
+        {/each}
+      {/if}
+
+      {#if $aiConfigured && $aiSuggestions.length > 0}
+        <div class="suggestion-group-divider ai-divider">
+          <span class="ai-badge">AI</span>
+          Suggested queries
+        </div>
+        {#each $aiSuggestions as query}
+          <button
+            class="suggestion-item"
+            on:mousedown|preventDefault={() => applyAiSuggestion(query)}
+          >
+            <span class="suggestion-icon ai-icon">
+              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M6 0l1.5 3.5L11 5l-3.5 1.5L6 10 4.5 6.5 1 5l3.5-1.5z"/></svg>
+            </span>
+            <span class="suggestion-text">{query}</span>
+            <span class="suggestion-hint ai-hint">AI</span>
+          </button>
+        {/each}
+      {/if}
     </div>
   {/if}
   </div>
@@ -659,5 +696,38 @@
   .suggestion-field {
     font-size: 11px;
     color: var(--text-secondary, #8b949e);
+  }
+
+  .ai-divider {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ai-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(88, 166, 255, 0.15);
+    color: #58a6ff;
+    letter-spacing: 0.3px;
+  }
+
+  .ai-icon {
+    color: #58a6ff;
+  }
+
+  .ai-hint {
+    font-size: 9px;
+    font-weight: 700;
+    background: rgba(88, 166, 255, 0.15);
+    color: #58a6ff;
+    padding: 1px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.3px;
   }
 </style>

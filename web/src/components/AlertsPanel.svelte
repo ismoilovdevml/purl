@@ -164,6 +164,18 @@
     openModal();
   }
 
+  let checking = false;
+
+  async function handleCheckNow(e) {
+    e.stopPropagation();
+    checking = true;
+    try {
+      await checkAlerts();
+    } finally {
+      checking = false;
+    }
+  }
+
   function handleTemplatesClick(e) {
     e.stopPropagation();
     showTemplateGallery = true;
@@ -194,6 +206,12 @@
     {#if alerts.length > 0}
       <span class="count">{alerts.length}</span>
     {/if}
+    <Button icon size="sm" variant="ghost" on:click={handleCheckNow} title="Check alerts now" disabled={checking}>
+      <svg class:spinning={checking} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M23 4v6h-6M1 20v-6h6"/>
+        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+      </svg>
+    </Button>
     <Button icon size="sm" variant="ghost" on:click={handleTemplatesClick} title="Browse K8s Templates">
       <svg width="14" height="14" viewBox="0 0 14 14">
         <rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/>
@@ -454,6 +472,14 @@
     font-size: 12px;
     color: var(--text-secondary, #8b949e);
     line-height: 1.5;
+  }
+
+  .spinning {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 
   .notify-info code {

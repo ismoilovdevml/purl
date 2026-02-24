@@ -11,6 +11,9 @@
   import AnalyticsPage from './components/AnalyticsPage.svelte';
   import SettingsPage from './components/settings/SettingsPage.svelte';
   import DashboardPage from './components/dashboard/DashboardPage.svelte';
+  import TracesPage from './components/TracesPage.svelte';
+  import K8sPage from './components/K8sPage.svelte';
+  import QueryPage from './components/QueryPage.svelte';
   import LoginPage from './components/LoginPage.svelte';
   import SearchHelp from './components/SearchHelp.svelte';
   import Toast from './components/ui/Toast.svelte';
@@ -33,7 +36,7 @@
   import { initAI } from './stores/ai.js';
 
   let savedSearchesRef;
-  let currentPage = 'logs'; // 'logs' | 'analytics' | 'dashboards' | 'settings'
+  let currentPage = 'logs'; // 'logs' | 'analytics' | 'traces' | 'k8s' | 'query' | 'dashboards' | 'settings'
   let showSearchHelp = false;
   let refreshIntervalId = null;
   let currentRefreshInterval = 30;
@@ -169,7 +172,7 @@
 
   function handleHashChange() {
     const hash = window.location.hash.slice(1) || 'logs';
-    if (['logs', 'analytics', 'dashboards', 'settings'].includes(hash)) {
+    if (['logs', 'analytics', 'traces', 'k8s', 'query', 'dashboards', 'settings'].includes(hash)) {
       if (hash === 'dashboards' && !hasDashboards) {
         currentPage = 'logs';
         window.location.hash = 'logs';
@@ -394,6 +397,57 @@
           <path d="M18 9l-5-6-4 8-3-2" />
         </svg>
         Analytics
+      </button>
+      <button
+        class:active={currentPage === 'traces'}
+        on:click={() => navigate('traces')}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+        </svg>
+        Traces
+      </button>
+      <button
+        class:active={currentPage === 'k8s'}
+        on:click={() => navigate('k8s')}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path d="M12 2L2 7l10 5 10-5-10-5z" />
+          <path d="M2 17l10 5 10-5" />
+          <path d="M2 12l10 5 10-5" />
+        </svg>
+        K8s
+      </button>
+      <button
+        class:active={currentPage === 'query'}
+        on:click={() => navigate('query')}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <polyline points="16 18 22 12 16 6" />
+          <polyline points="8 6 2 12 8 18" />
+        </svg>
+        Query
       </button>
       <button
         class:active={currentPage === 'dashboards'}
@@ -653,6 +707,12 @@
       </div>
   {:else if currentPage === 'analytics'}
     <AnalyticsPage />
+  {:else if currentPage === 'traces'}
+    <TracesPage />
+  {:else if currentPage === 'k8s'}
+    <K8sPage />
+  {:else if currentPage === 'query'}
+    <QueryPage />
   {:else if currentPage === 'dashboards'}
     <DashboardPage />
   {:else if currentPage === 'settings'}
