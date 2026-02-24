@@ -142,6 +142,8 @@ install_purl_docker() {
     local install_path="${1:-/opt/purl}"
 
     mkdir -p "$install_path" "$install_path/config" "$install_path/docker/clickhouse"
+    # Ensure config dir is writable by the container's purl user (UID 1000)
+    chown 1000:1000 "$install_path/config"
     cd "$install_path"
 
     log_info "Downloading configuration files..."
