@@ -58,3 +58,7 @@ docker/clickhouse/logs/
 # Local ClickHouse configs
 docker/clickhouse/*.local.xml
 .vercel
+
+# Playwright
+web/test-results/
+web/playwright-report/
