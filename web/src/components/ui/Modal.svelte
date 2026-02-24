@@ -67,12 +67,16 @@
     setTimeout(() => {
       if (modalElement) {
         cleanupTrapFocus = trapFocus(modalElement);
-        const firstFocusable = modalElement.querySelector(FOCUSABLE_SELECTOR);
-        if (firstFocusable) {
-          firstFocusable.focus();
-        } else {
-          // Fallback: focus the modal container itself so Escape still works
-          modalElement.focus();
+        // Don't steal focus if user already focused something inside the modal
+        if (!modalElement.contains(document.activeElement)) {
+          // Prefer inputs/textareas over buttons for initial focus
+          const firstInput = modalElement.querySelector('input:not([disabled]), textarea:not([disabled]), select:not([disabled])');
+          const target = firstInput || modalElement.querySelector(FOCUSABLE_SELECTOR);
+          if (target) {
+            target.focus();
+          } else {
+            modalElement.focus();
+          }
         }
       }
     }, 0);

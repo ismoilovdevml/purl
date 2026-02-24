@@ -79,7 +79,10 @@
     setTimeout(() => {
       if (dialogElement) {
         cleanupTrapFocus = trapFocus(dialogElement);
-        confirmButton?.focus();
+        // Don't steal focus if already inside dialog
+        if (!dialogElement.contains(document.activeElement)) {
+          confirmButton?.focus();
+        }
       }
     }, 0);
   } else {
