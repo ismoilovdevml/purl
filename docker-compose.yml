@@ -1,6 +1,6 @@
 services:
   purl:
-    image: ismoilovdev/purl:latest
+    image: ismoilovdev/purl:${PURL_IMAGE_TAG:-latest}
     container_name: purl
     restart: unless-stopped
     ports:
