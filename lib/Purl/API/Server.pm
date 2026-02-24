@@ -725,6 +725,7 @@ sub setup_routes {
     # ============================================
     # Trace endpoints
     # ============================================
+    $protected->get('/traces/recent' => sub ($c) { $traces_c->get_recent_traces($c) });
     $protected->get('/traces/:trace_id' => sub ($c) { $traces_c->get_trace($c) });
     $protected->get('/traces/:trace_id/timeline' => sub ($c) { $traces_c->get_trace_timeline($c) });
     $protected->get('/requests/:request_id' => sub ($c) { $traces_c->get_request($c) });
