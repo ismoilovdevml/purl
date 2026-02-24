@@ -112,7 +112,6 @@
       tabindex="-1"
       bind:this={dialogElement}
       transition:scale={{ duration: 150, start: 0.95 }}
-      on:click|stopPropagation
     >
       <div class="confirm-icon variant-{variant}">
         {#if variant === 'danger'}

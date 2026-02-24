@@ -105,7 +105,6 @@
       tabindex="-1"
       bind:this={modalElement}
       transition:scale={{ duration: 150, start: 0.95 }}
-      on:click|stopPropagation
     >
       {#if title || showClose}
         <div class="modal-header">
