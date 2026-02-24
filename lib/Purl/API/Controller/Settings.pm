@@ -333,6 +333,7 @@ sub list_api_keys {
     $self->safe_execute($c, sub {
         my $auth_config = $self->settings->get_section('auth') // {};
         my $api_keys = $auth_config->{api_keys} // [];
+        $api_keys = [split /,/, $api_keys] if !ref $api_keys;
 
         my @masked;
         for my $entry (@$api_keys) {
@@ -388,6 +389,7 @@ sub generate_api_key {
 
         my $auth_config = $self->settings->get_section('auth') // {};
         my $api_keys = $auth_config->{api_keys} // [];
+        $api_keys = [split /,/, $api_keys] if !ref $api_keys;
 
         # Ensure all entries are hash format
         my @normalized;
@@ -448,6 +450,7 @@ sub revoke_api_key {
 
         my $auth_config = $self->settings->get_section('auth') // {};
         my $api_keys = $auth_config->{api_keys} // [];
+        $api_keys = [split /,/, $api_keys] if !ref $api_keys;
 
         my $found = 0;
         my @remaining;

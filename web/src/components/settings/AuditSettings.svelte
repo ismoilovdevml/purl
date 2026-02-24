@@ -17,6 +17,8 @@
   let logs = [];
   let loading = true;
   let error = '';
+  let searching = false;
+  let totalCount = 0;
 
   // Stats state
   let stats = [];
@@ -28,11 +30,15 @@
   let filterResourceType = '';
   let filterFrom = '';
   let filterTo = '';
+  let dateError = '';
 
   // Pagination
   let limit = 50;
   let offset = 0;
   let hasMore = false;
+
+  // Expand/collapse details
+  let expandedRows = new Set();
 
   onMount(() => {
     fetchStats();
@@ -55,6 +61,7 @@
 
   async function fetchLogs() {
     loading = true;
+    searching = true;
     error = '';
     try {
       const params = new URLSearchParams();
@@ -76,6 +83,7 @@
         const fetched = data.logs || [];
         hasMore = fetched.length > limit;
         logs = fetched.slice(0, limit);
+        totalCount = data.total_count ?? fetched.length;
       } else {
         const data = await res.json().catch(() => ({}));
         error = data.error || 'Failed to load audit logs';
@@ -84,10 +92,21 @@
       error = 'Failed to load audit logs';
     }
     loading = false;
+    searching = false;
   }
 
   function applyFilters() {
+    dateError = '';
+    if (filterFrom && filterTo) {
+      const from = new Date(filterFrom);
+      const to = new Date(filterTo);
+      if (from >= to) {
+        dateError = '"From" date must be before "To" date';
+        return;
+      }
+    }
     offset = 0;
+    expandedRows = new Set();
     fetchLogs();
   }
 
@@ -97,18 +116,36 @@
     filterResourceType = '';
     filterFrom = '';
     filterTo = '';
+    dateError = '';
     offset = 0;
+    expandedRows = new Set();
     fetchLogs();
   }
 
   function nextPage() {
     offset += limit;
+    expandedRows = new Set();
     fetchLogs();
   }
 
   function prevPage() {
     offset = Math.max(0, offset - limit);
+    expandedRows = new Set();
     fetchLogs();
+  }
+
+  function toggleDetails(logId) {
+    if (expandedRows.has(logId)) {
+      expandedRows.delete(logId);
+    } else {
+      expandedRows.add(logId);
+    }
+    expandedRows = expandedRows; // trigger reactivity
+  }
+
+  function formatCount(num) {
+    if (num == null) return '0';
+    return num.toLocaleString('en-US');
   }
 
   function formatDate(dateStr) {
@@ -227,8 +264,10 @@
     <div class="group-header">
       <span class="group-title">Filters</span>
       <div class="filter-actions">
-        <Button variant="primary" size="sm" on:click={applyFilters}>Search</Button>
-        <Button variant="ghost" size="sm" on:click={clearFilters}>Clear</Button>
+        <Button variant="primary" size="sm" loading={searching} disabled={searching} on:click={applyFilters}>
+          {searching ? 'Searching...' : 'Search'}
+        </Button>
+        <Button variant="ghost" size="sm" disabled={searching} on:click={clearFilters}>Clear</Button>
       </div>
     </div>
     <div class="filters-form">
@@ -270,6 +309,7 @@
             id="audit-from"
             type="datetime-local"
             class="filter-input"
+            class:filter-input-error={dateError}
             bind:value={filterFrom}
           />
         </div>
@@ -279,10 +319,14 @@
             id="audit-to"
             type="datetime-local"
             class="filter-input"
+            class:filter-input-error={dateError}
             bind:value={filterTo}
           />
         </div>
       </div>
+      {#if dateError}
+        <div class="date-error">{dateError}</div>
+      {/if}
     </div>
   </Card>
 
@@ -293,7 +337,7 @@
         Events
         {#if !loading}
           <span class="event-count">
-            ({offset + 1}–{offset + logs.length}{hasMore ? '+' : ''})
+            Showing {formatCount(offset + 1)}&ndash;{formatCount(offset + logs.length)} of {formatCount(totalCount)}
           </span>
         {/if}
       </span>
@@ -311,66 +355,79 @@
     {:else if logs.length === 0}
       <div class="empty-state">No audit events found.</div>
     {:else}
-      <div class="log-table">
-        <div class="table-header">
-          <span class="col-time">Time</span>
-          <span class="col-actor">Actor</span>
-          <span class="col-action">Action</span>
-          <span class="col-resource">Resource</span>
-          <span class="col-status">Status</span>
-          <span class="col-ip">IP Address</span>
-        </div>
-        <div class="table-body">
-          {#each logs as log}
-            <div class="log-row">
-              <span class="col-time" title={formatFullDate(log.timestamp)}>
-                {formatDate(log.timestamp)}
-              </span>
-              <span class="col-actor">
-                <span class="actor-name">{log.actor || '—'}</span>
-              </span>
-              <span class="col-action">
-                <span class="action-badge {actionColor(log.action)}">
-                  {log.action || '—'}
+      <div class="table-scroll-wrapper">
+        <div class="log-table">
+          <div class="table-header">
+            <span class="col-time">Time (UTC)</span>
+            <span class="col-actor">Actor</span>
+            <span class="col-action">Action</span>
+            <span class="col-resource">Resource</span>
+            <span class="col-status">Status</span>
+            <span class="col-ip">IP Address</span>
+          </div>
+          <div class="table-body">
+            {#each logs as log}
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <div
+                class="log-row"
+                class:log-row-expandable={log.details}
+                on:click={() => log.details && toggleDetails(log.id)}
+                on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && log.details && toggleDetails(log.id)}
+                role={log.details ? 'button' : undefined}
+                tabindex={log.details ? 0 : undefined}
+              >
+                <span class="col-time" title={formatFullDate(log.timestamp) + ' (UTC)'}>
+                  {formatDate(log.timestamp)}
                 </span>
-              </span>
-              <span class="col-resource">
-                {#if log.resource_type}
-                  <span class="resource-type">{log.resource_type}</span>
-                  {#if log.resource_id}
-                    <span class="resource-id">{log.resource_id}</span>
+                <span class="col-actor">
+                  <span class="actor-name">{log.actor || '—'}</span>
+                </span>
+                <span class="col-action">
+                  <span class="action-badge {actionColor(log.action)}">
+                    {log.action || '—'}
+                  </span>
+                </span>
+                <span class="col-resource">
+                  {#if log.resource_type}
+                    <span class="resource-type">{log.resource_type}</span>
+                    {#if log.resource_id}
+                      <span class="resource-id">{log.resource_id}</span>
+                    {/if}
+                  {:else}
+                    <span class="text-muted">—</span>
                   {/if}
-                {:else}
-                  <span class="text-muted">—</span>
-                {/if}
-              </span>
-              <span class="col-status">
-                <span class="status-dot status-{statusIcon(log.status)}"></span>
-                {log.status || '—'}
-              </span>
-              <span class="col-ip">
-                <span class="ip-text">{log.ip_address || '—'}</span>
-              </span>
-            </div>
-            {#if log.details}
-              <div class="log-details">
-                <span class="details-text">{log.details}</span>
+                </span>
+                <span class="col-status">
+                  <span class="status-dot status-{statusIcon(log.status)}"></span>
+                  {log.status || '—'}
+                </span>
+                <span class="col-ip">
+                  <span class="ip-text">{log.ip_address || '—'}</span>
+                  {#if log.details}
+                    <span class="expand-icon" class:expanded={expandedRows.has(log.id)}>&#9656;</span>
+                  {/if}
+                </span>
               </div>
-            {/if}
-          {/each}
+              {#if log.details && expandedRows.has(log.id)}
+                <div class="log-details">
+                  <span class="details-text">{log.details}</span>
+                </div>
+              {/if}
+            {/each}
+          </div>
         </div>
       </div>
 
       <!-- Pagination -->
       <div class="pagination">
         <Button variant="ghost" size="sm" disabled={offset === 0} on:click={prevPage}>
-          ← Previous
+          &larr; Previous
         </Button>
         <span class="page-info">
-          Page {Math.floor(offset / limit) + 1}
+          Showing {formatCount(offset + 1)}&ndash;{formatCount(offset + logs.length)} of {formatCount(totalCount)}
         </span>
         <Button variant="ghost" size="sm" disabled={!hasMore} on:click={nextPage}>
-          Next →
+          Next &rarr;
         </Button>
       </div>
     {/if}
@@ -565,6 +622,17 @@
     cursor: pointer;
   }
 
+  /* Date validation error */
+  .date-error {
+    font-size: 0.75rem;
+    color: #f85149;
+    padding: 2px 0 0;
+  }
+
+  .filter-input-error {
+    border-color: #f85149 !important;
+  }
+
   /* Error */
   .error-box {
     padding: 10px 16px;
@@ -574,10 +642,17 @@
     border-bottom: 1px solid rgba(248, 81, 73, 0.2);
   }
 
+  /* Responsive table wrapper */
+  .table-scroll-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   /* Table */
   .log-table {
     display: flex;
     flex-direction: column;
+    min-width: 640px;
   }
 
   .table-header {
@@ -609,6 +684,10 @@
 
   .log-row:hover {
     background: var(--bg-tertiary, #161b22);
+  }
+
+  .log-row-expandable {
+    cursor: pointer;
   }
 
   .log-row:last-child {
@@ -704,6 +783,24 @@
     font-size: 0.75rem;
     color: var(--text-muted, #6e7681);
     font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .col-ip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .expand-icon {
+    font-size: 0.7rem;
+    color: var(--text-muted, #6e7681);
+    transition: transform 0.15s ease;
+    display: inline-block;
+    margin-left: auto;
+  }
+
+  .expand-icon.expanded {
+    transform: rotate(90deg);
   }
 
   .text-muted {

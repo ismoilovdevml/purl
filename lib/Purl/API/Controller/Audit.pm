@@ -42,11 +42,13 @@ sub list {
         $params{from_ts}       = int($from)     if $from && $from =~ /^\d+$/;
         $params{to_ts}         = int($to)       if $to   && $to   =~ /^\d+$/;
 
-        my $logs = $self->storage->get_audit_logs(\%params);
+        my $logs        = $self->storage->get_audit_logs(\%params);
+        my $total_count = $self->storage->count_audit_logs(\%params);
 
         $c->render(json => {
-            logs  => $logs,
-            total => scalar(@$logs),
+            logs        => $logs,
+            total       => scalar(@$logs),
+            total_count => int($total_count),
         });
     });
 }

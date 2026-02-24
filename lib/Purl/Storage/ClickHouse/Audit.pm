@@ -111,6 +111,37 @@ sub get_audit_logs {
     }, no_cache => 1);
 }
 
+sub count_audit_logs {
+    my ($self, $params) = @_;
+    my $db = $self->database;
+
+    $params //= {};
+
+    my @where;
+    push @where, "actor = "         . $self->_quote_string($params->{actor})         if $params->{actor};
+    push @where, "action = "        . $self->_quote_string($params->{action})        if $params->{action};
+    push @where, "resource_type = " . $self->_quote_string($params->{resource_type}) if $params->{resource_type};
+
+    if ($params->{from_ts}) {
+        my $from = int($params->{from_ts});
+        push @where, "timestamp >= fromUnixTimestamp($from)";
+    }
+    if ($params->{to_ts}) {
+        my $to = int($params->{to_ts});
+        push @where, "timestamp <= fromUnixTimestamp($to)";
+    }
+
+    my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
+
+    my $result = $self->_query_json(qq{
+        SELECT count() AS total_count
+        FROM ${db}.audit_logs
+        $where_sql
+    }, no_cache => 1);
+
+    return ($result && @$result) ? $result->[0]{total_count} : 0;
+}
+
 sub get_audit_stats {
     my ($self) = @_;
     my $db = $self->database;

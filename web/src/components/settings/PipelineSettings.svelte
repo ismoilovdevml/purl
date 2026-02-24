@@ -9,6 +9,7 @@
   let loading = false;
   let showCreateModal = false;
   let showTestModal = false;
+  let licenseError = null;
 
   // New pipeline form
   let newPipeline = {
@@ -38,7 +39,14 @@
     loading = true;
     try {
       const res = await fetch('/api/pipelines');
-      if (!res.ok) throw new Error('Failed to fetch');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 403 && data.feature) {
+          licenseError = data;
+          return;
+        }
+        throw new Error(data.error || 'Failed to fetch');
+      }
       const data = await res.json();
       pipelines = data.pipelines || [];
     } catch (err) {
@@ -131,47 +139,67 @@
     <p>Configure rules to parse and enrich logs during ingestion</p>
   </div>
 
-  <div class="pipeline-actions">
-    <Button on:click={() => showCreateModal = true}>Create Pipeline</Button>
-  </div>
-
-  {#if loading}
-    <p class="loading-text">Loading pipelines...</p>
-  {:else if pipelines.length === 0}
-    <Card>
-      <div class="empty-state">
-        <p>No pipelines configured. Create one to start processing logs.</p>
+  {#if licenseError}
+    <div class="license-banner">
+      <div class="banner-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
       </div>
-    </Card>
+      <div class="banner-body">
+        <strong>{licenseError.error || 'This feature requires a Pro or Enterprise license.'}</strong>
+        <p>Upgrade your plan to configure log pipelines for parsing and enriching logs during ingestion.</p>
+      </div>
+      {#if licenseError.upgrade}
+        <a href={licenseError.upgrade} class="upgrade-link" target="_blank" rel="noopener noreferrer">
+          Upgrade Plan &rarr;
+        </a>
+      {/if}
+    </div>
   {:else}
-    {#each pipelines as pipeline}
+    <div class="pipeline-actions">
+      <Button on:click={() => showCreateModal = true}>Create Pipeline</Button>
+    </div>
+
+    {#if loading}
+      <p class="loading-text">Loading pipelines...</p>
+    {:else if pipelines.length === 0}
       <Card>
-        <div class="pipeline-item">
-          <div class="pipeline-info">
-            <div class="pipeline-name">
-              <span class="status-dot" class:enabled={pipeline.enabled}></span>
-              {pipeline.name}
-            </div>
-            {#if pipeline.description}
-              <div class="pipeline-desc">{pipeline.description}</div>
-            {/if}
-            <div class="pipeline-meta">
-              {(pipeline.rules || []).length} rules
-              {#if pipeline.filter_service}
-                &middot; Service: <code>{pipeline.filter_service}</code>
-              {/if}
-            </div>
-          </div>
-          <div class="pipeline-actions-row">
-            <button class="btn-sm" on:click={() => toggleEnabled(pipeline)}>
-              {pipeline.enabled ? 'Disable' : 'Enable'}
-            </button>
-            <button class="btn-sm" on:click={() => openTest(pipeline)}>Test</button>
-            <button class="btn-sm btn-danger" on:click={() => deletePipeline(pipeline.id)}>Delete</button>
-          </div>
+        <div class="empty-state">
+          <p>No pipelines configured. Create one to start processing logs.</p>
         </div>
       </Card>
-    {/each}
+    {:else}
+      {#each pipelines as pipeline}
+        <Card>
+          <div class="pipeline-item">
+            <div class="pipeline-info">
+              <div class="pipeline-name">
+                <span class="status-dot" class:enabled={pipeline.enabled}></span>
+                {pipeline.name}
+              </div>
+              {#if pipeline.description}
+                <div class="pipeline-desc">{pipeline.description}</div>
+              {/if}
+              <div class="pipeline-meta">
+                {(pipeline.rules || []).length} rules
+                {#if pipeline.filter_service}
+                  &middot; Service: <code>{pipeline.filter_service}</code>
+                {/if}
+              </div>
+            </div>
+            <div class="pipeline-actions-row">
+              <button class="btn-sm" on:click={() => toggleEnabled(pipeline)}>
+                {pipeline.enabled ? 'Disable' : 'Enable'}
+              </button>
+              <button class="btn-sm" on:click={() => openTest(pipeline)}>Test</button>
+              <button class="btn-sm btn-danger" on:click={() => deletePipeline(pipeline.id)}>Delete</button>
+            </div>
+          </div>
+        </Card>
+      {/each}
+    {/if}
   {/if}
 </section>
 
@@ -343,6 +371,67 @@
 
   .btn-danger:hover {
     background: rgba(248, 81, 73, 0.1);
+  }
+
+  .license-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 20px;
+    background: rgba(88, 166, 255, 0.06);
+    border: 1px solid rgba(88, 166, 255, 0.2);
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
+
+  .banner-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: rgba(88, 166, 255, 0.1);
+    color: #58a6ff;
+  }
+
+  .banner-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .banner-body strong {
+    display: block;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #f0f6fc;
+    margin-bottom: 4px;
+  }
+
+  .banner-body p {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: #8b949e;
+    line-height: 1.5;
+  }
+
+  .upgrade-link {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    background: #58a6ff;
+    color: #0d1117;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    border-radius: 6px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .upgrade-link:hover {
+    background: #79b8ff;
   }
 
   .loading-text, .empty-state {
