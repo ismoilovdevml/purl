@@ -23,7 +23,7 @@ has '_config' => (
 has '_json' => (
     is      => 'ro',
     lazy    => 1,
-    default => sub { JSON::XS->new->utf8->pretty->canonical },
+    default => sub { JSON::XS->new->pretty->canonical },
 );
 
 # Default configuration
@@ -181,6 +181,7 @@ sub save {
     };
     if ($@) {
         warn "Failed to save config to $file: $@";
+        $self->{_last_save_error} = "$@";
         return 0;
     }
 
