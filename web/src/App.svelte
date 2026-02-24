@@ -181,6 +181,11 @@
         toastWarning('Custom Dashboards requires a Pro or Enterprise license');
         return;
       }
+      if (hash === 'settings' && $currentUser?.role === 'viewer') {
+        currentPage = 'logs';
+        window.location.hash = 'logs';
+        return;
+      }
       currentPage = hash;
     }
   }
@@ -188,6 +193,9 @@
   function navigate(page) {
     if (page === 'dashboards' && !hasDashboards) {
       toastWarning('Custom Dashboards requires a Pro or Enterprise license');
+      return;
+    }
+    if (page === 'settings' && $currentUser?.role === 'viewer') {
       return;
     }
     currentPage = page;
@@ -495,6 +503,7 @@
           <span class="pro-badge">Pro</span>
         {/if}
       </button>
+      {#if $currentUser?.role !== 'viewer'}
       <button
         class:active={currentPage === 'settings'}
         on:click={() => navigate('settings')}
@@ -514,6 +523,7 @@
         </svg>
         Settings
       </button>
+      {/if}
     </nav>
 
     {#if $currentUser}
