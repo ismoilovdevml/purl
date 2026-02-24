@@ -8,6 +8,25 @@ use namespace::clean;
 
 extends 'Purl::API::Controller::Base';
 
+sub get_recent_traces {
+    my ($self, $c) = @_;
+
+    $self->safe_execute($c, sub {
+        my $limit = $c->param('limit') // 20;
+        my $range = $c->param('range') // '24h';
+
+        my $results = $self->storage->get_recent_traces(
+            limit => int($limit),
+            range => $range,
+        );
+
+        $c->render(json => {
+            traces => $results,
+            total  => scalar @$results,
+        });
+    });
+}
+
 sub get_trace {
     my ($self, $c) = @_;
     

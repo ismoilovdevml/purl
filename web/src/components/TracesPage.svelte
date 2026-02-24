@@ -9,6 +9,7 @@
   - GET /api/requests/:request_id — returns { logs, request_id, total }
 -->
 <script>
+  import { onMount } from 'svelte';
   import Button from './ui/Button.svelte';
   import Input from './ui/Input.svelte';
   import LoadingSpinner from './ui/LoadingSpinner.svelte';
@@ -24,6 +25,10 @@
     '#79c0ff', '#7ee787', '#e3b341', '#ffa657', '#d2a8ff',
     '#56d4dd', '#f0883e', '#bc8cff', '#39d353', '#db6d28',
   ];
+
+  let recentTraces = [];
+  let recentLoading = false;
+  let recentRange = '24h';
 
   let searchQuery = '';
   let searchType = 'trace'; // 'trace' or 'request'
@@ -47,6 +52,35 @@
     }
     return serviceColorMap[service];
   }
+
+  async function fetchRecentTraces() {
+    recentLoading = true;
+    try {
+      const res = await fetch(`${API_BASE}/traces/recent?range=${recentRange}&limit=50`);
+      if (res.ok) {
+        const data = await res.json();
+        recentTraces = data.traces || [];
+      }
+    } catch {
+      // Non-critical, silently ignore
+    } finally {
+      recentLoading = false;
+    }
+  }
+
+  function selectTrace(traceId) {
+    searchQuery = traceId;
+    handleSearch();
+  }
+
+  function changeRange(range) {
+    recentRange = range;
+    fetchRecentTraces();
+  }
+
+  onMount(() => {
+    fetchRecentTraces();
+  });
 
   function detectSearchType(query) {
     const trimmed = query.trim();
@@ -259,14 +293,82 @@
         <p class="empty-sub">Check the ID and try again.</p>
       </div>
     {:else if !hasSearched}
-      <div class="empty-state">
-        <div class="empty-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-          </svg>
+      <!-- Recent Traces -->
+      <div class="recent-section">
+        <div class="recent-header">
+          <h2>Recent Traces</h2>
+          <div class="range-buttons">
+            {#each [['1h', '1h'], ['24h', '24h'], ['7d', '7d']] as [label, value]}
+              <button
+                class="range-btn"
+                class:active={recentRange === value}
+                on:click={() => changeRange(value)}
+              >{label}</button>
+            {/each}
+          </div>
         </div>
-        <p class="empty-title">Explore Distributed Traces</p>
-        <p class="empty-sub">Enter a trace ID or request ID above to visualize the request flow across services.</p>
+
+        {#if recentLoading}
+          <div class="loading-container" style="min-height: 200px;">
+            <LoadingSpinner size="md" label="Loading recent traces..." centered />
+          </div>
+        {:else if recentTraces.length === 0}
+          <div class="empty-state">
+            <div class="empty-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+              </svg>
+            </div>
+            <p class="empty-title">No traces found</p>
+            <p class="empty-sub">No distributed traces in the last {recentRange}. Send logs with trace_id to see them here.</p>
+          </div>
+        {:else}
+          <div class="recent-table-wrapper">
+            <table class="recent-table">
+              <thead>
+                <tr>
+                  <th>Trace ID</th>
+                  <th>Services</th>
+                  <th>Logs</th>
+                  <th>Errors</th>
+                  <th>Duration</th>
+                  <th>Last seen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each recentTraces as trace}
+                  <tr class="trace-row" class:has-errors={trace.error_count > 0} on:click={() => selectTrace(trace.trace_id)}>
+                    <td class="col-trace-id">
+                      <span class="trace-id-text">{trace.trace_id}</span>
+                    </td>
+                    <td class="col-services">
+                      {#each (trace.services || []).slice(0, 3) as svc}
+                        <span class="service-chip" style="border-color: {getServiceColor(svc)}; color: {getServiceColor(svc)}">{svc}</span>
+                      {/each}
+                      {#if (trace.services || []).length > 3}
+                        <span class="service-more">+{trace.services.length - 3}</span>
+                      {/if}
+                    </td>
+                    <td class="col-count">{trace.log_count}</td>
+                    <td class="col-errors">
+                      {#if trace.error_count > 0}
+                        <span class="error-count">{trace.error_count}</span>
+                      {:else}
+                        <span class="muted">0</span>
+                      {/if}
+                    </td>
+                    <td class="col-duration">{formatDuration(trace.duration_ms)}</td>
+                    <td class="col-time">
+                      <span class="timestamp" title={formatFullTimestamp(trace.last_seen)}>
+                        {formatTimestamp(trace.last_seen)}
+                      </span>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
       </div>
     {:else}
       <!-- Stats Summary -->
@@ -839,6 +941,132 @@
     overflow-y: auto;
     background: #0d1117;
     border-radius: 4px;
+  }
+
+  /* Recent Traces */
+  .recent-section {
+    flex: 1;
+  }
+
+  .recent-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .range-buttons {
+    display: flex;
+    gap: 4px;
+  }
+
+  .range-btn {
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .range-btn:hover {
+    background: #30363d;
+    color: #c9d1d9;
+  }
+
+  .range-btn.active {
+    background: #388bfd26;
+    border-color: #58a6ff;
+    color: #58a6ff;
+  }
+
+  .recent-table-wrapper {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .recent-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .recent-table th {
+    background: #1c2128;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #30363d;
+  }
+
+  .recent-table td {
+    padding: 8px 12px;
+    font-size: 0.8125rem;
+    color: #c9d1d9;
+    border-bottom: 1px solid #21262d;
+    vertical-align: middle;
+  }
+
+  .trace-row {
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  .trace-row:hover {
+    background: rgba(88, 166, 255, 0.06);
+  }
+
+  .trace-row.has-errors {
+    border-left: 3px solid #f85149;
+  }
+
+  .trace-id-text {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.75rem;
+    color: #58a6ff;
+    max-width: 200px;
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .col-services {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .service-chip {
+    display: inline-block;
+    padding: 1px 6px;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    border: 1px solid;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .service-more {
+    font-size: 0.6875rem;
+    color: #6e7681;
+  }
+
+  .col-count, .col-errors, .col-duration, .col-time {
+    white-space: nowrap;
+  }
+
+  .error-count {
+    color: #f85149;
+    font-weight: 600;
   }
 
   /* Responsive */

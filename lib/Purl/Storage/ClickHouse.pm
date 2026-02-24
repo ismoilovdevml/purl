@@ -1004,6 +1004,42 @@ sub get_context {
     };
 }
 
+# Get recent traces (grouped by trace_id)
+sub get_recent_traces {
+    my ($self, %params) = @_;
+
+    my $table = $self->database . '.' . $self->table;
+    my $limit = $self->_validate_int($params{limit}, 1, 100) // 20;
+    my $range = $params{range} // '24h';
+
+    # Parse range (e.g., '1h', '24h', '7d')
+    my $time_clause = '';
+    if ($range =~ /^(\d+)([mhd])$/i) {
+        my ($num, $unit) = ($1, lc($2));
+        my $seconds = $num * ($unit eq 'm' ? 60 : $unit eq 'h' ? 3600 : 86400);
+        $time_clause = "AND timestamp >= now() - toIntervalSecond($seconds)";
+    }
+
+    my $sql = qq{
+        SELECT
+            trace_id,
+            formatDateTime(min(timestamp), '%Y-%m-%dT%H:%i:%S') || 'Z' as first_seen,
+            formatDateTime(max(timestamp), '%Y-%m-%dT%H:%i:%S') || 'Z' as last_seen,
+            count() as log_count,
+            countIf(level IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT', 'FATAL')) as error_count,
+            groupUniqArray(service) as services,
+            dateDiff('millisecond', min(timestamp), max(timestamp)) as duration_ms
+        FROM $table
+        WHERE trace_id != ''
+            $time_clause
+        GROUP BY trace_id
+        ORDER BY max(timestamp) DESC
+        LIMIT $limit
+    };
+
+    return $self->_query_json($sql, no_cache => 1);
+}
+
 # Search logs by trace ID (all services)
 sub search_by_trace {
     my ($self, $trace_id, %params) = @_;
