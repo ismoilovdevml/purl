@@ -972,19 +972,20 @@
 
   /* Error highlight */
   .log-row.error-row {
-    background: rgba(248, 81, 73, 0.08);
+    background: rgba(248, 81, 73, 0.18);
+    border-left: 3px solid #f85149;
   }
 
   .log-row.error-row:hover {
-    background: rgba(248, 81, 73, 0.12);
+    background: rgba(248, 81, 73, 0.28);
   }
 
   .log-row.error-row td.pinned {
-    background: rgba(248, 81, 73, 0.08);
+    background: rgba(248, 81, 73, 0.18);
   }
 
   .log-row.error-row:hover td.pinned {
-    background: rgba(248, 81, 73, 0.12);
+    background: rgba(248, 81, 73, 0.28);
   }
 
   /* Pagination footer */
