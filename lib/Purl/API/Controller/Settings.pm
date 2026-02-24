@@ -501,8 +501,7 @@ sub list_users {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        my $auth_config = $self->settings->get_section('auth') // {};
-        my $users = $auth_config->{users} // {};
+        my $users = $self->settings->_config->{auth}{users} // {};
 
         my @user_list = map {
             my $entry = $users->{$_};
@@ -542,8 +541,9 @@ sub create_user {
             $role = 'viewer';
         }
 
-        my $auth_config = $self->settings->get_section('auth') // {};
-        my $users = $auth_config->{users} // {};
+        # Access file config directly to avoid ENV pollution
+        $self->settings->_config->{auth} //= {};
+        my $users = $self->settings->_config->{auth}{users} //= {};
 
         if (exists $users->{$username}) {
             $self->render_error($c, 'User already exists', 409);
@@ -565,12 +565,12 @@ sub create_user {
             return;
         }
         $users->{$username} = { password => $hashed, role => $role };
-        $auth_config->{users} = $users;
 
-        if ($self->settings->set_section('auth', $auth_config)) {
+        if ($self->settings->save()) {
             $c->render(json => { status => 'ok', username => $username });
         } else {
-            $self->render_error($c, 'Failed to create user', 500);
+            my $err = $self->settings->{_last_save_error} // 'unknown';
+            $self->render_error($c, "Failed to create user: $err", 500);
         }
     });
 }
@@ -587,8 +587,8 @@ sub update_user {
             return;
         }
 
-        my $auth_config = $self->settings->get_section('auth') // {};
-        my $users = $auth_config->{users} // {};
+        $self->settings->_config->{auth} //= {};
+        my $users = $self->settings->_config->{auth}{users} //= {};
 
         unless (exists $users->{$username}) {
             $self->render_error($c, 'User not found', 404);
@@ -618,12 +618,12 @@ sub update_user {
         }
 
         $users->{$username} = { password => $new_hash, role => $new_role };
-        $auth_config->{users} = $users;
 
-        if ($self->settings->set_section('auth', $auth_config)) {
+        if ($self->settings->save()) {
             $c->render(json => { status => 'ok', message => 'User updated' });
         } else {
-            $self->render_error($c, 'Failed to update user', 500);
+            my $err = $self->settings->{_last_save_error} // 'unknown';
+            $self->render_error($c, "Failed to update user: $err", 500);
         }
     });
 }
@@ -634,8 +634,8 @@ sub delete_user {
     $self->safe_execute($c, sub {
         my $username = $c->param('username');
 
-        my $auth_config = $self->settings->get_section('auth') // {};
-        my $users = $auth_config->{users} // {};
+        $self->settings->_config->{auth} //= {};
+        my $users = $self->settings->_config->{auth}{users} //= {};
 
         unless (exists $users->{$username}) {
             $self->render_error($c, 'User not found', 404);
@@ -656,12 +656,12 @@ sub delete_user {
         }
 
         delete $users->{$username};
-        $auth_config->{users} = $users;
 
-        if ($self->settings->set_section('auth', $auth_config)) {
+        if ($self->settings->save()) {
             $c->render(json => { status => 'ok' });
         } else {
-            $self->render_error($c, 'Failed to delete user', 500);
+            my $err = $self->settings->{_last_save_error} // 'unknown';
+            $self->render_error($c, "Failed to delete user: $err", 500);
         }
     });
 }
