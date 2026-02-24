@@ -114,7 +114,7 @@
 <section class="settings-section">
   <div class="section-header">
     <h3>Agents</h3>
-    <p>Manage Purl log collection agents running on your servers</p>
+    <p>Manage Vector-based log collection agents running on your servers</p>
   </div>
 
   <!-- Stats Overview -->
@@ -159,15 +159,25 @@
 
     {#if showSetup}
       <div class="setup-content">
+        <p class="setup-description">
+          The agent uses <strong>Vector</strong> to collect logs from <code>/var/log/</code>,
+          systemd journal, and Docker containers, then ships them to your Purl server.
+        </p>
+
         <div class="setup-step">
           <h4>1. Install via shell script</h4>
           <div class="code-block">
-            <code>curl -sSL https://get.purlogs.com/agent | bash -s -- \
-  --server {serverUrl} \
-  --api-key YOUR_API_KEY</code>
-            <button class="copy-btn" on:click={() => copyToClipboard(`curl -sSL https://get.purlogs.com/agent | bash -s -- --server ${serverUrl} --api-key YOUR_API_KEY`)}>
+            <code>curl -fsSL https://purlogs.com/install.sh | sudo bash -s -- --agent -i</code>
+            <button class="copy-btn" on:click={() => copyToClipboard('curl -fsSL https://purlogs.com/install.sh | sudo bash -s -- --agent -i')}>
               {copied ? 'Copied!' : 'Copy'}
             </button>
+          </div>
+          <div class="setup-prompts">
+            <p>During installation, you'll be prompted for:</p>
+            <ul>
+              <li><strong>Purl Server URL</strong> — e.g. <code>{serverUrl}</code></li>
+              <li><strong>API Key</strong> — from the <strong>API Keys</strong> settings page</li>
+            </ul>
           </div>
         </div>
 
@@ -178,24 +188,18 @@
   -e PURL_SERVER={serverUrl} \
   -e PURL_API_KEY=YOUR_API_KEY \
   -v /var/log:/var/log:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
   ismoilovdev/purl-agent:latest</code>
-          </div>
-        </div>
-
-        <div class="setup-step">
-          <h4>3. Or register manually via API</h4>
-          <div class="code-block">
-            <code>curl -X POST {serverUrl}/api/agents/register \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{JSON.stringify({ hostname: 'my-server', os: 'Ubuntu 22.04', ip_address: '192.168.1.10' })}'</code>
+            <button class="copy-btn" on:click={() => copyToClipboard(`docker run -d --name purl-agent \\\n  -e PURL_SERVER=${serverUrl} \\\n  -e PURL_API_KEY=YOUR_API_KEY \\\n  -v /var/log:/var/log:ro \\\n  -v /var/run/docker.sock:/var/run/docker.sock:ro \\\n  ismoilovdev/purl-agent:latest`)}>
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
           </div>
         </div>
 
         <p class="setup-note">
-          Replace <code>YOUR_API_KEY</code> with an API key from the
-          <strong>API Keys</strong> settings page. Agents send heartbeats every 60 seconds
-          to report their status.
+          The agent automatically registers with Purl on startup and sends heartbeats
+          every 60 seconds. Replace <code>YOUR_API_KEY</code> with a key from the
+          <strong>API Keys</strong> settings page.
         </p>
       </div>
     {/if}
@@ -234,7 +238,7 @@
           </svg>
         </div>
         <span class="empty-title">No agents registered</span>
-        <span class="empty-hint">Install a Purl agent on your servers to start collecting logs. Click "Setup Instructions" above to get started.</span>
+        <span class="empty-hint">Install the Vector-based Purl agent on your servers to start collecting logs. Click "Setup Instructions" above to get started.</span>
       </div>
     {:else}
       <div class="agents-list">
@@ -456,6 +460,51 @@
     color: var(--text-secondary, #8b949e);
     margin: 0;
     line-height: 1.5;
+  }
+
+  .setup-description {
+    font-size: 0.875rem;
+    color: var(--text-secondary, #8b949e);
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .setup-description code {
+    background: var(--bg-tertiary, #21262d);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.8125rem;
+  }
+
+  .setup-prompts {
+    margin-top: 10px;
+    padding: 12px 16px;
+    background: rgba(210, 153, 34, 0.08);
+    border: 1px solid rgba(210, 153, 34, 0.2);
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    color: var(--text-secondary, #8b949e);
+  }
+
+  .setup-prompts p {
+    margin: 0 0 6px;
+    color: var(--text-primary, #c9d1d9);
+    font-weight: 500;
+  }
+
+  .setup-prompts ul {
+    margin: 0;
+    padding-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .setup-prompts code {
+    background: var(--bg-tertiary, #21262d);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.75rem;
   }
 
   .setup-note code {
