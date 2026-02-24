@@ -69,9 +69,10 @@
   }
 
   function formatCount(count) {
+    if (count == null) return '0';
     if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
     if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
-    return count.toString();
+    return String(count);
   }
 
   function toggleExpand() {
@@ -120,16 +121,18 @@
           <span>No patterns found</span>
         </div>
       {:else}
-        {#if patternStats}
+        {#if patternStats && patternStats.total_patterns != null}
           <div class="pattern-stats">
             <div class="stat-item">
               <span class="stat-value">{formatCount(patternStats.total_patterns)}</span>
               <span class="stat-label">patterns</span>
             </div>
-            <div class="stat-item">
-              <span class="stat-value">{patternStats.pattern_coverage}%</span>
-              <span class="stat-label">coverage</span>
-            </div>
+            {#if patternStats.pattern_coverage != null}
+              <div class="stat-item">
+                <span class="stat-value">{patternStats.pattern_coverage}%</span>
+                <span class="stat-label">coverage</span>
+              </div>
+            {/if}
           </div>
         {/if}
         <div class="patterns-list">
