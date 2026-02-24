@@ -45,6 +45,7 @@ use Purl::API::Controller::K8sHealth;
 use Purl::API::Controller::AlertTemplates;
 use Purl::API::Controller::AI;
 use Purl::API::Controller::Clusters;
+use Purl::API::Controller::Agents;
 
 # Package-level state
 my $storage;
@@ -418,6 +419,7 @@ sub setup_routes {
     my $alert_templates_c = Purl::API::Controller::AlertTemplates->new(%c_args);
     my $ai_c             = Purl::API::Controller::AI->new(%c_args, settings => $settings);
     my $clusters_c       = Purl::API::Controller::Clusters->new(%c_args);
+    my $agents_c         = Purl::API::Controller::Agents->new(%c_args);
 
     # Initialize audit schema (non-fatal)
     eval { $storage->_init_audit_schema() };
@@ -434,6 +436,10 @@ sub setup_routes {
     # Initialize dashboard schema (non-fatal)
     eval { $storage->_init_dashboard_schema() };
     app->log->warn("Dashboard schema init failed: $@") if $@;
+
+    # Initialize agents schema (non-fatal)
+    eval { $storage->_init_agents_schema() };
+    app->log->warn("Agents schema init failed: $@") if $@;
 
     # Periodic buffer flush
     Mojo::IOLoop->recurring(2 => sub {
@@ -820,6 +826,14 @@ sub setup_routes {
     # Redis / Broadcast settings
     $protected->get('/settings/redis' => sub ($c) { $settings_c->get_redis($c) });
     $protected->put('/settings/redis' => sub ($c) { $settings_c->update_redis($c) });
+
+    # ============================================
+    # Agent management endpoints
+    # ============================================
+    $protected->get('/agents'              => sub ($c) { $agents_c->list($c) });
+    $protected->post('/agents/register'    => sub ($c) { $agents_c->register($c) });
+    $protected->post('/agents/heartbeat'   => sub ($c) { $agents_c->heartbeat($c) });
+    $protected->delete('/agents/:id'       => sub ($c) { $agents_c->remove($c) });
 
     # ============================================
     # Backup endpoints

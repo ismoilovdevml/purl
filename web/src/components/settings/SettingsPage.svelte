@@ -23,7 +23,8 @@
   import ApiKeysSettings from './ApiKeysSettings.svelte';
   import SourcesSettings from './SourcesSettings.svelte';
   import IntegrationsSettings from './IntegrationsSettings.svelte';
-  import { isPaidPlan, isEnterprise } from '../../stores/license.js';
+  import AgentsSettings from './AgentsSettings.svelte';
+  import { isPaidPlan, isEnterprise, k8sMode } from '../../stores/license.js';
   import { currentUser } from '../../stores/auth.js';
 
   let activeSection = 'database';
@@ -44,6 +45,7 @@
     { id: 'backup', label: 'Backups', icon: 'backup', locked: !isAdmin },
     { id: 'api-keys', label: 'API Keys', icon: 'api-key', requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
     { id: 'sources', label: 'Sources', icon: 'sources' },
+    ...(!$k8sMode ? [{ id: 'agents', label: 'Agents', icon: 'agent', locked: !isAdmin }] : []),
     { id: 'audit', label: 'Audit Logs', icon: 'audit', requiresPlan: 'pro', locked: !$isPaidPlan },
     { id: 'pipelines', label: 'Pipelines', icon: 'pipeline', requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
     { id: 'license', label: 'License', icon: 'key', locked: !isAdmin },
@@ -125,6 +127,10 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
             </svg>
+          {:else if section.icon === 'agent'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 10l3-3 2 2 3-4"/>
+            </svg>
           {:else if section.icon === 'integrations'}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M16 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3"/><path d="M8 16h8a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2z"/>
@@ -182,6 +188,8 @@
       <BackupSettings />
     {:else if activeSection === 'ai'}
       <AISettings />
+    {:else if activeSection === 'agents'}
+      <AgentsSettings />
     {:else if activeSection === 'integrations'}
       <IntegrationsSettings />
     {:else if activeSection === 'redis'}

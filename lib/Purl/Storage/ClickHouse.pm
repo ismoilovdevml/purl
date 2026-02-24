@@ -22,6 +22,7 @@ with 'Purl::Storage::ClickHouse::Backup';
 with 'Purl::Storage::ClickHouse::Pipeline';
 with 'Purl::Storage::ClickHouse::Dashboard';
 with 'Purl::Storage::ClickHouse::K8sHealth';
+with 'Purl::Storage::ClickHouse::Agents';
 
 # Configuration
 has 'host' => (

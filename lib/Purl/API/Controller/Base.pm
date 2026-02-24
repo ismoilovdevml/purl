@@ -94,6 +94,7 @@ sub check_limit {
     my ($self, $c, $limit_name, $current_count) = @_;
     my $info = $c->stash('license_info') // return 1;
     my $max = $info->{limits}{$limit_name} // return 1;
+    return 1 if $max < 0;  # -1 means unlimited (Enterprise)
     return 1 if $current_count < $max;
     my $plan = $info->{plan} // 'free';
     $c->render(json => {
