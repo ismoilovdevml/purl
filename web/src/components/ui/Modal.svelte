@@ -14,7 +14,7 @@
 <script>
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { fade, scale } from 'svelte/transition';
-  import { trapFocus, FOCUSABLE_SELECTOR, portal } from '../../utils/dom.js';
+  import { trapFocus, FOCUSABLE_SELECTOR, portal, lockScroll, unlockScroll } from '../../utils/dom.js';
 
   /** Whether modal is open */
   export let open = false;
@@ -39,6 +39,7 @@
   let modalElement;
   let previousActiveElement;
   let cleanupTrapFocus;
+  let isScrollLocked = false;
 
   function close() {
     open = false;
@@ -52,6 +53,7 @@
   }
 
   function handleKeydown(event) {
+    if (!open) return;
     if (closeOnEscape && event.key === 'Escape') {
       close();
     }
@@ -59,7 +61,7 @@
 
   $: if (open) {
     previousActiveElement = document.activeElement;
-    document.body.style.overflow = 'hidden';
+    if (!isScrollLocked) { lockScroll(); isScrollLocked = true; }
 
     // Setup focus trap after DOM updates
     setTimeout(() => {
@@ -75,13 +77,13 @@
       }
     }, 0);
   } else {
-    document.body.style.overflow = '';
+    if (isScrollLocked) { unlockScroll(); isScrollLocked = false; }
     cleanupTrapFocus?.();
     previousActiveElement?.focus();
   }
 
   onDestroy(() => {
-    document.body.style.overflow = '';
+    if (isScrollLocked) unlockScroll();
     cleanupTrapFocus?.();
   });
 </script>

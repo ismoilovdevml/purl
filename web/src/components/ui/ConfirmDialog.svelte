@@ -15,7 +15,7 @@
 <script>
   import { onDestroy } from 'svelte';
   import { fade, scale } from 'svelte/transition';
-  import { trapFocus, portal } from '../../utils/dom.js';
+  import { trapFocus, portal, lockScroll, unlockScroll } from '../../utils/dom.js';
 
   /** Whether dialog is visible */
   export let show = false;
@@ -45,6 +45,7 @@
   let confirmButton;
   let previousActiveElement;
   let cleanupTrapFocus;
+  let isScrollLocked = false;
 
   function handleConfirm() {
     show = false;
@@ -73,7 +74,7 @@
 
   $: if (show) {
     previousActiveElement = document.activeElement;
-    document.body.style.overflow = 'hidden';
+    if (!isScrollLocked) { lockScroll(); isScrollLocked = true; }
 
     setTimeout(() => {
       if (dialogElement) {
@@ -82,13 +83,13 @@
       }
     }, 0);
   } else {
-    document.body.style.overflow = '';
+    if (isScrollLocked) { unlockScroll(); isScrollLocked = false; }
     cleanupTrapFocus?.();
     previousActiveElement?.focus();
   }
 
   onDestroy(() => {
-    document.body.style.overflow = '';
+    if (isScrollLocked) unlockScroll();
     cleanupTrapFocus?.();
   });
 </script>

@@ -90,14 +90,17 @@
     showModal = true;
   }
 
-  function handleAddClick(e) {
-    e.stopPropagation();
-    showModal = true;
+  function handleHeaderKeydown(e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      expanded = !expanded;
+    }
   }
 </script>
 
 <div class="saved-searches">
-  <button class="header" on:click={() => expanded = !expanded}>
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="header" role="button" tabindex="0" on:click={() => expanded = !expanded} on:keydown={handleHeaderKeydown}>
     <svg class="chevron" class:expanded width="12" height="12" viewBox="0 0 12 12">
       <path fill="currentColor" d="M4 2l4 4-4 4"/>
     </svg>
@@ -105,12 +108,15 @@
     {#if searches.length > 0}
       <span class="count">{searches.length}</span>
     {/if}
-    <Button icon size="sm" variant="ghost" on:click={handleAddClick} title="Save current search">
-      <svg width="14" height="14" viewBox="0 0 14 14">
-        <path fill="currentColor" d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-    </Button>
-  </button>
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <span class="header-actions" on:click|stopPropagation>
+      <Button icon size="sm" variant="ghost" on:click={() => showModal = true} title="Save current search">
+        <svg width="14" height="14" viewBox="0 0 14 14">
+          <path fill="currentColor" d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </Button>
+    </span>
+  </div>
 
   {#if expanded}
     <div class="content">
@@ -197,6 +203,12 @@
     border: none;
     cursor: pointer;
     text-align: left;
+    user-select: none;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
   }
 
   .header:hover h3 {

@@ -6,6 +6,7 @@
   import Modal from './ui/Modal.svelte';
   import ConfirmDialog from './ui/ConfirmDialog.svelte';
   import AlertTemplateGallery from './alerts/AlertTemplateGallery.svelte';
+  import { k8sMode } from '../stores/license.js';
 
   let alerts = [];
   let showModal = false;
@@ -159,15 +160,9 @@
     deleteTargetId = null;
   }
 
-  function handleAddClick(e) {
-    e.stopPropagation();
-    openModal();
-  }
-
   let checking = false;
 
-  async function handleCheckNow(e) {
-    e.stopPropagation();
+  async function handleCheckNow() {
     checking = true;
     try {
       await checkAlerts();
@@ -176,9 +171,11 @@
     }
   }
 
-  function handleTemplatesClick(e) {
-    e.stopPropagation();
-    showTemplateGallery = true;
+  function handleHeaderKeydown(e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      expanded = !expanded;
+    }
   }
 
   function handleUseTemplate(event) {
@@ -198,7 +195,8 @@
 </script>
 
 <div class="alerts-panel">
-  <button class="header" on:click={() => expanded = !expanded}>
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="header" role="button" tabindex="0" on:click={() => expanded = !expanded} on:keydown={handleHeaderKeydown}>
     <svg class="chevron" class:expanded width="12" height="12" viewBox="0 0 12 12">
       <path fill="currentColor" d="M4 2l4 4-4 4"/>
     </svg>
@@ -206,26 +204,31 @@
     {#if alerts.length > 0}
       <span class="count">{alerts.length}</span>
     {/if}
-    <Button icon size="sm" variant="ghost" on:click={handleCheckNow} title="Check alerts now" disabled={checking}>
-      <svg class:spinning={checking} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M23 4v6h-6M1 20v-6h6"/>
-        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-      </svg>
-    </Button>
-    <Button icon size="sm" variant="ghost" on:click={handleTemplatesClick} title="Browse K8s Templates">
-      <svg width="14" height="14" viewBox="0 0 14 14">
-        <rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/>
-        <rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/>
-        <rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/>
-        <rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor"/>
-      </svg>
-    </Button>
-    <Button icon size="sm" variant="ghost" on:click={handleAddClick} title="Create alert">
-      <svg width="14" height="14" viewBox="0 0 14 14">
-        <path fill="currentColor" d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-    </Button>
-  </button>
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <span class="header-actions" on:click|stopPropagation>
+      <Button icon size="sm" variant="ghost" on:click={handleCheckNow} title="Check alerts now" disabled={checking}>
+        <svg class:spinning={checking} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 4v6h-6M1 20v-6h6"/>
+          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg>
+      </Button>
+      {#if $k8sMode}
+        <Button icon size="sm" variant="ghost" on:click={() => showTemplateGallery = true} title="Browse K8s Templates">
+          <svg width="14" height="14" viewBox="0 0 14 14">
+            <rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/>
+            <rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/>
+            <rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/>
+            <rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor"/>
+          </svg>
+        </Button>
+      {/if}
+      <Button icon size="sm" variant="ghost" on:click={() => openModal()} title="Create alert">
+        <svg width="14" height="14" viewBox="0 0 14 14">
+          <path fill="currentColor" d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </Button>
+    </span>
+  </div>
 
   {#if expanded}
     <div class="content">
@@ -338,9 +341,11 @@
   onConfirm={confirmDeleteAlert}
 />
 
-<Modal bind:open={showTemplateGallery} title="K8s Alert Templates" size="lg">
-  <AlertTemplateGallery on:use-template={handleUseTemplate} />
-</Modal>
+{#if $k8sMode}
+  <Modal bind:open={showTemplateGallery} title="K8s Alert Templates" size="lg">
+    <AlertTemplateGallery on:use-template={handleUseTemplate} />
+  </Modal>
+{/if}
 
 <style>
   .alerts-panel {
@@ -359,6 +364,12 @@
     border: none;
     cursor: pointer;
     text-align: left;
+    user-select: none;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
   }
 
   .header:hover h3 {

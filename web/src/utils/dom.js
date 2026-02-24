@@ -139,6 +139,27 @@ export const FOCUSABLE_SELECTOR =
  * @param {HTMLElement} container - Container element
  * @returns {Function} Cleanup function
  */
+/**
+ * Reference-counted scroll lock for modals/dialogs.
+ * Multiple modals can lock simultaneously; body overflow is
+ * only restored when ALL locks are released.
+ */
+let scrollLockCount = 0;
+
+export function lockScroll() {
+  scrollLockCount++;
+  if (scrollLockCount === 1) {
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+export function unlockScroll() {
+  scrollLockCount = Math.max(0, scrollLockCount - 1);
+  if (scrollLockCount === 0) {
+    document.body.style.overflow = '';
+  }
+}
+
 export function trapFocus(container) {
   const getFocusable = () =>
     [...container.querySelectorAll(FOCUSABLE_SELECTOR)].filter(
