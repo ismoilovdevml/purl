@@ -92,7 +92,6 @@ web/src/
 
 | Server | IP | Port | Purpose | License |
 |--------|----|------|---------|---------|
-| **Production** | `172.17.4.16` | 3000 | Main production instance | Enterprise |
 | **Demo/Test** | `37.27.187.72` | 3000 | Demo & testing (Rocky Linux 9.7) | Pro Trial |
 
 ### Server Update

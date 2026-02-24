@@ -1,0 +1,75 @@
+# Purl Test LDAP Data
+# Domain: dc=purl,dc=test
+# Admin: cn=admin,dc=purl,dc=test / admin_password
+
+dn: ou=users,dc=purl,dc=test
+objectClass: organizationalUnit
+ou: users
+
+dn: ou=groups,dc=purl,dc=test
+objectClass: organizationalUnit
+ou: groups
+
+dn: cn=admins,ou=groups,dc=purl,dc=test
+objectClass: groupOfNames
+cn: admins
+description: Purl Administrators
+member: uid=john.doe,ou=users,dc=purl,dc=test
+
+dn: cn=developers,ou=groups,dc=purl,dc=test
+objectClass: groupOfNames
+cn: developers
+description: Development Team
+member: uid=john.doe,ou=users,dc=purl,dc=test
+member: uid=jane.smith,ou=users,dc=purl,dc=test
+
+dn: cn=viewers,ou=groups,dc=purl,dc=test
+objectClass: groupOfNames
+cn: viewers
+description: Read-only Access
+member: uid=bob.wilson,ou=users,dc=purl,dc=test
+
+dn: uid=john.doe,ou=users,dc=purl,dc=test
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: john.doe
+sn: Doe
+givenName: John
+cn: John Doe
+displayName: John Doe
+mail: john.doe@purl.test
+uidNumber: 10001
+gidNumber: 10001
+homeDirectory: /home/john.doe
+userPassword: password123
+
+dn: uid=jane.smith,ou=users,dc=purl,dc=test
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: jane.smith
+sn: Smith
+givenName: Jane
+cn: Jane Smith
+displayName: Jane Smith
+mail: jane.smith@purl.test
+uidNumber: 10002
+gidNumber: 10002
+homeDirectory: /home/jane.smith
+userPassword: password123
+
+dn: uid=bob.wilson,ou=users,dc=purl,dc=test
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: bob.wilson
+sn: Wilson
+givenName: Bob
+cn: Bob Wilson
+displayName: Bob Wilson
+mail: bob.wilson@purl.test
+uidNumber: 10003
+gidNumber: 10003
+homeDirectory: /home/bob.wilson
+userPassword: password123
