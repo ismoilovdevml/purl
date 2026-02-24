@@ -569,6 +569,8 @@ sub create_user {
         if ($self->settings->save()) {
             $c->render(json => { status => 'ok', username => $username });
         } else {
+            # Rollback in-memory state on save failure
+            delete $users->{$username};
             my $err = $self->settings->{_last_save_error} // 'unknown';
             $self->render_error($c, "Failed to create user: $err", 500);
         }
@@ -617,11 +619,14 @@ sub update_user {
             $new_role = $current_role;
         }
 
+        my $old_entry = $users->{$username};
         $users->{$username} = { password => $new_hash, role => $new_role };
 
         if ($self->settings->save()) {
             $c->render(json => { status => 'ok', message => 'User updated' });
         } else {
+            # Rollback in-memory state on save failure
+            $users->{$username} = $old_entry;
             my $err = $self->settings->{_last_save_error} // 'unknown';
             $self->render_error($c, "Failed to update user: $err", 500);
         }
@@ -655,11 +660,13 @@ sub delete_user {
             return;
         }
 
-        delete $users->{$username};
+        my $old_entry = delete $users->{$username};
 
         if ($self->settings->save()) {
             $c->render(json => { status => 'ok' });
         } else {
+            # Rollback in-memory state on save failure
+            $users->{$username} = $old_entry;
             my $err = $self->settings->{_last_save_error} // 'unknown';
             $self->render_error($c, "Failed to delete user: $err", 500);
         }

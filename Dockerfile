@@ -41,8 +41,8 @@ COPY --from=perl-builder /usr/local/bin /usr/local/bin
 COPY lib/ ./lib/
 COPY --from=web-builder /app/web/public ./web/public
 
-RUN groupadd -r purl && useradd -r -g purl purl \
-    && mkdir -p /app/data && chown -R purl:purl /app
+RUN groupadd -r -g 1000 purl && useradd -r -g purl -u 1000 purl \
+    && mkdir -p /app/data /app/config && chown -R purl:purl /app
 
 ENV PURL_HOST=0.0.0.0 \
     PURL_PORT=3000 \
