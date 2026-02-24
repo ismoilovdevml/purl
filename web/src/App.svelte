@@ -254,8 +254,15 @@
 
   // Handle selection changes from LogTable (receives IDs, resolve to full log objects)
   function handleSelectionChange(event) {
-    const selectedIds = event.detail?.selected || [];
-    const idSet = new Set(selectedIds);
+    const ids = event.detail?.selected || [];
+    // Short-circuit empty selection to avoid reading $logs inside
+    // a reactive tracking scope (dispatch from child reactive block)
+    if (ids.length === 0) {
+      if (selectedLogs.length === 0) return;
+      selectedLogs = [];
+      return;
+    }
+    const idSet = new Set(ids);
     selectedLogs = $logs.filter(l => idSet.has(l.id));
   }
 

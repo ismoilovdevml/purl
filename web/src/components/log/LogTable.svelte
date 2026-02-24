@@ -6,7 +6,7 @@
   <LogTable logs={logs} />
 -->
 <script>
-  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
   import { query, fetchLogContext, filterByTrace, filterByRequest } from '../../stores/logs.js';
   import { formatTimestamp, formatFullTimestamp } from '../../utils/format.js';
   import { getLevelColor, getLevelBgColor } from '../../utils/colors.js';
@@ -136,7 +136,9 @@
     lastCheckedIndex = null;
     scrollTop = 0;
     if (tableContainer) tableContainer.scrollTop = 0;
-    dispatch('selectionChange', { selected: [] });
+    // Defer dispatch outside reactive tracking scope to prevent
+    // parent handler from capturing $logs as a dependency of this effect
+    tick().then(() => dispatch('selectionChange', { selected: [] }));
   }
 
   // Derived: paginated slice
