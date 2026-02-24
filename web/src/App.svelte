@@ -68,11 +68,13 @@
   // Sync the logs store error into local errorState (auto-set retry to searchLogs)
   $: if ($error) {
     setError($error, searchLogs, 'error');
-  } else if (!$error && errorState.retryFn === searchLogs) {
+  } else if (!$error && errorState.message && errorState.retryFn === searchLogs) {
     clearError();
   }
 
   function setError(message, retryFn = null, severity = 'error') {
+    // Avoid reactive loop: skip if same error already displayed
+    if (errorState.message === message && errorState.severity === severity) return;
     if (errorDismissTimer) clearTimeout(errorDismissTimer);
     errorState = { message, retryFn, severity };
     // Auto-dismiss after 10 seconds
