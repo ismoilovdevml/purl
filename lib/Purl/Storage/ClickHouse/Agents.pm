@@ -92,8 +92,8 @@ sub get_agents {
             api_key_label,
             labels,
             formatDateTime(registered_at, '%Y-%m-%dT%H:%i:%SZ') AS registered_at,
-            if(last_heartbeat >= now64() - toIntervalMinute(2), 'online', 'offline') AS status,
-            formatDateTime(last_heartbeat, '%Y-%m-%dT%H:%i:%SZ') AS last_heartbeat
+            formatDateTime(last_heartbeat, '%Y-%m-%dT%H:%i:%SZ') AS last_heartbeat_at,
+            if(last_heartbeat >= now64() - toIntervalMinute(2), 'online', 'offline') AS status
         FROM ${db}.agents FINAL
         ORDER BY last_heartbeat DESC
     }, no_cache => 1);

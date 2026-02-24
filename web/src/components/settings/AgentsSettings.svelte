@@ -269,7 +269,7 @@
             <div class="agent-stats">
               <div class="agent-stat">
                 <span class="agent-stat-value">
-                  {agent.last_heartbeat ? formatRelativeTime(agent.last_heartbeat) : 'Never'}
+                  {agent.last_heartbeat_at ? formatRelativeTime(agent.last_heartbeat_at) : 'Never'}
                 </span>
                 <span class="agent-stat-label">last heartbeat</span>
               </div>
