@@ -14,7 +14,7 @@
 <script>
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { fade, scale } from 'svelte/transition';
-  import { trapFocus, FOCUSABLE_SELECTOR, portal, lockScroll, unlockScroll } from '../../utils/dom.js';
+  import { trapFocus, FOCUSABLE_SELECTOR, lockScroll, unlockScroll } from '../../utils/dom.js';
 
   /** Whether modal is open */
   export let open = false;
@@ -94,7 +94,6 @@
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
   <div
     class="modal-overlay"
-    use:portal
     transition:fade={{ duration: 150 }}
     on:click={handleOverlayClick}
   >
