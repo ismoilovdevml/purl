@@ -29,7 +29,7 @@
     searchLogs,
   } from './stores/logs.js';
   import { refreshInterval, defaultTimeRange } from './stores/settings.js';
-  import { fetchLicense, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining, licenseFeatures } from './stores/license.js';
+  import { fetchLicense, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining, licenseFeatures, k8sMode } from './stores/license.js';
   import { currentUser, checkAuth, logout, passwordChangeRequired } from './stores/auth.js';
   import { success as toastSuccess, warning as toastWarning } from './stores/toast.js';
   import { fetchClusters, clusters } from './stores/cluster.js';
@@ -181,7 +181,12 @@
         toastWarning('Custom Dashboards requires a Pro or Enterprise license');
         return;
       }
-      if (hash === 'settings' && $currentUser?.role === 'viewer') {
+      if ((hash === 'settings' || hash === 'analytics') && $currentUser?.role === 'viewer') {
+        currentPage = 'logs';
+        window.location.hash = 'logs';
+        return;
+      }
+      if (hash === 'k8s' && !$k8sMode) {
         currentPage = 'logs';
         window.location.hash = 'logs';
         return;
@@ -195,7 +200,10 @@
       toastWarning('Custom Dashboards requires a Pro or Enterprise license');
       return;
     }
-    if (page === 'settings' && $currentUser?.role === 'viewer') {
+    if ((page === 'settings' || page === 'analytics') && $currentUser?.role === 'viewer') {
+      return;
+    }
+    if (page === 'k8s' && !$k8sMode) {
       return;
     }
     currentPage = page;
@@ -398,6 +406,7 @@
         </svg>
         Logs
       </button>
+      {#if $currentUser?.role !== 'viewer'}
       <button
         class:active={currentPage === 'analytics'}
         on:click={() => navigate('analytics')}
@@ -415,6 +424,7 @@
         </svg>
         Analytics
       </button>
+      {/if}
       <button
         class:active={currentPage === 'traces'}
         on:click={() => navigate('traces')}
@@ -431,6 +441,7 @@
         </svg>
         Traces
       </button>
+      {#if $k8sMode}
       <button
         class:active={currentPage === 'k8s'}
         on:click={() => navigate('k8s')}
@@ -449,6 +460,7 @@
         </svg>
         K8s
       </button>
+      {/if}
       <button
         class:active={currentPage === 'query'}
         on:click={() => navigate('query')}

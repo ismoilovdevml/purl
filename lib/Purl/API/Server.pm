@@ -699,6 +699,7 @@ sub setup_routes {
             activated  => $info->{activated} // 0,
             valid      => $info->{valid} // 0,
             expires_at => $info->{expires_at} // undef,
+            k8s_mode   => $ENV{KUBERNETES_SERVICE_HOST} ? \1 : \0,
             ($info->{error} ? (error => $info->{error}) : ()),
             ($info->{trial} ? (
                 trial                => \1,

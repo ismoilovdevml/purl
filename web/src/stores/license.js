@@ -46,6 +46,10 @@ export const licenseLimits = {
   subscribe: (fn) => licenseInfo.subscribe(info => fn(info?.limits || {}))
 };
 
+export const k8sMode = {
+  subscribe: (fn) => licenseInfo.subscribe(info => fn(info?.k8s_mode || false))
+};
+
 // Check if a specific feature is available
 export function hasFeature(feature) {
   const info = get(licenseInfo);
