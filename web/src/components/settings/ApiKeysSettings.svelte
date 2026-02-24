@@ -19,6 +19,7 @@
   let keys = [];
   let loading = true;
   let error = '';
+  let fromEnv = false;
 
   // Create key form
   let showCreateForm = false;
@@ -44,7 +45,8 @@
       const res = await fetch(`${API_BASE}/settings/api-keys`);
       if (res.ok) {
         const data = await res.json();
-        keys = data.keys || [];
+        keys = data.api_keys || [];
+        fromEnv = !!data.from_env;
       } else {
         const data = await res.json();
         error = data.error || 'Failed to load API keys';
@@ -63,11 +65,11 @@
       const res = await fetch(`${API_BASE}/settings/api-keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newKeyName.trim() })
+        body: JSON.stringify({ label: newKeyName.trim() })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create API key');
-      createdKey = data.key;
+      createdKey = { key: data.api_key, label: data.label };
       copied = false;
       toastSuccess(`API key "${newKeyName.trim()}" created`);
       newKeyName = '';
@@ -93,7 +95,7 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to revoke API key');
-      toastSuccess(`API key "${revokingKey.name}" revoked`);
+      toastSuccess(`API key "${revokingKey.label || revokingKey.id}" revoked`);
       revokingKey = null;
       await fetchKeys();
     } catch (err) {
@@ -188,10 +190,15 @@
       <div class="keys-header">
         <span class="key-count">
           {keys.length} key{keys.length !== 1 ? 's' : ''}
+          {#if fromEnv}<span class="env-badge">ENV</span>{/if}
         </span>
-        <Button variant="primary" size="sm" on:click={() => { showCreateForm = !showCreateForm; }}>
-          {showCreateForm ? 'Cancel' : 'Create Key'}
-        </Button>
+        {#if !fromEnv}
+          <Button variant="primary" size="sm" on:click={() => { showCreateForm = !showCreateForm; }}>
+            {showCreateForm ? 'Cancel' : 'Create Key'}
+          </Button>
+        {:else}
+          <span class="env-note">Configured via PURL_API_KEYS</span>
+        {/if}
       </div>
 
       {#if showCreateForm}
@@ -231,10 +238,10 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
                 </svg>
-                <span class="key-name">{key.name}</span>
+                <span class="key-name">{key.label || key.id}</span>
               </div>
               <div class="col-key">
-                <code class="key-prefix">{formatKeyPrefix(key.key || key.prefix || key.id)}</code>
+                <code class="key-prefix">{key.masked_key || formatKeyPrefix(key.id)}</code>
               </div>
               <div class="col-created">
                 <span class="key-date">{formatDate(key.created_at)}</span>
@@ -243,9 +250,11 @@
                 <span class="status-badge status-active">Active</span>
               </div>
               <div class="col-actions">
-                <Button variant="ghost" size="sm" on:click={() => confirmRevoke(key)}>
-                  Revoke
-                </Button>
+                {#if !fromEnv}
+                  <Button variant="ghost" size="sm" on:click={() => confirmRevoke(key)}>
+                    Revoke
+                  </Button>
+                {/if}
               </div>
             </div>
           {/each}
@@ -281,7 +290,7 @@
 <ConfirmDialog
   bind:show={showRevokeConfirm}
   title="Revoke API Key"
-  message="Are you sure you want to revoke the key &quot;{revokingKey?.name || ''}&quot;? Any services using this key will lose access immediately. This action cannot be undone."
+  message="Are you sure you want to revoke the key &quot;{revokingKey?.label || revokingKey?.id || ''}&quot;? Any services using this key will lose access immediately. This action cannot be undone."
   confirmText="Revoke"
   variant="danger"
   onConfirm={handleRevoke}
@@ -399,6 +408,27 @@
   .key-count {
     font-size: 0.8125rem;
     color: var(--text-secondary, #8b949e);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .env-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    background: rgba(187, 128, 9, 0.15);
+    color: #d29922;
+  }
+
+  .env-note {
+    font-size: 0.75rem;
+    color: var(--text-muted, #6e7681);
+    font-style: italic;
   }
 
   /* Create form */
