@@ -45,6 +45,12 @@
   let unsubscribeDefaultRange = null;
   let appReady = false;
 
+  // Action menus (touch-friendly instead of hover-only)
+  let actionsMenuOpen = false;
+  let selectionMenuOpen = false;
+  let actionsMenuEl;
+  let selectionMenuEl;
+
   $: hasDashboards = ($licenseFeatures || []).includes('dashboards');
 
   // Mobile responsive state
@@ -144,6 +150,7 @@
     // Mobile responsive: check on mount and listen for resize
     checkMobile();
     window.addEventListener('resize', checkMobile);
+    window.addEventListener('click', handleClickOutside, true);
 
     // Only fetch data if user is authenticated (or free plan)
     const needsAuth = $isPaidPlan && !$currentUser;
@@ -158,6 +165,7 @@
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
       window.removeEventListener('resize', checkMobile);
+      window.removeEventListener('click', handleClickOutside, true);
     };
   });
 
@@ -328,6 +336,16 @@
     downloadBlob(blob, `purl-logs-${Date.now()}.json`);
     exportStatus = '';
     toastSuccess(`Exported ${logsToExport.length} logs as JSON`);
+  }
+
+  function handleClickOutside(event) {
+    const target = event.target;
+    if (actionsMenuOpen && actionsMenuEl && !actionsMenuEl.contains(target)) {
+      actionsMenuOpen = false;
+    }
+    if (selectionMenuOpen && selectionMenuEl && !selectionMenuEl.contains(target)) {
+      selectionMenuOpen = false;
+    }
   }
 
   function downloadBlob(blob, filename) {
@@ -556,8 +574,13 @@
         <TimeRangePicker value={$timeRange} on:change={handleTimeRangeChange} />
 
         {#if selectedLogs.length > 0}
-          <div class="actions-dropdown">
-            <button class="btn btn-selected dropdown-trigger">
+          <div class="actions-dropdown" bind:this={selectionMenuEl}>
+            <button
+              class="btn btn-selected dropdown-trigger"
+              aria-haspopup="menu"
+              aria-expanded={selectionMenuOpen}
+              on:click={() => selectionMenuOpen = !selectionMenuOpen}
+            >
               Export Selected ({selectedLogs.length})
               <svg
                 width="12"
@@ -568,8 +591,8 @@
                 stroke-width="2"><path d="M6 9l6 6 6-6" /></svg
               >
             </button>
-            <div class="dropdown-menu">
-              <button on:click={() => exportCSV(selectedLogs)}>
+            <div class="dropdown-menu" class:open={selectionMenuOpen}>
+              <button on:click={() => { exportCSV(selectedLogs); selectionMenuOpen = false; }}>
                 <svg width="14" height="14" viewBox="0 0 14 14"
                   ><path
                     fill="currentColor"
@@ -578,7 +601,7 @@
                 >
                 Export CSV
               </button>
-              <button on:click={() => exportJSON(selectedLogs)}>
+              <button on:click={() => { exportJSON(selectedLogs); selectionMenuOpen = false; }}>
                 <svg width="14" height="14" viewBox="0 0 14 14"
                   ><path
                     fill="currentColor"
@@ -591,8 +614,13 @@
           </div>
         {/if}
 
-        <div class="actions-dropdown">
-          <button class="btn dropdown-trigger">
+        <div class="actions-dropdown" bind:this={actionsMenuEl}>
+          <button
+            class="btn dropdown-trigger"
+            aria-haspopup="menu"
+            aria-expanded={actionsMenuOpen}
+            on:click={() => actionsMenuOpen = !actionsMenuOpen}
+          >
             Actions
             <svg
               width="12"
@@ -604,8 +632,8 @@
             >
           </button>
 
-          <div class="dropdown-menu">
-            <button on:click={saveCurrentSearch}>
+          <div class="dropdown-menu" class:open={actionsMenuOpen}>
+            <button on:click={() => { saveCurrentSearch(); actionsMenuOpen = false; }}>
               <svg width="14" height="14" viewBox="0 0 14 14"
                 ><path
                   fill="currentColor"
@@ -615,7 +643,7 @@
               Save Search
             </button>
             <div class="divider"></div>
-            <button on:click={() => exportCSV($logs)} disabled={$logs.length === 0}>
+            <button on:click={() => { exportCSV($logs); actionsMenuOpen = false; }} disabled={$logs.length === 0}>
               <svg width="14" height="14" viewBox="0 0 14 14"
                 ><path
                   fill="currentColor"
@@ -624,7 +652,7 @@
               >
               Export CSV
             </button>
-            <button on:click={() => exportJSON($logs)} disabled={$logs.length === 0}>
+            <button on:click={() => { exportJSON($logs); actionsMenuOpen = false; }} disabled={$logs.length === 0}>
               <svg width="14" height="14" viewBox="0 0 14 14"
                 ><path
                   fill="currentColor"
@@ -713,7 +741,7 @@
         {/if}
       </div>
 
-      <div class="container">
+    <div class="container">
         {#if isMobile && mobileMenuOpen}
           <div class="sidebar-backdrop visible" on:click={() => mobileMenuOpen = false} on:keydown={() => mobileMenuOpen = false} role="button" tabindex="-1" aria-label="Close menu"></div>
         {/if}
@@ -1037,10 +1065,8 @@
     position: relative;
   }
 
-  .actions-dropdown:hover .dropdown-menu,
-  .actions-dropdown:focus-within .dropdown-menu {
-    display: block;
-  }
+  /* Hover support kept for desktop but click toggle controls visibility */
+  /* Hover kept for desktop but visibility controlled via .open class */
 
   .dropdown-trigger {
     padding-right: 12px;
@@ -1065,6 +1091,10 @@
     min-width: 160px;
     overflow: hidden;
     padding: 4px 0;
+  }
+
+  .dropdown-menu.open {
+    display: block;
   }
 
   .dropdown-menu button {

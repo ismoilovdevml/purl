@@ -38,25 +38,6 @@
 
   checkSso();
 
-  async function handleSsoLogin(e) {
-    e.preventDefault();
-    loading = true;
-    error = '';
-    try {
-      const res = await fetch('/api/auth/sso/login', { redirect: 'manual' });
-      if (res.type === 'opaqueredirect' || res.status === 0) {
-        window.location.href = '/api/auth/sso/login';
-      } else {
-        const data = await res.json().catch(() => ({}));
-        error = data.error || 'SSO login is not available';
-      }
-    } catch {
-      error = 'SSO login failed. Please try again.';
-    } finally {
-      loading = false;
-    }
-  }
-
   async function handleLogin() {
     if (!username.trim() || !password.trim()) return;
     loading = true;

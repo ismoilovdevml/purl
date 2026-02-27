@@ -282,9 +282,9 @@
       </p>
       <div class="usage-example">
         <code>curl -X POST {window.location.origin}/api/v1/logs \</code>
-        <code>  -H "X-API-Key: YOUR_API_KEY" \</code>
-        <code>  -H "Content-Type: application/json" \</code>
-        <code>  -d '{"{"}\"level\": \"info\", \"message\": \"Hello Purl\"{"}"}'</code>
+        <code>  -H 'X-API-Key: YOUR_API_KEY' \</code>
+        <code>  -H 'Content-Type: application/json' \</code>
+        <code>  -d '&#123;\"level\": \"info\", \"message\": \"Hello Purl\"&#125;'</code>
       </div>
     </Card>
   {/if}
@@ -293,8 +293,8 @@
 <ConfirmDialog
   bind:show={showRevokeConfirm}
   title="Revoke API Key"
-  message="Are you sure you want to revoke the key &quot;{revokingKey?.label || revokingKey?.id || ''}&quot;? Any services using this key will lose access immediately. This action cannot be undone."
-  confirmText="Revoke"
+  message={`Are you sure you want to revoke the key "${revokingKey?.label || revokingKey?.id || ''}"? Any services using this key will lose access immediately. This action cannot be undone.`}
+  confirmText='Revoke'
   variant="danger"
   onConfirm={handleRevoke}
   onCancel={() => { revokingKey = null; }}
