@@ -27,6 +27,7 @@
 
   // Live mode
   let ws = null;
+  let unsub = null;
 
   // KQL operators and fields
   const OPERATORS = ['AND', 'OR', 'NOT'];
@@ -51,17 +52,16 @@
       searchHistory = JSON.parse(saved);
     }
 
-    // Fetch AI suggestions once on mount if AI is configured
-    const unsub = aiConfigured.subscribe(configured => {
+    // Fetch AI suggestions if AI is already configured
+    unsub = aiConfigured.subscribe(configured => {
       if (configured) {
         fetchSuggestions();
       }
     });
-    // Unsubscribe immediately — we only need the current value
-    unsub();
   });
 
   onDestroy(() => {
+    if (unsub) unsub();
     if (ws) {
       ws.close();
       isLive.set(false);

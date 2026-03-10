@@ -88,7 +88,7 @@ sub ingest {
         }
 
         if (@logs) {
-            $self->storage->store_batch(\@logs);
+            $self->storage->insert_batch(\@logs);
         }
 
         $c->render(json => {

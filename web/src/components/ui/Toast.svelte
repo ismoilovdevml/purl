@@ -3,7 +3,7 @@
   Displays stacked toast notifications at bottom-right
 
   Usage:
-  import Toast from './components/ui/Toast.svelte';
+  import Toast from './ui/Toast.svelte';
   <Toast />
 
   Trigger toasts via:

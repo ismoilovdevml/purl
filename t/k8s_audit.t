@@ -56,7 +56,7 @@ use Mojo::JSON qw(encode_json decode_json);
 
     package MockStorage;
     sub new { bless { batches => [] }, $_[0] }
-    sub store_batch {
+    sub insert_batch {
         my ($self, $logs) = @_;
         push @{$self->{batches}}, $logs;
     }

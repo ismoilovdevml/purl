@@ -397,10 +397,8 @@ export async function fetchPatterns() {
   patternsError.set(null);
 
   try {
-    let currentRange;
-    let currentCustom;
-    timeRange.subscribe(v => currentRange = v)();
-    customTimeRange.subscribe(v => currentCustom = v)();
+    const currentRange = get(timeRange);
+    const currentCustom = get(customTimeRange);
 
     const params = new URLSearchParams({ limit: '30' });
 
@@ -436,8 +434,7 @@ export async function fetchPatternLogs(patternHash) {
   if (!patternHash) return null;
 
   try {
-    let currentRange;
-    timeRange.subscribe(v => currentRange = v)();
+    const currentRange = get(timeRange);
 
     const params = new URLSearchParams({
       range: currentRange,
