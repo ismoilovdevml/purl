@@ -72,6 +72,11 @@ sub update {
             return;
         }
 
+        unless ($body) {
+            $self->render_error($c, 'Invalid JSON payload', 400);
+            return;
+        }
+
         # Enforce alert type feature gating on update
         if (my $notify_type = $body->{notify_type}) {
             if ($notify_type eq 'telegram') {

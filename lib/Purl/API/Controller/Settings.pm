@@ -167,6 +167,12 @@ sub update_notifications {
         return unless $self->require_role($c, 'admin');
 
         my $type = $c->param('type');
+
+        unless (defined $type) {
+            $self->render_error($c, 'Notification type parameter required', 400);
+            return;
+        }
+
         my $body = eval { decode_json($c->req->body) };
 
         unless ($body) {
@@ -281,6 +287,9 @@ sub update_retention {
         if ($self->settings->set('retention', 'days', $days)) {
             # Update ClickHouse TTL
             eval { $self->storage->update_retention($days) };
+            if ($@) {
+                $c->app->log->warn("Failed to update ClickHouse retention TTL: $@");
+            }
 
             $c->render(json => {
                 status         => 'ok',
@@ -600,6 +609,12 @@ sub update_user {
         return unless $self->require_role($c, 'admin');
 
         my $username = $c->param('username');
+
+        unless ($username && length($username) > 0) {
+            $self->render_error($c, 'Username required', 400);
+            return;
+        }
+
         my $body = eval { decode_json($c->req->body) };
 
         unless ($body && ($body->{password} || $body->{role})) {
@@ -847,7 +862,7 @@ sub update_sso {
         return unless $self->require_feature($c, 'sso');
         return unless $self->require_role($c, 'admin');
 
-        my $body = eval { JSON::XS::decode_json($c->req->body) };
+        my $body = eval { decode_json($c->req->body) };
         unless ($body) {
             $self->render_error($c, 'Invalid JSON', 400);
             return;

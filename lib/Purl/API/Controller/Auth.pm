@@ -286,6 +286,12 @@ sub change_password {
         my $entry = $users->{$username};
         my $stored = ref $entry eq 'HASH' ? $entry->{password} : $entry;
         my $role = ref $entry eq 'HASH' ? ($entry->{role} // 'viewer') : 'admin';
+
+        unless ($self->auth_middleware) {
+            $self->render_error($c, 'Authentication not configured', 500);
+            return;
+        }
+
         my ($valid) = $self->auth_middleware->verify_password($current_password, $stored);
 
         unless ($valid) {

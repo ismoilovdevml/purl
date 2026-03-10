@@ -237,6 +237,12 @@ sub _check_trial {
 
     # No trial file — start a new trial
     unless ($trial) {
+        # Check if trial was previously expired (prevent reset on container restart)
+        my $expired_marker = $self->_get_trial_file() . '.expired';
+        if (-f $expired_marker) {
+            # Trial was already used and expired — don't restart it
+            return undef;
+        }
         my $now = int(time());
         $trial = {
             started_at => $now,
@@ -250,6 +256,15 @@ sub _check_trial {
 
     # Trial expired — fall through to free plan
     if ($now >= $expires_at) {
+        # Write expired marker to prevent trial restart
+        my $expired_marker = $self->_get_trial_file() . '.expired';
+        unless (-f $expired_marker) {
+            eval {
+                open my $fh, '>', $expired_marker;
+                print $fh "expired";
+                close $fh;
+            };
+        }
         return undef;
     }
 
@@ -455,7 +470,7 @@ sub is_feature_allowed {
     my ($self, $feature) = @_;
     my $info = $self->get_license_info();
     return 0 unless $info && $info->{valid};
-    return grep { $_ eq $feature } @{ $info->{features} // [] };
+    return (grep { $_ eq $feature } @{ $info->{features} // [] }) ? 1 : 0;
 }
 
 sub check_server_limit {

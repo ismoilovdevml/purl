@@ -194,8 +194,6 @@ sub get {
 
     # 1. Check environment variable first
     my $env_key = 'PURL_' . uc($section) . '_' . uc($key);
-    $env_key =~ s/CLICKHOUSE/CLICKHOUSE/;  # Keep as-is
-
     # Special env mappings
     my %env_map = (
         'clickhouse.host'     => 'PURL_CLICKHOUSE_HOST',

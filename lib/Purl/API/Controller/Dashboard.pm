@@ -67,7 +67,7 @@ sub create {
         # Validate widgets
         if ($body->{widgets} && ref $body->{widgets} eq 'ARRAY') {
             for my $widget (@{ $body->{widgets} }) {
-                unless ($widget->{type} && $widget->{type} =~ /^(counter|chart|table|log_stream)$/) {
+                unless (ref $widget eq 'HASH' && $widget->{type} && $widget->{type} =~ /^(counter|chart|table|log_stream)$/) {
                     $self->render_error($c, "Invalid widget type: $widget->{type}", 400);
                     return;
                 }
@@ -123,6 +123,10 @@ sub remove {
         }
 
         my $result = $self->storage->delete_dashboard($id);
+        unless ($result) {
+            $self->render_error($c, 'Dashboard not found', 404);
+            return;
+        }
         $c->render(json => $result);
     });
 }

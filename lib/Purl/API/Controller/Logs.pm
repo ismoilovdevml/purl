@@ -295,6 +295,14 @@ sub ingest {
             }
         }
 
+        # Validate all logs before inserting
+        for my $log (@$logs) {
+            if (defined $log->{level} && length($log->{level}) > 32) {
+                $self->render_error($c, 'Invalid log level: exceeds maximum length', 400);
+                return;
+            }
+        }
+
         my $count = 0;
         for my $log (@$logs) {
             $log->{timestamp} //= epoch_to_iso(time());
@@ -321,11 +329,6 @@ sub ingest {
             if (defined $log->{raw} && length($log->{raw}) > 131072) {
                 $log->{raw} = substr($log->{raw}, 0, 131072);
             }
-            if (defined $log->{level} && length($log->{level}) > 32) {
-                $self->render_error($c, 'Invalid log level: exceeds maximum length', 400);
-                return;
-            }
-
             $self->storage->insert($log);
             $count++;
         }
