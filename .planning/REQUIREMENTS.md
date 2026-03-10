@@ -101,44 +101,44 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SEC-01 | Phase ? | Pending |
-| SEC-02 | Phase ? | Pending |
-| SEC-03 | Phase ? | Pending |
-| SEC-04 | Phase ? | Pending |
-| REF-01 | Phase ? | Pending |
-| REF-02 | Phase ? | Pending |
-| REF-03 | Phase ? | Pending |
-| REF-04 | Phase ? | Pending |
-| REF-05 | Phase ? | Pending |
-| TST-01 | Phase ? | Pending |
-| TST-02 | Phase ? | Pending |
-| TST-03 | Phase ? | Pending |
-| TST-04 | Phase ? | Pending |
-| TST-05 | Phase ? | Pending |
-| TST-06 | Phase ? | Pending |
-| TST-07 | Phase ? | Pending |
-| TST-08 | Phase ? | Pending |
-| TST-09 | Phase ? | Pending |
-| TST-10 | Phase ? | Pending |
-| TST-11 | Phase ? | Pending |
-| TST-12 | Phase ? | Pending |
-| UI-01 | Phase ? | Pending |
-| UI-02 | Phase ? | Pending |
-| UI-03 | Phase ? | Pending |
-| UI-04 | Phase ? | Pending |
-| UI-05 | Phase ? | Pending |
-| UI-06 | Phase ? | Pending |
-| UI-07 | Phase ? | Pending |
-| UI-08 | Phase ? | Pending |
-| FE-01 | Phase ? | Pending |
-| FE-02 | Phase ? | Pending |
-| FE-03 | Phase ? | Pending |
+| SEC-01 | Phase 1 | Pending |
+| SEC-02 | Phase 1 | Pending |
+| SEC-03 | Phase 1 | Pending |
+| SEC-04 | Phase 1 | Pending |
+| REF-01 | Phase 2 | Pending |
+| REF-02 | Phase 2 | Pending |
+| REF-03 | Phase 2 | Pending |
+| REF-04 | Phase 2 | Pending |
+| REF-05 | Phase 2 | Pending |
+| TST-01 | Phase 3 | Pending |
+| TST-02 | Phase 3 | Pending |
+| TST-03 | Phase 3 | Pending |
+| TST-04 | Phase 3 | Pending |
+| TST-05 | Phase 3 | Pending |
+| TST-06 | Phase 3 | Pending |
+| TST-07 | Phase 3 | Pending |
+| TST-08 | Phase 3 | Pending |
+| TST-09 | Phase 3 | Pending |
+| TST-10 | Phase 3 | Pending |
+| TST-11 | Phase 3 | Pending |
+| TST-12 | Phase 3 | Pending |
+| UI-01 | Phase 4 | Pending |
+| UI-02 | Phase 4 | Pending |
+| UI-03 | Phase 4 | Pending |
+| UI-04 | Phase 4 | Pending |
+| UI-05 | Phase 4 | Pending |
+| UI-06 | Phase 4 | Pending |
+| UI-07 | Phase 4 | Pending |
+| UI-08 | Phase 4 | Pending |
+| FE-01 | Phase 5 | Pending |
+| FE-02 | Phase 5 | Pending |
+| FE-03 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 32 total
-- Mapped to phases: 0
-- Unmapped: 32 ⚠️
+- Mapped to phases: 32
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-10*
-*Last updated: 2026-03-10 after initial definition*
+*Last updated: 2026-03-10 after roadmap creation — all 32 requirements mapped*
