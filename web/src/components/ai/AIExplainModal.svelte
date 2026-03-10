@@ -9,13 +9,28 @@
   $: result = $aiExplainResult;
   $: loading = $aiExplainLoading;
 
+  let error = null;
+
+
   $: if (open && log && !result && !loading) {
-    explainLog(log);
+    error = null;
+    explainLog(log).catch(err => {
+      error = err.message || 'Failed to get AI explanation';
+    });
   }
 
   function handleClose() {
     open = false;
+    error = null;
     aiExplainResult.set(null);
+  }
+
+  function handleRetry() {
+    error = null;
+    aiExplainResult.set(null);
+    explainLog(log).catch(err => {
+      error = err.message || 'Failed to get AI explanation';
+    });
   }
 </script>
 
@@ -34,6 +49,15 @@
       <div class="loading-state">
         <LoadingSpinner />
         <p>AI is analyzing this log entry…</p>
+      </div>
+
+    {:else if error}
+      <div class="error-state">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <p class="error-text">{error}</p>
+        <button class="btn-retry" on:click={handleRetry}>Retry</button>
       </div>
 
     {:else if result}
@@ -242,4 +266,33 @@
   }
 
   .btn-primary:hover { background: #2ea043; }
+
+  .error-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 30px 0;
+    color: #f85149;
+  }
+
+  .error-text {
+    font-size: 13px;
+    margin: 0;
+    text-align: center;
+  }
+
+  .btn-retry {
+    background: var(--bg-tertiary, #21262d);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-size: 13px;
+    color: var(--text-primary, #c9d1d9);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .btn-retry:hover { background: var(--border-color, #30363d); }
 </style>

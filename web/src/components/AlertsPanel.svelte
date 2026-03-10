@@ -7,6 +7,7 @@
   import ConfirmDialog from './ui/ConfirmDialog.svelte';
   import AlertTemplateGallery from './alerts/AlertTemplateGallery.svelte';
   import { k8sMode } from '../stores/license.js';
+  import { error as toastError } from '../stores/toast.js';
 
   let alerts = [];
   let showModal = false;
@@ -55,6 +56,7 @@
       alerts = data.alerts || [];
     } catch (err) {
       console.error('Failed to load alerts:', err);
+      toastError('Failed to load alerts');
     }
   }
 
@@ -128,6 +130,7 @@
       await loadAlerts();
     } catch (err) {
       console.error('Failed to save alert:', err);
+      toastError('Failed to save alert');
     }
   }
 
@@ -320,7 +323,7 @@
       />
     {:else if form.notify_type === 'telegram'}
       <div class="notify-info">
-        Telegram bot token va chat ID server konfiguratsiyasidan olinadi
+        Telegram bot token and chat ID are configured via server environment variables
         (<code>PURL_TELEGRAM_BOT_TOKEN</code>, <code>PURL_TELEGRAM_CHAT_ID</code>).
       </div>
     {/if}

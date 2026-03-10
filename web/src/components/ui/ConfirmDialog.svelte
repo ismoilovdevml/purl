@@ -67,7 +67,7 @@
     if (!show) return;
     if (event.key === 'Escape') {
       handleCancel();
-    } else if (event.key === 'Enter') {
+    } else if (event.key === 'Enter' && document.activeElement === confirmButton) {
       handleConfirm();
     }
   }

@@ -34,6 +34,13 @@
 
   /** Bordered style */
   export let bordered = true;
+
+  function handleKeydown(event) {
+    if (clickable && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      event.target.closest('.card')?.click();
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -47,7 +54,7 @@
   class:padding-sm={padding === 'sm'}
   class:padding-lg={padding === 'lg'}
   on:click
-  on:keydown
+  on:keydown={handleKeydown}
   role={clickable ? 'button' : undefined}
   tabindex={clickable ? 0 : -1}
 >

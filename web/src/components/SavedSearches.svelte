@@ -15,6 +15,8 @@
   let newName = '';
   let newQuery = '';
   let newTimeRange = '15m';
+  let loadError = '';
+  let saving = false;
 
   // Confirm dialog state
   let showDeleteConfirm = false;
@@ -33,18 +35,21 @@
   onMount(loadSearches);
 
   async function loadSearches() {
+    loadError = '';
     try {
       const res = await fetch(`${API_BASE}/saved-searches`);
       const data = await res.json();
       searches = data.searches || [];
     } catch (err) {
       console.error('Failed to load saved searches:', err);
+      loadError = 'Failed to load saved searches';
     }
   }
 
   async function saveSearch() {
     if (!newName || !newQuery) return;
 
+    saving = true;
     try {
       await fetch(`${API_BASE}/saved-searches`, {
         method: 'POST',
@@ -61,6 +66,8 @@
       await loadSearches();
     } catch (err) {
       console.error('Failed to save search:', err);
+    } finally {
+      saving = false;
     }
   }
 
@@ -128,6 +135,11 @@
           <span>Requires Pro</span>
           <a href="https://purlogs.com/pricing" target="_blank" rel="noopener">Upgrade</a>
         </div>
+      {:else if loadError}
+        <div class="error-state">
+          <span>{loadError}</span>
+          <button class="retry-btn" on:click={loadSearches}>Retry</button>
+        </div>
       {:else if searches.length === 0}
         <p class="empty">No saved searches</p>
       {:else}
@@ -175,7 +187,7 @@
 
   <svelte:fragment slot="footer">
     <Button variant="default" on:click={() => showModal = false}>Cancel</Button>
-    <Button variant="success" on:click={saveSearch}>Save</Button>
+    <Button variant="success" on:click={saveSearch} loading={saving}>{saving ? 'Saving...' : 'Save'}</Button>
   </svelte:fragment>
 </Modal>
 
@@ -295,6 +307,30 @@
 
   :global(.delete-btn):hover {
     color: var(--color-error, #f85149) !important;
+  }
+
+  .error-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    color: #f85149;
+    font-size: 12px;
+  }
+
+  .retry-btn {
+    background: var(--bg-tertiary, #21262d);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 11px;
+    color: var(--text-primary, #c9d1d9);
+    cursor: pointer;
+  }
+
+  .retry-btn:hover {
+    background: var(--border-color, #30363d);
   }
 
   .form-content {

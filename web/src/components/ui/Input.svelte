@@ -59,7 +59,13 @@
   /** Readonly */
   export let readonly = false;
 
+  /** Input id (auto-generated if not provided) */
+  export let id = '';
+
   const dispatch = createEventDispatcher();
+
+  // Generate unique id for label-input association
+  const uniqueId = id || `input-${Math.random().toString(36).slice(2, 9)}`;
 
   function handleInput(event) {
     value = event.target.value;
@@ -88,9 +94,9 @@
 
 <div class="input-wrapper" class:full-width={fullWidth}>
   {#if label}
-    <span class="input-label" class:required>
+    <label class="input-label" class:required for={uniqueId}>
       {label}
-    </span>
+    </label>
   {/if}
 
   <div class="input-container" class:has-error={error} class:disabled class:size-sm={size === 'sm'} class:size-lg={size === 'lg'}>
@@ -102,6 +108,7 @@
 
     {#if type === 'textarea'}
       <textarea
+        id={uniqueId}
         {name}
         {placeholder}
         {disabled}
@@ -117,6 +124,7 @@
       ></textarea>
     {:else}
       <input
+        id={uniqueId}
         {type}
         {name}
         {placeholder}

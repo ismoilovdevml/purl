@@ -205,7 +205,7 @@
           {loading}
           disabled={!username.trim() || !password.trim()}
         >
-          Sign In
+          {loading ? 'Signing in...' : 'Sign In'}
         </Button>
 
         {#if ssoAvailable}

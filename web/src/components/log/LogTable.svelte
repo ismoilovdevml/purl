@@ -370,7 +370,7 @@
       const row = headers.map(h => {
         const val = log[h] || '';
         const escaped = String(val).replace(/"/g, '""');
-        return /[,\n"]/.test(escaped) ? `"${escaped}"` : escaped;
+        return /[,\r\n"]/.test(escaped) ? `"${escaped}"` : escaped;
       });
       csvRows.push(row.join(','));
     }

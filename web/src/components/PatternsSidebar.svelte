@@ -111,6 +111,7 @@
       {:else if $patternsError}
         <div class="error-state">
           <span>{$patternsError}</span>
+          <button class="retry-btn" on:click={fetchPatterns}>Retry</button>
         </div>
       {:else if $patternsLoading && $patterns.length === 0}
         <div class="loading-state">
@@ -160,7 +161,7 @@
 
       {#if selectedPattern && patternLogsLoading}
         <div class="pattern-detail">
-          <LoadingSpinner size="sm" label="Loading logs..." />
+          <LoadingSpinner size="sm" label="Loading pattern logs..." />
         </div>
       {/if}
     </div>
@@ -284,6 +285,24 @@
 
   .error-state {
     color: #f85149;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .retry-btn {
+    background: var(--bg-tertiary, #21262d);
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 12px;
+    color: var(--text-primary, #c9d1d9);
+    cursor: pointer;
+  }
+
+  .retry-btn:hover {
+    background: var(--border-color, #30363d);
   }
 
   .patterns-list {

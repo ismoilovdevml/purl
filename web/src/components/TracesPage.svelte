@@ -29,6 +29,7 @@
   let recentTraces = [];
   let recentLoading = false;
   let recentRange = '24h';
+  let recentError = '';
 
   let searchQuery = '';
   let searchType = 'trace'; // 'trace' or 'request'
@@ -55,14 +56,17 @@
 
   async function fetchRecentTraces() {
     recentLoading = true;
+    recentError = '';
     try {
       const res = await fetch(`${API_BASE}/traces/recent?range=${recentRange}&limit=50`);
       if (res.ok) {
         const data = await res.json();
         recentTraces = data.traces || [];
+      } else {
+        recentError = `Failed to load traces (${res.status})`;
       }
     } catch {
-      // Non-critical, silently ignore
+      recentError = 'Failed to load recent traces';
     } finally {
       recentLoading = false;
     }
@@ -312,6 +316,16 @@
           <div class="loading-container" style="min-height: 200px;">
             <LoadingSpinner size="md" label="Loading recent traces..." centered />
           </div>
+        {:else if recentError}
+          <div class="empty-state">
+            <div class="empty-icon error-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+            </div>
+            <p class="empty-title">{recentError}</p>
+            <button class="retry-btn" on:click={fetchRecentTraces}>Retry</button>
+          </div>
         {:else if recentTraces.length === 0}
           <div class="empty-state">
             <div class="empty-icon">
@@ -451,7 +465,12 @@
       {/if}
 
       <!-- Logs Table -->
-      {#if logs.length > 0}
+      {#if logs.length === 0 && hasSearched && !loading}
+        <div class="empty-state" style="min-height: 150px;">
+          <p class="empty-title">No logs in this trace</p>
+          <p class="empty-sub">The trace was found but contains no log entries.</p>
+        </div>
+      {:else if logs.length > 0}
         <div class="logs-section">
           <div class="section-header">
             <h2>Logs</h2>
@@ -517,6 +536,7 @@
     {/if}
   </div>
 </div>
+
 
 <style>
   .traces-page {
@@ -620,6 +640,26 @@
     color: #6e7681;
     margin: 0;
     max-width: 400px;
+  }
+
+  .error-icon {
+    color: #f85149;
+  }
+
+  .retry-btn {
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-size: 0.8125rem;
+    color: #c9d1d9;
+    cursor: pointer;
+    transition: background 0.15s;
+    margin-top: 8px;
+  }
+
+  .retry-btn:hover {
+    background: #30363d;
   }
 
   /* Stats Bar */
