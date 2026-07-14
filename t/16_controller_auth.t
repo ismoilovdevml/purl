@@ -98,32 +98,32 @@ use Purl::API::Controller::Auth;
 }
 
 # ============================================
-# csrf_token
+# csrf_token — now delegates to the single CSRF implementation in the
+# auth middleware (one shared HMAC secret for issue + verify).
 # ============================================
-subtest 'csrf_token returns token' => sub {
-    my $ctrl = Purl::API::Controller::Auth->new(storage => MockStorage->new);
+subtest 'csrf_token returns token signed by the middleware' => sub {
+    require Purl::API::Middleware::Auth;
+    my $mw   = Purl::API::Middleware::Auth->new;
+    my $ctrl = Purl::API::Controller::Auth->new(
+        storage         => MockStorage->new,
+        auth_middleware => $mw,
+    );
     my $c = MockAuthCtrl->new;
 
     $ctrl->csrf_token($c);
     my $token = $c->rendered->{json}{csrf_token};
     ok defined $token, 'token returned';
     like $token, qr/^[^:]+:\d+:[a-f0-9]+$/, 'token format: session:timestamp:hmac';
+
+    # The token issued by the endpoint MUST verify against the same middleware.
+    ok $mw->verify_csrf_token($token), 'issued token verifies with the same secret';
 };
 
-# ============================================
-# verify_csrf_token
-# ============================================
-subtest 'verify_csrf_token valid' => sub {
+subtest 'csrf_token without middleware returns 500' => sub {
     my $ctrl = Purl::API::Controller::Auth->new(storage => MockStorage->new);
-    my $token = $ctrl->_generate_csrf_token('test_session');
-    ok $ctrl->verify_csrf_token($token), 'valid token verified';
-};
-
-subtest 'verify_csrf_token invalid' => sub {
-    my $ctrl = Purl::API::Controller::Auth->new(storage => MockStorage->new);
-    ok !$ctrl->verify_csrf_token('invalid'), 'invalid token rejected';
-    ok !$ctrl->verify_csrf_token(undef), 'undef rejected';
-    ok !$ctrl->verify_csrf_token(''), 'empty rejected';
+    my $c = MockAuthCtrl->new;
+    $ctrl->csrf_token($c);
+    is $c->rendered->{status}, 500, 'no middleware = 500, never an unsigned token';
 };
 
 # ============================================

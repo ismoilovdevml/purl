@@ -9,10 +9,23 @@ use Digest::SHA qw(sha256_hex hmac_sha256_hex);
 use MIME::Base64 qw(decode_base64 encode_base64);
 use Time::HiRes qw(time);
 use Crypt::Eksblowfish::Bcrypt qw(bcrypt_hash en_base64 de_base64);
+use Purl::Util::ClientIP qw(resolve_client_ip);
 
 has 'config' => (
     is      => 'ro',
     default => sub { {} },
+);
+
+# Trusted reverse-proxy list (arrayref of CIDRs/IPs). Empty => never trust XFF.
+has 'trusted_proxies' => (
+    is      => 'rw',
+    default => sub { [] },
+);
+
+# CSRF enforcement toggle (security.csrf_enabled). Default on.
+has 'csrf_enabled' => (
+    is      => 'rw',
+    default => 1,
 );
 
 sub _generate_secure_token {
@@ -259,13 +272,6 @@ sub check_auth {
     # Check if auth is enabled
     my $auth_enabled = $ENV{PURL_AUTH_ENABLED} // $auth_config->{enabled} // 0;
 
-    # Determine current plan
-    my $plan = 'free';
-    if ($self->license_middleware) {
-        my $info = $self->license_middleware->get_license_info();
-        $plan = $info->{plan} // 'free' if $info;
-    }
-
     # API Key auth always works (programmatic access)
     if ($self->_check_api_key($c, $auth_config)) {
         return 1;
@@ -277,18 +283,13 @@ sub check_auth {
         return 1;
     }
 
-    # Pro/Enterprise: require session cookie for browser access
-    if ($plan ne 'free') {
-        if ($self->_check_session($c)) {
-            return 1;
-        }
-        # No valid session — deny browser access
-        return 0;
-    }
-
-    # Free plan: same-origin bypass (backward compatible)
+    # Auth disabled entirely => open instance (no credentials configured).
     return 1 unless $auth_enabled;
-    return 1 if $self->_is_same_origin($c);
+
+    # Otherwise a valid session cookie is REQUIRED — regardless of license plan.
+    # There is deliberately no Origin/Referer "same-origin" bypass: those headers
+    # are attacker-controlled and must never grant access.
+    return 1 if $self->_check_session($c);
 
     return 0;
 }
@@ -302,32 +303,6 @@ sub _check_session {
         $c->stash(current_user => $username);
         return 1;
     }
-    return 0;
-}
-
-sub _is_same_origin {
-    my ($self, $c) = @_;
-
-    # Sec-Fetch-Site header (modern browsers)
-    my $sec_fetch = $c->req->headers->header('Sec-Fetch-Site') // '';
-    return 1 if $sec_fetch eq 'same-origin' || $sec_fetch eq 'same-site';
-
-    my $host = $c->req->headers->host // '';
-
-    # Origin header check
-    my $origin = $c->req->headers->header('Origin') // '';
-    if ($origin && $host) {
-        my ($origin_host) = $origin =~ m{^https?://([^/]+)};
-        return 1 if $origin_host && $origin_host eq $host;
-    }
-
-    # Referer header fallback
-    my $referer = $c->req->headers->header('Referer') // '';
-    if ($referer && $host) {
-        my ($referer_host) = $referer =~ m{^https?://([^/]+)};
-        return 1 if $referer_host && $referer_host eq $host;
-    }
-
     return 0;
 }
 
@@ -398,20 +373,40 @@ sub reload_api_keys {
 
 sub check_csrf {
     my ($self, $c) = @_;
+
+    # Globally disabled (security.csrf_enabled = 0)
+    return 1 unless $self->csrf_enabled;
+
+    # Only mutating methods can perform a state change.
     my $method = $c->req->method;
+    return 1 unless $method =~ /^(?:POST|PUT|PATCH|DELETE)$/;
 
-    # Only check state-changing methods
-    return 1 unless $method =~ /^(POST|PUT|DELETE)$/;
-
-    # Skip for API key requests (programmatic access)
+    # Programmatic clients authenticate per-request (no ambient cookie), so they
+    # are NOT vulnerable to CSRF and MUST be exempt (log ingestion, API automation).
     return 1 if $c->req->headers->header('X-API-Key');
+    return 1 if ($c->req->headers->authorization // '') =~ /^Basic\s+/i;
 
-    # Only check same-origin requests (browser clients)
-    my $sec_fetch = $c->req->headers->header('Sec-Fetch-Site') // '';
-    return 1 unless $sec_fetch eq 'same-origin' || $sec_fetch eq 'same-site';
+    # CSRF only threatens requests authorised by an ambient session cookie.
+    # No active session => nothing for an attacker to ride on => exempt.
+    return 1 unless $c->session->{logged_in};
 
+    # Cookie-authenticated browser request: a valid CSRF token is mandatory.
     my $csrf_token = $c->req->headers->header('X-CSRF-Token') // '';
     return $self->verify_csrf_token($csrf_token);
+}
+
+# Resolve the real client IP, honouring X-Forwarded-For only when the socket
+# peer is a configured trusted proxy. See Purl::Util::ClientIP.
+sub client_ip {
+    my ($self, $c) = @_;
+    my $peer = $c->tx->remote_address // '127.0.0.1';
+    my $trusted = $self->trusted_proxies;
+    return $peer unless $trusted && @$trusted;
+    return resolve_client_ip(
+        peer            => $peer,
+        forwarded_for   => $c->req->headers->header('X-Forwarded-For'),
+        trusted_proxies => $trusted,
+    );
 }
 
 # ============================================
@@ -432,7 +427,7 @@ sub apply_to_app {
         }
 
         # Rate limiting
-        my $ip = $c->tx->remote_address // '127.0.0.1';
+        my $ip = $self->client_ip($c);
         unless ($self->check_rate_limit($ip)) {
             $c->render(json => {
                 error       => 'Rate limit exceeded',

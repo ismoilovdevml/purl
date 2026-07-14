@@ -8,6 +8,9 @@ our $VERSION = '1.2.0';
 use Mojolicious::Lite -signatures;
 use Mojo::JSON qw(encode_json decode_json);
 use Time::HiRes qw(time);
+use File::Basename qw(dirname);
+use File::Path qw(make_path);
+use Purl::Util::ClientIP ();
 
 use Purl::Storage::ClickHouse;
 use Purl::Alert::Telegram;
@@ -106,9 +109,46 @@ sub _build_saml_middleware {
     return Purl::API::Middleware::SAML->new(config => $saml_config);
 }
 
+# Generate a high-entropy admin password (never a guessable default).
+sub _generate_admin_password {
+    my $bytes = '';
+    if (open(my $fh, '<:raw', '/dev/urandom')) {
+        read($fh, $bytes, 24);
+        close($fh);
+    } else {
+        $bytes = pack('C*', map { int(rand(256)) } 1..24);
+    }
+    # Alphanumeric alphabet — ~24 chars of entropy, no shell-hostile symbols.
+    my @alpha = ('A'..'Z', 'a'..'z', 0..9);
+    my $pw = '';
+    $pw .= $alpha[ ord(substr($bytes, $_, 1)) % scalar(@alpha) ] for 0 .. length($bytes) - 1;
+    return $pw;
+}
+
+# Persist the generated initial admin password to the config dir (chmod 600),
+# so headless/container operators can retrieve it once. Best-effort.
+sub _persist_initial_admin_password {
+    my ($cfg, $password) = @_;
+    return unless $cfg && $cfg->can('config_file');
+    my $dir = dirname($cfg->config_file);
+    eval {
+        make_path($dir) unless -d $dir;
+        my $path = "$dir/initial_admin_password.txt";
+        open(my $fh, '>', $path) or die "open $path: $!";
+        print $fh "username: admin\npassword: $password\n";
+        close($fh);
+        chmod 0600, $path;
+        return $path;
+    };
+    return;
+}
+
 # Shared cache for all controllers
 my %cache;
 my $cache_ttl = 60;
+
+# Trusted reverse-proxy list (arrayref), resolved once at startup.
+my $trusted_proxies = [];
 
 # Auth middleware instance
 my $auth_middleware;
@@ -260,6 +300,15 @@ sub setup_routes {
     $auth_middleware->license_middleware($license_middleware);
     $auth_middleware->settings($settings);
 
+    # Security posture from config: trusted proxies (for real client IP) + CSRF.
+    $trusted_proxies = Purl::Util::ClientIP::parse_proxy_list(
+        $settings->get('security', 'trusted_proxies') // ''
+    );
+    $auth_middleware->trusted_proxies($trusted_proxies);
+    my $csrf_enabled = $settings->get('security', 'csrf_enabled');
+    $csrf_enabled = 1 unless defined $csrf_enabled;
+    $auth_middleware->csrf_enabled($csrf_enabled ? 1 : 0);
+
     # Initialize LDAP middleware if configured
     $ldap_middleware = _build_ldap_middleware();
     $saml_middleware = _build_saml_middleware();
@@ -314,15 +363,28 @@ sub setup_routes {
         my $auth_section = $settings->get_section('auth') // {};
         my $users = $auth_section->{users} // {};
         if (!keys %$users) {
-            my $admin_pass = $ENV{PURL_ADMIN_PASSWORD} // 'admin';
+            my $admin_pass = $ENV{PURL_ADMIN_PASSWORD};
+            my $generated  = 0;
+            if (!defined $admin_pass || $admin_pass eq '') {
+                # Never fall back to a guessable default — generate a strong one.
+                $admin_pass = _generate_admin_password();
+                $generated  = 1;
+            }
             my $default_hash = $auth_middleware->hash_password($admin_pass);
             $auth_section->{users} = { admin => $default_hash };
             $auth_section->{enabled} = 1;
             $settings->set_section('auth', $auth_section);
-            if ($ENV{PURL_ADMIN_PASSWORD}) {
-                app->log->info("Admin user created with password from PURL_ADMIN_PASSWORD env var");
+            if ($generated) {
+                _persist_initial_admin_password($settings, $admin_pass);
+                app->log->warn('=' x 60);
+                app->log->warn('INITIAL ADMIN CREDENTIALS (generated once, shown only now):');
+                app->log->warn("    username: admin");
+                app->log->warn("    password: $admin_pass");
+                app->log->warn('Also written to <config_dir>/initial_admin_password.txt (chmod 600).');
+                app->log->warn('Log in and change it, then delete that file.');
+                app->log->warn('=' x 60);
             } else {
-                app->log->warn("Default admin user created (admin/admin). CHANGE PASSWORD IMMEDIATELY!");
+                app->log->info("Admin user created with password from PURL_ADMIN_PASSWORD env var");
             }
         }
     }
@@ -603,7 +665,7 @@ sub setup_routes {
         my $method = $c->req->method;
         my $path = $c->req->url->path->to_string;
         my $status = $c->res->code // 0;
-        my $ip = $c->tx->remote_address // '-';
+        my $ip = ($auth_middleware ? $auth_middleware->client_ip($c) : $c->tx->remote_address) // '-';
 
         my $log_level = $status >= 500 ? 'error' : ($status >= 400 ? 'warn' : 'info');
         app->log->$log_level(sprintf("%s - %s %s %d %.2fms", $ip, $method, $path, $status, $duration_ms));
@@ -621,7 +683,7 @@ sub setup_routes {
                 resource_type => $args{resource_type} // '',
                 resource_id   => $args{resource_id}   // '',
                 details       => $args{details}        // '',
-                ip_address    => $c->tx->remote_address // '',
+                ip_address    => ($auth_middleware ? $auth_middleware->client_ip($c) : $c->tx->remote_address) // '',
                 status        => $args{status}         // 'success',
             });
         };
@@ -634,7 +696,7 @@ sub setup_routes {
         my $path = $c->req->url->path->to_string;
         return 1 if $path =~ m{^/api/(health|metrics)$};
 
-        my $ip = $c->tx->remote_address // '127.0.0.1';
+        my $ip = $auth_middleware->client_ip($c);
 
         # Rate limiting via middleware
         unless ($auth_middleware->check_rate_limit($ip)) {
@@ -653,6 +715,17 @@ sub setup_routes {
         # Auth check via middleware
         unless ($auth_middleware->check_auth($c)) {
             $c->render(json => { error => 'Unauthorized' }, status => 401);
+            $metrics{errors_total}++;
+            return 0;
+        }
+
+        # CSRF protection for cookie-authenticated (browser) mutating requests.
+        # API-key / basic-auth clients and read-only methods are exempt.
+        unless ($auth_middleware->check_csrf($c)) {
+            $c->render(json => {
+                error => 'CSRF token missing or invalid',
+                csrf  => \1,
+            }, status => 403);
             $metrics{errors_total}++;
             return 0;
         }

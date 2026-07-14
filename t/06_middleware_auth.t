@@ -284,20 +284,40 @@ subtest 'check_auth session (pro plan)' => sub {
     ok $auth_mw->check_auth($c), 'session auth accepted for pro plan';
 };
 
-subtest 'check_auth no session denies pro plan' => sub {
+subtest 'check_auth denies without session regardless of plan (free)' => sub {
+    # Session validation must NOT depend on the license plan. On the free plan,
+    # with auth enabled and no session, access must be denied.
+    my $mock_license = bless {}, 'MockLicenseFree';
+    no warnings 'once';
+    *MockLicenseFree::get_license_info = sub { { plan => 'free' } };
+    my $auth_mw = Purl::API::Middleware::Auth->new(license_middleware => $mock_license);
+    local $ENV{PURL_AUTH_ENABLED} = 1;
+    my $c = MockController->new({}, {});
+    ok !$auth_mw->check_auth($c), 'free plan, no session, auth enabled = denied';
+};
+
+subtest 'check_auth denies without session regardless of plan (enterprise)' => sub {
     my $mock_license = bless {}, 'MockLicense2';
     no warnings 'once';
     *MockLicense2::get_license_info = sub { { plan => 'enterprise' } };
     my $auth_mw = Purl::API::Middleware::Auth->new(license_middleware => $mock_license);
+    local $ENV{PURL_AUTH_ENABLED} = 1;
     my $c = MockController->new({}, {});
     ok !$auth_mw->check_auth($c), 'no session denied for enterprise plan';
 };
 
-subtest 'check_auth free plan same-origin bypass' => sub {
+subtest 'check_auth: forged same-origin headers do NOT bypass auth' => sub {
+    # SECURITY REGRESSION: Origin/Referer/Sec-Fetch-Site are attacker-controlled.
+    # They must never grant access. Only a valid session (or API/basic auth) does.
     my $auth_mw = Purl::API::Middleware::Auth->new;
-    my $c = MockController->new({ 'Sec-Fetch-Site' => 'same-origin' });
     local $ENV{PURL_AUTH_ENABLED} = 1;
-    ok $auth_mw->check_auth($c), 'same-origin bypasses free plan auth';
+    my $c = MockController->new({
+        'Sec-Fetch-Site' => 'same-origin',
+        'Origin'         => 'http://localhost:3000',
+        'Referer'        => 'http://localhost:3000/dashboard',
+        'Host'           => 'localhost:3000',
+    }, {});
+    ok !$auth_mw->check_auth($c), 'forged same-origin denied without a valid session';
 };
 
 done_testing;
