@@ -9,7 +9,7 @@ RUN npm run build
 # Perl dependencies builder (build-essential only here, not in final image)
 FROM perl:5.40-slim-bookworm AS perl-builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential libssl-dev libxml2-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,7 +30,10 @@ LABEL org.opencontainers.image.description="Lightweight log aggregation system"
 LABEL org.opencontainers.image.vendor="Purl"
 LABEL org.opencontainers.image.licenses="BSL-1.1"
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# apt-get upgrade pulls Debian security patches for base-image OS packages so
+# the Trivy image scan (fails on fixable HIGH/CRITICAL) stays green. Without it
+# the pinned base tag lags behind published security fixes.
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     libssl3 libxml2 curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
