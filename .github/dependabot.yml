@@ -1,0 +1,99 @@
+version: 2
+
+updates:
+  # ------------------------------------------------------------------
+  # GitHub Actions used by .github/workflows/*.yml
+  # ------------------------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'ci'
+    labels:
+      - dependencies
+      - github-actions
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # ------------------------------------------------------------------
+  # Frontend npm dependencies (web/package.json + web/package-lock.json)
+  # ------------------------------------------------------------------
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 10
+    versioning-strategy: increase
+    commit-message:
+      prefix: 'chore'
+      prefix-development: 'chore'
+      include: scope
+    labels:
+      - dependencies
+      - frontend
+    groups:
+      # Keep the Svelte/Vite toolchain moving together to avoid
+      # half-upgraded builds.
+      svelte-vite:
+        patterns:
+          - 'svelte*'
+          - '@sveltejs/*'
+          - 'vite*'
+          - '@vitejs/*'
+      dev-minor-patch:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  # ------------------------------------------------------------------
+  # Root npm manifest.
+  # NOTE: /package.json is currently UNTRACKED in git (it only holds a
+  # local excalidraw helper dep). Dependabot will report "manifest not
+  # found" for this entry until package.json + package-lock.json are
+  # committed. Kept here so the root lockfile is covered the moment it
+  # lands; delete this block instead if the root manifest is meant to
+  # stay out of the repo.
+  # ------------------------------------------------------------------
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    commit-message:
+      prefix: 'chore'
+      include: scope
+    labels:
+      - dependencies
+
+  # ------------------------------------------------------------------
+  # Dockerfile base images (node:20-alpine, perl:5.40-slim-bookworm)
+  # ------------------------------------------------------------------
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'build'
+    labels:
+      - dependencies
+      - docker

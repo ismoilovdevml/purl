@@ -2,6 +2,8 @@ name: E2E Tests
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main, dev]
   schedule:
     # Weekly: Sunday at 3am UTC
     - cron: '0 3 * * 0'
@@ -9,6 +11,14 @@ on:
 env:
   REGISTRY: docker.io
   IMAGE_NAME: ismoilovdev/purl
+
+permissions:
+  contents: read
+
+# A PR that gets several pushes should not queue several full E2E runs.
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ==========================================

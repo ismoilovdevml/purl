@@ -1,6 +1,23 @@
 # Trivy ignore file for Purl
-# Add CVE IDs here to suppress known/accepted vulnerabilities
-# Format: one CVE ID per line
+#
+# WIRED INTO CI: .github/workflows/ci.yml passes this file to every
+# aquasecurity/trivy-action step (`trivyignores: .trivyignore`).
+#
+# The following scans FAIL the build on HIGH/CRITICAL:
+#   - security-fs job    : filesystem scan (vuln + secret)
+#   - build-test job     : image scan of the PR-built image
+#   - build-and-push job : image scan BEFORE the push to Docker Hub
+#
+# Add a CVE ID below only to accept a vulnerability we cannot fix
+# (e.g. no upstream patch yet). Every entry needs a reason + a date so
+# this list gets re-reviewed instead of growing forever.
+#
+# Note: scans run with `ignore-unfixed: true`, so CVEs with no available
+# fix are already excluded and do NOT need an entry here.
+#
+# Format: one CVE ID per line. Optional expiry: CVE-2024-12345 exp:2026-12-31
+#
 # Example:
-# CVE-2023-12345
-# CVE-2024-67890
+# CVE-2024-67890 exp:2026-09-01
+#   reason: base image perl:5.40-slim-bookworm, fix pending upstream
+#   owner: devops, added: 2026-07-14
