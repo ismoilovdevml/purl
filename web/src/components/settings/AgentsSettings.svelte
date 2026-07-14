@@ -15,9 +15,8 @@
   import { formatRelativeTime } from '../../utils/format.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { currentUser } from '../../stores/auth.js';
+  import { api } from '../../utils/api.js';
   // License limits are returned by the /api/agents endpoint directly
-
-  const API_BASE = '/api';
 
   let agents = [];
   let loading = true;
@@ -49,18 +48,12 @@
     error = '';
 
     try {
-      const res = await fetch(`${API_BASE}/agents`);
-      if (res.ok) {
-        const data = await res.json();
-        agents = data.agents || [];
-        agentLimit = data.limit || agentLimit;
-      } else {
-        const data = await res.json().catch(() => ({}));
-        error = data.error || 'Failed to load agents';
-        toastError(error);
-      }
-    } catch {
-      error = 'Failed to load agents';
+      const data = await api.get('/agents');
+      agents = data.agents || [];
+      agentLimit = data.limit || agentLimit;
+    } catch (err) {
+      error = err.message || 'Failed to load agents';
+      toastError(error);
     } finally {
       loading = false;
       refreshing = false;
@@ -75,17 +68,13 @@
   async function handleDelete() {
     if (!deletingAgent) return;
     try {
-      const res = await fetch(`${API_BASE}/agents/${deletingAgent.id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to remove agent');
-      }
+      await api.del(`/agents/${deletingAgent.id}`);
       toastSuccess(`Agent "${deletingAgent.hostname}" removed`);
       showDeleteConfirm = false;
       deletingAgent = null;
       await fetchAgents();
     } catch (err) {
-      toastError(err.message);
+      toastError(err.message || 'Failed to remove agent');
     }
   }
 

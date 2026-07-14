@@ -3,8 +3,7 @@
   import Button from './ui/Button.svelte';
   import LoadingSpinner from './ui/LoadingSpinner.svelte';
   import { error as toastError } from '../stores/toast.js';
-
-  const API_BASE = '/api';
+  import { api } from '../utils/api.js';
 
   let query = '';
   let fromDate = '';
@@ -67,17 +66,7 @@
         body.fields = fields.split(',').map(f => f.trim()).filter(Boolean);
       }
 
-      const res = await fetch(`${API_BASE}/query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || data.message || `HTTP ${res.status}`);
-      }
+      const data = await api.post('/query', body);
 
       executionTime = ((performance.now() - startTime) / 1000).toFixed(2);
       results = data;

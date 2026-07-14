@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { formatBytes, formatNumber } from '../utils/format.js';
   import { success as toastSuccess, error as toastError } from '../stores/toast.js';
+  import { api } from '../utils/api.js';
 
   let stats = null;
   let metrics = null;
@@ -12,27 +13,26 @@
   let refreshInterval;
   let lastUpdated = null;
 
-  const API_BASE = '/api';
-
   async function fetchAnalytics() {
     try {
-      const [statsRes, metricsRes, tableRes, queriesRes] = await Promise.all([
-        fetch(`${API_BASE}/stats`),
-        fetch(`${API_BASE}/metrics/json`),
-        fetch(`${API_BASE}/analytics/tables`),
-        fetch(`${API_BASE}/analytics/queries?limit=5`),
-      ]);
+      // Fire all four in parallel. Tables/queries are optional (may be
+      // feature-gated or unavailable) so their failures are swallowed,
+      // mirroring the previous `if (res.ok)` guards.
+      const statsPromise = api.get('/stats');
+      const metricsPromise = api.get('/metrics/json');
+      const tablePromise = api.get('/analytics/tables').catch(() => null);
+      const queriesPromise = api.get('/analytics/queries', { query: { limit: 5 } }).catch(() => null);
 
-      stats = await statsRes.json();
-      metrics = await metricsRes.json();
+      stats = await statsPromise;
+      metrics = await metricsPromise;
 
-      if (tableRes.ok) {
-        const tData = await tableRes.json();
+      const tData = await tablePromise;
+      if (tData) {
         tableStats = tData.tables || [];
       }
 
-      if (queriesRes.ok) {
-        const qData = await queriesRes.json();
+      const qData = await queriesPromise;
+      if (qData) {
         slowQueries = qData.queries || [];
       }
 
@@ -158,9 +158,8 @@
   async function clearCache() {
     clearingCache = true;
     try {
-      const res = await fetch(`${API_BASE}/cache`, { method: 'DELETE' });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const data = await api.del('/cache');
+      if (data.success) {
         toastSuccess(data.message || 'Cache cleared successfully');
         await fetchAnalytics();
       } else {

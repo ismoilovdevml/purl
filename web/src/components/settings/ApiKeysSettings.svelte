@@ -14,8 +14,7 @@
   import ConfirmDialog from '../ui/ConfirmDialog.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { currentUser } from '../../stores/auth.js';
-
-  const API_BASE = '/api';
+  import { api } from '../../utils/api.js';
 
   let keys = [];
   let loading = true;
@@ -45,17 +44,11 @@
     loading = true;
     error = '';
     try {
-      const res = await fetch(`${API_BASE}/settings/api-keys`);
-      if (res.ok) {
-        const data = await res.json();
-        keys = data.api_keys || [];
-        fromEnv = !!data.from_env;
-      } else {
-        const data = await res.json();
-        error = data.error || 'Failed to load API keys';
-      }
-    } catch {
-      error = 'Failed to load API keys';
+      const data = await api.get('/settings/api-keys');
+      keys = data.api_keys || [];
+      fromEnv = !!data.from_env;
+    } catch (err) {
+      error = err.message || 'Failed to load API keys';
     } finally {
       loading = false;
     }
@@ -65,13 +58,7 @@
     if (!newKeyName.trim()) return;
     creating = true;
     try {
-      const res = await fetch(`${API_BASE}/settings/api-keys`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: newKeyName.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to create API key');
+      const data = await api.post('/settings/api-keys', { label: newKeyName.trim() });
       createdKey = { key: data.api_key, label: data.label };
       copied = false;
       toastSuccess(`API key "${newKeyName.trim()}" created`);
@@ -93,11 +80,7 @@
   async function handleRevoke() {
     if (!revokingKey) return;
     try {
-      const res = await fetch(`${API_BASE}/settings/api-keys/${revokingKey.id}`, {
-        method: 'DELETE'
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to revoke API key');
+      await api.del(`/settings/api-keys/${revokingKey.id}`);
       toastSuccess(`API key "${revokingKey.label || revokingKey.id}" revoked`);
       revokingKey = null;
       await fetchKeys();

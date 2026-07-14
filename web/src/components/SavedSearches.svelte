@@ -6,6 +6,7 @@
   import Modal from './ui/Modal.svelte';
   import ConfirmDialog from './ui/ConfirmDialog.svelte';
   import { isFreePlan } from '../stores/license.js';
+  import { api } from '../utils/api.js';
 
   const dispatch = createEventDispatcher();
 
@@ -30,15 +31,12 @@
     { value: '7d', label: '7 days' }
   ];
 
-  const API_BASE = '/api';
-
   onMount(loadSearches);
 
   async function loadSearches() {
     loadError = '';
     try {
-      const res = await fetch(`${API_BASE}/saved-searches`);
-      const data = await res.json();
+      const data = await api.get('/saved-searches');
       searches = data.searches || [];
     } catch (err) {
       console.error('Failed to load saved searches:', err);
@@ -51,14 +49,10 @@
 
     saving = true;
     try {
-      await fetch(`${API_BASE}/saved-searches`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newName,
-          query: newQuery,
-          time_range: newTimeRange
-        })
+      await api.post('/saved-searches', {
+        name: newName,
+        query: newQuery,
+        time_range: newTimeRange
       });
       showModal = false;
       newName = '';
@@ -79,7 +73,7 @@
   async function confirmDeleteSearch() {
     if (!deleteTargetId) return;
     try {
-      await fetch(`${API_BASE}/saved-searches/${deleteTargetId}`, { method: 'DELETE' });
+      await api.del(`/saved-searches/${deleteTargetId}`);
       await loadSearches();
     } catch (err) {
       console.error('Failed to delete search:', err);

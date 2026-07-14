@@ -9,19 +9,14 @@
   import Button from '../ui/Button.svelte';
   import Card from '../ui/Card.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
-
-  const API_BASE = '/api';
+  import { api } from '../../utils/api.js';
 
   let clearingCache = false;
-
-  function getHeaders() {
-    return { 'Content-Type': 'application/json' };
-  }
 
   async function clearCache() {
     clearingCache = true;
     try {
-      await fetch(`${API_BASE}/cache`, { method: 'DELETE', headers: getHeaders() });
+      await api.del('/cache');
       toastSuccess('Cache cleared successfully');
     } catch {
       toastError('Failed to clear cache');

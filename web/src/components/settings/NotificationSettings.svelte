@@ -13,8 +13,7 @@
   import Badge from '../ui/Badge.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
-
-  const API_BASE = '/api';
+  import { api } from '../../utils/api.js';
 
   let serverSettings = null;
   let loadingSettings = true;
@@ -34,17 +33,10 @@
     fetchServerSettings();
   });
 
-  function getHeaders() {
-    return { 'Content-Type': 'application/json' };
-  }
-
   async function fetchServerSettings() {
     loadingSettings = true;
     try {
-      const res = await fetch(`${API_BASE}/settings`, { headers: getHeaders() });
-      if (res.ok) {
-        serverSettings = await res.json();
-      }
+      serverSettings = await api.get('/settings');
     } catch {
       // Ignore
     } finally {
@@ -57,20 +49,9 @@
     notificationMessage[type] = null;
 
     try {
-      const res = await fetch(`${API_BASE}/settings/notifications/${type}`, {
-        method: 'PUT',
-        headers: getHeaders(),
-        body: JSON.stringify(notifications[type])
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        notificationMessage[type] = { success: true, text: data.message };
-        toastSuccess(`${type.charAt(0).toUpperCase() + type.slice(1)} settings saved`);
-      } else {
-        notificationMessage[type] = { success: false, text: data.error };
-        toastError(`Failed to save ${type} settings: ${data.error}`);
-      }
+      const data = await api.put(`/settings/notifications/${type}`, notifications[type]);
+      notificationMessage[type] = { success: true, text: data.message };
+      toastSuccess(`${type.charAt(0).toUpperCase() + type.slice(1)} settings saved`);
     } catch (err) {
       notificationMessage[type] = { success: false, text: err.message };
       toastError(`Failed to save ${type} settings: ${err.message}`);
@@ -84,12 +65,7 @@
     notificationTestResult[type] = null;
 
     try {
-      const res = await fetch(`${API_BASE}/settings/notifications/${type}/test`, {
-        method: 'POST',
-        headers: getHeaders()
-      });
-
-      notificationTestResult[type] = await res.json();
+      notificationTestResult[type] = await api.post(`/settings/notifications/${type}/test`);
       if (notificationTestResult[type].success) {
         toastSuccess(`${type.charAt(0).toUpperCase() + type.slice(1)} test notification sent`);
       } else {

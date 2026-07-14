@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
+  import { api } from '../../utils/api.js';
 
   let config = {
     url:  '',
@@ -16,12 +17,9 @@
   async function loadConfig() {
     loading = true;
     try {
-      const res = await fetch('/api/settings/redis');
-      if (res.ok) {
-        const data = await res.json();
-        config   = { ...config, ...data.config };
-        fromEnv  = data.from_env || {};
-      }
+      const data = await api.get('/settings/redis');
+      config   = { ...config, ...data.config };
+      fromEnv  = data.from_env || {};
     } catch {
       toastError('Failed to load Redis settings');
     } finally {
@@ -32,21 +30,11 @@
   async function save() {
     loading = true;
     try {
-      const res = await fetch('/api/settings/redis', {
-        method:  'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(config),
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        toastSuccess('Redis settings saved');
-        await loadConfig();
-      } else {
-        toastError(data.error || 'Failed to save settings');
-      }
-    } catch {
-      toastError('Failed to save settings');
+      await api.put('/settings/redis', config);
+      toastSuccess('Redis settings saved');
+      await loadConfig();
+    } catch (err) {
+      toastError(err.message || 'Failed to save settings');
     } finally {
       loading = false;
     }

@@ -8,6 +8,7 @@
   import AlertTemplateGallery from './alerts/AlertTemplateGallery.svelte';
   import { k8sMode } from '../stores/license.js';
   import { error as toastError } from '../stores/toast.js';
+  import { api } from '../utils/api.js';
 
   let alerts = [];
   let showModal = false;
@@ -30,7 +31,6 @@
     { value: 'telegram', label: 'Telegram' }
   ];
 
-  const API_BASE = '/api';
   let checkInterval;
 
   // Confirm dialog state
@@ -51,8 +51,7 @@
 
   async function loadAlerts() {
     try {
-      const res = await fetch(`${API_BASE}/alerts`);
-      const data = await res.json();
+      const data = await api.get('/alerts');
       alerts = data.alerts || [];
     } catch (err) {
       console.error('Failed to load alerts:', err);
@@ -62,8 +61,7 @@
 
   async function checkAlerts() {
     try {
-      const res = await fetch(`${API_BASE}/alerts/check`, { method: 'POST' });
-      const data = await res.json();
+      const data = await api.post('/alerts/check');
       if (data.triggered && data.triggered.length > 0) {
         for (const alert of data.triggered) {
           showNotification(alert);
@@ -114,17 +112,9 @@
 
     try {
       if (editingAlert) {
-        await fetch(`${API_BASE}/alerts/${editingAlert.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form)
-        });
+        await api.put(`/alerts/${editingAlert.id}`, form);
       } else {
-        await fetch(`${API_BASE}/alerts`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form)
-        });
+        await api.post('/alerts', form);
       }
       showModal = false;
       await loadAlerts();
@@ -136,11 +126,7 @@
 
   async function toggleAlert(alert) {
     try {
-      await fetch(`${API_BASE}/alerts/${alert.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: alert.enabled ? 0 : 1 })
-      });
+      await api.put(`/alerts/${alert.id}`, { enabled: alert.enabled ? 0 : 1 });
       await loadAlerts();
     } catch (err) {
       console.error('Failed to toggle alert:', err);
@@ -155,7 +141,7 @@
   async function confirmDeleteAlert() {
     if (!deleteTargetId) return;
     try {
-      await fetch(`${API_BASE}/alerts/${deleteTargetId}`, { method: 'DELETE' });
+      await api.del(`/alerts/${deleteTargetId}`);
       await loadAlerts();
     } catch (err) {
       console.error('Failed to delete alert:', err);

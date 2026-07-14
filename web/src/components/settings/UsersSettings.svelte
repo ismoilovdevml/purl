@@ -15,8 +15,7 @@
   import { licenseLimits } from '../../stores/license.js';
   import { currentUser } from '../../stores/auth.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
-
-  const API_BASE = '/api';
+  import { api } from '../../utils/api.js';
 
   let users = [];
   let loading = true;
@@ -50,11 +49,8 @@
 
   async function fetchLdapStatus() {
     try {
-      const res = await fetch(`${API_BASE}/settings/ldap`);
-      if (res.ok) {
-        const data = await res.json();
-        ldapEnabled = !!(data.config?.enabled);
-      }
+      const data = await api.get('/settings/ldap');
+      ldapEnabled = !!(data.config?.enabled);
     } catch {
       // ignore — LDAP may not be available (free/pro plan)
     }
@@ -64,16 +60,10 @@
     loading = true;
     error = '';
     try {
-      const res = await fetch(`${API_BASE}/settings/users`);
-      if (res.ok) {
-        const data = await res.json();
-        users = data.users || [];
-      } else {
-        const data = await res.json();
-        error = data.error || 'Failed to load users';
-      }
-    } catch {
-      error = 'Failed to load users';
+      const data = await api.get('/settings/users');
+      users = data.users || [];
+    } catch (err) {
+      error = err.message || 'Failed to load users';
     } finally {
       loading = false;
     }
@@ -84,17 +74,11 @@
     adding = true;
     addError = '';
     try {
-      const res = await fetch(`${API_BASE}/settings/users`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: newUsername.trim(),
-          password: newPassword,
-          role: newRole
-        })
+      await api.post('/settings/users', {
+        username: newUsername.trim(),
+        password: newPassword,
+        role: newRole
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to create user');
       toastSuccess(`User "${newUsername.trim()}" created successfully`);
       newUsername = '';
       newPassword = '';
@@ -116,13 +100,7 @@
     try {
       const body = { password: changePassword };
       if (changeRole) body.role = changeRole;
-      const res = await fetch(`${API_BASE}/settings/users/${changingUser}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to change password');
+      await api.put(`/settings/users/${changingUser}`, body);
       toastSuccess('User updated successfully');
       changingUser = null;
       changePassword = '';
@@ -138,11 +116,7 @@
 
   async function handleDeleteUser(username) {
     try {
-      const res = await fetch(`${API_BASE}/settings/users/${username}`, {
-        method: 'DELETE'
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to delete user');
+      await api.del(`/settings/users/${username}`);
       toastSuccess(`User "${username}" deleted`);
       deletingUser = null;
       await fetchUsers();

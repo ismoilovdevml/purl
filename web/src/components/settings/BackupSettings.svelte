@@ -14,6 +14,7 @@
   import Toggle from '../ui/Toggle.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
+  import { api } from '../../utils/api.js';
 
   const API_BASE = '/api';
 
@@ -67,11 +68,8 @@
   async function fetchBackups() {
     loading = true;
     try {
-      const res = await fetch(`${API_BASE}/backup`);
-      if (res.ok) {
-        const data = await res.json();
-        backups = data.backups || [];
-      }
+      const data = await api.get('/backup');
+      backups = data.backups || [];
     } catch {
       message = { success: false, text: 'Failed to load backups' };
     }
@@ -82,24 +80,14 @@
     creating = true;
     message = null;
     try {
-      const res = await fetch(`${API_BASE}/backup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: backupName || undefined })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        message = { success: true, text: `Backup "${data.backup?.name}" created successfully` };
-        toastSuccess(`Backup "${data.backup?.name}" created successfully`);
-        backupName = '';
-        await fetchBackups();
-      } else {
-        message = { success: false, text: data.error || 'Backup creation failed' };
-        toastError('Backup creation failed: ' + (data.error || 'Unknown error'));
-      }
-    } catch {
-      message = { success: false, text: 'Failed to create backup' };
-      toastError('Failed to create backup');
+      const data = await api.post('/backup', { name: backupName || undefined });
+      message = { success: true, text: `Backup "${data.backup?.name}" created successfully` };
+      toastSuccess(`Backup "${data.backup?.name}" created successfully`);
+      backupName = '';
+      await fetchBackups();
+    } catch (err) {
+      message = { success: false, text: err.message || 'Backup creation failed' };
+      toastError('Backup creation failed: ' + (err.message || 'Unknown error'));
     }
     creating = false;
   }
@@ -109,23 +97,13 @@
     message = null;
     confirmRestore = null;
     try {
-      const res = await fetch(`${API_BASE}/backup/restore`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        const tables = data.restore?.tables?.join(', ') || 'none';
-        message = { success: true, text: `Restored ${data.restore?.rows || 0} rows from tables: ${tables}` };
-        toastSuccess(`Backup restored: ${data.restore?.rows || 0} rows`);
-      } else {
-        message = { success: false, text: data.error || 'Restore failed' };
-        toastError('Restore failed: ' + (data.error || 'Unknown error'));
-      }
-    } catch {
-      message = { success: false, text: 'Failed to restore backup' };
-      toastError('Failed to restore backup');
+      const data = await api.post('/backup/restore', { id });
+      const tables = data.restore?.tables?.join(', ') || 'none';
+      message = { success: true, text: `Restored ${data.restore?.rows || 0} rows from tables: ${tables}` };
+      toastSuccess(`Backup restored: ${data.restore?.rows || 0} rows`);
+    } catch (err) {
+      message = { success: false, text: err.message || 'Restore failed' };
+      toastError('Restore failed: ' + (err.message || 'Unknown error'));
     }
     restoring = null;
   }
@@ -135,21 +113,13 @@
     message = null;
     confirmDelete = null;
     try {
-      const res = await fetch(`${API_BASE}/backup/${encodeURIComponent(id)}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        message = { success: true, text: 'Backup deleted' };
-        toastSuccess('Backup deleted');
-        await fetchBackups();
-      } else {
-        const data = await res.json();
-        message = { success: false, text: data.error || 'Delete failed' };
-        toastError('Failed to delete backup: ' + (data.error || 'Unknown error'));
-      }
-    } catch {
-      message = { success: false, text: 'Failed to delete backup' };
-      toastError('Failed to delete backup');
+      await api.del(`/backup/${encodeURIComponent(id)}`);
+      message = { success: true, text: 'Backup deleted' };
+      toastSuccess('Backup deleted');
+      await fetchBackups();
+    } catch (err) {
+      message = { success: false, text: err.message || 'Delete failed' };
+      toastError('Failed to delete backup: ' + (err.message || 'Unknown error'));
     }
     deleting = null;
   }
@@ -188,11 +158,8 @@
   async function fetchSchedule() {
     loadingSchedule = true;
     try {
-      const res = await fetch(`${API_BASE}/backup/schedule`);
-      if (res.ok) {
-        const data = await res.json();
-        schedule = data.schedule || schedule;
-      }
+      const data = await api.get('/backup/schedule');
+      schedule = data.schedule || schedule;
     } catch { /* ignore */ }
     loadingSchedule = false;
   }
@@ -200,23 +167,14 @@
   async function saveSchedule() {
     savingSchedule = true;
     try {
-      const res = await fetch(`${API_BASE}/backup/schedule`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enabled: schedule.enabled,
-          interval_hours: schedule.interval_hours,
-          retention_days: schedule.retention_days,
-        })
+      await api.put('/backup/schedule', {
+        enabled: schedule.enabled,
+        interval_hours: schedule.interval_hours,
+        retention_days: schedule.retention_days,
       });
-      const data = await res.json();
-      if (res.ok) {
-        toastSuccess('Backup schedule saved. Restart required to apply.');
-      } else {
-        toastError('Failed to save schedule: ' + (data.error || 'Unknown error'));
-      }
-    } catch {
-      toastError('Failed to save schedule settings');
+      toastSuccess('Backup schedule saved. Restart required to apply.');
+    } catch (err) {
+      toastError('Failed to save schedule: ' + (err.message || 'Unknown error'));
     }
     savingSchedule = false;
   }
@@ -227,11 +185,8 @@
   async function fetchS3Config() {
     loadingS3 = true;
     try {
-      const res = await fetch(`${API_BASE}/backup/s3`);
-      if (res.ok) {
-        const data = await res.json();
-        s3Config = data.s3 || s3Config;
-      }
+      const data = await api.get('/backup/s3');
+      s3Config = data.s3 || s3Config;
     } catch { /* ignore */ }
     loadingS3 = false;
   }
@@ -249,22 +204,13 @@
       if (s3AccessKey) payload.s3_access_key = s3AccessKey;
       if (s3SecretKey) payload.s3_secret_key = s3SecretKey;
 
-      const res = await fetch(`${API_BASE}/backup/s3`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toastSuccess('S3 settings saved');
-        s3AccessKey = '';
-        s3SecretKey = '';
-        await fetchS3Config();
-      } else {
-        toastError('Failed to save S3 settings: ' + (data.error || 'Unknown error'));
-      }
-    } catch {
-      toastError('Failed to save S3 settings');
+      await api.put('/backup/s3', payload);
+      toastSuccess('S3 settings saved');
+      s3AccessKey = '';
+      s3SecretKey = '';
+      await fetchS3Config();
+    } catch (err) {
+      toastError('Failed to save S3 settings: ' + (err.message || 'Unknown error'));
     }
     savingS3 = false;
   }
@@ -272,20 +218,11 @@
   async function uploadToS3(id) {
     uploadingS3 = id;
     try {
-      const res = await fetch(`${API_BASE}/backup/upload-s3`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toastSuccess('Backup uploaded to S3');
-        await fetchBackups();
-      } else {
-        toastError('S3 upload failed: ' + (data.error || 'Unknown error'));
-      }
-    } catch {
-      toastError('Failed to upload to S3');
+      await api.post('/backup/upload-s3', { id });
+      toastSuccess('Backup uploaded to S3');
+      await fetchBackups();
+    } catch (err) {
+      toastError('S3 upload failed: ' + (err.message || 'Unknown error'));
     }
     uploadingS3 = null;
   }

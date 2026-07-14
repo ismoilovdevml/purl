@@ -4,6 +4,7 @@
   import Card from '../ui/Card.svelte';
   import Modal from '../ui/Modal.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
+  import { api } from '../../utils/api.js';
 
   let pipelines = [];
   let loading = false;
@@ -38,18 +39,13 @@
   async function fetchPipelines() {
     loading = true;
     try {
-      const res = await fetch('/api/pipelines');
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (res.status === 403 && data.feature) {
-          licenseError = data;
-          return;
-        }
-        throw new Error(data.error || 'Failed to fetch');
-      }
-      const data = await res.json();
+      const data = await api.get('/pipelines');
       pipelines = data.pipelines || [];
     } catch (err) {
+      if (err.status === 403 && err.body?.feature) {
+        licenseError = err.body;
+        return;
+      }
       toastError(err.message);
     } finally {
       loading = false;
@@ -58,15 +54,7 @@
 
   async function handleCreate() {
     try {
-      const res = await fetch('/api/pipelines', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newPipeline),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to create');
-      }
+      await api.post('/pipelines', newPipeline);
       toastSuccess('Pipeline created');
       showCreateModal = false;
       newPipeline = { name: '', description: '', filter_service: '', enabled: true, rules: [] };
@@ -78,12 +66,7 @@
 
   async function toggleEnabled(pipeline) {
     try {
-      const res = await fetch(`/api/pipelines/${pipeline.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !pipeline.enabled }),
-      });
-      if (!res.ok) throw new Error('Failed to update');
+      await api.put(`/pipelines/${pipeline.id}`, { enabled: !pipeline.enabled });
       await fetchPipelines();
     } catch (err) {
       toastError(err.message);
@@ -93,8 +76,7 @@
   async function deletePipeline(id) {
     if (!confirm('Delete this pipeline?')) return;
     try {
-      const res = await fetch(`/api/pipelines/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete');
+      await api.del(`/pipelines/${id}`);
       toastSuccess('Pipeline deleted');
       await fetchPipelines();
     } catch (err) {
@@ -119,13 +101,7 @@
   async function runTest() {
     try {
       const samples = [JSON.parse(testSample)];
-      const res = await fetch('/api/pipelines/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pipeline: testPipeline, samples }),
-      });
-      if (!res.ok) throw new Error('Test failed');
-      const data = await res.json();
+      const data = await api.post('/pipelines/test', { pipeline: testPipeline, samples });
       testResults = data.results;
     } catch (err) {
       toastError(err.message);

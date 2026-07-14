@@ -14,8 +14,7 @@
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import { formatBytes, formatNumber, formatRelativeTime } from '../../utils/format.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
-
-  const API_BASE = '/api';
+  import { api } from '../../utils/api.js';
 
   // Server settings state
   let serverSettings = null;
@@ -45,25 +44,18 @@
     fetchRetentionStats();
   });
 
-  function getHeaders() {
-    return { 'Content-Type': 'application/json' };
-  }
-
   async function fetchServerSettings() {
     loadingSettings = true;
     try {
-      const res = await fetch(`${API_BASE}/settings`, { headers: getHeaders() });
-      if (res.ok) {
-        serverSettings = await res.json();
+      serverSettings = await api.get('/settings');
 
-        dbForm.host = serverSettings.clickhouse?.host?.value || 'localhost';
-        dbForm.port = serverSettings.clickhouse?.port?.value || 8123;
-        dbForm.database = serverSettings.clickhouse?.database?.value || 'purl';
-        dbForm.user = serverSettings.clickhouse?.user?.value || 'default';
-        dbForm.password = '';
+      dbForm.host = serverSettings.clickhouse?.host?.value || 'localhost';
+      dbForm.port = serverSettings.clickhouse?.port?.value || 8123;
+      dbForm.database = serverSettings.clickhouse?.database?.value || 'purl';
+      dbForm.user = serverSettings.clickhouse?.user?.value || 'default';
+      dbForm.password = '';
 
-        retentionDays = serverSettings.retention?.days?.value || 30;
-      }
+      retentionDays = serverSettings.retention?.days?.value || 30;
     } catch {
       // Ignore
     } finally {
@@ -73,10 +65,7 @@
 
   async function fetchRetentionStats() {
     try {
-      const res = await fetch(`${API_BASE}/config/retention`, { headers: getHeaders() });
-      if (res.ok) {
-        retentionStats = await res.json();
-      }
+      retentionStats = await api.get('/config/retention');
     } catch {
       // Ignore
     }
@@ -87,21 +76,10 @@
     dbMessage = null;
 
     try {
-      const res = await fetch(`${API_BASE}/settings/clickhouse`, {
-        method: 'PUT',
-        headers: getHeaders(),
-        body: JSON.stringify(dbForm)
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        dbMessage = { success: true, text: data.message };
-        toastSuccess('Database settings saved');
-        fetchServerSettings();
-      } else {
-        dbMessage = { success: false, text: data.error };
-        toastError('Failed to save database settings: ' + data.error);
-      }
+      const data = await api.put('/settings/clickhouse', dbForm);
+      dbMessage = { success: true, text: data.message };
+      toastSuccess('Database settings saved');
+      fetchServerSettings();
     } catch (err) {
       dbMessage = { success: false, text: err.message };
       toastError('Failed to save database settings: ' + err.message);
@@ -115,13 +93,7 @@
     dbTestResult = null;
 
     try {
-      const res = await fetch(`${API_BASE}/config/test-clickhouse`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(dbForm)
-      });
-
-      dbTestResult = await res.json();
+      dbTestResult = await api.post('/config/test-clickhouse', dbForm);
       if (dbTestResult.success) {
         toastSuccess('Database connection successful');
       } else {
@@ -140,21 +112,10 @@
     retentionMessage = null;
 
     try {
-      const res = await fetch(`${API_BASE}/settings/retention`, {
-        method: 'PUT',
-        headers: getHeaders(),
-        body: JSON.stringify({ days: retentionDays })
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        retentionMessage = { success: true, text: data.message };
-        toastSuccess('Retention settings saved');
-        fetchRetentionStats();
-      } else {
-        retentionMessage = { success: false, text: data.error };
-        toastError('Failed to save retention settings: ' + data.error);
-      }
+      const data = await api.put('/settings/retention', { days: retentionDays });
+      retentionMessage = { success: true, text: data.message };
+      toastSuccess('Retention settings saved');
+      fetchRetentionStats();
     } catch (err) {
       retentionMessage = { success: false, text: err.message };
       toastError('Failed to save retention settings: ' + err.message);

@@ -11,8 +11,7 @@
   import Input from '../ui/Input.svelte';
   import Select from '../ui/Select.svelte';
   import Toggle from '../ui/Toggle.svelte';
-
-  const API_BASE = '/api';
+  import { api } from '../../utils/api.js';
 
   // ── License gate ──────────────────────────────────────────────────────────
   let plan = $state('free');
@@ -83,11 +82,8 @@
   async function fetchLicense() {
     licenseLoading = true;
     try {
-      const res = await fetch(`${API_BASE}/license`);
-      if (res.ok) {
-        const data = await res.json();
-        plan = data.plan || 'free';
-      }
+      const data = await api.get('/license');
+      plan = data.plan || 'free';
     } catch {
       plan = 'free';
     } finally {
@@ -98,26 +94,23 @@
   async function fetchSettings() {
     loading = true;
     try {
-      const res = await fetch(`${API_BASE}/settings/sso`);
-      if (res.ok) {
-        const data = await res.json();
-        const cfg = data.config ?? {};
-        enabled        = cfg.enabled         ?? false;
-        idpEntityId    = cfg.idp_entity_id   ?? '';
-        idpSsoUrl      = cfg.idp_sso_url     ?? '';
-        idpSloUrl      = cfg.idp_slo_url     ?? '';
-        idpCertificate = cfg.idp_certificate  ?? '';
-        spEntityId     = cfg.sp_entity_id    ?? '';
-        acsUrl         = cfg.acs_url         ?? '';
-        nameIdFormat   = cfg.name_id_format  ?? 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress';
-        signRequests   = cfg.sign_requests   ?? false;
-        spCertificate  = cfg.sp_certificate  ?? '';
-        spPrivateKey   = cfg.sp_private_key  ?? '';
-        usernameAttr   = cfg.username_attr   ?? 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name';
-        groupsAttr     = cfg.groups_attr     ?? 'http://schemas.xmlsoap.org/claims/Group';
-        allowedGroups  = cfg.allowed_groups  ?? '';
-        forceAuthn     = cfg.force_authn     ?? false;
-      }
+      const data = await api.get('/settings/sso');
+      const cfg = data.config ?? {};
+      enabled        = cfg.enabled         ?? false;
+      idpEntityId    = cfg.idp_entity_id   ?? '';
+      idpSsoUrl      = cfg.idp_sso_url     ?? '';
+      idpSloUrl      = cfg.idp_slo_url     ?? '';
+      idpCertificate = cfg.idp_certificate  ?? '';
+      spEntityId     = cfg.sp_entity_id    ?? '';
+      acsUrl         = cfg.acs_url         ?? '';
+      nameIdFormat   = cfg.name_id_format  ?? 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress';
+      signRequests   = cfg.sign_requests   ?? false;
+      spCertificate  = cfg.sp_certificate  ?? '';
+      spPrivateKey   = cfg.sp_private_key  ?? '';
+      usernameAttr   = cfg.username_attr   ?? 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name';
+      groupsAttr     = cfg.groups_attr     ?? 'http://schemas.xmlsoap.org/claims/Group';
+      allowedGroups  = cfg.allowed_groups  ?? '';
+      forceAuthn     = cfg.force_authn     ?? false;
     } catch {
       // leave defaults
     } finally {
@@ -149,13 +142,8 @@
     testing = true;
     testResult = null;
     try {
-      const res = await fetch(`${API_BASE}/settings/sso/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload()),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const data = await api.post('/settings/sso/test', buildPayload());
+      if (data.success) {
         testResult = {
           ok: true,
           message: data.message || 'SSO configuration is valid',
@@ -178,13 +166,7 @@
     saveMsg = '';
     saveError = '';
     try {
-      const res = await fetch(`${API_BASE}/settings/sso`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload()),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save settings');
+      await api.put('/settings/sso', buildPayload());
       saveMsg = 'Settings saved successfully.';
     } catch (err) {
       saveError = err.message;

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { aiProviders } from '../../stores/ai.js';
+  import { api } from '../../utils/api.js';
 
   let config = {
     provider: 'openai',
@@ -47,13 +48,10 @@
   async function loadProviders() {
     providersLoading = true;
     try {
-      const res = await fetch('/api/ai/providers');
-      if (res.ok) {
-        const data = await res.json();
-        providers = data.providers || [];
-        activeProvider = data.current || null;
-        aiProviders.set(providers);
-      }
+      const data = await api.get('/ai/providers');
+      providers = data.providers || [];
+      activeProvider = data.current || null;
+      aiProviders.set(providers);
     } catch {
       // non-fatal — providers status is informational
     } finally {
@@ -64,12 +62,9 @@
   async function loadConfig() {
     loading = true;
     try {
-      const res = await fetch('/api/settings/ai');
-      if (res.ok) {
-        const data = await res.json();
-        config = { ...config, ...data.config };
-        fromEnv = data.from_env || {};
-      }
+      const data = await api.get('/settings/ai');
+      config = { ...config, ...data.config };
+      fromEnv = data.from_env || {};
     } catch {
       toastError('Failed to load AI settings');
     } finally {
@@ -87,21 +82,11 @@
         delete payload.api_key;
       }
 
-      const res = await fetch('/api/settings/ai', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        toastSuccess('AI settings saved');
-        await Promise.all([loadConfig(), loadProviders()]);
-      } else {
-        toastError(data.error || 'Failed to save settings');
-      }
-    } catch {
-      toastError('Failed to save settings');
+      await api.put('/settings/ai', payload);
+      toastSuccess('AI settings saved');
+      await Promise.all([loadConfig(), loadProviders()]);
+    } catch (err) {
+      toastError(err.message || 'Failed to save settings');
     } finally {
       loading = false;
     }
@@ -111,9 +96,7 @@
     testing = true;
     testResult = null;
     try {
-      const res = await fetch('/api/settings/ai/test', { method: 'POST' });
-      const data = await res.json();
-      testResult = data;
+      testResult = await api.post('/settings/ai/test');
     } catch {
       testResult = { status: 'error', message: 'Connection failed' };
     } finally {

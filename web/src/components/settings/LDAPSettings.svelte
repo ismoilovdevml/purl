@@ -11,8 +11,7 @@
   import Input from '../ui/Input.svelte';
   import Select from '../ui/Select.svelte';
   import Toggle from '../ui/Toggle.svelte';
-
-  const API_BASE = '/api';
+  import { api } from '../../utils/api.js';
 
   // ── License gate ──────────────────────────────────────────────────────────
   let plan = $state('free');
@@ -96,11 +95,8 @@
   async function fetchLicense() {
     licenseLoading = true;
     try {
-      const res = await fetch(`${API_BASE}/license`);
-      if (res.ok) {
-        const data = await res.json();
-        plan = data.plan || 'free';
-      }
+      const data = await api.get('/license');
+      plan = data.plan || 'free';
     } catch {
       plan = 'free';
     } finally {
@@ -111,24 +107,21 @@
   async function fetchSettings() {
     loading = true;
     try {
-      const res = await fetch(`${API_BASE}/settings/ldap`);
-      if (res.ok) {
-        const data = await res.json();
-        const cfg = data.config ?? {};
-        enabled      = cfg.enabled      ?? false;
-        serverUrl    = cfg.server       ?? 'ldap://dc.example.com';
-        port         = String(cfg.port  ?? 389);
-        useTLS       = cfg.tls_enabled  ?? false;
-        tlsVerify    = cfg.tls_verify   ?? 'require';
-        bindDN       = cfg.bind_dn      ?? '';
-        bindPassword = cfg.bind_password ?? '';
-        searchBase   = cfg.search_base  ?? '';
-        mode         = cfg.mode         ?? 'ldap';
-        searchFilter = cfg.search_filter ?? '({user_attr}={username})';
-        userAttr     = cfg.user_attr    ?? 'sAMAccountName';
-        mailAttr     = cfg.mail_attr    ?? 'mail';
-        groupAttr    = cfg.group_attr   ?? 'memberOf';
-      }
+      const data = await api.get('/settings/ldap');
+      const cfg = data.config ?? {};
+      enabled      = cfg.enabled      ?? false;
+      serverUrl    = cfg.server       ?? 'ldap://dc.example.com';
+      port         = String(cfg.port  ?? 389);
+      useTLS       = cfg.tls_enabled  ?? false;
+      tlsVerify    = cfg.tls_verify   ?? 'require';
+      bindDN       = cfg.bind_dn      ?? '';
+      bindPassword = cfg.bind_password ?? '';
+      searchBase   = cfg.search_base  ?? '';
+      mode         = cfg.mode         ?? 'ldap';
+      searchFilter = cfg.search_filter ?? '({user_attr}={username})';
+      userAttr     = cfg.user_attr    ?? 'sAMAccountName';
+      mailAttr     = cfg.mail_attr    ?? 'mail';
+      groupAttr    = cfg.group_attr   ?? 'memberOf';
     } catch {
       // leave defaults
     } finally {
@@ -158,13 +151,8 @@
     testing = true;
     testResult = null;
     try {
-      const res = await fetch(`${API_BASE}/settings/ldap/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload()),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const data = await api.post('/settings/ldap/test', buildPayload());
+      if (data.success) {
         testResult = {
           ok: true,
           message: data.message || (data.user_count != null
@@ -189,13 +177,7 @@
     saveMsg = '';
     saveError = '';
     try {
-      const res = await fetch(`${API_BASE}/settings/ldap`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload()),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to save settings');
+      await api.put('/settings/ldap', buildPayload());
       saveMsg = 'Settings saved successfully.';
     } catch (err) {
       saveError = err.message;
