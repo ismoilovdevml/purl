@@ -88,21 +88,35 @@ web/src/
 
 ## Deployment
 
-### Servers
+### Environments
 
-| Server | IP | Port | Purpose | License |
-|--------|----|------|---------|---------|
-| **Demo/Test** | `37.27.187.72` | 3000 | Demo & testing (Rocky Linux 9.7) | Pro Trial |
+Canonical infra map lives in local memory: `reference_infra_map.md` (auto-recalled each session). Summary:
 
-### Server Update
+| Environment         | Where                                 | Purpose                                                  |
+|---------------------|---------------------------------------|----------------------------------------------------------|
+| **Dev k8s cluster** | master-01 `5.189.148.112` (see below) | PRIMARY dev — ns `purl-dev` <http://5.189.148.112:30300> |
+| Demo/Test (LEGACY)  | `37.27.187.72:3000` (Rocky Linux 9.7) | Manual only — CI deploy removed 2026-07-14               |
+| Internal "prod"     | `172.17.4.16:3000`                    | Private-IP host from CREDENTIALS.md — status unverified  |
 
-Deployment is automated via GitHub Actions — push to `dev` branch triggers auto-deploy.
+Dev k8s cluster nodes (SSH `root@<ip>`, port 22): master-01 `5.189.148.112` (kubectl/helm), worker-01 `5.189.145.83`, worker-02 `5.189.182.131`.
 
-Manual update (if needed):
+### Dev Deploy (k8s)
+
+Push to `dev` branch → GitHub Actions builds `ismoilovdev/purl:dev` → CI SSHes to master-01 and runs `helm upgrade --install purl -n purl-dev -f values-dev.yaml -f /opt/purl-dev/values-secrets.yaml` → rollout status + health check.
+
+Manual update (if CI is down):
 
 ```bash
-ssh root@37.27.187.72 'cd /opt/purl && PURL_IMAGE_TAG=dev docker compose pull purl && PURL_IMAGE_TAG=dev docker compose up -d purl'
+ssh root@5.189.148.112 'helm upgrade --install purl /opt/purl-dev/chart -n purl-dev \
+  -f /opt/purl-dev/chart/values-dev.yaml -f /opt/purl-dev/values-secrets.yaml'
+ssh root@5.189.148.112 'kubectl -n purl-dev get pods && curl -s http://localhost:30300/api/health'
 ```
+
+Rollback: `ssh root@5.189.148.112 'helm -n purl-dev rollback purl <rev>'`
+
+### Helm Chart Publishing
+
+Public chart repo: `https://charts.purlogs.com` (Vercel static project `purl-charts`) — this is what the website docs' `helm repo add purl https://charts.purlogs.com` points to. After chart changes: bump `chart/Chart.yaml` version, then `make chart-publish`.
 
 ### Docker
 
@@ -141,74 +155,37 @@ git commit -m "type: description" # 3. Commit
 git push                          # 4. Push ONLY after preflight passes
 ```
 
-## Issue Tracking (bd / beads)
+## Ish Kuzatuvi va Xotira (Claude Memory)
+
+Issue tracker yo'q. Ish holati **Claude memory** (lokal, `~/.claude/projects/<slug>/memory/`) va `.planning/` da saqlanadi. Memory hooklar avtomatik ishlaydi: SessionStart (yuklash), UserPromptSubmit (recall), Stop (yangilash).
 
 ### Session Start — HAR DOIM
 
-```bash
-bd list --status=closed --limit=10  # Tarix — oldingi sessiyada nima qilindi?
-bd list --status=in_progress        # Hozir kim nimada ishlayapti?
-bd ready                            # Blokersiz tayyor ishlar
-bd stats                            # Umumiy holat
-```
+1. Memory avtomatik yuklanadi (hook) — `MEMORY.md` indeksini va tegishli faktlarni o'qi
+2. `.planning/STATE.md` — joriy faza va progress
+3. `git log --oneline -10` — oldingi sessiyada nima qilindi
 
-### Session End — MANDATORY
+### Session End — MAJBURIY
 
 ```bash
 make preflight                       # 1. Lint + Test + Build MUST pass
-bd close <id> --reason="..."         # 2. Close completed issues
-bd sync --from-main                  # 3. Sync beads
-git add . && git commit -m "..."     # 4. Commit
+git add <aniq-fayllar>               # 2. Faqat tegishli fayllar
+git commit -m "type: tavsif"         # 3. Commit
+git push                             # 4. Faqat preflight yashil bo'lsa
 ```
 
-**Rules**: `bd ready` → `bd update <id> --status=in_progress` → ish qil → `bd close <id>` → `make preflight` → commit
+Keyin: **durable fakt o'zgardimi?** (server/config/loyiha holati/tuzatilgan bloker/yangi resurs) → tegishli memory faylni yangila. Stop hook buni eslatadi.
 
-### Beads Task Management — Senior Level Qoidalar
+### Ishni Rejalashtirish — Senior Level Qoidalar
 
-**Katta tasklarni DOIM subtasklarga bo'l.** Bitta bead 1-2 soatlik ish bo'lsin, undan katta bo'lsa — bo'l.
+**Katta tasklarni DOIM bo'l.** Bitta ish birligi 1-2 soatlik bo'lsin; undan katta bo'lsa — bo'l.
 
-```bash
-# Epic yaratish
-bd create --title="User authentication system" --type=epic --priority=1
+- Katta ish (3+ soat) → TodoWrite bilan subtasklarga bo'l, agentlarga taqsimla
+- Har ish uchun 4 narsa aniq bo'lsin: **muammo** (hozir nima bo'lyapti), **dizayn** (qaysi fayllar, qanday yondashuv), **acceptance** (nimani tekshirib "tayyor" deymiz), **egasi** (qaysi agent)
+- Bitta sessiyada bitta yo'nalish — parallel agentlar bo'lsa ham, mavzu bitta bo'lsin
+- Ish tugagach memory'ga yoz: nima qilindi, nega — keyingi sessiya bilsin
 
-# Subtasklar (parallel yaratish mumkin)
-bd create --title="Add session middleware" --type=task --priority=1
-bd create --title="Create login/logout endpoints" --type=task --priority=1
-bd create --title="Add auth store in Svelte" --type=task --priority=2
-bd create --title="Write auth integration tests" --type=task --priority=2
-
-# Dependency bog'lash (task → epic: parent-child, task → task: blocks)
-bd dep add <subtask-id> <epic-id> --type=parent-child
-bd dep add <test-task-id> <endpoint-task-id>  # testlar endpointga depend
-```
-
-**Task description DOIM to'liq bo'lsin:**
-
-```bash
-bd create \
-  --title="Add rate limiting to ingest API" \
-  --type=feature \
-  --priority=1 \
-  --description="Ingest endpoint /api/v1/logs ga rate limiting qo'shish. \
-    Hozir cheksiz request qabul qilyapti. IP-based throttle kerak, \
-    429 Too Many Requests qaytarsin. Config: PURL_RATE_LIMIT env var." \
-  --design="Middleware sifatida: lib/Purl/API/Middleware/RateLimit.pm. \
-    In-memory counter (hash), ClickHouse ga yozmaslik. \
-    Server.pm da startup_hook ichida enable qilish." \
-  --acceptance="1. 100 req/min limitdan keyin 429 qaytadi \
-    2. X-RateLimit-Remaining header bor \
-    3. PURL_RATE_LIMIT=0 bo'lsa disable \
-    4. make preflight o'tadi"
-```
-
-**Qoidalar:**
-
-- Katta task (3+ soat) → epic + subtasklar. HECH QACHON katta monolith task yaratma
-- Description: muammo nima, hozir nima bo'lyapti, nima kerak — 2-3 gap yetarli
-- Design: qaysi fayllarga tegish, qanday yondashuv — keyingi sessiya tushunsin
-- Acceptance: "tayyor" deganda nima tekshiriladi — aniq, o'lchovli mezonlar
-- `--reason` bilan close qil — keyingi sessiya nima qilinganini bilsin
-- Bitta sessiyada 1 ta in_progress task — parallel ishlama, ketma-ket tugat
+**Uzoq muddatli reja**: `.planning/ROADMAP.md` (fazalar) + `.planning/STATE.md` (joriy holat). Production blokerlari memory'da: `project_production_readiness_audit.md` (purl) va `project_purlweb_audit.md` (purl-web).
 
 ### Kod Yozish — Senior Level Printsiplar
 
@@ -218,6 +195,19 @@ bd create \
 - 200+ qatorlik fayl → bo'lish kerakmi deb o'yla. 400+ → albatta bo'l
 - Yangi feature = yangi fayl. Mavjud faylga "yana bitta method" qo'shma
 - Helper/util faqat 2+ joyda ishlatilsa yaratilsin. 1 joyda — inline yoz
+
+**Reuse first — kod yozishdan OLDIN mavjudini qidir.**
+
+- Perl: `Util/*`, `Controller/Base.pm`, `Storage/ClickHouse/*` da bormi — grep qil, keyin yoz
+- Svelte: `components/ui/`, `stores/`, `utils/` da bormi — tekshir, keyin yoz
+- Bir xil logika 2+ joyda = defekt. To'g'ri modulga chiqar, ikkala chaqiruvchini unga o'tkaz
+- Strukturani buzma: kod o'z papkasiga — "eng yaqin faylga" tiqib qo'yish taqiqlanadi
+
+**Test — o'zgartirishning bir qismi, keyinga qoldirilmaydi.**
+
+- Har behavior o'zgarishi test bilan keladi: backend → `t/`, frontend flow → `web/e2e/`
+- Bugfix → fixsiz FAIL bo'ladigan regression test
+- Testsiz o'zgarish = qa-engineer uchun FAIL, code-reviewer uchun MAJOR/BLOCKER
 
 **Fayl bo'lish misollari:**
 
@@ -232,6 +222,32 @@ lib/Purl/API/Controller/License.pm
 ```
 
 **Commit granularity:** Bitta commit = bitta mantiqiy o'zgartirish. "Fix everything" commit yo'q.
+
+## Agent Jamoa (.claude/agents/) — ISHNI SHU JAMOA QILADI
+
+Loyihada 6 ta ixtisoslashgan subagent bor. User "shu ishni qilish kerak" deganda asosiy sessiya **team lead** bo'ladi: vazifani bo'ladi, tegishli agentlarni PARALLEL ishga tushiradi, natijalarni birlashtiradi.
+
+| Agent                | Hudud                                             | Qachon                                                  |
+|----------------------|---------------------------------------------------|---------------------------------------------------------|
+| `backend-dev`        | `lib/Purl/**`, `t/`, cpanfile                     | Perl/Mojolicious/ClickHouse storage o'zgarishi          |
+| `frontend-dev`       | `web/**`                                          | Svelte komponent/store/UI o'zgarishi                    |
+| `devops-engineer`    | Dockerfile, compose, `.github/`, chart/, deploy/  | Infra, CI/CD, server, Helm                              |
+| `qa-engineer`        | `t/`, `web/e2e/`, make gates                      | Har qanday ish tugagach verifikatsiya (preflight gate)  |
+| `analytics-engineer` | ClickHouse SQL, metrics, biznes-analitika         | Query perf, product metrics, tarif/raqobat tahlili      |
+| `code-reviewer`      | git diff                                          | Commit oldidan review                                   |
+
+**Standart oqim** (feature/bugfix):
+
+```text
+1. Team lead vazifani bo'ladi (katta ish → TodoWrite bilan subtasklarga)
+2. Task(backend-dev) ‖ Task(frontend-dev) ‖ Task(devops-engineer) — parallel, har biri o'z hududida
+   (agentlar bir-birining fayliga tegmaydi; API kontraktni team lead kelishtirib ikkalasiga beradi)
+3. Task(qa-engineer) — make preflight + edge-case hujum. FAIL → topilma egasiga qaytadi (2-qadam)
+4. Task(code-reviewer) — diff review. BLOCKER → egasiga qaytadi
+5. Team lead: commit → push (faqat preflight yashil bo'lsa)
+```
+
+Qoidalar: bitta hudud = bitta egasi (fayl to'qnashuvi yo'q); agentlararo xabar team lead orqali; hech bir agent git push qilmaydi; agar ikkala agent bir faylga tegishi kerak bo'lsa — ketma-ket, parallel emas.
 
 ## Multi-Agent Workflow — ASOSIY QOIDA
 
