@@ -1,0 +1,38 @@
+{{- /*
+Provision the application ClickHouse user (.Values.clickhouse.user) for the
+embedded ClickHouse. The official image only creates the CLICKHOUSE_USER
+("default") at init, so without this the app could never authenticate as
+the "purl" user that values.yaml defaults to.
+
+The password is injected via from_env so it never appears in the ConfigMap;
+the env var comes from the chart Secret (see clickhouse-statefulset.yaml).
+*/ -}}
+{{- if and .Values.clickhouse.enabled (ne .Values.clickhouse.user "default") }}
+{{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_-]*$" .Values.clickhouse.user) }}
+{{- fail "clickhouse.user must be a valid identifier (start with a letter or underscore; letters, digits, underscore, hyphen only) — it is used as an XML element name in ClickHouse users.d config" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "purl.clickhouse.fullname" . }}-users
+  labels:
+    {{- include "purl.clickhouse.labels" . | nindent 4 }}
+data:
+  app-user.xml: |
+    <clickhouse>
+      <users>
+        <{{ .Values.clickhouse.user }}>
+          {{- if .Values.clickhouse.password }}
+          <password from_env="PURL_APP_USER_PASSWORD"></password>
+          {{- else }}
+          <password></password>
+          {{- end }}
+          <networks>
+            <ip>::/0</ip>
+          </networks>
+          <profile>default</profile>
+          <quota>default</quota>
+        </{{ .Values.clickhouse.user }}>
+      </users>
+    </clickhouse>
+{{- end }}

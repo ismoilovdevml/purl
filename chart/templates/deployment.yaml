@@ -84,9 +84,10 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             {{- if .Values.config.volume.enabled }}
+            # Writable: Purl persists settings.json, dashboard users and
+            # license files under /app/config at runtime.
             - name: config
               mountPath: /app/config
-              readOnly: true
             {{- end }}
       volumes:
         {{- if .Values.config.volume.enabled }}

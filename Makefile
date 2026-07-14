@@ -1,4 +1,4 @@
-.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint e2e-k8s e2e-docker
+.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint chart-publish e2e-k8s e2e-docker
 
 # Variables
 # Perl deps are installed with local::lib into ~/perl5 (same layout as CI).
@@ -28,6 +28,10 @@ help:
 	@echo "E2E Testing:"
 	@echo "  e2e-k8s       K8s E2E test (requires Kind + Helm)"
 	@echo "  e2e-docker    Docker Compose E2E test"
+	@echo ""
+	@echo "Helm chart:"
+	@echo "  helm-lint     Lint + template-render the chart"
+	@echo "  chart-publish Package chart and publish to charts.purlogs.com"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean         Remove containers and volumes"
@@ -96,6 +100,40 @@ helm-lint:
 		--set vector.enabled=true \
 		> /dev/null
 	@echo "Helm validation passed."
+
+# Helm chart release to https://charts.purlogs.com (Vercel static project
+# "purl-charts"). Manual only — not wired into CI. The site dir is stable
+# and accumulates all published .tgz versions so the index always lists
+# every release. Bump chart/Chart.yaml version BEFORE publishing.
+CHART_SITE := $(HOME)/.purl-charts-site
+
+chart-publish: helm-lint
+	@mkdir -p $(CHART_SITE)
+	@echo "Syncing published releases from https://charts.purlogs.com..."
+	@if curl -fsSL https://charts.purlogs.com/index.yaml -o $(CHART_SITE)/.remote-index.yaml; then \
+		VERSION=$$(awk '$$1 == "version:" {print $$2}' chart/Chart.yaml); \
+		if grep -q "/purl-$$VERSION.tgz" $(CHART_SITE)/.remote-index.yaml; then \
+			echo "ERROR: purl-$$VERSION is already published — bump chart/Chart.yaml version first"; \
+			exit 1; \
+		fi; \
+		for tgz in $$(grep -oE 'purl-[0-9][A-Za-z0-9._+-]*\.tgz' $(CHART_SITE)/.remote-index.yaml | sort -u); do \
+			if [ ! -f "$(CHART_SITE)/$$tgz" ]; then \
+				echo "Fetching $$tgz from live site..."; \
+				curl -fsSL "https://charts.purlogs.com/$$tgz" -o "$(CHART_SITE)/$$tgz"; \
+			fi; \
+		done; \
+	else \
+		echo "WARNING: remote index not reachable — assuming first-ever publish"; \
+	fi
+	@echo "Packaging chart into $(CHART_SITE)..."
+	@helm package chart/ -d $(CHART_SITE)
+	@helm repo index $(CHART_SITE) --url https://charts.purlogs.com
+	@cd $(CHART_SITE) && \
+		if [ ! -f .vercel/project.json ]; then \
+			vercel link --yes --project purl-charts --scope ismoilovdevmls-projects; \
+		fi && \
+		vercel deploy --prod --yes
+	@echo "Published. Verify: helm repo update && helm search repo purl/purl --versions"
 
 # E2E Testing
 e2e-k8s: ## K8s E2E test (requires Kind + Helm)

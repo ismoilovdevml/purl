@@ -1,0 +1,56 @@
+# Dev cluster overrides (master1 5.189.148.112, namespace purl-dev).
+# Secrets (purl.apiKeys, purl.sessionSecret, clickhouse.password) are NOT
+# set here — they live on master1 in /opt/purl-dev/values-secrets.yaml
+# (chmod 600) and are passed as an extra -f to helm upgrade.
+# Deploy: helm upgrade --install purl <chart> -n purl-dev \
+#           -f values-dev.yaml -f /opt/purl-dev/values-secrets.yaml
+
+replicaCount: 1
+
+image:
+  tag: dev
+  # dev tag is mutable — always pull the latest digest on pod (re)creation
+  pullPolicy: Always
+
+service:
+  type: NodePort
+  port: 3000
+  nodePort: 30300
+
+purl:
+  retentionDays: 7
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
+
+networkPolicy:
+  enabled: false
+
+clickhouse:
+  persistence:
+    size: 10Gi
+    # cluster default StorageClass (local-path)
+    storageClass: ""
+  resources:
+    limits:
+      memory: 2Gi
+      cpu: "1"
+    requests:
+      memory: 512Mi
+      cpu: 250m
+
+resources:
+  limits:
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+# Persist dashboard users / settings.json / license across pod restarts
+config:
+  volume:
+    enabled: true
+    size: 1Gi

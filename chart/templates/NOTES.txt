@@ -43,7 +43,7 @@ ClickHouse is configured to use an external instance at:
 
 To send logs to Purl, use the ingest API:
 
-  curl -X POST http://<PURL_URL>/api/v1/logs \
+  curl -X POST http://<PURL_URL>/api/logs \
     -H "Content-Type: application/json" \
     -H "X-API-Key: <your-api-key>" \
     -d '{"level":"info","message":"Hello from Purl!","service":"my-app"}'

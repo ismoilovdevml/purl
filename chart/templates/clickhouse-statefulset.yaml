@@ -17,9 +17,19 @@ spec:
       {{- include "purl.clickhouse.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- if .Values.clickhouse.cluster.enabled }}
+      {{- if or .Values.clickhouse.cluster.enabled (ne .Values.clickhouse.user "default") .Values.clickhouse.password }}
       annotations:
+        {{- if .Values.clickhouse.cluster.enabled }}
         checksum/cluster-config: {{ include (print $.Template.BasePath "/clickhouse-cluster-config.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if ne .Values.clickhouse.user "default" }}
+        checksum/users-config: {{ include (print $.Template.BasePath "/clickhouse-users-config.yaml") . | sha256sum }}
+        {{- end }}
+        {{- if .Values.clickhouse.password }}
+        # Roll ClickHouse on password rotation — env values come from the
+        # Secret via secretKeyRef, so only a pod template change restarts it.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
       {{- end }}
       labels:
         {{- include "purl.clickhouse.selectorLabels" . | nindent 8 }}
@@ -53,6 +63,15 @@ spec:
               value: "1"
             {{- if .Values.clickhouse.password }}
             - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "purl.fullname" . }}
+                  key: PURL_CLICKHOUSE_PASSWORD
+            {{- end }}
+            {{- if and (ne .Values.clickhouse.user "default") .Values.clickhouse.password }}
+            # Consumed via from_env in users.d/app-user.xml (see
+            # clickhouse-users-config.yaml) to create the app user.
+            - name: PURL_APP_USER_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "purl.fullname" . }}
@@ -99,6 +118,11 @@ spec:
               mountPath: /etc/clickhouse-server/config.d/cluster.xml
               subPath: cluster.xml
             {{- end }}
+            {{- if ne .Values.clickhouse.user "default" }}
+            - name: users-config
+              mountPath: /etc/clickhouse-server/users.d/app-user.xml
+              subPath: app-user.xml
+            {{- end }}
       {{- if .Values.clickhouse.cluster.enabled }}
       initContainers:
         - name: set-keeper-id
@@ -130,6 +154,11 @@ spec:
             name: {{ include "purl.clickhouse.fullname" . }}-cluster
         - name: keeper-id
           emptyDir: {}
+        {{- end }}
+        {{- if ne .Values.clickhouse.user "default" }}
+        - name: users-config
+          configMap:
+            name: {{ include "purl.clickhouse.fullname" . }}-users
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

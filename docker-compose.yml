@@ -25,6 +25,8 @@ services:
       - PURL_ALERT_WEBHOOK_TOKEN=${PURL_ALERT_WEBHOOK_TOKEN:-}
       - PURL_SESSION_SECRET=${PURL_SESSION_SECRET:-}
       - PURL_ADMIN_PASSWORD=${PURL_ADMIN_PASSWORD:-}
+      # License key (Pro/Enterprise features) — written by install.sh, from purlogs.com
+      - PURL_LICENSE_KEY=${PURL_LICENSE_KEY:-}
     volumes:
       - ./config:/app/config
       - purl_backups:/app/backups

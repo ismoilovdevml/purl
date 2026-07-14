@@ -43,6 +43,8 @@ service:
   type: ClusterIP
   # -- Service port
   port: 3000
+  # -- Fixed node port (only used when type=NodePort; empty = auto-assign)
+  nodePort: ""
 
 ingress:
   # -- Enable ingress
@@ -129,7 +131,10 @@ clickhouse:
   database: purl
   # -- ClickHouse user for Purl
   user: purl
-  # -- ClickHouse password for the Purl user
+  # -- ClickHouse password for the Purl user.
+  # WARNING: if left empty, the app user is created with NO password — any
+  # pod in the cluster can then read/write the log database. On shared
+  # clusters always set a password AND enable networkPolicy.enabled=true.
   password: ""
 
   # -- ClickHouse cluster / replication settings
