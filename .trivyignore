@@ -5,8 +5,16 @@
 #
 # The following scans FAIL the build on HIGH/CRITICAL:
 #   - security-fs job    : filesystem scan (vuln + secret)
-#   - build-test job     : image scan of the PR-built image
-#   - build-and-push job : image scan BEFORE the push to Docker Hub
+#   - build-test job     : image scan of the PR-built image (vuln only)
+#   - build-and-push job : image scan BEFORE the push to Docker Hub (vuln only)
+#
+# Why the image scans run vuln-only (no secret scanner):
+# the image bundles third-party CPAN libraries that ship sample keys inside
+# their POD/tests (Crypt::JWT, Crypt::PK::{RSA,ECC,DSA,Ed25519}, and
+# Mojo::IOLoop's built-in test server.key). Those are upstream docs/test
+# fixtures, not our secrets, and we cannot strip them from the dependency.
+# Secret detection for OUR code is not weakened: the security-fs job scans
+# the repository with scanners: vuln,secret and fails on any finding.
 #
 # Add a CVE ID below only to accept a vulnerability we cannot fix
 # (e.g. no upstream patch yet). Every entry needs a reason + a date so

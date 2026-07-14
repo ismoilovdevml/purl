@@ -244,11 +244,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Trivy image scan — fails on HIGH/CRITICAL
+      # scanners: vuln (no secret scanner) — deliberate.
+      # The image bundles third-party CPAN libraries whose POD examples and
+      # test fixtures contain sample keys (Crypt::JWT, Crypt::PK::{RSA,ECC,
+      # DSA,Ed25519}, Mojo::IOLoop's built-in test server.key). Those are
+      # upstream docs/test data, not our secrets, and we cannot remove them.
+      # OUR OWN secrets are still gated: the security-fs job scans the repo
+      # with scanners: vuln,secret and fails the build on any finding.
+      - name: Trivy image scan (vuln) — fails on HIGH/CRITICAL
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: purl:scan
+          scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
@@ -377,11 +385,14 @@ jobs:
 
       # Same gate as the push path, so a PR that introduces a vulnerable
       # base image or package is blocked before it can be merged+pushed.
-      - name: Trivy image scan — fails on HIGH/CRITICAL
+      # scanners: vuln for the same reason as build-and-push — see the
+      # comment there. Repo secrets are covered by the security-fs job.
+      - name: Trivy image scan (vuln) — fails on HIGH/CRITICAL
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: purl:test
+          scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
