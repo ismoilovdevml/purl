@@ -12,6 +12,8 @@ use Mojo::JSON qw(encode_json decode_json);
 use Time::HiRes qw(time);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
+use File::Spec ();
+use Fcntl qw(:flock);
 use Purl::Util::ClientIP ();
 
 use Purl::Storage::ClickHouse;
@@ -166,6 +168,54 @@ my $saml_middleware;
 
 # Namespace scope middleware instance
 my $namespace_scope;
+
+# ---------------------------------------------------------------------------
+# Singleton cron leadership (prefork-safe)
+#
+# setup_routes() runs in the prefork MANAGER, *before* build_prefork->run
+# forks the workers. Any Mojo::IOLoop->recurring timer registered there is
+# inherited by EVERY worker's event loop (the manager itself never starts its
+# IOLoop -- it runs Mojo::Server::Prefork::_manage, a blocking manage/wait
+# loop). So a host-wide singleton job (license heartbeat, scheduled backup)
+# registered pre-fork would fire once PER WORKER: N heartbeats per interval and
+# N concurrent backups racing on the same dir / S3 prefix.
+#
+# We keep registering the timers pre-fork (so they exist in each worker) but
+# gate the actual work behind an exclusive advisory file lock: exactly one
+# worker can hold LOCK_EX at a time, and that worker becomes the "cron leader".
+# The holder keeps the descriptor open for its lifetime. If it dies, the OS
+# releases the lock automatically and another worker acquires it on its next
+# election tick -- no manager<->worker IPC required, and self-healing.
+#
+# The per-worker 2s ingest-buffer flush is intentionally NOT gated (each worker
+# owns its own buffer and must flush it).
+our $CRON_LEADER_FH;   # defined only in the worker currently holding the lock
+
+sub _cron_lock_path {
+    return $ENV{PURL_CRON_LOCK_FILE}
+        // File::Spec->catfile(File::Spec->tmpdir, 'purl-cron-leader.lock');
+}
+
+# Try to become (or confirm we already are) the singleton cron leader.
+# Returns true iff THIS process currently holds the exclusive lock.
+sub _acquire_cron_leadership {
+    my ($lock_path) = @_;
+    $lock_path //= _cron_lock_path();
+
+    # Already leader: keep the descriptor open, stay leader.
+    return 1 if $CRON_LEADER_FH;
+
+    open my $fh, '>', $lock_path
+        or do { app->log->warn("Cron lock open failed ($lock_path): $!"); return 0; };
+
+    if (flock $fh, LOCK_EX | LOCK_NB) {
+        $CRON_LEADER_FH = $fh;   # hold the lock for our process lifetime
+        return 1;
+    }
+
+    close $fh;
+    return 0;
+}
 
 sub create {
     my ($class, %args) = @_;
@@ -526,7 +576,9 @@ sub setup_routes {
     eval { $storage->_init_agents_schema() };
     app->log->warn("Agents schema init failed: $@") if $@;
 
-    # Periodic buffer flush
+    # Periodic buffer flush -- DELIBERATELY per-worker. Each prefork worker owns
+    # its own ingest buffer, so this MUST fire in EVERY worker. Do NOT gate it
+    # behind cron leadership.
     Mojo::IOLoop->recurring(2 => sub {
         if ($storage && $storage->can('maybe_flush')) {
             eval { $storage->maybe_flush(); };
@@ -534,9 +586,20 @@ sub setup_routes {
         }
     });
 
-    # License heartbeat (every 6 hours)
+    # Cron leader election / takeover tick. Cheap: one flock attempt while we
+    # are not the leader, an immediate return once we are. Runs in every worker
+    # so that if the current leader dies (OS drops its lock) another worker
+    # takes over within one interval. See _acquire_cron_leadership().
+    my $cron_lock_path = _cron_lock_path();
+    Mojo::IOLoop->recurring(30 => sub {
+        _acquire_cron_leadership($cron_lock_path);
+    });
+
+    # License heartbeat (every 6 hours) -- SINGLETON: leader worker only, so a
+    # replica sends exactly one heartbeat per interval (not one per worker).
     if ($license_key && $license_key ne '') {
         Mojo::IOLoop->recurring(21600 => sub {
+            return unless _acquire_cron_leadership($cron_lock_path);
             eval { $license_middleware->send_heartbeat(); };
             app->log->debug("License heartbeat sent") unless $@;
         });
@@ -555,7 +618,12 @@ sub setup_routes {
 
         app->log->info("Scheduled backup enabled: every ${backup_interval_hours}h, retention ${backup_retention_days}d");
 
+        # SINGLETON: leader worker only, so N workers do not launch N
+        # concurrent backups racing on the same dir / S3 prefix (and one
+        # worker's cleanup_old_backups cannot delete a backup another is
+        # still writing).
         Mojo::IOLoop->recurring($interval_seconds => sub {
+            return unless _acquire_cron_leadership($cron_lock_path);
             eval {
                 require POSIX;
                 app->log->info("Starting scheduled backup...");
