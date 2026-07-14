@@ -6,6 +6,8 @@ use 5.024;
 our $VERSION = '1.2.0';
 
 use Mojolicious::Lite -signatures;
+use Mojo::Server::Prefork ();
+use Mojo::IOLoop ();
 use Mojo::JSON qw(encode_json decode_json);
 use Time::HiRes qw(time);
 use File::Basename qw(dirname);
@@ -172,6 +174,12 @@ sub create {
     return bless {}, $class;
 }
 
+# Read-only view of the effective config hashref handed to controllers
+# (%c_args config => ...). Populated by create() and enriched by
+# setup_routes() (env+file folding for pipeline/server). Used to assert the
+# controller config contract, e.g. config->{pipeline} for the ReDoS guard.
+sub effective_config { return $config }
+
 sub _build_storage {
     my $storage_config = $config->{storage} // {};
     my $retention_days = $storage_config->{retention_days} // 30;
@@ -280,6 +288,21 @@ sub setup_routes {
     my ($self) = @_;
 
     $settings //= Purl::Config->new();
+
+    # Fold the fully-resolved config (ENV > file > defaults) for the
+    # `pipeline` and `server` sections into the plain $config hashref that
+    # is handed to controllers below (%c_args). In production the server is
+    # started via `Purl::API::Server->create->run` with NO config argument,
+    # so $config would otherwise be empty and controllers would never see
+    # config->{pipeline} — the pipeline ReDoS guard (regex_timeout_ms /
+    # regex_max_length) would silently ignore PURL_PIPELINE_REGEX_* env
+    # overrides. `//=` per section means an explicitly-provided config
+    # (e.g. from tests) is never clobbered. `server` is folded so run()
+    # picks up server.workers / host / port from env+file too.
+    for my $section (qw(pipeline server)) {
+        $config->{$section} //= $settings->get_section($section);
+    }
+
     $storage //= _build_storage();
     _build_notifiers();
     $broadcaster //= _build_broadcaster();
@@ -1053,57 +1076,80 @@ sub setup_routes {
 sub run {
     my ($self, %options) = @_;
 
+    # setup_routes() folds env+file config into $config (see there), so it
+    # MUST run before we read server.host / server.port / server.workers.
+    $self->setup_routes();
+
     my $server_config = $config->{server} // {};
     my $host    = $options{host} // $server_config->{host} // '0.0.0.0';
     my $port    = $options{port} // $server_config->{port} // 3000;
     my $workers = $options{workers} // $server_config->{workers} // 4;
 
-    $self->setup_routes();
+    app->log->level('info');
+    app->log->info("Starting Purl server (prefork) on http://$host:$port with $workers worker(s)");
 
-    app->config(hypnotoad => {
+    return $self->build_prefork(host => $host, port => $port, workers => $workers)->run;
+}
+
+# Build (but do not run) the prefork server. Split out from run() so tests
+# can inspect the configured server object (workers, listen, type) without
+# binding a socket. Wires up the graceful-shutdown cleanup hooks.
+sub build_prefork {
+    my ($self, %opts) = @_;
+
+    my $host    = $opts{host}    // '0.0.0.0';
+    my $port    = $opts{port}    // 3000;
+    my $workers = $opts{workers} // 4;
+
+    my $prefork = Mojo::Server::Prefork->new(
+        app     => app,
         listen  => ["http://$host:$port"],
         workers => $workers,
+    );
+
+    # ------------------------------------------------------------------
+    # Graceful shutdown model (PREFORK).
+    #
+    # We do NOT install our own $SIG{TERM}/$SIG{INT} handlers: the prefork
+    # manager owns process signals and its handlers are installed with
+    # `local` inside run() (anything we set would be clobbered anyway).
+    #
+    # Signal semantics of Mojo::Server::Prefork:
+    #   SIGQUIT -> graceful: manager sends QUIT to each worker, workers
+    #              stop accepting, finish in-flight requests, then exit.
+    #   SIGTERM/SIGINT -> immediate: workers are KILLed (drops in-flight).
+    # The container is therefore configured (Dockerfile STOPSIGNAL SIGQUIT,
+    # k8s preStop `kill -QUIT 1`) to send SIGQUIT so shutdown DRAINS.
+    #
+    # Cleanup is split by scope because state is per-worker after fork:
+    #   * License deactivation frees the single activation slot -> it must
+    #     run ONCE, in the manager. Hook: prefork `finish` (manager only).
+    #   * The ingest buffer and WebSocket list live in EACH worker's memory
+    #     -> flushed/closed per worker when its IOLoop stops gracefully.
+    #     Hook: IOLoop singleton `finish` (fires in the draining worker).
+    # ------------------------------------------------------------------
+    $prefork->on(finish => sub {
+        my ($pf, $graceful) = @_;
+        $pf->app->log->info(
+            'Manager shutting down (graceful=' . ($graceful ? 1 : 0) . ')');
+        if ($license_middleware) {
+            $pf->app->log->info('Deactivating license...');
+            eval { $license_middleware->deactivate(); 1 }
+                or $pf->app->log->error("License deactivation failed: $@");
+        }
     });
 
-    app->log->level('info');
-    app->log->info("Starting Purl server on http://$host:$port");
-
-    my $shutdown = sub {
-        my $sig = shift;
-        app->log->info("Received $sig signal, shutting down gracefully...");
-
-        # Step 1: Deactivate license first (free up activation slot)
-        if ($license_middleware) {
-            app->log->info("Deactivating license...");
-            eval { $license_middleware->deactivate(); };
-            app->log->error("License deactivation failed: $@") if $@;
-        }
-
-        # Step 2: Flush remaining log buffer
+    Mojo::IOLoop->singleton->on(finish => sub {
         if ($storage && $storage->can('flush')) {
-            app->log->info("Flushing log buffer...");
-            eval { $storage->flush(); };
-            app->log->error("Buffer flush failed: $@") if $@;
+            eval { $storage->flush(); 1 }
+                or app->log->error("Buffer flush failed: $@");
         }
-
-        # Step 3: Close WebSocket connections
-        if (@$websockets) {
-            app->log->info("Closing " . scalar(@$websockets) . " WebSocket connections...");
-            for my $tx (@$websockets) {
-                eval { $tx->finish(1001 => 'Server shutting down'); };
-            }
+        for my $tx (@$websockets) {
+            eval { $tx->finish(1001 => 'Server shutting down'); 1 };
         }
+    });
 
-        app->log->info("Shutdown complete");
-        exit 0;
-    };
-
-    ## no critic (Variables::RequireLocalizedPunctuationVars)
-    $SIG{TERM} = sub { $shutdown->('SIGTERM') };
-    $SIG{INT}  = sub { $shutdown->('SIGINT') };
-    ## use critic
-
-    app->start('daemon', '-l', "http://$host:$port");
+    return $prefork;
 }
 
 1;

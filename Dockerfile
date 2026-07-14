@@ -1,8 +1,8 @@
 # Build web assets
 FROM node:20-alpine AS web-builder
 WORKDIR /app/web
-COPY web/package.json web/package-lock.json* ./
-RUN npm install
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
 COPY web/ ./
 RUN npm run build
 
@@ -53,7 +53,14 @@ ENV PURL_HOST=0.0.0.0 \
 EXPOSE 3000
 USER purl
 
+# Prefork manager treats SIGQUIT as "graceful drain" and SIGTERM/SIGINT as
+# "kill workers immediately". Make `docker stop` send SIGQUIT so in-flight
+# requests finish and workers drain instead of being hard-killed.
+STOPSIGNAL SIGQUIT
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/api/health || exit 1
 
+# Prefork server (multiple workers). run() builds a Mojo::Server::Prefork
+# from server.workers (PURL_WORKERS, default 4) and runs it in the foreground.
 CMD ["perl", "-I/app/lib", "-MPurl::API::Server", "-e", "Purl::API::Server->create->run"]

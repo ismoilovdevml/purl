@@ -15,9 +15,20 @@ spec:
       labels:
         app: purl
     spec:
+      # The prefork manager drains gracefully on SIGQUIT but hard-kills
+      # workers on SIGTERM. Kubernetes always sends SIGTERM on pod
+      # termination (it does NOT honour the image STOPSIGNAL), so a preStop
+      # hook converts the shutdown into a graceful SIGQUIT to PID 1 first.
+      # Allow enough grace time for in-flight requests to finish before
+      # Kubernetes follows up with SIGTERM/SIGKILL.
+      terminationGracePeriodSeconds: 60
       containers:
         - name: purl
           image: ismoilovdev/purl:latest
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "kill -QUIT 1"]
           ports:
             - containerPort: 3000
               name: http
