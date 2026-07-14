@@ -103,6 +103,12 @@
   $: summaryEntries = Object.entries($healthSummary.summary || {});
   $: totalUnhealthy = $healthSummary.total_unhealthy || 0;
 
+  // No-data signal from the backend: when there are zero K8s audit records the
+  // health response reports has_data false/0. Distinguish this from a genuine
+  // all-clear ("0 unhealthy") so we don't show a false green summary.
+  // If the field is absent (older backend) we keep today's behavior.
+  $: noK8sData = $healthSummary.has_data === false || $healthSummary.has_data === 0;
+
   function handleSort(column) {
     if (sortColumn === column) {
       sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
@@ -166,7 +172,7 @@
   <header class="page-header">
     <div class="header-left">
       <h1>K8s Pod Health</h1>
-      {#if !$healthLoading && !$healthError}
+      {#if !$healthLoading && !$healthError && !noK8sData}
         <span class="pod-count-badge" class:healthy={totalUnhealthy === 0} class:unhealthy={totalUnhealthy > 0}>
           {totalUnhealthy} unhealthy
         </span>
@@ -222,6 +228,18 @@
     <div class="loading-state">
       <div class="spinner"></div>
       <span>Scanning pod health...</span>
+    </div>
+
+  <!-- No-data state: K8s audit ingestion has produced no records yet. -->
+  {:else if noK8sData}
+    <div class="empty-state">
+      <div class="empty-icon neutral">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="1.5">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+      </div>
+      <h3 class="neutral">No Kubernetes audit data yet</h3>
+      <p>Purl has not received any K8s audit records. Enable K8s audit log ingestion for your cluster to see pod health here.</p>
     </div>
 
   {:else}
@@ -786,10 +804,21 @@
     margin: 8px 0 0 0;
   }
 
+  /* Neutral (no-data) variant — distinct from the green all-clear */
+  .empty-icon.neutral {
+    background: rgba(139, 148, 158, 0.08);
+    border-color: rgba(139, 148, 158, 0.2);
+  }
+
+  .empty-state h3.neutral {
+    color: #c9d1d9;
+  }
+
   .empty-state p {
     font-size: 0.875rem;
     color: #8b949e;
     margin: 0;
+    max-width: 420px;
   }
 
   /* Responsive */

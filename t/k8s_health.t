@@ -59,6 +59,7 @@ use lib "$Bin/../lib";
         bless {
             unhealthy_pods => [],
             health_summary => [],
+            k8s_pod_count  => 0,
         }, $_[0];
     }
     sub get_unhealthy_pods {
@@ -70,6 +71,11 @@ use lib "$Bin/../lib";
         my ($self, $params) = @_;
         $self->{last_summary_params} = $params;
         return $self->{health_summary};
+    }
+    sub get_k8s_pod_count {
+        my ($self, $params) = @_;
+        $self->{last_count_params} = $params;
+        return $self->{k8s_pod_count};
     }
     sub can { 1 }
 }
@@ -125,6 +131,7 @@ subtest 'summary - returns empty when no errors' => sub {
 
 subtest 'summary - returns aggregated counts' => sub {
     my $storage = MockStorage->new;
+    $storage->{k8s_pod_count} = 8;
     $storage->{health_summary} = [
         { error_type => 'CrashLoopBackOff', pod_count => 3, total_errors => 15 },
         { error_type => 'OOMKilled',        pod_count => 1, total_errors => 2 },
@@ -146,6 +153,58 @@ subtest 'summary - returns aggregated counts' => sub {
     is($r->{json}{summary}{CrashLoopBackOff}{pod_count}, 3, 'crash_loop pod_count');
     is($r->{json}{summary}{CrashLoopBackOff}{total_errors}, 15, 'crash_loop total_errors');
     is($r->{json}{summary}{OOMKilled}{pod_count}, 1, 'oom pod_count');
+    is($r->{json}{total_pods}, 8, 'total_pods reflects pod count');
+    is($r->{json}{status}, 'ok', 'status ok when data present');
+};
+
+# ============================================
+# 2b. no-data vs healthy signal (regression: no data must NOT read as healthy)
+# ============================================
+subtest 'summary - zero k8s records signals no_data (not healthy)' => sub {
+    my $storage = MockStorage->new;
+    $storage->{k8s_pod_count} = 0;      # nothing ingested
+    $storage->{health_summary} = [];    # therefore no error rows
+    my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
+
+    my $c = MockCtrl->new(
+        stash => {
+            license_info => {
+                plan     => 'enterprise',
+                features => ['k8s_monitoring'],
+            },
+        },
+    );
+    $ctrl->summary($c);
+
+    my $r = $c->rendered;
+    is($r->{json}{total_pods}, 0, 'total_pods is 0 when no data');
+    is($r->{json}{status}, 'no_data', 'status is no_data, NOT an all-clear');
+    ok(!${ $r->{json}{has_data} }, 'has_data is JSON false');
+    is(ref $r->{json}{has_data}, 'SCALAR', 'has_data is a JSON-boolean ref');
+    is($r->{json}{total_unhealthy}, 0, 'total_unhealthy still 0');
+};
+
+subtest 'summary - pods present but no errors signals healthy (ok)' => sub {
+    my $storage = MockStorage->new;
+    $storage->{k8s_pod_count} = 12;     # pods reporting logs
+    $storage->{health_summary} = [];    # but none unhealthy
+    my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
+
+    my $c = MockCtrl->new(
+        stash => {
+            license_info => {
+                plan     => 'pro',
+                features => ['k8s_monitoring'],
+            },
+        },
+    );
+    $ctrl->summary($c);
+
+    my $r = $c->rendered;
+    is($r->{json}{total_pods}, 12, 'total_pods reflects healthy pods');
+    is($r->{json}{status}, 'ok', 'status ok when pods present and healthy');
+    ok(${ $r->{json}{has_data} }, 'has_data is JSON true');
+    is($r->{json}{total_unhealthy}, 0, 'no unhealthy pods');
 };
 
 # ============================================

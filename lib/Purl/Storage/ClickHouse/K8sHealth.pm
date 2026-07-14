@@ -122,6 +122,31 @@ sub get_unhealthy_pods {
     return $self->_query_json($sql, params => \%bind_params, no_cache => 1);
 }
 
+# Count distinct pods that emitted ANY K8s log (meta.pod present) in the
+# window — regardless of health. Lets the controller distinguish "no K8s
+# data ingested" (0 pods) from "K8s data exists and all pods are healthy"
+# (>0 pods, but get_pod_health_summary returns no error rows). Returns a
+# plain integer.
+sub get_k8s_pod_count {
+    my ($self, $params) = @_;
+    $params //= {};
+    my $db = $self->database;
+
+    my $hours = int($params->{hours} // 1);
+    $hours = 1  if $hours < 1;
+    $hours = 72 if $hours > 72;
+
+    my $sql = qq{
+        SELECT uniqExact(JSONExtractString(meta, 'pod')) AS pod_count
+        FROM ${db}.logs
+        WHERE timestamp >= now() - INTERVAL $hours HOUR
+            AND JSONExtractString(meta, 'pod') != ''
+    };
+
+    my $rows = $self->_query_json($sql, no_cache => 1);
+    return int($rows->[0]{pod_count} // 0);
+}
+
 sub get_pod_health_summary {
     my ($self, $params) = @_;
     $params //= {};

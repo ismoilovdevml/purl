@@ -22,6 +22,11 @@ sub summary {
 
         my $hours = $c->param('hours') // 1;
 
+        # Total pods seen in the window (any health) — used to tell
+        # "no K8s data ingested" apart from "all pods healthy". Zero error
+        # rows with zero total pods is NOT an all-clear; it is no data.
+        my $total_pods = $self->storage->get_k8s_pod_count({ hours => $hours });
+
         my $rows = $self->storage->get_pod_health_summary({ hours => $hours });
 
         my %summary;
@@ -35,9 +40,14 @@ sub summary {
             $total_unhealthy += int($row->{pod_count} // 0);
         }
 
+        my $has_data = $total_pods > 0;
+
         $c->render(json => {
             summary         => \%summary,
             total_unhealthy => $total_unhealthy,
+            total_pods      => $total_pods,
+            has_data        => $has_data ? \1 : \0,
+            status          => $has_data ? 'ok' : 'no_data',
             hours           => int($hours),
         });
     });

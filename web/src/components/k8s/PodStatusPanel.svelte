@@ -59,6 +59,11 @@
     }
   }
 
+  // No-data signal: backend reports has_data false/0 when no K8s audit records
+  // exist. Distinct from a genuine all-clear so we don't show "All Pods Healthy".
+  // Absent field (older backend) keeps today's behavior.
+  $: noK8sData = $healthSummary.has_data === false || $healthSummary.has_data === 0;
+
   // Summary cards derived from store
   let summaryCards = [];
   $: {
@@ -107,6 +112,14 @@
           <line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg>
         <span>{$healthError}</span>
+      </div>
+    {:else if noK8sData && !$healthLoading}
+      <div class="empty-state no-data">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="1.5">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+        <p class="no-data-title">No Kubernetes audit data yet</p>
+        <p>Enable K8s audit log ingestion for your cluster to see pod health here.</p>
       </div>
     {:else}
       <!-- Summary cards -->
@@ -371,6 +384,13 @@
   .empty-state p {
     font-size: 13px;
     color: var(--text-secondary, #8b949e);
+  }
+
+  .empty-state .no-data-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary, #c9d1d9);
+    margin: 0;
   }
 
   /* Loading state */
