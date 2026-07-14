@@ -1,6 +1,5 @@
 import { writable, get } from 'svelte/store';
-
-const API_BASE = '/api';
+import { api } from '../utils/api.js';
 
 // Core license state
 export const licenseInfo = writable(null);
@@ -61,16 +60,16 @@ export async function fetchLicense() {
   licenseLoading.set(true);
   licenseError.set(null);
   try {
-    const res = await fetch(`${API_BASE}/license`);
-    if (res.ok) {
-      const data = await res.json();
-      licenseInfo.set(data);
-    } else if (res.status === 401) {
-      licenseInfo.set({ plan: 'unknown', features: [], limits: {}, valid: false });
-    } else {
-      throw new Error('Failed to fetch license info');
-    }
+    const data = await api.get('/license');
+    licenseInfo.set(data);
   } catch (err) {
+    // Not signed in: we genuinely do not know the plan. Say so rather than
+    // claiming "free", which would wrongly gate features in the UI.
+    // (The 401 itself is handled centrally by the api client.)
+    if (err.isUnauthorized) {
+      licenseInfo.set({ plan: 'unknown', features: [], limits: {}, valid: false });
+      return;
+    }
     licenseError.set(err.message);
     licenseInfo.set({ plan: 'free', features: [], limits: {}, valid: true });
   } finally {
@@ -80,15 +79,7 @@ export async function fetchLicense() {
 
 // Save a license key via settings API
 export async function saveLicenseKey(key) {
-  const res = await fetch(`${API_BASE}/settings/license`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key })
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'Failed to save license key');
-  }
+  const data = await api.put('/settings/license', { key });
   await fetchLicense();
   return data;
 }

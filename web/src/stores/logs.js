@@ -1,7 +1,8 @@
 import { writable, get } from 'svelte/store';
 import { escapeHtml } from '../utils/dom.js';
+import { api } from '../utils/api.js';
 import { settings } from './settings.js';
-import { currentUser, passwordChangeRequired } from './auth.js';
+import { passwordChangeRequired } from './auth.js';
 import { error as toastError } from './toast.js';
 import { selectedCluster } from './cluster.js';
 
@@ -32,9 +33,6 @@ export const previousHistogram = writable([]);
 
 // Live mode state
 export const isLive = writable(false);
-
-// API base URL
-const API_BASE = '/api';
 
 // AbortController for request cancellation
 let searchController = null;
@@ -84,18 +82,7 @@ export async function searchLogs() {
       params.set('q', finalQuery);
     }
 
-    const response = await fetch(`${API_BASE}/logs?${params}`, { signal });
-
-    if (response.status === 401) {
-      currentUser.set(null);
-      return;
-    }
-
-    if (response.status === 403) {
-      return;
-    }
-
-    const data = await response.json();
+    const data = await api.get('/logs', { query: params, signal });
 
     // Add unique IDs to logs and pre-parse meta for performance
     const logsWithIds = (data.hits || []).map((log, index) => {
@@ -121,11 +108,14 @@ export async function searchLogs() {
 
   } catch (err) {
     // Ignore abort errors - they are expected when cancelling
-    if (err.name !== 'AbortError') {
-      error.set(err.message);
-      console.error('Search error:', err);
-      toastError('Search failed: ' + (err.message || 'Unknown error'));
-    }
+    if (err.name === 'AbortError') return;
+    // 401 -> session cleared centrally by the api client (with one toast).
+    // 403 -> permission / pending password change; stay quiet, as before.
+    if (err.isAuthError) return;
+
+    error.set(err.message);
+    console.error('Search error:', err);
+    toastError('Search failed: ' + (err.message || 'Unknown error'));
   } finally {
     loading.set(false);
   }
@@ -153,7 +143,7 @@ async function fetchAllStats() {
       fetchHistogram(signal),
     ]);
   } catch (err) {
-    if (err.name !== 'AbortError') {
+    if (err.name !== 'AbortError' && !err.isAuthError) {
       console.error('Stats fetch error:', err);
       toastError('Failed to load statistics');
     }
@@ -175,8 +165,10 @@ async function fetchFieldStats(field, signal = null) {
       params.set('range', currentRange);
     }
 
-    const response = await fetch(`${API_BASE}/stats/fields/${field}?${params}`, { signal });
-    const data = await response.json();
+    const data = await api.get(`/stats/fields/${encodeURIComponent(field)}`, {
+      query: params,
+      signal,
+    });
 
     // Standard fields
     if (field === 'level') levelStats.set(data.values || []);
@@ -190,7 +182,7 @@ async function fetchFieldStats(field, signal = null) {
     if (field === 'meta.deployment') deploymentStats.set(data.values || []);
     if (field === 'meta.team') teamStats.set(data.values || []);
   } catch (err) {
-    if (err.name !== 'AbortError') {
+    if (err.name !== 'AbortError' && !err.isAuthError) {
       console.error(`Failed to fetch ${field} stats:`, err);
       toastError(`Failed to load ${field} statistics`);
     }
@@ -232,12 +224,11 @@ async function fetchHistogram(signal = null) {
       params.set('range', currentRange);
     }
 
-    const response = await fetch(`${API_BASE}/stats/histogram?${params}`, { signal });
-    const data = await response.json();
+    const data = await api.get('/stats/histogram', { query: params, signal });
 
     histogram.set(data.buckets || []);
   } catch (err) {
-    if (err.name !== 'AbortError') {
+    if (err.name !== 'AbortError' && !err.isAuthError) {
       console.error('Failed to fetch histogram:', err);
       toastError('Failed to load histogram data');
     }
@@ -287,71 +278,284 @@ export async function fetchPreviousHistogram(signal = null) {
     params.set('from', prevFrom.toISOString());
     params.set('to', prevTo.toISOString());
 
-    const response = await fetch(`${API_BASE}/stats/histogram?${params}`, { signal });
-    const data = await response.json();
+    const data = await api.get('/stats/histogram', { query: params, signal });
 
     previousHistogram.set(data.buckets || []);
   } catch (err) {
-    if (err.name !== 'AbortError') {
+    if (err.name !== 'AbortError' && !err.isAuthError) {
       console.error('Failed to fetch previous histogram:', err);
       toastError('Failed to load comparison histogram');
     }
   }
 }
 
-// WebSocket connection for live tail
+// ============================================
+// Live tail WebSocket
+// ============================================
+
+/**
+ * Connection status for the live-tail socket.
+ * 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
+ */
+export const liveStatus = writable('disconnected');
+
+// --- Reconnect tuning -------------------------------------------------------
+// Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s, 30s, ... (capped).
+// Rationale: the first retry is fast enough that a brief network blip or a
+// container restart is invisible to the user, while the 30s cap means a
+// genuinely dead server is polled twice a minute instead of being hammered.
+const RECONNECT_BASE_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 30000;
+const RECONNECT_FACTOR = 2;
+
+// Bounded so a permanently dead backend does not retry forever in a
+// background tab. ~12 attempts spans roughly 5 minutes, which comfortably
+// covers a deploy/restart; past that we surface it and let the user re-arm.
+const RECONNECT_MAX_ATTEMPTS = 12;
+
+// A socket that stayed up this long counts as "healthy", so its close resets
+// the backoff. Without this, a server that accepts and immediately drops
+// connections (crash loop) would be retried every 1s forever.
+const STABLE_CONNECTION_MS = 10000;
+
+// Heartbeat. See the note on `pongSupported` below - the liveness timeout is
+// only enforced once we have proof the server answers pings.
+const HEARTBEAT_INTERVAL_MS = 25000;
+const HEARTBEAT_TIMEOUT_MS = 60000;
+
+const MAX_LIVE_LOGS = 500;
+
+/**
+ * Equal jitter: half the delay is fixed, half is random.
+ * Prevents every open dashboard from reconnecting in lockstep and
+ * re-DDoSing the server the instant it comes back up.
+ */
+function backoffDelay(attempt) {
+  const capped = Math.min(
+    RECONNECT_MAX_DELAY_MS,
+    RECONNECT_BASE_DELAY_MS * Math.pow(RECONNECT_FACTOR, attempt)
+  );
+  return capped / 2 + Math.random() * (capped / 2);
+}
+
+/**
+ * Open the live-tail stream, keeping it open across network blips and server
+ * restarts.
+ *
+ * Returns a handle with `.close()`. Calling `.close()` is an explicit,
+ * user-initiated disconnect: it tears down timers and listeners and
+ * guarantees no further reconnect attempts.
+ *
+ * The returned object intentionally keeps a `.close()` method so existing
+ * call sites (SearchBar.svelte) work unchanged.
+ */
 export function connectWebSocket() {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${protocol}//${window.location.host}/api/logs/stream`);
+  let ws = null;
+  let attempt = 0;
+  let openedAt = 0;
 
-  ws.onopen = () => {
-    console.log('WebSocket connected');
-  };
+  let reconnectTimer = null;
+  let heartbeatTimer = null;
 
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.type === 'log') {
-        const logWithId = {
-          ...data.data,
-          id: data.data.id || `${data.data.timestamp}-${Date.now()}`
-        };
-        logs.update(current => [logWithId, ...current.slice(0, 499)]);
-      }
-    } catch (err) {
-      console.error('WebSocket message error:', err);
-      toastError('Failed to process live log message');
+  let lastMessageAt = 0;
+  // The server does not answer app-level pings yet. Until we actually observe
+  // a pong we must NOT enforce the liveness timeout, otherwise an idle-but-
+  // healthy stream (no logs arriving) would look "dead" and be killed every
+  // 60s in a pointless reconnect loop. Once the backend replies
+  // {"type":"pong"}, this flips to true and dead-socket detection turns on.
+  let pongSupported = false;
+
+  // Set by close(). The single source of truth for "never reconnect again".
+  let closedByUser = false;
+
+  const clearTimers = () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
     }
   };
 
-  ws.onerror = (err) => {
-    console.error('WebSocket error:', err);
-    toastError('Live tail connection error');
+  /** Detach handlers before dropping a socket so a dying socket's late
+   *  onclose can never schedule a reconnect for a connection we replaced. */
+  const detach = (socket) => {
+    if (!socket) return;
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
   };
 
-  ws.onclose = () => {
-    console.log('WebSocket disconnected');
+  const startHeartbeat = () => {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      // Dead-but-open socket: the TCP connection was silently dropped
+      // (laptop slept, NAT timeout, LB reaped it) so no close event ever
+      // fires. Force one. Only trusted when we know pongs come back.
+      if (pongSupported && Date.now() - lastMessageAt > HEARTBEAT_TIMEOUT_MS) {
+        console.warn('Live tail: no response from server, recycling socket');
+        ws.close(4000, 'heartbeat timeout'); // -> onclose -> reconnect
+        return;
+      }
+
+      try {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      } catch (err) {
+        console.error('Live tail: ping failed', err);
+      }
+    }, HEARTBEAT_INTERVAL_MS);
   };
 
-  return ws;
+  const scheduleReconnect = () => {
+    if (closedByUser) return;
+    if (reconnectTimer) return; // never stack timers
+
+    if (attempt >= RECONNECT_MAX_ATTEMPTS) {
+      console.error('Live tail: giving up after', attempt, 'attempts');
+      liveStatus.set('disconnected');
+      isLive.set(false); // UI must not keep claiming we are live
+      toastError('Live tail disconnected. Click Live to reconnect.');
+      return;
+    }
+
+    const delay = backoffDelay(attempt);
+    attempt += 1;
+    liveStatus.set('reconnecting');
+    console.log(`Live tail: reconnecting in ${Math.round(delay)}ms (attempt ${attempt})`);
+
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      open();
+    }, delay);
+  };
+
+  const open = () => {
+    if (closedByUser) return;
+
+    liveStatus.set(attempt === 0 ? 'connecting' : 'reconnecting');
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    let socket;
+    try {
+      socket = new WebSocket(`${protocol}//${window.location.host}/api/logs/stream`);
+    } catch (err) {
+      // Constructor can throw synchronously (bad URL, blocked by CSP).
+      console.error('Live tail: failed to open socket', err);
+      scheduleReconnect();
+      return;
+    }
+    ws = socket;
+
+    socket.onopen = () => {
+      openedAt = Date.now();
+      lastMessageAt = Date.now();
+      liveStatus.set('connected');
+      console.log('Live tail: connected');
+      startHeartbeat();
+    };
+
+    socket.onmessage = (event) => {
+      lastMessageAt = Date.now();
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'pong') {
+          pongSupported = true; // server speaks heartbeat - enable liveness check
+          return;
+        }
+
+        if (data.type === 'log') {
+          const logWithId = {
+            ...data.data,
+            id: data.data.id || `${data.data.timestamp}-${Date.now()}`
+          };
+          logs.update(current => [logWithId, ...current.slice(0, MAX_LIVE_LOGS - 1)]);
+        }
+      } catch (err) {
+        // A single malformed frame must not tear down the stream.
+        console.error('Live tail: bad message', err);
+      }
+    };
+
+    socket.onerror = (err) => {
+      // Do NOT toast here: an error is always followed by a close, and the
+      // close handler owns the recovery. Toasting on every blip during a
+      // 12-attempt backoff would spam the user.
+      console.error('Live tail: socket error', err);
+    };
+
+    socket.onclose = (event) => {
+      detach(socket);
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+
+      if (closedByUser) {
+        liveStatus.set('disconnected');
+        return;
+      }
+
+      // A connection that survived a while was healthy - a fresh problem
+      // deserves a fresh (fast) backoff rather than inheriting old attempts.
+      if (openedAt && Date.now() - openedAt >= STABLE_CONNECTION_MS) {
+        attempt = 0;
+      }
+
+      console.log(`Live tail: disconnected (code ${event.code})`);
+      scheduleReconnect();
+    };
+  };
+
+  // Coming back from offline: retry immediately instead of waiting out a
+  // backoff that may still have 30s left on it.
+  const onOnline = () => {
+    if (closedByUser) return;
+    if (ws && ws.readyState === WebSocket.OPEN) return;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    attempt = 0;
+    open();
+  };
+  window.addEventListener('online', onOnline);
+
+  open();
+
+  return {
+    /** Explicit user-initiated disconnect. Never reconnects. */
+    close() {
+      closedByUser = true;
+      clearTimers();
+      window.removeEventListener('online', onOnline);
+      detach(ws);
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        ws.close(1000, 'client disconnect');
+      }
+      ws = null;
+      liveStatus.set('disconnected');
+    },
+
+    get readyState() {
+      return ws ? ws.readyState : WebSocket.CLOSED;
+    },
+  };
 }
 
 // Fetch log context (surrounding logs)
 export async function fetchLogContext(logId, before = 50, after = 50) {
   try {
-    const params = new URLSearchParams({
-      before: before.toString(),
-      after: after.toString(),
+    return await api.get(`/logs/${encodeURIComponent(logId)}/context`, {
+      query: { before, after },
     });
-    const response = await fetch(`${API_BASE}/logs/${logId}/context?${params}`);
-
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || 'Failed to fetch context');
-    }
-
-    return await response.json();
   } catch (err) {
+    if (err.isAuthError) return null;
     console.error('Failed to fetch log context:', err);
     toastError('Failed to load log context: ' + (err.message || 'Unknown error'));
     return null;
@@ -409,17 +613,10 @@ export async function fetchPatterns() {
       params.set('range', currentRange);
     }
 
-    const response = await fetch(`${API_BASE}/patterns?${params}`, { signal });
-
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || 'Failed to fetch patterns');
-    }
-
-    const data = await response.json();
+    const data = await api.get('/patterns', { query: params, signal });
     patterns.set(data.patterns || []);
   } catch (err) {
-    if (err.name !== 'AbortError') {
+    if (err.name !== 'AbortError' && !err.isAuthError) {
       patternsError.set(err.message);
       console.error('Failed to fetch patterns:', err);
       toastError('Failed to load patterns: ' + (err.message || 'Unknown error'));
@@ -434,22 +631,11 @@ export async function fetchPatternLogs(patternHash) {
   if (!patternHash) return null;
 
   try {
-    const currentRange = get(timeRange);
-
-    const params = new URLSearchParams({
-      range: currentRange,
-      limit: '100',
+    return await api.get(`/patterns/${encodeURIComponent(patternHash)}/logs`, {
+      query: { range: get(timeRange), limit: 100 },
     });
-
-    const response = await fetch(`${API_BASE}/patterns/${patternHash}/logs?${params}`);
-
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || 'Failed to fetch pattern logs');
-    }
-
-    return await response.json();
   } catch (err) {
+    if (err.isAuthError) return null;
     console.error('Failed to fetch pattern logs:', err);
     toastError('Failed to load pattern logs: ' + (err.message || 'Unknown error'));
     return null;

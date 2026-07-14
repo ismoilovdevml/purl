@@ -1,6 +1,5 @@
 import { writable, get } from 'svelte/store';
-
-const API_BASE = '/api';
+import { api, resetCsrfToken } from '../utils/api.js';
 
 export const currentUser = writable(null);
 export const authLoading = writable(true);
@@ -9,21 +8,17 @@ export const passwordChangeRequired = writable(false);
 export async function checkAuth() {
   authLoading.set(true);
   try {
-    const res = await fetch(`${API_BASE}/auth/me`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.authenticated) {
-        if (data.must_change_password) {
-          passwordChangeRequired.set(true);
-        }
-        currentUser.set({ username: data.username, role: data.role || 'viewer' });
-      } else {
-        currentUser.set(null);
+    const data = await api.get('/auth/me');
+    if (data?.authenticated) {
+      if (data.must_change_password) {
+        passwordChangeRequired.set(true);
       }
+      currentUser.set({ username: data.username, role: data.role || 'viewer' });
     } else {
       currentUser.set(null);
     }
   } catch {
+    // Any failure here (401, network error, malformed body) means "not signed in".
     currentUser.set(null);
   } finally {
     authLoading.set(false);
@@ -31,13 +26,13 @@ export async function checkAuth() {
 }
 
 export async function login(username, password) {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password })
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Login failed');
+  // Throws ApiError with the server's message on failure - same contract as
+  // the old `throw new Error(data.error || 'Login failed')`.
+  const data = await api.post('/auth/login', { username, password });
+
+  // A new session invalidates any CSRF token minted for the previous one.
+  resetCsrfToken();
+
   // Set passwordChangeRequired BEFORE currentUser to avoid a brief render
   // of the main app (which would fire API calls that get 403'd)
   if (data.password_change_required) {
@@ -48,20 +43,25 @@ export async function login(username, password) {
 }
 
 export async function changePassword(currentPassword, newPassword) {
-  const res = await fetch(`${API_BASE}/auth/change-password`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+  const data = await api.post('/auth/change-password', {
+    current_password: currentPassword,
+    new_password: newPassword,
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Password change failed');
   passwordChangeRequired.set(false);
   return data;
 }
 
 export async function logout() {
-  await fetch(`${API_BASE}/auth/logout`, { method: 'POST' });
-  currentUser.set(null);
+  try {
+    await api.post('/auth/logout');
+  } catch {
+    // Already signed out server-side, or the server is unreachable. Either way
+    // we still tear down the local session - never trap the user in a
+    // logged-in-looking UI they cannot escape.
+  } finally {
+    resetCsrfToken();
+    currentUser.set(null);
+  }
 }
 
 export function isAuthenticated() {

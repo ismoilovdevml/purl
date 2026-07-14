@@ -8,16 +8,34 @@
   import SavedSearches from './components/SavedSearches.svelte';
   import AlertsPanel from './components/AlertsPanel.svelte';
   import PatternsSidebar from './components/PatternsSidebar.svelte';
-  import AnalyticsPage from './components/AnalyticsPage.svelte';
-  import SettingsPage from './components/settings/SettingsPage.svelte';
-  import DashboardPage from './components/dashboard/DashboardPage.svelte';
-  import TracesPage from './components/TracesPage.svelte';
-  import K8sPage from './components/K8sPage.svelte';
-  import QueryPage from './components/QueryPage.svelte';
   import LoginPage from './components/LoginPage.svelte';
   import SearchHelp from './components/SearchHelp.svelte';
   import Toast from './components/ui/Toast.svelte';
   import ClusterSelector from './components/ui/ClusterSelector.svelte';
+  import LazyRoute from './components/ui/LazyRoute.svelte';
+
+  // Route-level code splitting: each non-default page is its own chunk, fetched
+  // on first navigation. The `logs` page is intentionally eager — it is the
+  // default route, so lazy-loading it would only add a round-trip before first
+  // paint. Loaders are declared once at module scope so their identity is
+  // stable and LazyRoute can memoize the resulting import promise.
+  const pageLoaders = {
+    analytics: () => import('./components/AnalyticsPage.svelte'),
+    traces: () => import('./components/TracesPage.svelte'),
+    k8s: () => import('./components/K8sPage.svelte'),
+    query: () => import('./components/QueryPage.svelte'),
+    dashboards: () => import('./components/dashboard/DashboardPage.svelte'),
+    settings: () => import('./components/settings/SettingsPage.svelte'),
+  };
+
+  const pageNames = {
+    analytics: 'Analytics',
+    traces: 'Traces',
+    k8s: 'K8s',
+    query: 'Query',
+    dashboards: 'Dashboards',
+    settings: 'Settings',
+  };
   import {
     logs,
     loading,
@@ -764,18 +782,8 @@
           <PatternsSidebar />
         </aside>
       </div>
-  {:else if currentPage === 'analytics'}
-    <AnalyticsPage />
-  {:else if currentPage === 'traces'}
-    <TracesPage />
-  {:else if currentPage === 'k8s'}
-    <K8sPage />
-  {:else if currentPage === 'query'}
-    <QueryPage />
-  {:else if currentPage === 'dashboards'}
-    <DashboardPage />
-  {:else if currentPage === 'settings'}
-    <SettingsPage />
+  {:else if pageLoaders[currentPage]}
+    <LazyRoute loader={pageLoaders[currentPage]} name={pageNames[currentPage]} />
   {/if}
 
   {#if showSearchHelp}
