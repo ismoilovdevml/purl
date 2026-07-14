@@ -10,6 +10,7 @@ use MIME::Base64 qw(decode_base64 encode_base64);
 use Time::HiRes qw(time);
 use Crypt::Eksblowfish::Bcrypt qw(bcrypt_hash en_base64 de_base64);
 use Purl::Util::ClientIP qw(resolve_client_ip);
+use Purl::Store::Counter;
 
 has 'config' => (
     is      => 'ro',
@@ -45,27 +46,26 @@ has 'csrf_secret' => (
     default => sub { _generate_secure_token() },
 );
 
-# Per-username failed login tracking: { username => { count => N, window_start => T } }
-has '_failed_login_attempts' => (
+# Shared counter store (Redis-backed across prefork workers, in-memory fallback).
+# Backs BOTH rate limiting and per-username login lockout so the limits are
+# correct regardless of worker count. With no Redis configured it is a pure
+# in-memory store, behaviour-identical to the original per-worker hashrefs.
+has 'counter_store' => (
     is      => 'rw',
-    default => sub { {} },
+    lazy    => 1,
+    builder => '_build_counter_store',
 );
 
-has '_failed_login_cleanup' => (
-    is      => 'rw',
-    default => sub { time() },
-);
-
-# Rate limiting state
-has '_rate_limit' => (
-    is      => 'rw',
-    default => sub { {} },
-);
-
-has '_last_cleanup' => (
-    is      => 'rw',
-    default => sub { time() },
-);
+sub _build_counter_store {
+    my ($self) = @_;
+    my $redis = $self->config->{redis} // {};
+    # Resolve URL/mode the same way the broadcaster does: ENV overrides config.
+    my $url  = $ENV{PURL_REDIS_URL}      // $redis->{url}  // '';
+    my $mode = $ENV{PURL_BROADCAST_MODE} // $redis->{mode} // 'auto';
+    # mode=local => never use Redis for counters (explicit single-node opt-out).
+    $url = '' if $mode eq 'local';
+    return Purl::Store::Counter->new(redis_url => $url);
+}
 
 has 'rate_limit_window' => (
     is      => 'ro',
@@ -182,31 +182,28 @@ sub verify_csrf_token {
 # Rate Limiting
 # ============================================
 
+sub _rate_limit_key {
+    my ($self, $ip) = @_;
+    my $window       = $self->rate_limit_window;
+    my $window_start = int(time() / $window) * $window;
+    return "rl:$ip:$window_start";
+}
+
 sub check_rate_limit {
     my ($self, $ip) = @_;
-    my $now = time();
-    my $window_start = int($now / $self->rate_limit_window) * $self->rate_limit_window;
-    my $key = "$ip:$window_start";
-    my $rate_limit = $self->_rate_limit;
-
-    # Periodic cleanup - only once per window instead of every request (O(n) -> O(1) amortized)
-    if ($now - $self->_last_cleanup >= $self->rate_limit_window) {
-        for my $k (keys %$rate_limit) {
-            delete $rate_limit->{$k} if $k !~ /:$window_start$/;
-        }
-        $self->_last_cleanup($now);
-    }
-
-    $rate_limit->{$key}++;
-    return $rate_limit->{$key} <= $self->rate_limit_max;
+    # Atomic increment in the shared store; key rotates every window so old
+    # windows expire on their own (Redis TTL / local GC). Give the key a TTL of
+    # 2x the window so it survives its own window with margin.
+    my $count = $self->counter_store->incr(
+        $self->_rate_limit_key($ip),
+        $self->rate_limit_window * 2,
+    );
+    return $count <= $self->rate_limit_max;
 }
 
 sub get_rate_limit_remaining {
     my ($self, $ip) = @_;
-    my $now = time();
-    my $window_start = int($now / $self->rate_limit_window) * $self->rate_limit_window;
-    my $key = "$ip:$window_start";
-    my $used = $self->_rate_limit->{$key} // 0;
+    my $used = $self->counter_store->get($self->_rate_limit_key($ip));
     return $self->rate_limit_max - $used;
 }
 
@@ -217,48 +214,33 @@ sub get_rate_limit_remaining {
 my $USERNAME_RATE_LIMIT_MAX    = 5;
 my $USERNAME_RATE_LIMIT_WINDOW = 600;
 
-sub _cleanup_failed_login_attempts {
-    my ($self) = @_;
-    my $now = time();
-    return if $now - $self->_failed_login_cleanup < $USERNAME_RATE_LIMIT_WINDOW;
-    my $attempts = $self->_failed_login_attempts;
-    for my $username (keys %$attempts) {
-        delete $attempts->{$username}
-            if $now - $attempts->{$username}{window_start} >= $USERNAME_RATE_LIMIT_WINDOW;
-    }
-    $self->_failed_login_cleanup($now);
+sub _login_key {
+    my ($self, $username) = @_;
+    return "login:$username";
 }
 
 sub check_username_rate_limit {
     my ($self, $username) = @_;
     return 1 unless defined $username && length($username);
-    $self->_cleanup_failed_login_attempts();
-    my $now   = time();
-    my $entry = $self->_failed_login_attempts->{$username};
-    return 1 unless $entry;
-    if ($now - $entry->{window_start} >= $USERNAME_RATE_LIMIT_WINDOW) {
-        delete $self->_failed_login_attempts->{$username};
-        return 1;
-    }
-    return $entry->{count} < $USERNAME_RATE_LIMIT_MAX;
+    # Read-only: how many failures have accrued in the current fixed window.
+    my $count = $self->counter_store->get($self->_login_key($username));
+    return $count < $USERNAME_RATE_LIMIT_MAX;
 }
 
 sub record_failed_login {
     my ($self, $username) = @_;
     return unless defined $username && length($username);
-    my $now      = time();
-    my $attempts = $self->_failed_login_attempts;
-    if (!$attempts->{$username} || $now - $attempts->{$username}{window_start} >= $USERNAME_RATE_LIMIT_WINDOW) {
-        $attempts->{$username} = { count => 1, window_start => $now };
-    } else {
-        $attempts->{$username}{count}++;
-    }
+    # Atomic increment shared across workers; TTL sets a fixed 10-min window
+    # that starts at the first failure (EXPIRE applied only on the 1st incr).
+    $self->counter_store->incr($self->_login_key($username), $USERNAME_RATE_LIMIT_WINDOW);
+    return;
 }
 
 sub reset_failed_login {
     my ($self, $username) = @_;
     return unless defined $username && length($username);
-    delete $self->_failed_login_attempts->{$username};
+    $self->counter_store->del($self->_login_key($username));
+    return;
 }
 
 # ============================================

@@ -13,6 +13,14 @@ requires 'JSON::XS', '4.0';
 # Web Framework
 requires 'Mojolicious', '9.0';
 
+# Redis client — shared store for multi-worker/multi-replica deployments:
+# WebSocket broadcast fan-out (Purl::Broadcast::Redis) and the shared
+# rate-limit / login-lockout counters (Purl::Store::Counter). Both fall back
+# to per-process memory when no PURL_REDIS_URL is set, but under prefork the
+# shared store is what keeps rate-limit and lockout correct — so it must be in
+# the image, not only installed ad hoc.
+requires 'Mojo::Redis', '3.0';
+
 # HTTP client (for ClickHouse HTTP API)
 requires 'HTTP::Tiny';
 requires 'URI::Escape';
