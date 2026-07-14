@@ -80,13 +80,32 @@ use Purl::API::Controller::Auth;
     sub audit_event { push @{$_[0]->{audit_calls}}, { @_[1..$#_] } }
 
     package MockAuthMiddleware;
-    sub new { bless {}, $_[0] }
+    sub new { bless { fails => {} }, $_[0] }
     sub verify_password {
         my ($self, $pass, $stored) = @_;
         # Simple mock: returns (valid, new_hash) like bcrypt version
         return $pass eq 'correctpassword' ? (1, undef) : (0, undef);
     }
     sub hash_password { '$2b$12$' . ('a' x 53) }
+    # Per-username lockout stubs mirroring the real middleware contract:
+    # 5 failures per window, reset clears, undef/empty are no-ops.
+    sub check_username_rate_limit {
+        my ($self, $u) = @_;
+        return 1 unless defined $u && length $u;
+        return ($self->{fails}{$u} // 0) < 5 ? 1 : 0;
+    }
+    sub record_failed_login {
+        my ($self, $u) = @_;
+        return unless defined $u && length $u;
+        $self->{fails}{$u}++;
+        return;
+    }
+    sub reset_failed_login {
+        my ($self, $u) = @_;
+        return unless defined $u && length $u;
+        delete $self->{fails}{$u};
+        return;
+    }
 
     package MockSettings;
     sub new { bless { sections => $_[1] // {} }, $_[0] }

@@ -69,6 +69,20 @@ sub login {
         my $username = $body->{username};
         my $password = $body->{password};
 
+        my $auth_mw = $self->auth_middleware;
+
+        # ── Brute-force lockout (per-username, 5 failures / 10 min) ──
+        # Checked BEFORE any credential verification so a locked account cannot
+        # be probed, and applies regardless of auth backend (local/LDAP). The
+        # message is deliberately generic — it must NOT reveal whether the
+        # username exists.
+        if ($auth_mw && !$auth_mw->check_username_rate_limit($username)) {
+            $c->audit_event(action => 'login', status => 'failure', actor => $username);
+            $self->render_error($c,
+                'Too many failed login attempts. Please try again later.', 429);
+            return;
+        }
+
         # ── LDAP/AD authentication path (Enterprise) ──
         my $ldap_mw = $self->ldap_middleware;
         if ($ldap_mw) {
@@ -99,6 +113,7 @@ sub login {
 
                 $c->session(expiration => 86400);
 
+                $auth_mw->reset_failed_login($username) if $auth_mw;
                 $c->audit_event(action => 'login', status => 'success');
                 $c->render(json => {
                     authenticated => 1,
@@ -109,6 +124,7 @@ sub login {
                 return;
             } else {
                 # LDAP explicitly rejected credentials — do not fall through
+                $auth_mw->record_failed_login($username) if $auth_mw;
                 $c->audit_event(action => 'login', status => 'failure', actor => $username);
                 $self->render_error($c, 'Invalid username or password', 401);
                 return;
@@ -121,6 +137,7 @@ sub login {
         my $users = $auth_config->{users} // {};
 
         unless (exists $users->{$username}) {
+            $auth_mw->record_failed_login($username) if $auth_mw;
             $c->audit_event(action => 'login', status => 'failure', actor => $username);
             $self->render_error($c, 'Invalid username or password', 401);
             return;
@@ -143,10 +160,14 @@ sub login {
         }
 
         unless ($valid) {
+            $auth_mw->record_failed_login($username) if $auth_mw;
             $c->audit_event(action => 'login', status => 'failure', actor => $username);
             $self->render_error($c, 'Invalid username or password', 401);
             return;
         }
+
+        # Credentials verified — clear any accrued lockout counter for this user.
+        $auth_mw->reset_failed_login($username) if $auth_mw;
 
         # Migrate legacy hash to bcrypt on successful login
         if ($new_hash && $self->settings) {
