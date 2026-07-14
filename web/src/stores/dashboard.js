@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { api } from '../utils/api.js';
 import { error as toastError, success as toastSuccess } from './toast.js';
 
 export const dashboards = writable([]);
@@ -8,18 +9,17 @@ export const dashboardLoading = writable(false);
 export async function fetchDashboards() {
   dashboardLoading.set(true);
   try {
-    const res = await fetch('/api/dashboards');
-    if (!res.ok) {
-      if (res.status === 403) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'This feature requires a Pro or Enterprise license');
-      }
-      throw new Error('Failed to fetch dashboards');
-    }
-    const data = await res.json();
+    const data = await api.get('/dashboards');
     dashboards.set(data.dashboards || []);
   } catch (err) {
-    toastError(err.message);
+    // 401 -> session cleared centrally by the api client (with one toast).
+    if (err.isUnauthorized) return;
+    // 403 -> license gating: surface the backend's message (or the default).
+    if (err.isForbidden) {
+      toastError(err.body?.error || 'This feature requires a Pro or Enterprise license');
+      return;
+    }
+    toastError('Failed to fetch dashboards');
   } finally {
     dashboardLoading.set(false);
   }
@@ -28,13 +28,11 @@ export async function fetchDashboards() {
 export async function fetchDashboard(id) {
   dashboardLoading.set(true);
   try {
-    const res = await fetch(`/api/dashboards/${id}`);
-    if (!res.ok) throw new Error('Failed to fetch dashboard');
-    const data = await res.json();
+    const data = await api.get(`/dashboards/${id}`);
     currentDashboard.set(data);
     return data;
   } catch (err) {
-    toastError(err.message);
+    if (!err.isUnauthorized) toastError('Failed to fetch dashboard');
     return null;
   } finally {
     dashboardLoading.set(false);
@@ -43,51 +41,40 @@ export async function fetchDashboard(id) {
 
 export async function createDashboard(dashboard) {
   try {
-    const res = await fetch('/api/dashboards', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(dashboard),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Failed to create dashboard');
-    }
+    await api.post('/dashboards', dashboard);
     toastSuccess('Dashboard created');
     await fetchDashboards();
     return true;
   } catch (err) {
-    toastError(err.message);
+    if (err.isUnauthorized) return false;
+    toastError(err.body?.error || 'Failed to create dashboard');
     return false;
   }
 }
 
 export async function updateDashboard(id, data) {
   try {
-    const res = await fetch(`/api/dashboards/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) throw new Error('Failed to update dashboard');
+    await api.put(`/dashboards/${id}`, data);
     toastSuccess('Dashboard saved');
     await fetchDashboards();
     return true;
   } catch (err) {
-    toastError(err.message);
+    if (err.isUnauthorized) return false;
+    toastError('Failed to update dashboard');
     return false;
   }
 }
 
 export async function deleteDashboard(id) {
   try {
-    const res = await fetch(`/api/dashboards/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete dashboard');
+    await api.del(`/dashboards/${id}`);
     toastSuccess('Dashboard deleted');
     currentDashboard.set(null);
     await fetchDashboards();
     return true;
   } catch (err) {
-    toastError(err.message);
+    if (err.isUnauthorized) return false;
+    toastError('Failed to delete dashboard');
     return false;
   }
 }
@@ -96,50 +83,34 @@ export const templates = writable([]);
 
 export async function fetchTemplates() {
   try {
-    const res = await fetch('/api/dashboards/templates');
-    if (!res.ok) {
-      if (res.status === 403) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'This feature requires a Pro or Enterprise license');
-      }
-      throw new Error('Failed to fetch templates');
-    }
-    const data = await res.json();
+    const data = await api.get('/dashboards/templates');
     templates.set(data.templates || []);
   } catch (err) {
-    toastError(err.message);
+    if (err.isUnauthorized) return;
+    if (err.isForbidden) {
+      toastError(err.body?.error || 'This feature requires a Pro or Enterprise license');
+      return;
+    }
+    toastError('Failed to fetch templates');
   }
 }
 
 export async function createFromTemplate(templateId, name) {
   try {
-    const res = await fetch('/api/dashboards/from-template', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ template_id: templateId, name }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || 'Failed to create from template');
-    }
+    await api.post('/dashboards/from-template', { template_id: templateId, name });
     toastSuccess('Dashboard created from template');
     await fetchDashboards();
     return true;
   } catch (err) {
-    toastError(err.message);
+    if (err.isUnauthorized) return false;
+    toastError(err.body?.error || 'Failed to create from template');
     return false;
   }
 }
 
 export async function executeWidget(widget) {
   try {
-    const res = await fetch('/api/dashboards/widget', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(widget),
-    });
-    if (!res.ok) throw new Error('Widget query failed');
-    return await res.json();
+    return await api.post('/dashboards/widget', widget);
   } catch (err) {
     return { error: err.message };
   }

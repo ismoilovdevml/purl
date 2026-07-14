@@ -1,7 +1,6 @@
 import { writable } from 'svelte/store';
+import { api } from '../utils/api.js';
 import { error as toastError } from './toast.js';
-
-const API_BASE = '/api';
 
 // ============================================
 // AI state stores
@@ -37,14 +36,11 @@ export const aiProviders = writable([]);
 
 export async function initAI() {
   try {
-    const res = await fetch(`${API_BASE}/ai/providers`);
-    if (res.ok) {
-      const data = await res.json();
-      aiProvider.set(data.current || 'openai');
-      aiConfigured.set(data.configured === true);
-      aiEnabled.set(data.configured === true);
-      aiProviders.set(data.providers || []);
-    }
+    const data = await api.get('/ai/providers');
+    aiProvider.set(data.current || 'openai');
+    aiConfigured.set(data.configured === true);
+    aiEnabled.set(data.configured === true);
+    aiProviders.set(data.providers || []);
   } catch {
     // AI not available — non-fatal
   }
@@ -63,15 +59,10 @@ export async function queryAI(question, execute = true) {
   aiQuerySQL.set('');
 
   try {
-    const res = await fetch(`${API_BASE}/ai/query`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: question.trim(), execute }),
-    });
+    const data = await api.post('/ai/query', { question: question.trim(), execute });
 
-    const data = await res.json();
-
-    if (!res.ok || data.error) {
+    // A 2xx response can still carry an application-level error field.
+    if (data?.error) {
       const msg = data.error || 'AI query failed';
       aiError.set(msg);
       toastError(msg);
@@ -81,8 +72,12 @@ export async function queryAI(question, execute = true) {
     aiQuerySQL.set(data.sql || '');
     aiQueryResult.set(data);
     return data;
-  } catch {
-    const msg = 'Failed to connect to AI service';
+  } catch (err) {
+    // 401 -> session cleared centrally by the api client (with one toast).
+    if (err.isUnauthorized) return null;
+    const msg = err.isNetworkError
+      ? 'Failed to connect to AI service'
+      : (err.body?.error || 'AI query failed');
     aiError.set(msg);
     toastError(msg);
     return null;
@@ -102,15 +97,9 @@ export async function analyzeSelectedLogs(logs) {
   aiAnalysisResult.set(null);
 
   try {
-    const res = await fetch(`${API_BASE}/ai/analyze`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ logs }),
-    });
+    const data = await api.post('/ai/analyze', { logs });
 
-    const data = await res.json();
-
-    if (!res.ok || data.error) {
+    if (data?.error) {
       const msg = data.error || 'Analysis failed';
       toastError(msg);
       return null;
@@ -118,8 +107,12 @@ export async function analyzeSelectedLogs(logs) {
 
     aiAnalysisResult.set(data);
     return data;
-  } catch {
-    toastError('Failed to connect to AI service');
+  } catch (err) {
+    if (err.isUnauthorized) return null;
+    const msg = err.isNetworkError
+      ? 'Failed to connect to AI service'
+      : (err.body?.error || 'Analysis failed');
+    toastError(msg);
     return null;
   } finally {
     aiAnalysisLoading.set(false);
@@ -137,15 +130,9 @@ export async function explainLog(log) {
   aiExplainResult.set(null);
 
   try {
-    const res = await fetch(`${API_BASE}/ai/explain`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ log }),
-    });
+    const data = await api.post('/ai/explain', { log });
 
-    const data = await res.json();
-
-    if (!res.ok || data.error) {
+    if (data?.error) {
       const msg = data.error || 'Explanation failed';
       toastError(msg);
       return null;
@@ -153,8 +140,12 @@ export async function explainLog(log) {
 
     aiExplainResult.set(data);
     return data;
-  } catch {
-    toastError('Failed to connect to AI service');
+  } catch (err) {
+    if (err.isUnauthorized) return null;
+    const msg = err.isNetworkError
+      ? 'Failed to connect to AI service'
+      : (err.body?.error || 'Explanation failed');
+    toastError(msg);
     return null;
   } finally {
     aiExplainLoading.set(false);
@@ -167,11 +158,8 @@ export async function explainLog(log) {
 
 export async function fetchSuggestions() {
   try {
-    const res = await fetch(`${API_BASE}/ai/suggest`);
-    if (res.ok) {
-      const data = await res.json();
-      aiSuggestions.set(data.suggestions || []);
-    }
+    const data = await api.get('/ai/suggest');
+    aiSuggestions.set(data.suggestions || []);
   } catch {
     // non-fatal
   }
