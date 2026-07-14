@@ -18,7 +18,18 @@ extends 'Purl::API::Controller::Base';
 has 'engine' => (
     is      => 'ro',
     lazy    => 1,
-    default => sub { Purl::Pipeline::Engine->new },
+    default => sub {
+        my ($self) = @_;
+        # ReDoS guard bounds (mirror Config pipeline.* defaults). Read
+        # from the injected config hashref when present, else default.
+        my $pcfg = (ref $self->config eq 'HASH')
+            ? ($self->config->{pipeline} // {})
+            : {};
+        return Purl::Pipeline::Engine->new(
+            regex_timeout_ms => $pcfg->{regex_timeout_ms} // 250,
+            regex_max_length => $pcfg->{regex_max_length} // 512,
+        );
+    },
 );
 
 sub list {

@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Time::HiRes ();
 use namespace::clean;
 use Mojo::JSON qw(decode_json encode_json);
 
@@ -11,11 +12,33 @@ use Mojo::JSON qw(decode_json encode_json);
 # Pipeline processing engine
 # Applies ordered rules to log entries during
 # ingestion for parsing and enrichment.
+#
+# SECURITY: rule patterns are USER-SUPPLIED and reachable from the
+# API (POST /api/pipelines/test, and — imminently — the ingest
+# path). Every user regex is therefore run through _safe_regex_match,
+# which bounds pattern LENGTH before compiling and bounds EXECUTION
+# TIME with a Time::HiRes wall-clock alarm. A catastrophic-
+# backtracking pattern aborts instead of pegging the (single-
+# threaded) worker. See t/pipeline_redos.t for proof.
 # ============================================
 
 has 'pipelines' => (
     is      => 'rw',
     default => sub { [] },
+);
+
+# Max wall-clock time a single user regex may run (milliseconds).
+# Mirrors Config default pipeline.regex_timeout_ms.
+has 'regex_timeout_ms' => (
+    is      => 'ro',
+    default => sub { 250 },
+);
+
+# Max user pattern length accepted before compilation.
+# Mirrors Config default pipeline.regex_max_length.
+has 'regex_max_length' => (
+    is      => 'ro',
+    default => sub { 512 },
 );
 
 # Apply all enabled pipelines to a log entry
@@ -24,17 +47,28 @@ sub process {
     my ($self, $log) = @_;
     return $log unless @{ $self->pipelines };
 
+    my $ctx = $self->_regex_ctx;
+
     for my $pipeline (@{ $self->pipelines }) {
         next unless $pipeline->{enabled};
 
         # Check if pipeline matches this log (by service filter)
-        if (my $filter_service = $pipeline->{filter_service}) {
-            next unless ($log->{service} // '') =~ /^$filter_service$/i;
+        my $filter_service = $pipeline->{filter_service};
+        if (defined $filter_service && length $filter_service) {
+            my $res = _safe_regex_match(
+                $ctx,
+                ($log->{service} // ''),
+                $filter_service,
+                anchored         => 1,
+                case_insensitive => 1,
+            );
+            # On rejection/timeout OR no match, skip this pipeline.
+            next if $res->{error} || !$res->{matched};
         }
 
         for my $rule (@{ $pipeline->{rules} // [] }) {
             next unless $rule->{enabled} // 1;
-            $log = _apply_rule($log, $rule);
+            $log = _apply_rule($log, $rule, $ctx);
             return undef unless defined $log;  # Drop rule
         }
     }
@@ -51,9 +85,13 @@ sub test_pipeline {
         my $input  = { %$log };
         my $output = { %$log };
 
+        # Per-sample error collector, surfaced to the API caller.
+        my @errors;
+        my $ctx = $self->_regex_ctx(\@errors);
+
         for my $rule (@{ $pipeline->{rules} // [] }) {
             next unless $rule->{enabled} // 1;
-            $output = _apply_rule($output, $rule);
+            $output = _apply_rule($output, $rule, $ctx);
             last unless defined $output;
         }
 
@@ -61,10 +99,107 @@ sub test_pipeline {
             input   => $input,
             output  => $output,
             dropped => !defined $output,
+            (@errors ? (errors => \@errors) : ()),
         };
     }
 
     return \@results;
+}
+
+# Build the regex-guard context threaded through the rule chain.
+# $errors (optional) is an arrayref that collects clean error records.
+sub _regex_ctx {
+    my ($self, $errors) = @_;
+    return {
+        timeout_ms => $self->regex_timeout_ms,
+        max_length => $self->regex_max_length,
+        errors     => $errors,
+    };
+}
+
+# ============================================
+# Safe user-regex execution
+# ============================================
+
+# Compile and run a user-supplied pattern under length + time bounds.
+#
+#   _safe_regex_match($ctx, $value, $pattern, %opts)
+#     %opts: anchored => bool, case_insensitive => bool
+#
+# Returns a hashref:
+#   { matched => 0|1, named => \%captures }  on success
+#   { error   => "message" }                 on reject / bad pattern / timeout
+#
+# NEVER dies: an invalid or pathological pattern yields a clean error
+# instead of crashing the worker.
+sub _safe_regex_match {
+    my ($ctx, $value, $pattern, %opts) = @_;
+    $value   //= '';
+    $pattern //= '';
+
+    my $timeout_ms = $ctx->{timeout_ms} || 250;
+    my $max_length = $ctx->{max_length} || 512;
+
+    # 1. Length bound — reject absurd patterns before touching the
+    #    regex compiler.
+    if (length($pattern) > $max_length) {
+        return { error => "pattern rejected: exceeds max length ($max_length)" };
+    }
+
+    # 2. Compile safely. Invalid syntax => clean error, no crash.
+    my $src = $opts{anchored} ? "^$pattern\$" : $pattern;
+    my $re  = eval { $opts{case_insensitive} ? qr/$src/i : qr/$src/ };  ## no critic (ProhibitStringyEval)
+    if (my $compile_err = $@) {
+        return { error => 'invalid pattern: ' . _clean_err($compile_err) };
+    }
+    return { error => 'invalid pattern' } unless defined $re;
+
+    # 3. Execute under a wall-clock timeout. On this Perl build a
+    #    Time::HiRes alarm DOES interrupt catastrophic backtracking
+    #    (verified in t/pipeline_redos.t).
+    my $timeout_s = $timeout_ms / 1000;
+    my ($matched, %named);
+    my $ok = eval {
+        local $SIG{ALRM} = sub { die "PURL_REGEX_TIMEOUT\n" };  ## no critic (RequireCarping)
+        Time::HiRes::alarm($timeout_s);
+        if ($value =~ $re) {
+            $matched = 1;
+            %named   = %+;
+        }
+        else {
+            $matched = 0;
+        }
+        Time::HiRes::alarm(0);
+        1;
+    };
+    my $run_err = $@;
+    Time::HiRes::alarm(0);   # always clear the alarm, even after die
+
+    if (!$ok) {
+        if ($run_err =~ /PURL_REGEX_TIMEOUT/) {
+            return { error => "pattern timed out after ${timeout_ms}ms" };
+        }
+        return { error => 'pattern execution error: ' . _clean_err($run_err) };
+    }
+
+    return { matched => $matched, named => \%named };
+}
+
+# Strip file/line noise from an eval error for a caller-safe message.
+sub _clean_err {
+    my ($err) = @_;
+    $err //= 'unknown error';
+    $err =~ s/\s+at\s+\S+\s+line\s+\d+.*//s;
+    $err =~ s/\s+$//;
+    return $err;
+}
+
+# Record a rejected/failed pattern for the API caller (test mode).
+sub _record_error {
+    my ($ctx, $rule_type, $message) = @_;
+    push @{ $ctx->{errors} }, { rule => $rule_type, error => $message }
+        if $ctx->{errors};
+    return;
 }
 
 # ============================================
@@ -72,19 +207,19 @@ sub test_pipeline {
 # ============================================
 
 sub _apply_rule {
-    my ($log, $rule) = @_;
+    my ($log, $rule, $ctx) = @_;
     my $type = $rule->{type} // '';
 
     if ($type eq 'regex') {
-        return _rule_regex($log, $rule);
+        return _rule_regex($log, $rule, $ctx);
     } elsif ($type eq 'json_extract') {
         return _rule_json_extract($log, $rule);
     } elsif ($type eq 'drop') {
-        return _rule_drop($log, $rule);
+        return _rule_drop($log, $rule, $ctx);
     } elsif ($type eq 'mutate') {
         return _rule_mutate($log, $rule);
     } elsif ($type eq 'grok') {
-        return _rule_grok($log, $rule);
+        return _rule_grok($log, $rule, $ctx);
     }
 
     return $log;  # Unknown rule type, pass through
@@ -92,7 +227,7 @@ sub _apply_rule {
 
 # Regex: extract named captures from a field
 sub _rule_regex {
-    my ($log, $rule) = @_;
+    my ($log, $rule, $ctx) = @_;
     my $source  = $rule->{source_field} // 'message';
     my $pattern = $rule->{pattern}      // '';
 
@@ -100,14 +235,18 @@ sub _rule_regex {
 
     my $value = $log->{$source} // $log->{meta}{$source} // '';
 
-    if (my @captures = $value =~ qr/$pattern/) {
+    my $res = _safe_regex_match($ctx, $value, $pattern);
+    if ($res->{error}) {
+        _record_error($ctx, 'regex', $res->{error});
+        return $log;  # pass-through on rejection/timeout, never crash
+    }
+
+    if ($res->{matched} && %{ $res->{named} }) {
         # Named captures go to meta
-        my %named = %+;
-        if (%named) {
-            $log->{meta} //= {};
-            for my $key (keys %named) {
-                $log->{meta}{$key} = $named{$key} if defined $named{$key};
-            }
+        $log->{meta} //= {};
+        for my $key (keys %{ $res->{named} }) {
+            $log->{meta}{$key} = $res->{named}{$key}
+                if defined $res->{named}{$key};
         }
     }
 
@@ -155,7 +294,7 @@ sub _rule_json_extract {
 
 # Drop: discard log if condition matches
 sub _rule_drop {
-    my ($log, $rule) = @_;
+    my ($log, $rule, $ctx) = @_;
     my $field   = $rule->{field}   // 'message';
     my $pattern = $rule->{pattern} // '';
 
@@ -163,9 +302,13 @@ sub _rule_drop {
 
     my $value = $log->{$field} // $log->{meta}{$field} // '';
 
-    if ($value =~ qr/$pattern/i) {
-        return undef;  # Signal to drop this log
+    my $res = _safe_regex_match($ctx, $value, $pattern, case_insensitive => 1);
+    if ($res->{error}) {
+        _record_error($ctx, 'drop', $res->{error});
+        return $log;  # fail-safe: on rejection/timeout, KEEP the log
     }
+
+    return undef if $res->{matched};  # Signal to drop this log
 
     return $log;
 }
@@ -211,7 +354,7 @@ sub _rule_mutate {
 
 # Grok: common patterns (simplified — no full grok grammar)
 sub _rule_grok {
-    my ($log, $rule) = @_;
+    my ($log, $rule, $ctx) = @_;
     my $source  = $rule->{source_field} // 'message';
     my $pattern = $rule->{pattern}      // '';
 
@@ -240,8 +383,14 @@ sub _rule_grok {
 
     my $value = $log->{$source} // $log->{meta}{$source} // '';
 
-    if ($value =~ qr/$regex/) {
-        my %named = %+;
+    my $res = _safe_regex_match($ctx, $value, $regex);
+    if ($res->{error}) {
+        _record_error($ctx, 'grok', $res->{error});
+        return $log;  # pass-through on rejection/timeout, never crash
+    }
+
+    if ($res->{matched}) {
+        my %named = %{ $res->{named} };
         $log->{meta} //= {};
         for my $key (keys %named) {
             next unless defined $named{$key};
@@ -279,5 +428,10 @@ Purl::Pipeline::Engine - Log processing pipeline engine
 Processes log entries through ordered rules during ingestion.
 Supports regex extraction, JSON parsing, grok patterns, drop
 rules, and field mutations.
+
+All user-supplied regular expressions are executed through an
+internal guard (C<_safe_regex_match>) that bounds both pattern
+length and wall-clock execution time, protecting the single-
+threaded worker against ReDoS (catastrophic backtracking).
 
 =cut
