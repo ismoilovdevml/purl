@@ -47,7 +47,7 @@
     searchLogs,
   } from './stores/logs.js';
   import { refreshInterval, defaultTimeRange } from './stores/settings.js';
-  import { fetchLicense, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining, licenseFeatures, k8sMode } from './stores/license.js';
+  import { fetchLicense, hasFeature, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining, licenseFeatures, k8sMode } from './stores/license.js';
   import { currentUser, checkAuth, logout, passwordChangeRequired } from './stores/auth.js';
   import { success as toastSuccess, warning as toastWarning } from './stores/toast.js';
   import { fetchClusters, clusters } from './stores/cluster.js';
@@ -69,7 +69,10 @@
   let actionsMenuEl;
   let selectionMenuEl;
 
-  $: hasDashboards = ($licenseFeatures || []).includes('dashboards');
+  // Route dashboards gating through hasFeature so enterprise-bypass and the
+  // custom_dashboards → dashboards alias apply (matches backend has_feature).
+  // Referencing the stores keeps this reactive to license changes.
+  $: hasDashboards = ($currentPlan, $licenseFeatures, hasFeature('dashboards'));
 
   // Mobile responsive state
   let mobileMenuOpen = false;

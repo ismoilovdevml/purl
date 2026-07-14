@@ -11,7 +11,7 @@
   import Badge from '../ui/Badge.svelte';
   import Button from '../ui/Button.svelte';
   import Input from '../ui/Input.svelte';
-  import { licenseInfo, licenseLoading, licenseError, currentPlan, isFreePlan, fetchLicense, saveLicenseKey } from '../../stores/license.js';
+  import { licenseInfo, licenseLoading, licenseError, currentPlan, isFreePlan, hasFeature, fetchLicense, saveLicenseKey } from '../../stores/license.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
 
   let licenseKey = '';
@@ -40,6 +40,11 @@
     pro: 'primary',
     enterprise: 'info',
   };
+
+  // Whether a feature is granted, routed through hasFeature so enterprise-bypass
+  // and feature aliases apply (matches backend). Reassigned on license change to
+  // stay reactive in the template.
+  $: featureEnabled = ($licenseInfo, (key) => hasFeature(key));
 
   onMount(() => {
     fetchLicense();
@@ -108,7 +113,7 @@
         <div class="features-list">
           {#each Object.entries(FEATURE_LABELS) as [key, label]}
             <div class="feature-item">
-              {#if ($licenseInfo?.features || []).includes(key)}
+              {#if featureEnabled(key)}
                 <svg class="feature-icon check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="20 6 9 17 4 12"/>
                 </svg>
@@ -118,7 +123,7 @@
                   <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                 </svg>
               {/if}
-              <span class:disabled={!($licenseInfo?.features || []).includes(key)}>{label}</span>
+              <span class:disabled={!featureEnabled(key)}>{label}</span>
             </div>
           {/each}
         </div>

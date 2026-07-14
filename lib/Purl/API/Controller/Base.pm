@@ -71,6 +71,22 @@ sub safe_execute {
 # License enforcement helpers
 # ============================================
 
+# Feature-name alias map. The license (issued by purl-web) sometimes grants
+# a feature under a DIFFERENT name than the internal gate uses. Rather than
+# rename the many require_feature() call sites, a gate's canonical internal
+# name is satisfied by the canonical name OR any of its known aliases present
+# in the license. Canonical gate name => arrayref of accepted alias names.
+#
+# NOTE: aliasing only bridges pure NAME mismatches where the license DOES
+# grant an equivalent feature under another name. It CANNOT grant a feature
+# the license omits entirely — those require purl-web to add the feature to
+# the plan's feature list and re-issue keys.
+my %FEATURE_ALIASES = (
+    # purl-web issues Dashboards as 'custom_dashboards'; internal gate is
+    # 'dashboards'. Same capability, different name.
+    dashboards => [qw( custom_dashboards )],
+);
+
 # Non-rendering feature check. Returns 1 if the current license grants
 # $feature — OR if no license context is present at all (matching the
 # historical require_feature behaviour of allowing when unlicensed/OSS).
@@ -84,8 +100,14 @@ sub has_feature {
     # Enterprise plan has access to all features
     return 1 if $plan eq 'enterprise';
 
-    my @features = @{ $info->{features} // [] };
-    return (grep { $_ eq $feature } @features) ? 1 : 0;
+    # A gate is satisfied by its canonical name OR any known alias the
+    # license grants instead (name-mismatch bridge — see %FEATURE_ALIASES).
+    my %granted = map { $_ => 1 } @{ $info->{features} // [] };
+    return 1 if $granted{$feature};
+    for my $alias (@{ $FEATURE_ALIASES{$feature} // [] }) {
+        return 1 if $granted{$alias};
+    }
+    return 0;
 }
 
 sub require_feature {

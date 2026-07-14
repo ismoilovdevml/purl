@@ -199,6 +199,77 @@ subtest 'require_feature with enterprise plan bypasses feature check' => sub {
 };
 
 # ============================================
+# Feature-name alias layer (FIX: license grants 'custom_dashboards',
+# internal gate is 'dashboards' — the alias must satisfy the gate)
+# ============================================
+subtest 'has_feature: alias satisfies the canonical gate name' => sub {
+    my $ctrl = Purl::API::Controller::Base->new(storage => MockStorage->new);
+    my $c = MockMojoCtrl->new({
+        license_info => {
+            plan     => 'pro',                    # NOT enterprise
+            features => ['custom_dashboards'],    # alias, not 'dashboards'
+        },
+    });
+    ok $ctrl->has_feature($c, 'dashboards'),
+        "pro license granting 'custom_dashboards' satisfies 'dashboards' gate";
+    ok $ctrl->require_feature($c, 'dashboards'),
+        'require_feature passes via alias (no 403)';
+    is $c->rendered, undef, 'no error rendered when alias present';
+};
+
+subtest 'has_feature: canonical name still works directly' => sub {
+    my $ctrl = Purl::API::Controller::Base->new(storage => MockStorage->new);
+    my $c = MockMojoCtrl->new({
+        license_info => {
+            plan     => 'pro',
+            features => ['dashboards'],           # canonical name directly
+        },
+    });
+    ok $ctrl->has_feature($c, 'dashboards'), 'canonical name matches itself';
+};
+
+subtest 'has_feature: gate rejected when neither name nor alias present' => sub {
+    my $ctrl = Purl::API::Controller::Base->new(storage => MockStorage->new);
+    my $c = MockMojoCtrl->new({
+        license_info => {
+            plan     => 'pro',
+            features => ['log_search'],           # neither dashboards nor alias
+        },
+    });
+    ok !$ctrl->has_feature($c, 'dashboards'),
+        'no dashboards and no alias = denied';
+    ok !$ctrl->require_feature($c, 'dashboards'), 'require_feature denies';
+    is $c->rendered->{status}, 403, '403 returned';
+};
+
+subtest 'has_feature: alias does not leak to unrelated gates' => sub {
+    my $ctrl = Purl::API::Controller::Base->new(storage => MockStorage->new);
+    my $c = MockMojoCtrl->new({
+        license_info => {
+            plan     => 'pro',
+            features => ['custom_dashboards'],
+        },
+    });
+    # The dashboards alias must not accidentally satisfy some other gate.
+    ok !$ctrl->has_feature($c, 'backup'),
+        "'custom_dashboards' does not satisfy an unrelated 'backup' gate";
+};
+
+subtest 'has_feature: enterprise bypass unaffected by alias layer' => sub {
+    my $ctrl = Purl::API::Controller::Base->new(storage => MockStorage->new);
+    my $c = MockMojoCtrl->new({
+        license_info => { plan => 'enterprise', features => [] },
+    });
+    ok $ctrl->has_feature($c, 'dashboards'), 'enterprise still bypasses';
+};
+
+subtest 'has_feature: unlicensed (no license_info) still allowed' => sub {
+    my $ctrl = Purl::API::Controller::Base->new(storage => MockStorage->new);
+    my $c = MockMojoCtrl->new;   # no license_info in stash
+    ok $ctrl->has_feature($c, 'dashboards'), 'unlicensed allows the gate';
+};
+
+# ============================================
 # check_limit
 # ============================================
 subtest 'check_limit with no license_info passes' => sub {
