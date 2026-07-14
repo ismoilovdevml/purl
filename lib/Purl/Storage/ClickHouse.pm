@@ -9,6 +9,7 @@ use HTTP::Tiny;
 use JSON::XS ();
 use URI::Escape qw(uri_escape);
 use Time::HiRes qw(time);
+use Purl::Config;
 use Purl::Util::Time qw(to_clickhouse_ts now_clickhouse);
 
 # Consume roles for modular functionality
@@ -111,7 +112,33 @@ has '_buffer' => (
 
 has 'buffer_size' => (
     is      => 'ro',
-    default => 5000,  # Increased for better throughput
+    default => 5000,  # Soft threshold: flush is triggered when buffer reaches this
+);
+
+# Hard cap on the in-memory buffer. Beyond this the ingest layer must apply
+# backpressure (503) rather than growing the buffer unbounded (OOM) or silently
+# accepting logs it cannot store. ENV > settings.json > default (10000).
+# NOTE: under prefork this cap is PER WORKER (each worker has its own buffer).
+has 'buffer_max' => (
+    is      => 'ro',
+    lazy    => 1,
+    default => sub {
+        my $v = eval { Purl::Config->new->get('ingest', 'buffer_max') };
+        return (defined $v && $v =~ /^\d+$/ && $v > 0) ? $v + 0 : 10_000;
+    },
+);
+
+# Durable ingest mode. When true, flush() waits for ClickHouse to confirm the
+# async insert is persisted (wait_for_async_insert=1) so a 2xx to the client
+# means the row is actually in ClickHouse. Default 0 keeps the legacy fast path.
+# ENV (PURL_INGEST_DURABLE) > settings.json > default (0).
+has 'durable' => (
+    is      => 'ro',
+    lazy    => 1,
+    default => sub {
+        my $v = eval { Purl::Config->new->get('ingest', 'durable') };
+        return (defined $v && $v) ? ($v ? 1 : 0) : 0;
+    },
 );
 
 has 'flush_interval' => (
@@ -225,6 +252,15 @@ sub _auth_params {
     return join('&', @params);
 }
 
+# Async-insert settings, applied consistently everywhere an INSERT is issued.
+# durable=1 => wait_for_async_insert=1 (HTTP returns only once the row is
+# persisted). durable=0 => legacy fire-and-forget fast path.
+sub _async_insert_settings {
+    my ($self) = @_;
+    my $wait = $self->durable ? 1 : 0;
+    return "async_insert=1&wait_for_async_insert=$wait";
+}
+
 # ClickHouse performance settings
 sub _query_settings {
     my ($self) = @_;
@@ -235,8 +271,7 @@ sub _query_settings {
         'use_uncompressed_cache=1',
         'load_balancing=nearest_hostname',
         'prefer_localhost_replica=1',
-        'async_insert=1',
-        'wait_for_async_insert=0',
+        $self->_async_insert_settings,
     );
     return join('&', @settings);
 }
@@ -348,6 +383,8 @@ sub get_metrics {
             ? sprintf('%.3fs', $m->{query_time_total} / $m->{queries_total})
             : '0s',
         buffer_size => scalar @{$self->_buffer},
+        buffer_max  => $self->buffer_max,
+        durable     => $self->durable,
     };
 }
 
@@ -546,6 +583,21 @@ sub _init_schema {
     });
 }
 
+# Current buffer depth (per-process / per-worker under prefork).
+sub buffer_depth {
+    my ($self) = @_;
+    return scalar @{$self->_buffer};
+}
+
+# Backpressure check. Returns true when accepting $incoming more logs would push
+# the buffer past buffer_max. The ingest layer uses this to return 503 instead
+# of growing the buffer without bound. $incoming defaults to 0.
+sub buffer_full {
+    my ($self, $incoming) = @_;
+    $incoming //= 0;
+    return (scalar(@{$self->_buffer}) + $incoming) > $self->buffer_max;
+}
+
 # Insert single log
 sub insert {
     my ($self, $log) = @_;
@@ -574,7 +626,16 @@ sub insert_batch {
     return scalar @$logs;
 }
 
-# Flush buffer to ClickHouse with async insert
+# Flush buffer to ClickHouse with async insert.
+#
+# durable=0 (default): fire-and-forget async insert (wait_for_async_insert=0).
+#   ClickHouse returns 200 before the batch is persisted — fast, at-most-once.
+# durable=1: wait_for_async_insert=1 — the HTTP POST returns only once the row
+#   is durable, so a successful flush() means the data is in ClickHouse.
+#
+# On failure the batch is put back at the head of the buffer in durable mode so
+# the next flush retries it (at-least-once); the error is always re-thrown so
+# the caller can surface a non-2xx to the client.
 sub flush {
     my ($self) = @_;
 
@@ -586,9 +647,10 @@ sub flush {
 
     my $table = $self->database . '.' . $self->table;
 
-    # Use async_insert for better throughput
+    # Async-insert semantics adapt to durable mode (kept consistent with
+    # _query_settings via _async_insert_settings).
     my $url = $self->_base_url . '/?' . $self->_auth_params;
-    $url .= '&async_insert=1&wait_for_async_insert=0';
+    $url .= '&' . $self->_async_insert_settings;
     $url .= '&query=' . uri_escape("INSERT INTO $table FORMAT JSONEachRow");
 
     my @rows;
@@ -624,6 +686,12 @@ sub flush {
 
     unless ($response->{success}) {
         $self->_metrics->{errors_total}++;
+        # In durable mode, do not lose the batch: return it to the buffer so the
+        # next flush retries it. The error is re-thrown either way so the ingest
+        # layer returns a non-2xx instead of a silent 200.
+        if ($self->durable) {
+            unshift @{$self->_buffer}, @logs;
+        }
         die "ClickHouse insert error: $response->{status} - $response->{content}";
     }
 

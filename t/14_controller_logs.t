@@ -97,6 +97,8 @@ use Purl::API::Controller::Logs;
         push @{$self->{inserted} //= []}, $log;
     }
     sub flush { $_[0]->{flushed} = 1 }
+    sub buffer_full { 0 }
+    sub durable { $_[0]->{durable} // 0 }
     sub can { 1 }
     sub get_context {
         my ($self, $id, %params) = @_;

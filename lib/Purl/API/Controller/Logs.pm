@@ -274,10 +274,17 @@ sub ingest {
             my $max_servers = $license_info->{limits}{servers} // 999;
             # -1 means unlimited servers
             if ($max_servers >= 0) {
-                # Get current unique server count from storage
-                my $existing_servers = eval {
-                    $self->storage->field_stats('service', limit => $max_servers + $new_server_count + 1);
-                } // [];
+                # Current unique server list. field_stats('service') is a GROUP BY
+                # over the whole logs table — far too expensive to run on every
+                # ingest. Cache it briefly so the hot path scans at most once per
+                # window instead of once per request.
+                my $existing_servers = $self->get_cached('ingest:known_services');
+                unless (defined $existing_servers) {
+                    $existing_servers = eval {
+                        $self->storage->field_stats('service', limit => 1000);
+                    } // [];
+                    $self->set_cached('ingest:known_services', $existing_servers, 60);
+                }
                 my $total_servers = scalar @$existing_servers;
                 # Add any new servers not already in the existing list
                 my %existing_set = map { $_->{value} => 1 } @$existing_servers;
@@ -303,42 +310,80 @@ sub ingest {
             }
         }
 
-        my $count = 0;
-        for my $log (@$logs) {
-            $log->{timestamp} //= epoch_to_iso(time());
-            $log->{level} //= 'INFO';
-            $log->{service} //= 'unknown';
-            $log->{host} //= 'unknown';
-            $log->{message} //= $log->{msg} // $log->{log} // '';
-            $log->{raw} //= $log->{message};
-            if (exists $log->{meta} && ref($log->{meta}) ne 'HASH') {
-                $log->{meta} = {};
-            }
-            $log->{meta} //= {};
-
-            # Field length validation
-            if (defined $log->{message} && length($log->{message}) > 65536) {
-                $log->{message} = substr($log->{message}, 0, 65536);
-            }
-            if (defined $log->{service} && length($log->{service}) > 256) {
-                $log->{service} = substr($log->{service}, 0, 256);
-            }
-            if (defined $log->{host} && length($log->{host}) > 256) {
-                $log->{host} = substr($log->{host}, 0, 256);
-            }
-            if (defined $log->{raw} && length($log->{raw}) > 131072) {
-                $log->{raw} = substr($log->{raw}, 0, 131072);
-            }
-            $self->storage->insert($log);
-            $count++;
+        # Backpressure: if the in-memory buffer cannot absorb this batch, refuse
+        # with 503 instead of growing the buffer unbounded (OOM) or silently
+        # accepting logs we cannot store. NOTE: the buffer is per-process, so
+        # under prefork this cap is enforced per worker.
+        if ($self->storage->can('buffer_full')
+            && $self->storage->buffer_full(scalar @$logs)) {
+            $c->res->headers->header('Retry-After' => '1');
+            $c->render(json => {
+                status => 'error',
+                error  => 'Ingest buffer full — backpressure, retry shortly',
+            }, status => 503);
+            return;
         }
 
-        # Flush immediately for testing/low load, or rely on background flush
-        $self->storage->flush() if $self->storage->can('flush');
+        my $durable = $self->storage->can('durable') ? $self->storage->durable : 0;
+
+        my $count = 0;
+        my $ok = eval {
+            for my $log (@$logs) {
+                $log->{timestamp} //= epoch_to_iso(time());
+                $log->{level} //= 'INFO';
+                $log->{service} //= 'unknown';
+                $log->{host} //= 'unknown';
+                $log->{message} //= $log->{msg} // $log->{log} // '';
+                $log->{raw} //= $log->{message};
+                if (exists $log->{meta} && ref($log->{meta}) ne 'HASH') {
+                    $log->{meta} = {};
+                }
+                $log->{meta} //= {};
+
+                # Field length validation
+                if (defined $log->{message} && length($log->{message}) > 65536) {
+                    $log->{message} = substr($log->{message}, 0, 65536);
+                }
+                if (defined $log->{service} && length($log->{service}) > 256) {
+                    $log->{service} = substr($log->{service}, 0, 256);
+                }
+                if (defined $log->{host} && length($log->{host}) > 256) {
+                    $log->{host} = substr($log->{host}, 0, 256);
+                }
+                if (defined $log->{raw} && length($log->{raw}) > 131072) {
+                    $log->{raw} = substr($log->{raw}, 0, 131072);
+                }
+                $self->storage->insert($log);
+                $count++;
+            }
+
+            # Durable mode: flush synchronously and let ClickHouse confirm the
+            # write before we return 2xx. In fast mode we do NOT flush per
+            # request — that defeats buffering; size-based flush (in insert) and
+            # the periodic background flush handle it.
+            if ($durable && $self->storage->can('flush')) {
+                $self->storage->flush();
+            }
+            1;
+        };
+
+        unless ($ok) {
+            my $err = $@ || 'unknown storage error';
+            $c->app->log->error("Ingest storage failure: $err");
+            # A flush/insert error must surface as an error status, never a
+            # silent 200. In durable mode the batch is retained in the buffer
+            # for retry (at-least-once).
+            $c->res->headers->header('Retry-After' => '1');
+            $c->render(json => {
+                status => 'error',
+                error  => 'Storage unavailable — log not accepted',
+            }, status => 503);
+            return;
+        }
 
         # Broadcast to WebSocket subscribers
         $self->_broadcast_logs($logs);
-        
+
         $c->render(json => {
             status => 'ok',
             inserted => $count
