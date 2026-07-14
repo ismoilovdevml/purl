@@ -147,11 +147,17 @@ data:
     })
 
     priority = to_int(.PRIORITY) ?? 6
-    if priority <= 2 { .level = "FATAL" }
-    else if priority == 3 { .level = "ERROR" }
-    else if priority == 4 { .level = "WARN" }
-    else if priority <= 6 { .level = "INFO" }
-    else { .level = "DEBUG" }
+    if priority <= 2 {
+      .level = "FATAL"
+    } else if priority == 3 {
+      .level = "ERROR"
+    } else if priority == 4 {
+      .level = "WARN"
+    } else if priority <= 6 {
+      .level = "INFO"
+    } else {
+      .level = "DEBUG"
+    }
 
     .trace_id = ""
     .request_id = ""
