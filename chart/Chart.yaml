@@ -2,7 +2,7 @@ apiVersion: v2
 name: purl
 description: Lightweight self-hosted log aggregation system
 type: application
-version: 1.0.2
+version: 1.0.3
 appVersion: "1.2.0"
 keywords:
   - logging

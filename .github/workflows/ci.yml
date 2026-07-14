@@ -358,12 +358,17 @@ jobs:
           key: ${{ secrets.K8S_DEV_SSH_KEY }}
           script: |
             set -e
+            # Optional: Enterprise/Pro license values (purl.license.*), kept out
+            # of values-secrets.yaml so it can be rotated on its own.
+            LICENSE_VALUES=""
+            [ -f /opt/purl-dev/values-license.yaml ] && LICENSE_VALUES="-f /opt/purl-dev/values-license.yaml"
             # deployedAt annotation forces a pod template change so the
             # mutable :dev tag is re-pulled (imagePullPolicy: Always).
             helm upgrade --install purl /opt/purl-dev/chart \
               --namespace purl-dev \
               -f /opt/purl-dev/chart/values-dev.yaml \
               -f /opt/purl-dev/values-secrets.yaml \
+              $LICENSE_VALUES \
               --set-string podAnnotations.deployedAt="$(date +%s)" \
               --wait --timeout 10m
             kubectl -n purl-dev rollout status deployment/purl --timeout=5m

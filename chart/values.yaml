@@ -95,6 +95,15 @@ purl:
     # -- Slack channel override
     channel: ""
 
+  # -- License (Pro/Enterprise). Without a key Purl runs the free plan / 14-day trial.
+  license:
+    # -- License key JWT (RS256) issued by purlogs.com. Stored in the Secret.
+    key: ""
+    # -- Public key PEM for offline verification. Empty = online activation against apiUrl.
+    publicKey: ""
+    # -- License API URL used for online activation/heartbeat
+    apiUrl: ""
+
   # -- Redis for cross-replica WebSocket live tail broadcast
   redis:
     # -- Enable Redis Pub/Sub for multi-replica WebSocket support
