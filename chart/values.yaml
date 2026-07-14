@@ -215,8 +215,11 @@ networkPolicy:
 
 # -- Vector log collector (DaemonSet) for Kubernetes pod log collection
 vector:
-  # -- Deploy Vector as part of this chart
-  enabled: false
+  # -- Deploy Vector as part of this chart. ON by default: Purl is a log
+  # aggregator, so a fresh k8s install should collect pod logs out of the box
+  # (the DaemonSet ships them to /api/logs with the ingest API key). Set false
+  # to run Purl as an ingest-only endpoint with an external collector.
+  enabled: true
   image:
     # -- Vector image repository
     repository: timberio/vector
