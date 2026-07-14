@@ -29,8 +29,24 @@ has '_json' => (
 # Default configuration
 my $DEFAULTS = {
     server => {
-        host => '0.0.0.0',
-        port => 3000,
+        host    => '0.0.0.0',
+        port    => 3000,
+        workers => 4,
+    },
+    security => {
+        # Comma-separated CIDRs/IPs allowed to set X-Forwarded-For.
+        # Empty means: never trust the header, always use the socket peer.
+        trusted_proxies => '',
+        csrf_enabled    => 1,
+    },
+    ingest => {
+        # When true, ClickHouse must confirm the write before we return 2xx.
+        durable    => 0,
+        buffer_max => 10_000,
+    },
+    pipeline => {
+        regex_timeout_ms  => 250,
+        regex_max_length  => 512,
     },
     clickhouse => {
         host     => 'localhost',
@@ -264,6 +280,13 @@ sub get {
         'ai.api_key'          => 'PURL_AI_API_KEY',
         'ai.model'            => 'PURL_AI_MODEL',
         'ai.base_url'         => 'PURL_AI_BASE_URL',
+        'server.workers'              => 'PURL_WORKERS',
+        'security.trusted_proxies'    => 'PURL_TRUSTED_PROXIES',
+        'security.csrf_enabled'       => 'PURL_CSRF_ENABLED',
+        'ingest.durable'              => 'PURL_INGEST_DURABLE',
+        'ingest.buffer_max'           => 'PURL_INGEST_BUFFER_MAX',
+        'pipeline.regex_timeout_ms'   => 'PURL_PIPELINE_REGEX_TIMEOUT_MS',
+        'pipeline.regex_max_length'   => 'PURL_PIPELINE_REGEX_MAX_LENGTH',
     );
 
     my $full_key = "$section.$key";
@@ -455,6 +478,13 @@ sub is_from_env {
         'ai.api_key'          => 'PURL_AI_API_KEY',
         'ai.model'            => 'PURL_AI_MODEL',
         'ai.base_url'         => 'PURL_AI_BASE_URL',
+        'server.workers'              => 'PURL_WORKERS',
+        'security.trusted_proxies'    => 'PURL_TRUSTED_PROXIES',
+        'security.csrf_enabled'       => 'PURL_CSRF_ENABLED',
+        'ingest.durable'              => 'PURL_INGEST_DURABLE',
+        'ingest.buffer_max'           => 'PURL_INGEST_BUFFER_MAX',
+        'pipeline.regex_timeout_ms'   => 'PURL_PIPELINE_REGEX_TIMEOUT_MS',
+        'pipeline.regex_max_length'   => 'PURL_PIPELINE_REGEX_MAX_LENGTH',
     );
 
     my $full_key = "$section.$key";

@@ -1,9 +1,11 @@
 .PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint e2e-k8s e2e-docker
 
 # Variables
-PERL5LIB := lib
+# Perl deps are installed with local::lib into ~/perl5 (same layout as CI).
+LOCAL_LIB := $(HOME)/perl5
+PERL5LIB := lib:$(LOCAL_LIB)/lib/perl5
 DOCKER := docker compose
-PERLCRITIC := $(shell which perlcritic 2>/dev/null || find /opt/homebrew -name perlcritic 2>/dev/null | head -1 || echo perlcritic)
+PERLCRITIC := $(shell command -v perlcritic 2>/dev/null || echo $(LOCAL_LIB)/bin/perlcritic)
 
 help:
 	@echo "Purl - Lightweight Log Aggregation System"
@@ -69,8 +71,11 @@ lint-js:
 	@cd web && npm run lint
 
 # Testing
+# NOTE: this MUST fail the build when tests fail. It previously ended in
+# `|| echo "No tests found"`, which swallowed every failure and made
+# `make preflight` report success on a fully red suite.
 test:
-	@PERL5LIB=lib prove -r t/ 2>/dev/null || echo "No tests found"
+	@PERL5LIB=$(PERL5LIB) prove -r t/
 
 # Pre-push verification (lint + test + build)
 preflight: lint test web-build

@@ -266,3 +266,74 @@ tolerations: []
 
 # -- Affinity rules for pod scheduling
 affinity: {}
+
+# -- Scheduled ClickHouse backups (native BACKUP -> S3).
+# Runs a CronJob that issues `BACKUP DATABASE <db> TO S3(...)` server-side.
+# Backups stream directly from ClickHouse to S3 — nothing is materialised in the
+# job pod. Restore is a manual/DR operation via deploy/backup/restore.sh.
+backup:
+  # -- Enable the scheduled backup CronJob.
+  enabled: false
+  # -- Cron schedule (default: 02:00 UTC daily).
+  schedule: "0 2 * * *"
+
+  image:
+    # -- Image with clickhouse-client (used to issue BACKUP SQL).
+    repository: clickhouse/clickhouse-server
+    # -- Image tag (keep aligned with the ClickHouse server version).
+    tag: "25.11-alpine"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+
+  s3:
+    # -- Target S3 bucket (required when backup.enabled=true).
+    bucket: ""
+    # -- S3 region (used to build the AWS virtual-hosted URL).
+    region: us-east-1
+    # -- Key prefix inside the bucket.
+    prefix: "purl-backups/"
+    # -- Custom S3 endpoint (e.g. MinIO: http://minio:9000). Empty = AWS.
+    endpoint: ""
+    # -- Name of an EXISTING secret holding AWS_ACCESS_KEY_ID and
+    # AWS_SECRET_ACCESS_KEY. Required when backup.enabled=true — credentials are
+    # NEVER templated into the chart. Create it out-of-band, e.g.:
+    #   kubectl create secret generic purl-backup-s3 \
+    #     --from-literal=AWS_ACCESS_KEY_ID=... \
+    #     --from-literal=AWS_SECRET_ACCESS_KEY=...
+    existingSecret: ""
+
+  # -- Retention (days). ClickHouse native BACKUP does not delete old backups;
+  # enforce this with an S3 bucket lifecycle rule scoped to s3.prefix. Advisory
+  # here (surfaced as an env var / log line), not enforced by the CronJob.
+  retentionDays: 30
+
+  # -- Keep this many successful / failed Job records.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # -- Do not start a new backup while the previous one is still running.
+  concurrencyPolicy: Forbid
+  # -- Job restart policy and retry budget.
+  restartPolicy: OnFailure
+  backoffLimit: 2
+  # -- Hard time limit for a single backup run (seconds).
+  activeDeadlineSeconds: 3600
+
+  # -- Resource requests/limits for the backup pod.
+  resources: {}
+  # -- Pod-level security context for the backup pod.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    fsGroup: 101
+  # -- Container-level security context for the backup pod.
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  # -- Scheduling controls for the backup pod.
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
