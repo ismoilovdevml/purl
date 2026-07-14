@@ -1,0 +1,152 @@
+{{- if .Values.backup.enabled }}
+{{- if not .Values.backup.s3.bucket }}
+{{- fail "backup.enabled=true requires backup.s3.bucket" }}
+{{- end }}
+{{- if not .Values.backup.s3.existingSecret }}
+{{- fail "backup.enabled=true requires backup.s3.existingSecret (holding AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)" }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "purl.fullname" . }}-backup
+  labels:
+    {{- include "purl.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+data:
+  run-backup.sh: |
+    #!/usr/bin/env bash
+    # Purl scheduled backup — native ClickHouse BACKUP DATABASE -> S3.
+    # Streams server-side; nothing is materialised in this pod.
+    set -euo pipefail
+
+    log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] $*"; }
+
+    : "${CH_HOST:?}" "${CH_PORT:?}" "${CH_USER:?}" "${CH_DB:?}"
+    : "${S3_BUCKET:?}" "${AWS_ACCESS_KEY_ID:?}" "${AWS_SECRET_ACCESS_KEY:?}"
+
+    NAME="purl_backup_$(date -u +%Y%m%d_%H%M%S)"
+    PREFIX="${S3_PREFIX#/}"; [ -n "${PREFIX}" ] && PREFIX="${PREFIX%/}/"
+    if [ -n "${S3_ENDPOINT:-}" ]; then
+      BASE="${S3_ENDPOINT%/}/${S3_BUCKET}"
+    else
+      BASE="https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com"
+    fi
+    URL="${BASE}/${PREFIX}${NAME}"
+
+    log "Backing up DATABASE ${CH_DB} -> S3 (${URL})"
+    OUT="$(clickhouse-client \
+      --host "${CH_HOST}" --port "${CH_PORT}" \
+      --user "${CH_USER}" --password "${CH_PASSWORD:-}" \
+      --query "BACKUP DATABASE ${CH_DB} TO S3('${URL}', '${AWS_ACCESS_KEY_ID}', '${AWS_SECRET_ACCESS_KEY}')")"
+    log "ClickHouse: ${OUT}"
+    echo "${OUT}" | grep -q "BACKUP_CREATED" || { echo "ERROR: BACKUP not confirmed" >&2; exit 1; }
+    log "Backup created: ${NAME}"
+    log "Retention ${RETENTION_DAYS:-30}d: enforce via S3 lifecycle policy on prefix '${S3_PREFIX:-}'."
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "purl.fullname" . }}-backup
+  labels:
+    {{- include "purl.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: {{ .Values.backup.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.backup.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.backup.failedJobsHistoryLimit }}
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "purl.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: backup
+    spec:
+      backoffLimit: {{ .Values.backup.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.backup.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "purl.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: {{ .Values.backup.restartPolicy }}
+          serviceAccountName: {{ include "purl.serviceAccountName" . }}
+          {{- with .Values.backup.podSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backup.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backup.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backup.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: backup
+              image: "{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
+              imagePullPolicy: {{ .Values.backup.image.pullPolicy }}
+              {{- with .Values.backup.securityContext }}
+              securityContext:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              command: ["/bin/bash", "/scripts/run-backup.sh"]
+              env:
+                - name: CH_HOST
+                  value: {{ include "purl.clickhouse.host" . | quote }}
+                - name: CH_PORT
+                  value: "9000"
+                - name: CH_USER
+                  value: {{ .Values.clickhouse.user | quote }}
+                - name: CH_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "purl.fullname" . }}
+                      key: PURL_CLICKHOUSE_PASSWORD
+                      optional: true
+                - name: CH_DB
+                  value: {{ .Values.clickhouse.database | quote }}
+                - name: S3_BUCKET
+                  value: {{ .Values.backup.s3.bucket | quote }}
+                - name: S3_REGION
+                  value: {{ .Values.backup.s3.region | quote }}
+                - name: S3_PREFIX
+                  value: {{ .Values.backup.s3.prefix | quote }}
+                - name: S3_ENDPOINT
+                  value: {{ .Values.backup.s3.endpoint | quote }}
+                - name: RETENTION_DAYS
+                  value: {{ .Values.backup.retentionDays | quote }}
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.s3.existingSecret }}
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.s3.existingSecret }}
+                      key: AWS_SECRET_ACCESS_KEY
+              {{- with .Values.backup.resources }}
+              resources:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ include "purl.fullname" . }}-backup
+                defaultMode: 0555
+            - name: tmp
+              emptyDir: {}
+{{- end }}
