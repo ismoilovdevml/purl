@@ -71,7 +71,12 @@ sub safe_execute {
 # License enforcement helpers
 # ============================================
 
-sub require_feature {
+# Non-rendering feature check. Returns 1 if the current license grants
+# $feature — OR if no license context is present at all (matching the
+# historical require_feature behaviour of allowing when unlicensed/OSS).
+# Returns 0 otherwise. NEVER renders. Shared by require_feature (renders a
+# 403 on failure) and the ingest pipeline path (stays silent on failure).
+sub has_feature {
     my ($self, $c, $feature) = @_;
     my $info = $c->stash('license_info') // return 1;
     my $plan = $info->{plan} // 'free';
@@ -80,7 +85,16 @@ sub require_feature {
     return 1 if $plan eq 'enterprise';
 
     my @features = @{ $info->{features} // [] };
-    return 1 if grep { $_ eq $feature } @features;
+    return (grep { $_ eq $feature } @features) ? 1 : 0;
+}
+
+sub require_feature {
+    my ($self, $c, $feature) = @_;
+    return 1 if $self->has_feature($c, $feature);
+
+    # Only reached when a license context exists but lacks the feature.
+    my $info = $c->stash('license_info') // {};
+    my $plan = $info->{plan} // 'free';
     $c->render(json => {
         error   => "This feature requires a Pro or Enterprise license",
         feature => $feature,
@@ -116,6 +130,114 @@ sub require_role {
     return 1 if grep { $_ eq $role } @allowed_roles;
     $self->render_error($c, 'Insufficient permissions', 403);
     return 0;
+}
+
+# ============================================
+# Ingest-path pipeline processing
+#
+# Shared by all three ingest controllers (Logs, OTLP, Syslog) so the
+# "cheaply build the pipeline engine + run each log through it" logic
+# lives in exactly ONE place. Lives on Base (rather than a free module)
+# because it needs storage, config, and the get_cached/set_cached cache
+# — all already on Base — plus $c for the license context; a standalone
+# module would only re-plumb those same four things.
+# ============================================
+
+# Build (and briefly cache) the pipeline engine for the ingest hot path.
+# Returns the engine, or undef when pipelines should be skipped entirely
+# (feature not licensed, storage without pipeline support, or a load
+# error). NEVER dies and NEVER renders — ingest must not break because
+# pipelines are unavailable.
+sub pipeline_engine {
+    my ($self, $c) = @_;
+
+    # Licensed feature — on the ingest path, skip SILENTLY if not granted
+    # (has_feature does not render, unlike require_feature).
+    return undef unless $self->has_feature($c, 'pipelines');
+
+    # Storage backend may not support pipelines (alt backends / tests).
+    return undef unless $self->storage->can('list_pipelines');
+
+    # Avoid a DB round-trip per ingest request: cache the built engine
+    # briefly (same get_cached/set_cached pattern as the ingest
+    # known-services cache in Logs::ingest).
+    if (my $cached = $self->get_cached('ingest:pipeline_engine')) {
+        return $cached;
+    }
+
+    require Purl::Pipeline::Engine;
+
+    my $pipelines = eval { $self->storage->list_pipelines() } // [];
+
+    # ReDoS guard bounds come from the config contract (pipeline.*),
+    # mirroring the engine build in Controller::Pipeline. This is why the
+    # regex-safety limits had to land before wiring the ingest path.
+    my $pcfg = (ref $self->config eq 'HASH')
+        ? ($self->config->{pipeline} // {})
+        : {};
+
+    my $engine = Purl::Pipeline::Engine->new(
+        regex_timeout_ms => $pcfg->{regex_timeout_ms} // 250,
+        regex_max_length => $pcfg->{regex_max_length} // 512,
+        pipelines        => $self->_enabled_pipelines($pipelines),
+    );
+
+    return $self->set_cached('ingest:pipeline_engine', $engine, 60);
+}
+
+# Keep only enabled pipelines and normalise JSON-boolean enabled flags.
+# list_pipelines emits enabled as \1/\0 (JSON bool refs) so the API can
+# serialise them — but EVERY ref is truthy to the engine's
+# `next unless $pipeline->{enabled}` check, so a disabled (\0) pipeline
+# would run on ingest. Dereference to a plain 0/1 and drop the disabled
+# ones here. Rule-level enabled flags are normalised defensively too.
+sub _enabled_pipelines {
+    my ($self, $pipelines) = @_;
+    return [] unless ref $pipelines eq 'ARRAY';
+
+    my @out;
+    for my $p (@$pipelines) {
+        next unless ref $p eq 'HASH';
+        my $enabled = $p->{enabled};
+        $enabled = ${$enabled} if ref $enabled;   # deref JSON bool
+        next unless $enabled;
+
+        for my $rule (@{ $p->{rules} // [] }) {
+            next unless ref $rule eq 'HASH';
+            $rule->{enabled} = ${ $rule->{enabled} } if ref $rule->{enabled};
+        }
+        push @out, $p;
+    }
+    return \@out;
+}
+
+# Run a batch of logs through the configured pipelines before storage.
+# Returns the arrayref of logs to insert:
+#   * enriched / rewritten logs replace their originals,
+#   * logs matched by a drop rule are removed (not returned),
+#   * a pipeline/rule that THROWS is caught and the ORIGINAL log is kept
+#     (fail-safe — a broken rule must never lose logs or 500 the ingest).
+# When pipelines are unavailable the input arrayref is returned unchanged.
+sub apply_pipelines {
+    my ($self, $c, $logs) = @_;
+    return $logs unless ref $logs eq 'ARRAY' && @$logs;
+
+    my $engine = $self->pipeline_engine($c);
+    return $logs unless $engine;
+    return $logs unless @{ $engine->pipelines };   # nothing configured
+
+    my @out;
+    for my $log (@$logs) {
+        my $processed = eval { $engine->process($log) };
+        if ($@) {
+            $c->app->log->error("Pipeline processing error: $@");
+            push @out, $log;             # fail-safe: keep the original
+            next;
+        }
+        next unless defined $processed;  # drop rule matched — skip insert
+        push @out, $processed;
+    }
+    return \@out;
 }
 
 1;

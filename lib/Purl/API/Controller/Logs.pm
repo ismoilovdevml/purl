@@ -310,6 +310,12 @@ sub ingest {
             }
         }
 
+        # Run logs through configured pipelines (enrich / rewrite / drop)
+        # BEFORE storage. No-op unless the license includes pipelines and
+        # pipelines are configured. Drops shrink the batch; the count,
+        # backpressure check, and broadcast below all use the result.
+        $logs = $self->apply_pipelines($c, $logs);
+
         # Backpressure: if the in-memory buffer cannot absorb this batch, refuse
         # with 503 instead of growing the buffer unbounded (OOM) or silently
         # accepting logs we cannot store. NOTE: the buffer is per-process, so

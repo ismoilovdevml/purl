@@ -91,6 +91,10 @@ sub ingest {
             return;
         }
 
+        # Run logs through configured pipelines (enrich / rewrite / drop)
+        # before storage. No-op unless licensed and configured.
+        @logs = @{ $self->apply_pipelines($c, \@logs) };
+
         # Field length validation and insert (same limits as Logs controller)
         my $count = 0;
         for my $log (@logs) {
