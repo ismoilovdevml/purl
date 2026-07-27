@@ -98,6 +98,7 @@ sub create {
         }
 
         my $result = $self->storage->create_pipeline($body);
+        $self->invalidate_pipeline_engine();
         $c->render(json => $result, status => 201);
     });
 }
@@ -127,6 +128,7 @@ sub update {
             return;
         }
 
+        $self->invalidate_pipeline_engine();
         $c->render(json => $result);
     });
 }
@@ -145,6 +147,7 @@ sub remove {
         }
 
         my $result = $self->storage->delete_pipeline($id);
+        $self->invalidate_pipeline_engine();
         $c->render(json => $result);
     });
 }

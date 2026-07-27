@@ -44,6 +44,11 @@ sub set_cached {
     return $value;
 }
 
+sub invalidate_cached {
+    my ($self, $key) = @_;
+    return delete $self->cache->{$key};
+}
+
 sub render_error {
     my ($self, $c, $message, $code) = @_;
     $code //= 500;
@@ -170,6 +175,22 @@ sub require_role {
 # (feature not licensed, storage without pipeline support, or a load
 # error). NEVER dies and NEVER renders — ingest must not break because
 # pipelines are unavailable.
+
+# Cache key + TTL for the built ingest pipeline engine. Named here (not
+# inlined) so pipeline_engine() and invalidate_pipeline_engine() can never
+# disagree about which entry to write and drop.
+our $PIPELINE_ENGINE_CACHE_KEY = 'ingest:pipeline_engine';
+
+# TTL deliberately SHORT (was 60s). The cache exists only to keep ingest off
+# a per-request list_pipelines() round-trip, and a few seconds of hits already
+# achieves that under any real ingest rate. The TTL doubles as the correctness
+# bound for CRUD changes: invalidate_pipeline_engine() drops the entry in the
+# worker that served the edit, but under prefork EVERY worker holds its own
+# copy of this cache (%cache is created per-process in Server.pm) and there is
+# no cross-worker invalidation channel. So the worst case for a pipeline edit
+# to take effect everywhere is this TTL, not 60s.
+our $PIPELINE_ENGINE_CACHE_TTL = 5;
+
 sub pipeline_engine {
     my ($self, $c) = @_;
 
@@ -183,7 +204,7 @@ sub pipeline_engine {
     # Avoid a DB round-trip per ingest request: cache the built engine
     # briefly (same get_cached/set_cached pattern as the ingest
     # known-services cache in Logs::ingest).
-    if (my $cached = $self->get_cached('ingest:pipeline_engine')) {
+    if (my $cached = $self->get_cached($PIPELINE_ENGINE_CACHE_KEY)) {
         return $cached;
     }
 
@@ -204,7 +225,19 @@ sub pipeline_engine {
         pipelines        => $self->_enabled_pipelines($pipelines),
     );
 
-    return $self->set_cached('ingest:pipeline_engine', $engine, 60);
+    return $self->set_cached($PIPELINE_ENGINE_CACHE_KEY, $engine, $PIPELINE_ENGINE_CACHE_TTL);
+}
+
+# Drop the cached ingest engine so the next ingest rebuilds it from storage.
+# MUST be called after every pipeline create/update/delete — otherwise the
+# edit is invisible to ingest until the TTL lapses. %cache is the single
+# hashref shared by all controllers in this process (Server.pm passes the same
+# \%cache to each), so invalidating from Controller::Pipeline is immediately
+# visible to Controller::Logs. Cross-worker propagation is TTL-bounded — see
+# $PIPELINE_ENGINE_CACHE_TTL.
+sub invalidate_pipeline_engine {
+    my ($self) = @_;
+    return $self->invalidate_cached($PIPELINE_ENGINE_CACHE_KEY);
 }
 
 # Keep only enabled pipelines and normalise JSON-boolean enabled flags.

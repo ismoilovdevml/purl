@@ -377,6 +377,68 @@ subtest 'ingest with non-hash meta field' => sub {
 };
 
 # ============================================
+# meta sent as a JSON *string* (Vector's encode_json, Fluent Bit http output)
+#
+# REGRESSION: this used to call Mojo::JSON::decode_json on a value that had
+# ALREADY been decoded by the body-level decode_json. decode_json wants UTF-8
+# BYTES, so any non-ASCII meta died with "Wide character", the surrounding
+# eval swallowed it, and the metadata was silently replaced by {}. The fix is
+# from_json (character-string decoder).
+# ============================================
+subtest 'ingest with meta as a JSON string is decoded, not dropped' => sub {
+    my $storage = MockStorage->new;
+    my $ctrl = Purl::API::Controller::Logs->new(storage => $storage);
+
+    # (a) ASCII: string-encoded meta must become a real hash
+    my $body = encode_json({
+        message => 'from vector',
+        meta    => '{"pod":"web-1","namespace":"prod"}',
+    });
+    $ctrl->ingest(MockCtrl->new($body));
+
+    my $meta = $storage->{inserted}[0]{meta};
+    is ref $meta, 'HASH', 'JSON-string meta decoded to a hash';
+    is $meta->{pod},       'web-1', 'pod key survived';
+    is $meta->{namespace}, 'prod',  'namespace key survived';
+
+    # (b) NON-ASCII: the actual regression. Fails without from_json.
+    #
+    # Built with \x{} escapes on purpose: the Cyrillic must be a CHARACTER
+    # string here so encode_json puts real UTF-8 bytes on the wire, exactly
+    # like a collector does. The controller's body-level decode_json then
+    # hands the inner meta back as a character string — which decode_json
+    # (bytes-only) cannot parse, but from_json can.
+    my $kluch = "\x{043a}\x{043b}\x{044e}\x{0447}";   # "ключ"
+    $storage = MockStorage->new;
+    $ctrl = Purl::API::Controller::Logs->new(storage => $storage);
+    $body = encode_json({
+        message => 'non-ascii meta',
+        meta    => qq({"note":"$kluch","city":"Toshkent"}),
+    });
+    $ctrl->ingest(MockCtrl->new($body));
+
+    my $umeta = $storage->{inserted}[0]{meta};
+    is ref $umeta, 'HASH', 'non-ASCII JSON-string meta decoded to a hash';
+    is $umeta->{note}, $kluch,
+        'Cyrillic value decoded correctly (not silently dropped to {})';
+    is $umeta->{city}, 'Toshkent', 'sibling ASCII key survived too';
+
+    # (c) A string that is not JSON at all still degrades to {} (unchanged)
+    $storage = MockStorage->new;
+    $ctrl = Purl::API::Controller::Logs->new(storage => $storage);
+    $ctrl->ingest(MockCtrl->new(encode_json({ message => 'x', meta => 'plain text' })));
+    is_deeply $storage->{inserted}[0]{meta}, {},
+        'non-JSON meta string still becomes an empty hash';
+
+    # (d) A JSON string encoding a non-object degrades to {} as well
+    $storage = MockStorage->new;
+    $ctrl = Purl::API::Controller::Logs->new(storage => $storage);
+    $ctrl->ingest(MockCtrl->new(encode_json({ message => 'x', meta => '[1,2,3]' })));
+    is_deeply $storage->{inserted}[0]{meta}, {},
+        'JSON array string meta becomes an empty hash';
+};
+
+# ============================================
 # Alternative message field names
 # ============================================
 subtest 'ingest with msg field alias' => sub {

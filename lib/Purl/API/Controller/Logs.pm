@@ -5,7 +5,7 @@ use 5.024;
 
 use Moo;
 use namespace::clean;
-use Mojo::JSON qw(decode_json encode_json);
+use Mojo::JSON qw(decode_json encode_json from_json);
 use Digest::MD5 qw(md5_hex);
 use Time::HiRes qw(time);
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
@@ -341,6 +341,19 @@ sub ingest {
                 $log->{host} //= 'unknown';
                 $log->{message} //= $log->{msg} // $log->{log} // '';
                 $log->{raw} //= $log->{message};
+                # Collectors that cannot build a nested object (Vector's
+                # encode_json, Fluent Bit's http output) send meta as a JSON
+                # string — decode it instead of dropping the metadata.
+                #
+                # from_json, NOT decode_json: at this point $log->{meta} is a
+                # decoded CHARACTER string (the whole body already went through
+                # decode_json above). decode_json expects UTF-8 BYTES and dies
+                # with "Wide character" on any non-ASCII meta, which the eval
+                # would swallow — silently turning {"note":"ключ"} into {}.
+                if (defined $log->{meta} && !ref $log->{meta}) {
+                    my $decoded = eval { from_json($log->{meta}) };
+                    $log->{meta} = ref $decoded eq 'HASH' ? $decoded : {};
+                }
                 if (exists $log->{meta} && ref($log->{meta}) ne 'HASH') {
                     $log->{meta} = {};
                 }
