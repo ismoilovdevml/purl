@@ -40,9 +40,12 @@
   // Template gallery state
   let showTemplateGallery = false;
 
-  onMount(() => {
-    loadAlerts();
-    checkInterval = setInterval(checkAlerts, 60000);
+  onMount(async () => {
+    // Seed the baseline BEFORE polling starts, otherwise every alert that has
+    // ever fired would pop a browser notification the moment the panel mounts.
+    await loadAlerts();
+    seedTriggeredBaseline();
+    checkInterval = setInterval(refreshAndNotify, 60000);
   });
 
   onDestroy(() => {
@@ -59,27 +62,50 @@
     }
   }
 
-  async function checkAlerts() {
+  // Last `last_triggered` value we have already notified about, per alert id.
+  let seenTriggered = new Map();
+
+  function seedTriggeredBaseline() {
+    seenTriggered = new Map(alerts.map((a) => [a.id, a.last_triggered]));
+  }
+
+  // Evaluation is the server's job — a leader-elected timer runs check_alerts()
+  // and fans out to Telegram/Slack/webhook. This panel must NOT call
+  // POST /alerts/check on a timer: that endpoint sends notifications, so with
+  // the server timer also running, every open dashboard tab multiplied every
+  // message. Here we only READ, and raise the one channel the server cannot
+  // reach — the browser notification — when an alert's last_triggered advances.
+  async function refreshAndNotify() {
     try {
-      const data = await api.post('/alerts/check');
-      if (data.triggered && data.triggered.length > 0) {
-        for (const alert of data.triggered) {
-          showNotification(alert);
-        }
-        await loadAlerts();
+      await loadAlerts();
+    } catch {
+      return; // loadAlerts already surfaced the error
+    }
+
+    for (const alert of alerts) {
+      const previous = seenTriggered.get(alert.id);
+      const current = alert.last_triggered;
+      if (!current || current === previous) continue;
+
+      seenTriggered.set(alert.id, current);
+      // Only alerts routed to "browser" have no server-side delivery path.
+      if (previous !== undefined && alert.notify_type === 'browser') {
+        showNotification(alert);
       }
-    } catch (err) {
-      console.error('Alert check failed:', err);
     }
   }
 
   function showNotification(alert) {
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification(`Alert: ${alert.name}`, {
-        body: `${alert.count} logs matched "${alert.query}"`,
-        icon: '/favicon.ico'
-      });
-    }
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+    // `count` is only present on a POST /alerts/check result. When the trigger
+    // is observed via GET /alerts we know it fired but not by how much.
+    const body =
+      alert.count == null
+        ? `Threshold of ${alert.threshold} reached for "${alert.query}"`
+        : `${alert.count} logs matched "${alert.query}"`;
+
+    new Notification(`Alert: ${alert.name}`, { body, icon: '/favicon.ico' });
   }
 
   function openModal(alert = null) {
@@ -151,10 +177,21 @@
 
   let checking = false;
 
+  // Explicit user action, so a real evaluation (and its fan-out) is what the
+  // operator asked for. Unlike the timer above, this cannot duplicate messages
+  // at scale — it only runs when someone clicks.
   async function handleCheckNow() {
     checking = true;
     try {
-      await checkAlerts();
+      const data = await api.post('/alerts/check');
+      for (const alert of data.triggered || []) {
+        showNotification(alert);
+      }
+      await loadAlerts();
+      seedTriggeredBaseline();
+    } catch (err) {
+      console.error('Alert check failed:', err);
+      toastError('Alert check failed');
     } finally {
       checking = false;
     }

@@ -7,12 +7,29 @@ use Moo;
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
 
+use Purl::Alert::Scheduler;
+
 extends 'Purl::API::Controller::Base';
 
 # Notifiers hash reference passed from Server
 has 'notifiers' => (
     is      => 'ro',
     default => sub { {} },
+);
+
+# Evaluation engine. The SAME object type the server-side recurring timer
+# drives (Server.pm), so the manual endpoint and the background schedule can
+# never diverge. Injectable so Server can share one instance.
+has 'scheduler' => (
+    is      => 'ro',
+    lazy    => 1,
+    default => sub {
+        my ($self) = @_;
+        return Purl::Alert::Scheduler->new(
+            storage   => $self->storage,
+            notifiers => $self->notifiers,
+        );
+    },
 );
 
 sub list {
@@ -115,22 +132,8 @@ sub check {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        my $triggered = $self->storage->check_alerts();
-
-        # Send notifications for each triggered alert
-        my @notifications;
-        for my $alert (@$triggered) {
-            my $sent = $self->_send_notifications($alert, { count => $alert->{count} });
-            push @notifications, {
-                alert => $alert->{name},
-                sent  => $sent,
-            } if @$sent;
-        }
-
-        $c->render(json => {
-            triggered     => $triggered,
-            notifications => \@notifications,
-        });
+        my $result = $self->scheduler->run_once();
+        $c->render(json => $result);
     });
 }
 
@@ -164,43 +167,12 @@ sub test_notification {
     });
 }
 
-# Send notifications for a triggered alert
+# Send notifications for a triggered alert.
+# Thin delegation kept for existing callers/tests — the ONE implementation
+# lives in Purl::Alert::Scheduler so the timer path uses identical logic.
 sub _send_notifications {
     my ($self, $alert, $context) = @_;
-    my $notifiers = $self->notifiers;
-
-    my @sent;
-    my $notify_type = $alert->{notify_type} // 'webhook';
-
-    if ($notify_type eq 'telegram' && $notifiers->{telegram}) {
-        if ($notifiers->{telegram}->notify($alert, $context)) {
-            push @sent, 'telegram';
-        }
-    }
-    elsif ($notify_type eq 'slack' && $notifiers->{slack}) {
-        if ($notifiers->{slack}->notify($alert, $context)) {
-            push @sent, 'slack';
-        }
-    }
-    elsif ($notify_type eq 'webhook') {
-        if ($alert->{notify_target}) {
-            require Purl::Alert::Webhook;
-            my $webhook = Purl::Alert::Webhook->new(
-                name => 'alert-webhook',
-                url  => $alert->{notify_target},
-            );
-            if ($webhook->notify($alert, $context)) {
-                push @sent, 'webhook';
-            }
-        }
-        elsif ($notifiers->{webhook}) {
-            if ($notifiers->{webhook}->notify($alert, $context)) {
-                push @sent, 'webhook';
-            }
-        }
-    }
-
-    return \@sent;
+    return $self->scheduler->send_notifications($alert, $context);
 }
 
 1;

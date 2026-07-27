@@ -6,6 +6,33 @@ use 5.024;
 use Moo::Role;
 
 # ============================================
+# Re-notify suppression
+# ============================================
+
+# True when this alert fired recently enough that notifying again would be a
+# duplicate rather than a new incident.
+#
+# check_alerts() counts rows inside a rolling window, so the SAME incident stays
+# above threshold for the whole window. Before the server-side scheduler existed
+# this only mattered while a dashboard tab was open; now a timer evaluates every
+# 60s, so a 5-minute window would send five Telegram messages for one incident,
+# and sustained errors would notify forever.
+#
+# The cooldown is the alert's own window: one notification per window per alert.
+# last_triggered = 0 (never fired) always notifies.
+sub alert_in_cooldown {
+    my ($alert) = @_;
+
+    my $last = $alert->{last_triggered_ts} or return 0;
+    my $now  = $alert->{now_ts}            or return 0;
+
+    my $window = $alert->{window_minutes};
+    $window = 5 unless defined $window && $window =~ /^\d+$/ && $window > 0;
+
+    return ($now - $last) < ($window * 60) ? 1 : 0;
+}
+
+# ============================================
 # Alerts CRUD Operations
 # ============================================
 
@@ -106,7 +133,9 @@ sub check_alerts {
 
     my $alerts = $self->_query_json(qq{
         SELECT toString(id) as id, name, query, condition, threshold, window_minutes,
-               notify_type, notify_target
+               notify_type, notify_target,
+               toUnixTimestamp(last_triggered) as last_triggered_ts,
+               toUnixTimestamp(now()) as now_ts
         FROM ${db}.alerts
         WHERE enabled = 1
     });
@@ -167,13 +196,14 @@ sub check_alerts {
             my $count = $row->{cnt} // 0;
             my $alert = $alert_by_id{$alert_id};
 
-            if ($alert && $count >= $alert->{threshold}) {
-                push @triggered, {
-                    %$alert,
-                    count => $count,
-                };
-                push @triggered_ids, $alert_id if $self->_validate_uuid($alert_id);
-            }
+            next unless $alert && $count >= $alert->{threshold};
+            next if alert_in_cooldown($alert);
+
+            push @triggered, {
+                %$alert,
+                count => $count,
+            };
+            push @triggered_ids, $alert_id if $self->_validate_uuid($alert_id);
         }
     }
 
