@@ -33,7 +33,7 @@ stricter than the last and human line-reading is replaced by measured gates**.
 - No changes to application code, CI, or deploy in this iteration — org/config only.
 - No new issue tracker; purl stays on Claude memory, purl-web stays on `bd`/beads.
 
-## 3. Architecture — 3 layers, 17 agents
+## 3. Architecture — 3 layers, 18 agents
 
 ### Layer A — purl engineering team (`purl/.claude/agents/`, existing 6, prompts refreshed)
 
@@ -57,7 +57,7 @@ Rationale: purl-web deploys via **Vercel auto-deploy** on push — no dedicated 
 needed; `platform-dev` owns `vercel.json`/cron/env, `supabase-engineer` owns `supabase db push`.
 Two focused reviewers (one per repo) beat one diluted cross-stack reviewer.
 
-### Layer C — shared strategy + pipeline roles (`~/.claude/agents/`, NEW 6)
+### Layer C — shared strategy + pipeline roles (`~/.claude/agents/`, NEW 7)
 
 | Agent | Role | Pipeline stage |
 |---|---|---|
@@ -67,8 +67,18 @@ Two focused reviewers (one per repo) beat one diluted cross-stack reviewer.
 | `marketing-strategist` | purlogs.com positioning, SEO, docs/blog content strategy, launch plan | strategy |
 | `refactoring-specialist` | DRY, simplification, split oversized files — **writes** cleanup changes | Stage 3: refactor |
 | `architect-reviewer` | Structure, SRP, boundaries, altitude + metrics report — **reads/judges** | Stage 4: architecture |
+| `security-engineer` | Threat-model + focused security audit across both stacks — **reads/judges** | security gate (with review) |
 
-**Placement decision**: shared agents live in global `~/.claude/agents/` (single source of truth,
+`security-engineer` scope (cross-cutting, both repos):
+- **purl**: ClickHouse SQL injection, auth/session, license JWT (RS256) verification, API-key
+  handling, rate-limit, secrets in code, `{@html}` XSS in log lines, dependency risk (`cpanfile`).
+- **purl-web**: Supabase **RLS policies** (privilege escalation — a known launch blocker), Stripe
+  webhook signature verification, auth middleware, service-role-key exposure, JWT signing keys,
+  secrets in env/repo, dependency risk (`package.json`).
+- Reads/judges only — **writes no fixes**; a BLOCKER goes back to the owning agent (backend-dev /
+  platform-dev / supabase-engineer). May invoke the `/security-review` skill for the branch diff.
+
+**Placement decision** (applies to all 7 shared agents): shared agents live in global `~/.claude/agents/` (single source of truth,
 matches the "appears in both repos" intent). Trade-off: they are also visible in the user's other
 projects (edcom, gitlab-ci-dashboard). Mitigation: prompts are **repo-adaptive** — each reads the
 active project's `CLAUDE.md` and states its primary context is the Purl ecosystem (purl + purl-web).
@@ -88,7 +98,8 @@ Each stage stricter than the last; the team lead does **not** read every line �
      purl-web: web-dev ‖ platform-dev ‖ supabase-engineer
 4. refactoring-spec   → DRY / simplify / split >400-line files (WRITES changes)    [REFACTOR]
 5. architect-reviewer → SRP / boundaries / altitude + metrics report (READS)       [ARCHITECTURE]
-6. code-reviewer(-web)→ correctness + security diff review (READS)
+6. code-reviewer(-web)→ correctness + convention diff review (READS)
+6b. security-engineer → threat-model + security audit (READS)     (security-relevant changes)
 7. qa-engineer / qa-web → preflight gate + edge-case attack + acceptance verify    [GATE]
 8. team lead          → commit / push  (ONLY if every gate is green)
 ```
@@ -117,7 +128,7 @@ Rules (carried from existing CLAUDE.md, extended):
 | File(s) | Change |
 |---|---|
 | `purl-web/.claude/agents/{web-dev,platform-dev,supabase-engineer,qa-web,code-reviewer-web}.md` | NEW — 5 agents |
-| `~/.claude/agents/{product-manager,ux-ui-designer,business-analyst,marketing-strategist,refactoring-specialist,architect-reviewer}.md` | NEW — 6 shared agents |
+| `~/.claude/agents/{product-manager,ux-ui-designer,business-analyst,marketing-strategist,refactoring-specialist,architect-reviewer,security-engineer}.md` | NEW — 7 shared agents |
 | `purl/.claude/agents/*.md` (6) | Prompt refresh — add "Pipeline & handoff" section |
 | `purl/CLAUDE.md` "Agent Jamoa" section | Rewrite roster + pipeline flow |
 | `purl-web/CLAUDE.md` | Add new "Agent Jamoa" section (none today) |
@@ -149,7 +160,8 @@ Feature: Purl agent org redesign
     Given the global agents dir
     When I list ~/.claude/agents/
     Then I see product-manager, ux-ui-designer, business-analyst,
-         marketing-strategist, refactoring-specialist, architect-reviewer
+         marketing-strategist, refactoring-specialist, architect-reviewer,
+         security-engineer
 
   Scenario: every agent file is valid
     Given any new or refreshed agent file
@@ -168,7 +180,7 @@ Feature: Purl agent org redesign
 
 ## 9. Risks & mitigations
 
-- **Agent sprawl (17)** → clear layer/ownership table; strategy agents only for strategy work.
+- **Agent sprawl (18)** → clear layer/ownership table; strategy/security agents only when relevant.
 - **Global agents pollute other repos** → repo-adaptive prompts; user may switch to duplication.
 - **Pipeline overhead for tiny changes** → orchestration notes the pipeline scales down (trivial
   fix may skip PM/UX/refactor and go straight code → review → QA).
