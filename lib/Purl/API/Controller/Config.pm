@@ -9,6 +9,9 @@ use Mojo::JSON qw(decode_json);
 use HTTP::Tiny;
 use MIME::Base64 qw(encode_base64);
 use URI::Escape qw(uri_escape);
+use Socket qw(getaddrinfo getnameinfo AF_INET AF_INET6 SOCK_STREAM NI_NUMERICHOST NIx_NOSERV);
+
+use Purl::Util::ClientIP qw(ip_in_list);
 
 extends 'Purl::API::Controller::Base';
 
@@ -17,6 +20,65 @@ has 'main_config' => (
     is      => 'ro',
     default => sub { {} },
 );
+
+# ============================================
+# SSRF guard for POST /api/config/test-clickhouse
+#
+# That endpoint takes host+port from the request body, performs an outbound
+# HTTP GET and hands the caller the status/reason — a textbook SSRF probe.
+# Unrestricted it turns any authenticated account into an internal port
+# scanner and a reader of cloud instance-metadata services.
+#
+# Blocked destinations (post-DNS-resolution, so a hostname resolving into
+# these ranges is caught too):
+#   loopback, RFC1918 private, link-local (incl. 169.254.169.254 metadata),
+#   CGNAT, "this network", multicast/reserved, and the IPv6 equivalents.
+# ============================================
+my @BLOCKED_RANGES = (
+    '0.0.0.0/8',            # "this network"
+    '10.0.0.0/8',           # RFC1918
+    '127.0.0.0/8',          # loopback
+    '169.254.0.0/16',       # link-local — AWS/GCP/Azure metadata (169.254.169.254)
+    '172.16.0.0/12',        # RFC1918
+    '192.0.0.0/24',         # IETF protocol assignments
+    '192.168.0.0/16',       # RFC1918
+    '100.64.0.0/10',        # CGNAT
+    '224.0.0.0/4',          # multicast
+    '240.0.0.0/4',          # reserved
+    '::1/128',              # IPv6 loopback
+    '::/128',               # IPv6 unspecified
+    'fc00::/7',             # IPv6 unique-local
+    'fe80::/10',            # IPv6 link-local
+);
+
+# Resolve $host and return a reason string if it must not be contacted,
+# or undef when it is safe. Reuses Purl::Util::ClientIP::ip_in_list for the
+# CIDR matching rather than re-implementing prefix maths.
+sub _blocked_host_reason {
+    my ($host) = @_;
+
+    return 'host is required' unless defined $host && length $host;
+    # Reject anything that is not a bare hostname/IP: no scheme, credentials,
+    # path or embedded port can smuggle a different target past the check.
+    return 'host contains illegal characters'
+        if $host =~ m{[/\@\\\s?#]}
+        || ($host =~ /:/ && $host !~ /^[0-9a-fA-F:]+$/);
+
+    my ($err, @addrs) = getaddrinfo($host, '', { socktype => SOCK_STREAM });
+    return "host does not resolve: $err" if $err;
+    return 'host does not resolve' unless @addrs;
+
+    for my $ai (@addrs) {
+        next unless $ai->{family} == AF_INET || $ai->{family} == AF_INET6;
+        my ($nerr, $ip) = getnameinfo($ai->{addr}, NI_NUMERICHOST, NIx_NOSERV);
+        next if $nerr;
+        $ip =~ s/%.*$//;   # strip IPv6 zone id
+        return "host resolves to a blocked address ($ip)"
+            if ip_in_list($ip, \@BLOCKED_RANGES);
+    }
+
+    return undef;
+}
 
 sub get_config {
     my ($self, $c) = @_;
@@ -69,8 +131,12 @@ sub update_retention {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        # Retention drives the ClickHouse TTL: dropping it to 1 day destroys
+        # log history. Admin only.
+        return unless $self->require_role($c, 'admin');
+
         my $body = eval { decode_json($c->req->body) };
-        unless ($body && $body->{days}) {
+        unless (ref $body eq 'HASH' && $body->{days}) {
             $self->render_error($c, 'days required', 400);
             return;
         }
@@ -99,13 +165,49 @@ sub test_clickhouse {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        my $body = eval { decode_json($c->req->body) };
+        # This endpoint makes an outbound request to a caller-chosen address
+        # and reports the result — admin only, never a viewer.
+        return unless $self->require_role($c, 'admin');
 
-        my $host     = $body->{host} // $ENV{PURL_CLICKHOUSE_HOST} // 'localhost';
+        # An empty body is legitimate ("test my CURRENT connection"); a body
+        # that is present but not decodable JSON is a client bug, and letting
+        # it through would autovivify $body->{host} on undef.
+        my $raw = $c->req->body // '';
+        my $body = {};
+        if (length $raw) {
+            $body = eval { decode_json($raw) };
+            unless (ref $body eq 'HASH') {
+                $self->render_error($c, 'Invalid JSON payload', 400);
+                return;
+            }
+        }
+
+        my $configured_host = $ENV{PURL_CLICKHOUSE_HOST}
+            // ($self->main_config->{storage}{clickhouse}{host}) // 'localhost';
+
+        my $host     = $body->{host} // $configured_host;
         my $port     = $body->{port} // $ENV{PURL_CLICKHOUSE_PORT} // 8123;
         my $database = $body->{database} // $ENV{PURL_CLICKHOUSE_DATABASE} // 'purl';
         my $user     = $body->{user} // $ENV{PURL_CLICKHOUSE_USER} // 'default';
         my $password = $body->{password} // $ENV{PURL_CLICKHOUSE_PASSWORD} // '';
+
+        unless ($port =~ /^\d+$/ && $port > 0 && $port <= 65535) {
+            $self->render_error($c, 'Invalid port', 400);
+            return;
+        }
+
+        # SSRF gate. Skipped when the target IS the server's own configured
+        # ClickHouse (that address is already trusted and is usually private),
+        # and opt-out-able for self-hosted operators whose ClickHouse genuinely
+        # lives on a private LAN address they want to test before switching.
+        my $trusted_target = ($host eq $configured_host)
+            || ($ENV{PURL_ALLOW_PRIVATE_DB_TEST} // '') eq '1';
+        unless ($trusted_target) {
+            if (my $reason = _blocked_host_reason($host)) {
+                $self->render_error($c, "Refusing to connect: $reason", 400);
+                return;
+            }
+        }
 
         eval {
             my $http = HTTP::Tiny->new(timeout => 5);
@@ -153,6 +255,8 @@ sub clear_cache {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         # Clear the shared cache reference
         my $cache = $self->cache;
         %$cache = ();

@@ -19,7 +19,15 @@ sub list {
             return;
         }
 
+        # Feature gate first so an unlicensed plan still gets the
+        # {feature => 'audit_logs'} 403 body the dashboard renders an upsell
+        # from; the role check below then narrows it to admins.
         return unless $self->require_feature($c, 'audit_logs');
+
+        # Audit records every login, source IP and admin action — the exact
+        # material an attacker uses for recon, and a privacy exposure for
+        # other users. Admin only; a viewer must not see it.
+        return unless $self->require_role($c, 'admin');
 
         my $actor         = $c->param('actor');
         my $action        = $c->param('action');
@@ -64,7 +72,15 @@ sub stats {
             return;
         }
 
+        # Feature gate first so an unlicensed plan still gets the
+        # {feature => 'audit_logs'} 403 body the dashboard renders an upsell
+        # from; the role check below then narrows it to admins.
         return unless $self->require_feature($c, 'audit_logs');
+
+        # Audit records every login, source IP and admin action — the exact
+        # material an attacker uses for recon, and a privacy exposure for
+        # other users. Admin only; a viewer must not see it.
+        return unless $self->require_role($c, 'admin');
 
         my $audit_stats = $self->storage->get_audit_stats();
         $c->render(json => { stats => $audit_stats });

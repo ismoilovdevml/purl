@@ -217,6 +217,52 @@ sub _acquire_cron_leadership {
     return 0;
 }
 
+# ============================================
+# Server-side alert evaluation
+# ============================================
+
+# Resolve how often the alert timer runs, in seconds.
+# ENV PURL_ALERT_CHECK_INTERVAL > settings alerts.check_interval_seconds > 60.
+# Returns 0 to mean "disabled" (explicit 0, or any non-numeric/negative value).
+# Values below MIN are raised to MIN: check_alerts() is a full pass over every
+# alert rule against ClickHouse, so a 1s interval would be self-inflicted DoS.
+my $ALERT_CHECK_MIN_INTERVAL = 10;
+
+sub _alert_check_interval {
+    my ($settings) = @_;
+
+    # Go through Config::get rather than reading %ENV directly: it already owns
+    # the ENV>settings>default precedence via %ENV_MAP and already treats an
+    # empty-but-present env var as unset. Reading $ENV here instead made
+    # PURL_ALERT_CHECK_INTERVAL="" — the normal result of templating an unset
+    # Helm value — silently disable all alerting.
+    my $raw = $settings ? $settings->get('alerts', 'check_interval_seconds') : undef;
+    $raw = undef if defined $raw && $raw =~ /^\s*$/;
+    $raw //= 60;
+
+    $raw =~ s/^\s+|\s+$//g;
+    return 0 unless $raw =~ /^\d+$/;
+    return 0 if $raw == 0;
+    return $raw < $ALERT_CHECK_MIN_INTERVAL ? $ALERT_CHECK_MIN_INTERVAL : $raw;
+}
+
+# One leader-gated alert evaluation tick.
+#
+# Returns undef when this process is NOT the cron leader — i.e. the check did
+# not run here, which is exactly what stops N prefork workers from firing N
+# duplicate Telegram messages. Otherwise returns the Scheduler result hashref,
+# with an extra {error} key if evaluation threw (never propagates: a failing
+# ClickHouse must not kill the IOLoop timer).
+sub _run_alert_check {
+    my ($scheduler, $lock_path) = @_;
+    return undef unless $scheduler;
+    return undef unless _acquire_cron_leadership($lock_path);
+
+    my $result = eval { $scheduler->run_once() };
+    return $result if ref $result eq 'HASH';
+    return { triggered => [], notifications => [], error => ($@ || 'unknown error') };
+}
+
 sub create {
     my ($class, %args) = @_;
     $config = $args{config} // {};
@@ -660,6 +706,34 @@ sub setup_routes {
         });
     }
 
+    # Server-side alert evaluation.
+    #
+    # Without this timer check_alerts() ran ONLY from POST /api/alerts/check,
+    # which only the dashboard calls — so closing the browser tab silently
+    # stopped every Telegram/Slack/webhook notification. Alerting is a server
+    # responsibility, not a browser one.
+    #
+    # SINGLETON: leader worker only (same gate as the backup timer), otherwise
+    # N workers would each evaluate every rule and fire N duplicate messages.
+    my $alert_interval = _alert_check_interval($settings);
+    if ($alert_interval) {
+        my $alert_scheduler = $alerts_c->scheduler;
+        app->log->info("Server-side alert checks enabled: every ${alert_interval}s");
+        Mojo::IOLoop->recurring($alert_interval => sub {
+            my $result = _run_alert_check($alert_scheduler, $cron_lock_path);
+            return unless $result;                    # not the leader this tick
+            if (my $err = $result->{error}) {
+                app->log->error("Scheduled alert check failed: $err");
+                return;
+            }
+            my $n = scalar @{ $result->{notifications} // [] };
+            app->log->info("Scheduled alert check sent $n notification(s)") if $n;
+        });
+    }
+    else {
+        app->log->info('Server-side alert checks DISABLED (alerts.check_interval_seconds = 0)');
+    }
+
     # Static files
     app->static->paths->[0] = '/app/web/public';
 
@@ -1080,8 +1154,19 @@ sub setup_routes {
 
     # ============================================
     # WebSocket for live tail
+    #
+    # MUST hang off $protected, not $api: this is the live log firehose. On
+    # $api the handshake skipped check_auth entirely, so an anonymous client
+    # got 101 Switching Protocols and every ingested log while GET /api/logs
+    # correctly returned 401.
+    #
+    # Browsers cannot set custom headers on a WebSocket handshake, so the
+    # dashboard authenticates with the ambient session cookie — which the
+    # handshake DOES send (same origin) and which $protected's check_auth
+    # accepts. Programmatic clients still work via the X-API-Key header.
+    # The handshake is a GET, so the CSRF gate in $protected is a no-op.
     # ============================================
-    $api->websocket('/logs/stream' => sub ($c) {
+    $protected->websocket('/logs/stream' => sub ($c) {
         my $ws = $c->tx;
         push @$websockets, $ws;
 
