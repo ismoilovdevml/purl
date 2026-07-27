@@ -719,15 +719,44 @@ sub setup_routes {
     if ($alert_interval) {
         my $alert_scheduler = $alerts_c->scheduler;
         app->log->info("Server-side alert checks enabled: every ${alert_interval}s");
+        # Evaluation and fan-out are both BLOCKING: check_alerts() is a
+        # synchronous ClickHouse query and every notifier is a synchronous
+        # HTTP::Tiny post (Telegram's timeout alone is 10s). Running that
+        # inline would freeze the leader worker's event loop for the whole
+        # tick — no requests served, no ingest buffer flushed, no WebSocket
+        # serviced — for up to timeout x triggered-alert-count. A subprocess
+        # keeps the blocking work off the loop; the leader lock is acquired in
+        # the child so a stuck tick cannot also hold leadership hostage.
+        my $alert_tick_running = 0;
         Mojo::IOLoop->recurring($alert_interval => sub {
-            my $result = _run_alert_check($alert_scheduler, $cron_lock_path);
-            return unless $result;                    # not the leader this tick
-            if (my $err = $result->{error}) {
-                app->log->error("Scheduled alert check failed: $err");
-                return;
-            }
-            my $n = scalar @{ $result->{notifications} // [] };
-            app->log->info("Scheduled alert check sent $n notification(s)") if $n;
+            # Never overlap ticks: a fan-out slower than the interval would
+            # otherwise pile up subprocesses and re-send the same alerts.
+            return if $alert_tick_running;
+            $alert_tick_running = 1;
+
+            Mojo::IOLoop->subprocess(
+                sub {
+                    my $result = _run_alert_check($alert_scheduler, $cron_lock_path);
+                    return $result // { skipped => 1 };
+                },
+                sub {
+                    my ($subprocess, $err, $result) = @_;
+                    $alert_tick_running = 0;
+
+                    if ($err) {
+                        app->log->error("Scheduled alert check subprocess failed: $err");
+                        return;
+                    }
+                    return unless ref $result eq 'HASH';
+                    return if $result->{skipped};     # not the leader this tick
+                    if (my $rerr = $result->{error}) {
+                        app->log->error("Scheduled alert check failed: $rerr");
+                        return;
+                    }
+                    my $n = scalar @{ $result->{notifications} // [] };
+                    app->log->info("Scheduled alert check sent $n notification(s)") if $n;
+                }
+            );
         });
     }
     else {

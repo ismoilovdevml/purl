@@ -63,11 +63,17 @@ spec:
               on {{ "{{" }} $labels.instance {{ "}}" }}.
 
         {{- with .Values.metrics.prometheusRule.ingestStalledFor }}
-        # -- purl_logs_stored is monotonic. Flat for a full window means the
-        # ingest path is broken (collector down, API key rejected, ClickHouse
-        # unwritable) even though every health check still returns 200.
+        # -- purl_logs_stored is a GAUGE (a live row count), not a counter: the
+        # retention TTL drops partitions and the value falls. increase() reads
+        # that fall as a counter reset and extrapolates a positive number, so
+        # the alert would go quiet exactly when ingest has stalled AND
+        # retention fires. Compare the window's max and min instead: flat means
+        # the ingest path is broken (collector down, API key rejected,
+        # ClickHouse unwritable) even though health checks still return 200.
         - alert: PurlIngestStalled
-          expr: increase(purl_logs_stored[{{ . }}]) == 0
+          expr: >-
+            (max_over_time(purl_logs_stored[{{ . }}])
+             - min_over_time(purl_logs_stored[{{ . }}])) == 0
           for: 10m
           labels:
             severity: warning

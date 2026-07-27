@@ -234,6 +234,35 @@ subtest 'test-clickhouse still allows the server own configured ClickHouse host'
         'the configured host is trusted even though it is loopback';
 };
 
+subtest 'the trusted-host exemption does not extend to other ports' => sub {
+    # Regression: the exemption matched on host alone, so an admin could name
+    # the configured host with ANY port and skip the SSRF gate entirely —
+    # turning the endpoint into a loopback/pod port scanner, which is the very
+    # thing 127.0.0.0/8 is in @BLOCKED_RANGES to stop.
+    local %ENV = %ENV;
+    delete $ENV{PURL_ALLOW_PRIVATE_DB_TEST};
+    $ENV{PURL_CLICKHOUSE_HOST} = '127.0.0.1';
+    $ENV{PURL_CLICKHOUSE_PORT} = '8123';
+
+    my $ctrl = config_ctrl();
+
+    my $scan = MockCtrl->new(
+        role => 'admin',
+        body => encode_json({ host => '127.0.0.1', port => 22 }),
+    );
+    $ctrl->test_clickhouse($scan);
+    like $scan->rendered->{json}{error} // '', qr/Refusing to connect/i,
+        'configured host on a DIFFERENT port is blocked';
+
+    my $ok = MockCtrl->new(
+        role => 'admin',
+        body => encode_json({ host => '127.0.0.1', port => 8123 }),
+    );
+    $ctrl->test_clickhouse($ok);
+    unlike $ok->rendered->{json}{error} // '', qr/Refusing to connect/i,
+        'configured host on the configured port is still trusted';
+};
+
 subtest 'PURL_ALLOW_PRIVATE_DB_TEST opts a LAN operator back in' => sub {
     local %ENV = %ENV;
     $ENV{PURL_ALLOW_PRIVATE_DB_TEST} = '1';

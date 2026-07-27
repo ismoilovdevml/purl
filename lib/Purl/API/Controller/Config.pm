@@ -51,10 +51,18 @@ my @BLOCKED_RANGES = (
     'fe80::/10',            # IPv6 link-local
 );
 
-# Resolve $host and return a reason string if it must not be contacted,
-# or undef when it is safe. Reuses Purl::Util::ClientIP::ip_in_list for the
-# CIDR matching rather than re-implementing prefix maths.
-sub _blocked_host_reason {
+# Resolve $host and return ($reason, $ip): a reason string when it must not be
+# contacted, or (undef, $ip) with the address that was actually validated.
+#
+# The caller MUST connect to the returned $ip rather than re-using $host.
+# Resolving here and letting HTTP::Tiny resolve again is a TOCTOU window: an
+# attacker-controlled name with a short TTL can answer with a public address
+# for this check and 169.254.169.254 for the connection. Pinning the validated
+# address closes that.
+#
+# Reuses Purl::Util::ClientIP::ip_in_list for the CIDR matching rather than
+# re-implementing prefix maths.
+sub _resolve_safe_host {
     my ($host) = @_;
 
     return 'host is required' unless defined $host && length $host;
@@ -68,6 +76,7 @@ sub _blocked_host_reason {
     return "host does not resolve: $err" if $err;
     return 'host does not resolve' unless @addrs;
 
+    my $first_ip;
     for my $ai (@addrs) {
         next unless $ai->{family} == AF_INET || $ai->{family} == AF_INET6;
         my ($nerr, $ip) = getnameinfo($ai->{addr}, NI_NUMERICHOST, NIx_NOSERV);
@@ -75,9 +84,12 @@ sub _blocked_host_reason {
         $ip =~ s/%.*$//;   # strip IPv6 zone id
         return "host resolves to a blocked address ($ip)"
             if ip_in_list($ip, \@BLOCKED_RANGES);
+        $first_ip //= $ip;
     }
 
-    return undef;
+    return 'host does not resolve to a usable address' unless defined $first_ip;
+
+    return (undef, $first_ip);
 }
 
 sub get_config {
@@ -197,26 +209,43 @@ sub test_clickhouse {
         }
 
         # SSRF gate. Skipped when the target IS the server's own configured
-        # ClickHouse (that address is already trusted and is usually private),
-        # and opt-out-able for self-hosted operators whose ClickHouse genuinely
+        # ClickHouse endpoint (already trusted, and usually private), and
+        # opt-out-able for self-hosted operators whose ClickHouse genuinely
         # lives on a private LAN address they want to test before switching.
-        my $trusted_target = ($host eq $configured_host)
+        #
+        # The exemption pins the PORT too. Matching on host alone let
+        # {"host":"localhost","port":22} skip the gate entirely and report
+        # whether the connection succeeded — a loopback/pod port scanner, which
+        # is exactly what 127.0.0.0/8 is in @BLOCKED_RANGES to prevent.
+        my $configured_port = $ENV{PURL_CLICKHOUSE_PORT}
+            // ($self->main_config->{storage}{clickhouse}{port}) // 8123;
+
+        my $trusted_target = ($host eq $configured_host && $port eq $configured_port)
             || ($ENV{PURL_ALLOW_PRIVATE_DB_TEST} // '') eq '1';
+
+        my $connect_host = $host;
         unless ($trusted_target) {
-            if (my $reason = _blocked_host_reason($host)) {
+            my ($reason, $ip) = _resolve_safe_host($host);
+            if ($reason) {
                 $self->render_error($c, "Refusing to connect: $reason", 400);
                 return;
             }
+            $connect_host = $ip;
         }
 
         eval {
             my $http = HTTP::Tiny->new(timeout => 5);
-            my $url = "http://$host:$port/?query=" . uri_escape("SELECT 1");
+            # Bracket IPv6 literals; $connect_host is the address we validated.
+            my $target = $connect_host =~ /:/ ? "[$connect_host]" : $connect_host;
+            my $url = "http://$target:$port/?query=" . uri_escape("SELECT 1");
 
             my %headers;
             if ($user && $password) {
                 $headers{'Authorization'} = 'Basic ' . encode_base64("$user:$password", '');
             }
+            # Connecting by IP, so carry the original name for vhost routing.
+            $headers{'Host'} = ($host =~ /:/ ? "[$host]" : $host) . ":$port"
+                if $connect_host ne $host;
 
             my $response = $http->get($url, { headers => \%headers });
 
