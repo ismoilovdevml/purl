@@ -1,4 +1,15 @@
 {{- if .Values.metrics.prometheusRule.enabled }}
+{{- /*
+  Every alert below is written against a metric Purl actually exports:
+    purl_info, purl_uptime_seconds, purl_logs_stored,
+    purl_db_size_bytes, purl_cache_size
+  The previous version of this file alerted on purl_errors_total,
+  purl_clickhouse_healthy, purl_query_latency_p99 and purl_memory_usage_bytes,
+  none of which exist anywhere in lib/. PromQL returns an empty vector for an
+  unknown metric and an empty vector never fires, so those four alerts were
+  permanently green and a 12-day dev outage produced no alert at all.
+  Any new alert MUST be checked against lib/ before being added here.
+*/ -}}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -12,6 +23,7 @@ spec:
   groups:
     - name: purl.rules
       rules:
+        # -- Scrape target is up but reporting failure.
         - alert: PurlDown
           expr: up{job=~".*purl.*"} == 0
           for: 5m
@@ -20,36 +32,80 @@ spec:
           annotations:
             summary: "Purl instance is down"
             description: "Purl instance {{ "{{" }} $labels.instance {{ "}}" }} has been down for 5 minutes."
-        - alert: PurlHighErrorRate
-          expr: rate(purl_errors_total[5m]) > 10
-          for: 2m
-          labels:
-            severity: warning
-          annotations:
-            summary: "High error rate in Purl"
-            description: "Error rate is {{ "{{" }} $value {{ "}}" }}/s for 2 minutes."
-        - alert: PurlClickHouseDown
-          expr: purl_clickhouse_healthy == 0
-          for: 1m
+
+        # -- Distinguishes "no data" from "all healthy". This is the alert that
+        # would have caught the outage the four fictional-metric alerts missed:
+        # when every Purl pod is Evicted or Pending there is no target left to
+        # report up==0, so PurlDown alone stays silent.
+        - alert: PurlMetricsAbsent
+          expr: absent(purl_info)
+          for: 10m
           labels:
             severity: critical
           annotations:
-            summary: "ClickHouse connection lost"
-            description: "Purl cannot connect to ClickHouse."
-        - alert: PurlHighLatency
-          expr: purl_query_latency_p99 > 5
+            summary: "Purl is not reporting any metrics"
+            description: >-
+              purl_info has been absent for 10 minutes. Purl is not being
+              scraped at all — the pod is likely Pending, Evicted or
+              CrashLooping rather than merely unhealthy.
+
+        # -- purl_uptime_seconds resetting repeatedly means the process is
+        # restarting; a crash loop never stays down long enough for PurlDown.
+        - alert: PurlCrashLooping
+          expr: resets(purl_uptime_seconds[1h]) > 3
           for: 5m
           labels:
             severity: warning
           annotations:
-            summary: "High query latency"
-            description: "P99 query latency is {{ "{{" }} $value {{ "}}" }}s."
-        - alert: PurlHighMemoryUsage
-          expr: purl_memory_usage_bytes / purl_memory_limit_bytes > 0.9
-          for: 5m
+            summary: "Purl is restarting repeatedly"
+            description: >-
+              Purl restarted {{ "{{" }} $value {{ "}}" }} times in the last hour
+              on {{ "{{" }} $labels.instance {{ "}}" }}.
+
+        {{- with .Values.metrics.prometheusRule.ingestStalledFor }}
+        # -- purl_logs_stored is monotonic. Flat for a full window means the
+        # ingest path is broken (collector down, API key rejected, ClickHouse
+        # unwritable) even though every health check still returns 200.
+        - alert: PurlIngestStalled
+          expr: increase(purl_logs_stored[{{ . }}]) == 0
+          for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "High memory usage"
-            description: "Memory usage is above 90%."
+            summary: "Purl has stopped ingesting logs"
+            description: >-
+              No new logs stored in the last {{ . }}. Check the Vector
+              DaemonSet and the ClickHouse connection.
+        {{- end }}
+
+        # -- Trend-based disk warning. The dev cluster outage began as
+        # unbounded ClickHouse growth on a node with no headroom; this fires
+        # before the volume is full rather than after.
+        - alert: PurlDiskFillPredicted
+          expr: >-
+            predict_linear(purl_db_size_bytes[6h], {{ .Values.metrics.prometheusRule.diskFillPredictSeconds }})
+            > {{ .Values.metrics.prometheusRule.dbSizeLimitBytes }}
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Purl log storage is trending to fill"
+            description: >-
+              purl_db_size_bytes is on track to exceed
+              {{ .Values.metrics.prometheusRule.dbSizeLimitBytes }} bytes within
+              {{ .Values.metrics.prometheusRule.diskFillPredictSeconds }}s.
+              Current size {{ "{{" }} $value {{ "}}" }} bytes. Review
+              purl.retentionDays or grow clickhouse.persistence.size.
+
+        # -- Already over capacity.
+        - alert: PurlDiskFull
+          expr: purl_db_size_bytes > {{ .Values.metrics.prometheusRule.dbSizeLimitBytes }}
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Purl log storage is over capacity"
+            description: >-
+              purl_db_size_bytes is {{ "{{" }} $value {{ "}}" }} bytes, above the
+              configured limit of {{ .Values.metrics.prometheusRule.dbSizeLimitBytes }}.
 {{- end }}

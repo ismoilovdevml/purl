@@ -180,13 +180,21 @@ clickhouse:
       - ReadWriteOnce
 
   # -- ClickHouse resource limits and requests
+  # -- ClickHouse resources. ephemeral-storage covers /var/log/clickhouse-server
+  # (an emptyDir, see logsSizeLimit) and the container writable layer. It does
+  # NOT cover the data PVC.
   resources:
     limits:
       memory: 4Gi
       cpu: "2"
+      ephemeral-storage: 2Gi
     requests:
       memory: 1Gi
       cpu: "500m"
+      ephemeral-storage: 512Mi
+  # -- Cap on the /var/log/clickhouse-server emptyDir. Unbounded, ClickHouse
+  # server+error logs grow onto the node filesystem with nothing to stop them.
+  logsSizeLimit: 1Gi
 
 # -- Autoscaling (HPA) for Purl pods
 autoscaling:
@@ -227,14 +235,48 @@ vector:
     tag: "0.51.1-alpine"
     # -- Vector image pull policy
     pullPolicy: IfNotPresent
-  # -- Vector resource limits and requests
+  # -- Vector resource limits and requests.
+  # ephemeral-storage is required: without a request the scheduler treats
+  # Vector as using zero disk and the kubelet ranks it first for eviction
+  # under disk pressure, which is exactly the wrong pod to kill.
   resources:
     limits:
       cpu: 500m
       memory: 256Mi
+      ephemeral-storage: 1Gi
     requests:
       cpu: 50m
       memory: 64Mi
+      ephemeral-storage: 256Mi
+  # -- Taints Vector tolerates. Deliberately NOT `- operator: Exists`, which
+  # tolerates every taint in the cluster including NoExecute.
+  # The DaemonSet controller always injects a disk-pressure toleration on top
+  # of this list; that cannot be disabled, so Vector's disk usage is capped by
+  # buffer.maxSizeBytes instead of by scheduling rules.
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+  # -- Vector on-disk sink buffer (lives on the node via hostPath)
+  buffer:
+    # -- Max buffer size in bytes per node (default 128 MiB, was 256 MiB)
+    maxSizeBytes: 134217728
+    # -- Behaviour when the buffer fills: drop_newest sheds load,
+    # block stalls the whole collector and stops it reading node logs.
+    whenFull: drop_newest
+  # -- Sink rate limiting and retry bounds
+  sink:
+    # -- Max requests per rateLimitDurationSecs window
+    rateLimitNum: 100
+    # -- Rate limit window in seconds
+    rateLimitDurationSecs: 1
+    # -- Retry attempts before dropping a batch
+    retryAttempts: 5
+    # -- Give up retrying a batch after this many seconds
+    retryMaxDurationSecs: 300
   # -- Kubernetes cluster name for log metadata
   clusterName: "default"
   # -- Collect logs from kube-system namespace (control plane components)
@@ -251,8 +293,12 @@ resources:
 # -- Config volume for settings.json, users, license files
 config:
   volume:
-    # -- Mount a PVC at /app/config
-    enabled: false
+    # -- Mount a PVC at /app/config.
+    # ON by default: /app/config holds the dashboard user database, the
+    # license key and settings.json. With an emptyDir every restart, rollout
+    # or eviction silently wipes all dashboard logins and the license, so a
+    # default install was not persistent in any meaningful sense.
+    enabled: true
     # -- PVC size for config data
     size: 1Gi
     # -- Storage class (empty = cluster default)
@@ -274,6 +320,16 @@ metrics:
     enabled: false
     # -- Additional labels for PrometheusRule
     labels: {}
+    # -- Alert if no logs were ingested in this window. Set to "" to disable
+    # (appropriate for an install with genuinely bursty, low-volume ingest).
+    ingestStalledFor: 30m
+    # -- Capacity the ClickHouse data volume is expected to hold, in bytes.
+    # PurlDiskFillPredicted fires when purl_db_size_bytes is trending to cross
+    # this within diskFillPredictWindow. Default 10 GiB matches
+    # clickhouse.persistence.size.
+    dbSizeLimitBytes: 10737418240
+    # -- Lookahead for the disk-fill prediction, in seconds (86400 = 24h)
+    diskFillPredictSeconds: 86400
 
 # -- Node selector constraints
 nodeSelector: {}

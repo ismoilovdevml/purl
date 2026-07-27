@@ -62,3 +62,8 @@ docker/clickhouse/*.local.xml
 # Playwright
 web/test-results/
 web/playwright-report/
+
+# Root-level npm artifacts — the frontend manifest lives in web/
+/package.json
+/package-lock.json
+/node_modules/

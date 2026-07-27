@@ -21,8 +21,17 @@ spec:
         app.kubernetes.io/component: vector
     spec:
       serviceAccountName: {{ include "purl.fullname" . }}-vector
+      # NOTE: a blanket `- operator: Exists` used to live here. It tolerated
+      # every taint in the cluster, including NoExecute and operator-specific
+      # ones, so Vector chased nodes that were deliberately cordoned off.
+      # The default below only tolerates control-plane taints.
+      # It is NOT possible to keep a DaemonSet off a disk-pressure node via
+      # tolerations: the DaemonSet controller unconditionally injects
+      # node.kubernetes.io/disk-pressure:NoSchedule into every pod it creates.
+      # Vector's disk footprint is bounded by vector.buffer.maxSizeBytes below
+      # instead.
       tolerations:
-        - operator: Exists
+        {{- toYaml .Values.vector.tolerations | nindent 8 }}
       containers:
         - name: vector
           image: "{{ .Values.vector.image.repository }}:{{ .Values.vector.image.tag }}"
@@ -69,7 +78,10 @@ spec:
             name: {{ include "purl.fullname" . }}-vector
         - name: data
           hostPath:
-            path: /var/lib/vector
+            # Namespaced per release: two Purl releases on one cluster used to
+            # share /var/lib/vector and fought over buffer.lock, crash-looping
+            # both DaemonSets ("failed to lock buffer.lock").
+            path: /var/lib/vector/{{ .Release.Namespace }}-{{ .Release.Name }}
             type: DirectoryOrCreate
         - name: var-log
           hostPath:

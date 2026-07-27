@@ -17,7 +17,17 @@ data:
     [sources.kubernetes]
     type = "kubernetes_logs"
     auto_partial_merge = true
-    exclude_paths_glob_patterns = ["**/kube-system_*/**", "**/vector-*/**"]
+    # Self-exclusion is load-bearing. Vector and Purl both log every ingest;
+    # if their own pod logs are collected, each batch produces new log lines
+    # which produce a new batch. That feedback loop is what grew the dev
+    # ClickHouse volume to 20 GB and filled the node.
+    # The release name prefix catches purl-*, purl-vector-*, purl-clickhouse-*.
+    exclude_paths_glob_patterns = [
+      "**/kube-system_*/**",
+      "**/vector-*/**",
+      "**/*_{{ include "purl.fullname" . }}-*_*/**",
+      "**/*_{{ include "purl.fullname" . }}_*/**",
+    ]
 
     [sources.journald]
     type = "journald"
@@ -29,7 +39,9 @@ data:
     condition = '''
     ns = string(.kubernetes.pod_namespace) ?? ""
     pod = string(.kubernetes.pod_name) ?? ""
-    !(ns == "kube-system" || starts_with(pod, "vector-"))
+    # Second line of defence behind exclude_paths_glob_patterns: drop Purl's
+    # own pods so the collector can never feed on its own output.
+    !(ns == "kube-system" || starts_with(pod, "vector-") || starts_with(pod, "{{ include "purl.fullname" . }}"))
     '''
 
     [transforms.parsed]
@@ -72,7 +84,9 @@ data:
     env_val = get(.kubernetes.pod_annotations, ["environment"]) ?? null
     version_val = get(.kubernetes.pod_annotations, ["app.kubernetes.io/version"]) ?? null
 
-    .meta = encode_json({
+    # Purl's ingest API stores meta only when it arrives as an object; an
+    # encode_json string is discarded.
+    .meta = {
       "pod": pod_str,
       "namespace": ns_str,
       "container": cont_str,
@@ -83,7 +97,7 @@ data:
       "team": to_string(team_val) ?? "",
       "environment": to_string(env_val) ?? "",
       "version": to_string(version_val) ?? ""
-    })
+    }
 
     msg = upcase(string!(.message))
     level = "INFO"
@@ -138,13 +152,13 @@ data:
     .timestamp = now()
 
     cluster_str = get_env_var("CLUSTER_NAME") ?? "default"
-    node_str = to_string(.host) ?? ""
-    .meta = encode_json({
+    node_str = .host
+    .meta = {
       "node": node_str,
       "cluster": cluster_str,
       "source": "journald",
       "unit": to_string(.SYSLOG_IDENTIFIER) ?? ""
-    })
+    }
 
     priority = to_int(.PRIORITY) ?? 6
     if priority <= 2 {
@@ -186,10 +200,24 @@ data:
 
     [sinks.purl.buffer]
     type = "disk"
-    max_size = 268435488
-    when_full = "block"
+    # int64: Helm parses YAML numbers as float64, so a bare interpolation
+    # renders 1.34217728e+08 and Vector (NonZeroU64) refuses to start.
+    max_size = {{ int64 .Values.vector.buffer.maxSizeBytes }}
+    # "block" made Vector stop reading node logs whenever Purl or ClickHouse
+    # was unavailable. Because the buffer lives on a hostPath, a blocked
+    # Vector holds file handles on /var/log and stops draining, which turned
+    # a ClickHouse outage into node-wide disk pressure.
+    # "drop_newest" keeps the collector healthy and sheds load instead.
+    when_full = "{{ .Values.vector.buffer.whenFull }}"
 
     [sinks.purl.request]
+    # Bounded concurrency + retry backoff: without these Vector retried a
+    # dead sink as fast as it could, which is how it accumulated 3600+
+    # restarts against an unreachable ClickHouse.
+    rate_limit_num = {{ .Values.vector.sink.rateLimitNum }}
+    rate_limit_duration_secs = {{ .Values.vector.sink.rateLimitDurationSecs }}
+    retry_attempts = {{ .Values.vector.sink.retryAttempts }}
+    retry_max_duration_secs = {{ .Values.vector.sink.retryMaxDurationSecs }}
     headers.X-API-Key = "${PURL_API_KEY}"
     headers.Content-Type = "application/json"
 

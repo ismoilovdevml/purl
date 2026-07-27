@@ -10,7 +10,9 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "purl.fullname" . }}-vector
+  # Cluster-scoped: the name must stay unique across every Purl release in the
+  # cluster, so it carries the namespace as well as the release name.
+  name: {{ include "purl.fullname" . }}-vector-{{ .Release.Namespace }}
   labels:
     {{- include "purl.labels" . | nindent 4 }}
     app.kubernetes.io/component: vector
@@ -22,14 +24,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "purl.fullname" . }}-vector
+  name: {{ include "purl.fullname" . }}-vector-{{ .Release.Namespace }}
   labels:
     {{- include "purl.labels" . | nindent 4 }}
     app.kubernetes.io/component: vector
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "purl.fullname" . }}-vector
+  name: {{ include "purl.fullname" . }}-vector-{{ .Release.Namespace }}
 subjects:
   - kind: ServiceAccount
     name: {{ include "purl.fullname" . }}-vector
