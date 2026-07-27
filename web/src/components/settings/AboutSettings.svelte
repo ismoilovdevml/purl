@@ -10,6 +10,7 @@
   import Card from '../ui/Card.svelte';
   import Badge from '../ui/Badge.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import Icon from '../ui/Icon.svelte';
 
   const API_BASE = '/api';
   let systemInfo = null;
@@ -84,10 +85,7 @@
   <div class="about-grid">
     <Card padding="lg" class="about-card main-card">
       <div class="about-logo">
-        <svg width="72" height="72" viewBox="0 0 32 32">
-          <circle cx="16" cy="16" r="14" fill="none" stroke="#58a6ff" stroke-width="2"/>
-          <path d="M10 12 L22 12 M10 16 L22 16 M10 20 L18 20" stroke="#58a6ff" stroke-width="2" stroke-linecap="round"/>
-        </svg>
+        <Icon name="logo" size={72} color="#58a6ff" />
       </div>
 
       <h2>Purl</h2>
@@ -106,9 +104,7 @@
     <div class="info-cards">
       <Card padding="md" class="info-card">
         <div class="info-card-header">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-          </svg>
+          <Icon name="activity" size={20} />
           <h4>System Status</h4>
         </div>
         <div class="info-card-content">
@@ -131,11 +127,7 @@
 
       <Card padding="md" class="info-card">
         <div class="info-card-header">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <ellipse cx="12" cy="5" rx="9" ry="3"/>
-            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
-            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-          </svg>
+          <Icon name="database" size={20} />
           <h4>Storage</h4>
         </div>
         <div class="info-card-content">
@@ -156,9 +148,7 @@
 
       <Card padding="md" class="info-card">
         <div class="info-card-header">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 20V10M12 20V4M6 20v-6"/>
-          </svg>
+          <Icon name="bar-chart" size={20} />
           <h4>Performance</h4>
         </div>
         <div class="info-card-content">
@@ -270,7 +260,7 @@
     border-bottom: 1px solid var(--border-color, #21262d);
   }
 
-  .info-card-header svg {
+  .info-card-header :global(svg) {
     color: var(--color-primary, #58a6ff);
   }
 

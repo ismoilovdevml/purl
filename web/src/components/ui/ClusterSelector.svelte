@@ -6,6 +6,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { selectedCluster, clusters, clustersLoading } from '../../stores/cluster.js';
+  import Icon from './Icon.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -17,11 +18,7 @@
 </script>
 
 <div class="cluster-selector" title="Filter logs by cluster">
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-    <circle cx="12" cy="12" r="10" />
-    <path d="M12 2a14.5 14.5 0 004 10 14.5 14.5 0 00-4 10 14.5 14.5 0 00-4-10 14.5 14.5 0 004-10" />
-    <path d="M2 12h20" />
-  </svg>
+  <Icon name="globe" size={16} />
   <select
     class="cluster-select"
     value={$selectedCluster}
@@ -34,9 +31,7 @@
       <option value={cluster}>{cluster}</option>
     {/each}
   </select>
-  <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-    <path fill="currentColor" d="M6 8.825a.5.5 0 0 1-.354-.146l-4-4a.5.5 0 0 1 .708-.708L6 7.617l3.646-3.646a.5.5 0 0 1 .708.708l-4 4A.5.5 0 0 1 6 8.825Z"/>
-  </svg>
+  <Icon name="chevron-down" size={12} class="chevron" />
 </div>
 
 <style>
@@ -57,7 +52,7 @@
     background: #30363d;
   }
 
-  .cluster-selector svg:first-child {
+  .cluster-selector :global(svg:first-child) {
     flex-shrink: 0;
     opacity: 0.7;
   }
@@ -88,7 +83,7 @@
     color: #c9d1d9;
   }
 
-  .chevron {
+  .cluster-selector :global(.chevron) {
     position: absolute;
     right: 8px;
     pointer-events: none;

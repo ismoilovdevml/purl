@@ -10,6 +10,7 @@
 -->
 <script>
   import { createEventDispatcher } from 'svelte';
+  import Icon from './Icon.svelte';
 
   /** Selected value */
   export let value = '';
@@ -66,9 +67,7 @@
     </select>
 
     <span class="select-icon">
-      <svg viewBox="0 0 16 16" fill="currentColor">
-        <path d="M4.427 6.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 6H4.604a.25.25 0 00-.177.427z" />
-      </svg>
+      <Icon name="chevron-down" size={16} />
     </span>
   </div>
 
@@ -154,7 +153,7 @@
     right: var(--space-2, 8px);
   }
 
-  .select-icon svg {
+  .select-icon :global(svg) {
     width: 16px;
     height: 16px;
   }

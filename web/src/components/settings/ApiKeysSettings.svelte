@@ -15,6 +15,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { currentUser } from '../../stores/auth.js';
   import { api } from '../../utils/api.js';
+  import Icon from '../ui/Icon.svelte';
 
   let keys = [];
   let loading = true;
@@ -145,9 +146,7 @@
     {#if createdKey}
       <div class="created-key-banner">
         <div class="created-key-header">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          </svg>
+          <Icon name="shield" size={16} />
           <strong>New API Key Created</strong>
         </div>
         <p class="created-key-warning">
@@ -157,14 +156,9 @@
           <code>{createdKey.key}</code>
           <button class="copy-btn" on:click={() => copyToClipboard(createdKey.key)} title="Copy to clipboard">
             {#if copied}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
+              <Icon name="check" size={16} />
             {:else}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-              </svg>
+              <Icon name="copy" size={16} />
             {/if}
           </button>
         </div>
@@ -221,9 +215,7 @@
           {#each keys as key}
             <div class="key-row">
               <div class="col-name">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-                </svg>
+                <Icon name="key" size={16} />
                 <span class="key-name">{key.label || key.id}</span>
               </div>
               <div class="col-key">
@@ -247,9 +239,7 @@
 
           {#if keys.length === 0}
             <div class="empty">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-              </svg>
+              <Icon name="key" size={24} strokeWidth={1.5} />
               <p>No API keys configured. Create one to start ingesting logs.</p>
             </div>
           {/if}
@@ -472,7 +462,7 @@
     min-width: 0;
   }
 
-  .col-name svg {
+  .col-name :global(svg) {
     color: var(--text-muted, #6e7681);
     flex-shrink: 0;
   }
@@ -551,7 +541,7 @@
     font-size: 0.875rem;
   }
 
-  .empty svg {
+  .empty :global(svg) {
     opacity: 0.5;
   }
 

@@ -16,6 +16,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { currentUser } from '../../stores/auth.js';
   import { api } from '../../utils/api.js';
+  import Icon from '../ui/Icon.svelte';
   // License limits are returned by the /api/agents endpoint directly
 
   let agents = [];
@@ -135,13 +136,7 @@
   <!-- Setup Instructions -->
   <Card padding="none">
     <button class="setup-toggle" on:click={() => showSetup = !showSetup}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        {#if showSetup}
-          <polyline points="6 9 12 15 18 9"/>
-        {:else}
-          <polyline points="9 18 15 12 9 6"/>
-        {/if}
-      </svg>
+      <Icon name={showSetup ? 'chevron-down' : 'chevron-right'} size={16} />
       <span class="setup-title">Setup Instructions</span>
       <span class="setup-hint">How to install and configure a Purl agent</span>
     </button>
@@ -219,12 +214,7 @@
     {:else if agents.length === 0}
       <div class="empty-state">
         <div class="empty-icon">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="2" y="3" width="20" height="14" rx="2"/>
-            <path d="M8 21h8"/>
-            <path d="M12 17v4"/>
-            <path d="M7 10l3-3 2 2 3-4"/>
-          </svg>
+          <Icon name="agent" size={32} strokeWidth={1.5} />
         </div>
         <span class="empty-title">No agents registered</span>
         <span class="empty-hint">Install the Vector-based Purl agent on your servers to start collecting logs. Click "Setup Instructions" above to get started.</span>
@@ -274,9 +264,7 @@
               </div>
               {#if isAdmin}
                 <Button variant="ghost" size="sm" on:click={() => confirmDelete(agent)}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                  </svg>
+                  <Icon name="trash" size={14} />
                 </Button>
               {/if}
             </div>

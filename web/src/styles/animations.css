@@ -1,0 +1,14 @@
+/**
+ * Purl Design System - Global keyframes
+ *
+ * Animations that more than one component needs live here so they are declared
+ * exactly once. Svelte only rewrites `animation-name` values that match a
+ * keyframes block declared inside the same component, so components can simply
+ * write `animation: spin 1s linear infinite;` and pick this definition up.
+ */
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

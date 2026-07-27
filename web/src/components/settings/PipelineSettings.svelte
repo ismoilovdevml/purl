@@ -5,6 +5,7 @@
   import Modal from '../ui/Modal.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
+  import Icon from '../ui/Icon.svelte';
 
   let pipelines = [];
   let loading = false;
@@ -118,10 +119,7 @@
   {#if licenseError}
     <div class="license-banner">
       <div class="banner-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-        </svg>
+        <Icon name="lock" size={20} />
       </div>
       <div class="banner-body">
         <strong>{licenseError.error || 'This feature requires a Pro or Enterprise license.'}</strong>

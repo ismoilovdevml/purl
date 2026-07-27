@@ -13,6 +13,7 @@
   import Input from '../ui/Input.svelte';
   import { licenseInfo, licenseLoading, licenseError, currentPlan, isFreePlan, hasFeature, fetchLicense, saveLicenseKey } from '../../stores/license.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
+  import Icon from '../ui/Icon.svelte';
 
   let licenseKey = '';
   let saving = false;
@@ -114,14 +115,9 @@
           {#each Object.entries(FEATURE_LABELS) as [key, label]}
             <div class="feature-item">
               {#if featureEnabled(key)}
-                <svg class="feature-icon check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="20 6 9 17 4 12"/>
-                </svg>
+                <Icon name="check" size={16} class="feature-icon check" />
               {:else}
-                <svg class="feature-icon lock" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                </svg>
+                <Icon name="lock" size={16} class="feature-icon lock" />
               {/if}
               <span class:disabled={!featureEnabled(key)}>{label}</span>
             </div>
@@ -295,11 +291,11 @@
     color: var(--text-muted, #6e7681);
   }
 
-  .feature-icon.check {
+  .feature-item :global(.feature-icon.check) {
     color: var(--color-success, #3fb950);
   }
 
-  .feature-icon.lock {
+  .feature-item :global(.feature-icon.lock) {
     color: var(--text-muted, #6e7681);
   }
 

@@ -3,6 +3,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { aiProviders } from '../../stores/ai.js';
   import { api } from '../../utils/api.js';
+  import Icon from '../ui/Icon.svelte';
 
   let config = {
     provider: 'openai',
@@ -252,13 +253,7 @@
       <!-- Test result -->
       {#if testResult}
         <div class="test-result" class:success={testResult.status === 'ok'} class:error={testResult.status === 'error'}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            {#if testResult.status === 'ok'}
-              <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/>
-            {:else}
-              <path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1Zm-.75 4.75v3.5h1.5v-3.5h-1.5Zm0 5v1.5h1.5v-1.5h-1.5Z"/>
-            {/if}
-          </svg>
+          <Icon name={testResult.status === 'ok' ? 'check' : 'alert-circle'} size={14} />
           {testResult.message}
           {#if testResult.model}<span class="model-name"> ({testResult.model})</span>{/if}
         </div>

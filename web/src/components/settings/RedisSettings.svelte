@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
+  import Icon from '../ui/Icon.svelte';
 
   let config = {
     url:  '',
@@ -122,15 +123,11 @@
       <!-- Info box -->
       <div class="info-box">
         <div class="info-row">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
-          </svg>
+          <Icon name="info" size={14} />
           <span>Redis is required when running multiple Purl instances behind a load balancer.</span>
         </div>
         <div class="info-row">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
-          </svg>
+          <Icon name="info" size={14} />
           <span>Changes take effect on next Purl restart or WebSocket reconnect.</span>
         </div>
       </div>
@@ -303,5 +300,5 @@
     color: var(--text-secondary, #8b949e);
   }
 
-  .info-row svg { flex-shrink: 0; margin-top: 1px; }
+  .info-row :global(svg) { margin-top: 1px; }
 </style>

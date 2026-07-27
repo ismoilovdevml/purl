@@ -16,6 +16,7 @@
   import { currentUser } from '../../stores/auth.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
+  import Icon from '../ui/Icon.svelte';
 
   let users = [];
   let loading = true;
@@ -157,9 +158,7 @@
 
     {#if ldapEnabled}
       <div class="ldap-banner">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
-        </svg>
+        <Icon name="agent" size={14} />
         <span>LDAP/AD authentication is active. Users can log in with their directory credentials. Local accounts serve as fallback when LDAP is unavailable.</span>
       </div>
     {/if}
@@ -211,10 +210,7 @@
           {#each users as user}
             <div class="user-row">
               <div class="user-info col-user">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                  <circle cx="12" cy="7" r="4"/>
-                </svg>
+                <Icon name="user" size={16} />
                 <span class="username">{user.username}</span>
                 {#if $currentUser?.username === user.username}
                   <Badge variant="primary" size="sm">You</Badge>
@@ -431,7 +427,7 @@
     justify-content: flex-end;
   }
 
-  .user-info svg {
+  .user-info :global(svg) {
     color: var(--text-muted, #6e7681);
     flex-shrink: 0;
   }
@@ -511,7 +507,7 @@
     line-height: 1.5;
   }
 
-  .ldap-banner svg {
+  .ldap-banner :global(svg) {
     flex-shrink: 0;
     margin-top: 2px;
     color: #388bfd;

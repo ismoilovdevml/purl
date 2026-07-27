@@ -26,6 +26,7 @@
   import AgentsSettings from './AgentsSettings.svelte';
   import { isPaidPlan, isEnterprise, k8sMode } from '../../stores/license.js';
   import { currentUser } from '../../stores/auth.js';
+  import Icon from '../ui/Icon.svelte';
 
   let activeSection = 'database';
 
@@ -42,19 +43,19 @@
     { id: 'notifications', label: 'Notifications', icon: 'bell', locked: !isAdmin },
     { id: 'display', label: 'Display', icon: 'monitor' },
     { id: 'data', label: 'Data', icon: 'database', locked: !isAdmin },
-    { id: 'backup', label: 'Backups', icon: 'backup', locked: !isAdmin },
-    { id: 'api-keys', label: 'API Keys', icon: 'api-key', requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
-    { id: 'sources', label: 'Sources', icon: 'sources' },
+    { id: 'backup', label: 'Backups', icon: 'upload', locked: !isAdmin },
+    { id: 'api-keys', label: 'API Keys', icon: 'key', requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
+    { id: 'sources', label: 'Sources', icon: 'activity' },
     ...(!$k8sMode ? [{ id: 'agents', label: 'Agents', icon: 'agent', locked: !isAdmin }] : []),
-    { id: 'audit', label: 'Audit Logs', icon: 'audit', requiresPlan: 'pro', locked: !$isPaidPlan },
+    { id: 'audit', label: 'Audit Logs', icon: 'file-text', requiresPlan: 'pro', locked: !$isPaidPlan },
     { id: 'pipelines', label: 'Pipelines', icon: 'pipeline', requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
     { id: 'license', label: 'License', icon: 'key', locked: !isAdmin },
     { id: 'users', label: 'Users', icon: 'users', requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
-    { id: 'ldap', label: 'LDAP / AD', icon: 'ldap', requiresPlan: 'enterprise', locked: !$isEnterprise || !isAdmin },
-    { id: 'sso', label: 'SSO / SAML', icon: 'sso', requiresPlan: 'enterprise', locked: !$isEnterprise || !isAdmin },
+    { id: 'ldap', label: 'LDAP / AD', icon: 'database-three-tier', requiresPlan: 'enterprise', locked: !$isEnterprise || !isAdmin },
+    { id: 'sso', label: 'SSO / SAML', icon: 'lock', requiresPlan: 'enterprise', locked: !$isEnterprise || !isAdmin },
     { id: 'ai', label: 'AI', icon: 'ai', requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
     { id: 'integrations', label: 'Integrations', icon: 'integrations' },
-    { id: 'redis', label: 'Redis', icon: 'redis', locked: !isAdmin },
+    { id: 'redis', label: 'Redis', icon: 'database-two-tier', locked: !isAdmin },
     { id: 'about', label: 'About', icon: 'info' },
   ];
 </script>
@@ -75,84 +76,10 @@
               : 'Admin access required')
             : ''}
         >
-          {#if section.icon === 'server'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
-            </svg>
-          {:else if section.icon === 'bell'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-            </svg>
-          {:else if section.icon === 'monitor'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-            </svg>
-          {:else if section.icon === 'database'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-            </svg>
-          {:else if section.icon === 'key'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-            </svg>
-          {:else if section.icon === 'users'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
-          {:else if section.icon === 'ldap'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v4c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 9v4c0 1.66 4 3 9 3s9-1.34 9-3V9"/><path d="M3 13v4c0 1.66 4 3 9 3s9-1.34 9-3v-4"/>
-            </svg>
-          {:else if section.icon === 'sso'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
-            </svg>
-          {:else if section.icon === 'audit'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
-            </svg>
-          {:else if section.icon === 'pipeline'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M4 6h16M4 12h16M4 18h10"/><circle cx="20" cy="18" r="2"/>
-            </svg>
-          {:else if section.icon === 'backup'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-          {:else if section.icon === 'api-key'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
-            </svg>
-          {:else if section.icon === 'sources'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-            </svg>
-          {:else if section.icon === 'agent'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 10l3-3 2 2 3-4"/>
-            </svg>
-          {:else if section.icon === 'integrations'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M16 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3"/><path d="M8 16h8a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2z"/>
-            </svg>
-          {:else if section.icon === 'ai'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 2a10 10 0 0 1 10 10 10 10 0 0 1-10 10A10 10 0 0 1 2 12 10 10 0 0 1 12 2z"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-          {:else if section.icon === 'redis'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v4c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 9v4c0 1.66 4 3 9 3s9-1.34 9-3V9"/>
-            </svg>
-          {:else if section.icon === 'info'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
-            </svg>
-          {/if}
+          <Icon name={section.icon} size={16} />
           {section.label}
           {#if section.locked}
-            <svg class="lock-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-            </svg>
+            <Icon name="lock" size={12} class="lock-icon" label="Locked" />
           {/if}
         </button>
       {/each}
@@ -267,7 +194,7 @@
     color: var(--text-secondary, #8b949e);
   }
 
-  .lock-icon {
+  .nav-item :global(.lock-icon) {
     margin-left: auto;
     opacity: 0.5;
     color: #8b949e;

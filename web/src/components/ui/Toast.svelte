@@ -13,6 +13,9 @@
 <script>
   import { fly, fade } from 'svelte/transition';
   import toasts, { removeToast } from '../../stores/toast.js';
+  import Icon from './Icon.svelte';
+
+  const TOAST_ICON = { success: 'check-circle', error: 'x-circle', warning: 'alert-triangle' };
 
   // Limit visible toasts to 5
   $: visibleToasts = $toasts.slice(-5);
@@ -28,29 +31,7 @@
         out:fade={{ duration: 150 }}
       >
         <span class="toast-icon">
-          {#if toast.type === 'success'}
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          {:else if toast.type === 'error'}
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-          {:else if toast.type === 'warning'}
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 1.5l6.5 12H1.5L8 1.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-              <path d="M8 6.5v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <circle cx="8" cy="11.5" r="0.75" fill="currentColor"/>
-            </svg>
-          {:else}
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M8 7v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <circle cx="8" cy="4.75" r="0.75" fill="currentColor"/>
-            </svg>
-          {/if}
+          <Icon name={TOAST_ICON[toast.type] || 'info'} size={16} />
         </span>
         <span class="toast-message">{toast.message}</span>
         <button
@@ -58,9 +39,7 @@
           on:click={() => removeToast(toast.id)}
           aria-label="Dismiss notification"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
+          <Icon name="close" size={14} />
         </button>
       </div>
     {/each}

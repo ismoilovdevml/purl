@@ -30,6 +30,7 @@
 
 <script>
   import LoadingSpinner from './LoadingSpinner.svelte';
+  import Icon from './Icon.svelte';
 
   /** Function returning a dynamic import() promise for the page component */
   export let loader;
@@ -52,12 +53,7 @@
   <svelte:component this={module.default} />
 {:catch}
   <div class="lazy-route lazy-route-error" role="alert">
-    <svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-2.75a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V6a.75.75 0 0 1 .75-.75Zm0 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
-      />
-    </svg>
+    <Icon name="alert-circle" size={20} />
     <span>Failed to load the {name} page. Check your connection and try again.</span>
     <button class="retry-btn" on:click={retry}>Retry</button>
   </div>
@@ -80,10 +76,6 @@
     gap: 10px;
     color: #f85149;
     font-size: 13px;
-  }
-
-  .lazy-route-error svg {
-    flex-shrink: 0;
   }
 
   .retry-btn {

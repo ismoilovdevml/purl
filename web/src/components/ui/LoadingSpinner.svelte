@@ -8,6 +8,8 @@
   <LoadingSpinner label="Loading logs..." />
 -->
 <script>
+  import Icon from './Icon.svelte';
+
   /** Size */
   export let size = 'md'; // xs, sm, md, lg, xl
 
@@ -37,15 +39,7 @@
         role="status"
         aria-label={label || 'Loading'}
       >
-        <svg viewBox="0 0 24 24" fill="none">
-          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.2" />
-          <path
-            d="M12 2a10 10 0 0110 10"
-            stroke="currentColor"
-            stroke-width="3"
-            stroke-linecap="round"
-          />
-        </svg>
+        <Icon name="spinner" />
       </div>
       {#if label}
         <span class="spinner-label">{label}</span>
@@ -64,15 +58,7 @@
       role="status"
       aria-label={label || 'Loading'}
     >
-      <svg viewBox="0 0 24 24" fill="none">
-        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.2" />
-        <path
-          d="M12 2a10 10 0 0110 10"
-          stroke="currentColor"
-          stroke-width="3"
-          stroke-linecap="round"
-        />
-      </svg>
+      <Icon name="spinner" />
     </div>
     {#if label}
       <span class="spinner-label">{label}</span>
@@ -118,28 +104,28 @@
     color: var(--color-primary, #58a6ff);
   }
 
-  .spinner svg {
+  .spinner :global(svg) {
     width: 24px;
     height: 24px;
   }
 
   /* Sizes */
-  .spinner.size-xs svg {
+  .spinner.size-xs :global(svg) {
     width: 14px;
     height: 14px;
   }
 
-  .spinner.size-sm svg {
+  .spinner.size-sm :global(svg) {
     width: 18px;
     height: 18px;
   }
 
-  .spinner.size-lg svg {
+  .spinner.size-lg :global(svg) {
     width: 32px;
     height: 32px;
   }
 
-  .spinner.size-xl svg {
+  .spinner.size-xl :global(svg) {
     width: 48px;
     height: 48px;
   }
@@ -151,14 +137,5 @@
 
   .spinner-container.centered .spinner-label {
     margin-top: var(--space-2, 8px);
-  }
-
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
   }
 </style>

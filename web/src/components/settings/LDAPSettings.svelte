@@ -12,6 +12,7 @@
   import Select from '../ui/Select.svelte';
   import Toggle from '../ui/Toggle.svelte';
   import { api } from '../../utils/api.js';
+  import Icon from '../ui/Icon.svelte';
 
   // ── License gate ──────────────────────────────────────────────────────────
   let plan = $state('free');
@@ -203,10 +204,7 @@
     <!-- Enterprise gate banner -->
     <div class="enterprise-banner">
       <div class="banner-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-        </svg>
+        <Icon name="lock" size={20} />
       </div>
       <div class="banner-body">
         <strong>LDAP authentication requires an Enterprise license.</strong>
@@ -341,16 +339,7 @@
         class="advanced-toggle"
         onclick={() => showAdvanced = !showAdvanced}
       >
-        <svg
-          class="chevron"
-          class:open={showAdvanced}
-          width="14"
-          height="14"
-          viewBox="0 0 16 16"
-          fill="currentColor"
-        >
-          <path d="M4.427 6.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 6H4.604a.25.25 0 00-.177.427z"/>
-        </svg>
+        <Icon name="chevron-down" size={14} class="chevron {showAdvanced ? 'open' : ''}" />
         <span>Advanced — Attribute Mapping</span>
       </button>
 
@@ -393,14 +382,10 @@
     {#if testResult !== null}
       <div class="test-result" class:test-ok={testResult.ok} class:test-fail={!testResult.ok}>
         {#if testResult.ok}
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/>
-          </svg>
+          <Icon name="check" size={14} />
           Connected — {testResult.message}
         {:else}
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
-          </svg>
+          <Icon name="close" size={14} />
           Connection failed: {testResult.message}
         {/if}
       </div>
@@ -609,12 +594,12 @@
     color: var(--text-primary, #c9d1d9);
   }
 
-  .chevron {
+  .advanced-toggle :global(.chevron) {
     flex-shrink: 0;
     transition: transform 0.2s ease;
   }
 
-  .chevron.open {
+  .advanced-toggle :global(.chevron.open) {
     transform: rotate(180deg);
   }
 

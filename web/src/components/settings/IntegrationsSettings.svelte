@@ -8,6 +8,7 @@
 <script>
   import Card from '../ui/Card.svelte';
   import Badge from '../ui/Badge.svelte';
+  import Icon from '../ui/Icon.svelte';
 
   const origin = window.location.origin;
 
@@ -68,12 +69,7 @@
   <Card padding="none">
     <div class="integration-header">
       <div class="integration-icon es">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 6h16"/>
-          <path d="M4 12h16"/>
-          <path d="M4 18h12"/>
-          <circle cx="20" cy="18" r="2" fill="currentColor" stroke="none"/>
-        </svg>
+        <Icon name="pipeline" size={24} />
       </div>
       <div class="integration-info">
         <h4>Elasticsearch Compatibility</h4>
@@ -107,14 +103,9 @@
                 title="Copy endpoint URL"
               >
                 {#if copiedEndpoint === `${origin}${ep.path}`}
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
+                  <Icon name="check" size={14} />
                 {:else}
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                  </svg>
+                  <Icon name="copy" size={14} />
                 {/if}
               </button>
             </div>
@@ -132,14 +123,9 @@
           title="Copy base URL"
         >
           {#if copiedEndpoint === `${origin}/api/es`}
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
+            <Icon name="check" size={14} />
           {:else}
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-            </svg>
+            <Icon name="copy" size={14} />
           {/if}
         </button>
       </div>
@@ -153,20 +139,9 @@
           class="guide-toggle"
           on:click={() => showGrafanaGuide = !showGrafanaGuide}
         >
-          <svg
-            class="chevron"
-            class:open={showGrafanaGuide}
-            width="14"
-            height="14"
-            viewBox="0 0 16 16"
-            fill="currentColor"
-          >
-            <path d="M4.427 6.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 6H4.604a.25.25 0 00-.177.427z"/>
-          </svg>
+          <Icon name="chevron-down" size={14} class="chevron {showGrafanaGuide ? 'open' : ''}" />
           <div class="guide-icon grafana">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
-            </svg>
+            <Icon name="grafana" size={16} />
           </div>
           <span>Grafana</span>
         </button>
@@ -181,14 +156,9 @@
               <code>{origin}/api/es</code>
               <button class="copy-btn" on:click={() => copyToClipboard(`${origin}/api/es`)} title="Copy URL">
                 {#if copiedEndpoint === `${origin}/api/es`}
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
+                  <Icon name="check" size={14} />
                 {:else}
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                  </svg>
+                  <Icon name="copy" size={14} />
                 {/if}
               </button>
             </div>
@@ -204,22 +174,9 @@
           class="guide-toggle"
           on:click={() => showKibanaGuide = !showKibanaGuide}
         >
-          <svg
-            class="chevron"
-            class:open={showKibanaGuide}
-            width="14"
-            height="14"
-            viewBox="0 0 16 16"
-            fill="currentColor"
-          >
-            <path d="M4.427 6.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 6H4.604a.25.25 0 00-.177.427z"/>
-          </svg>
+          <Icon name="chevron-down" size={14} class="chevron {showKibanaGuide ? 'open' : ''}" />
           <div class="guide-icon kibana">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 3h18v18H3V3zm2 2v14h14V5H5z"/>
-              <path d="M7 7h4v10H7z"/>
-              <path d="M13 7l4 5-4 5V7z"/>
-            </svg>
+            <Icon name="kibana" size={16} />
           </div>
           <span>Kibana</span>
         </button>
@@ -230,14 +187,9 @@
               <code>elasticsearch.hosts: ["{origin}/api/es"]</code>
               <button class="copy-btn" on:click={() => copyToClipboard(`elasticsearch.hosts: ["${origin}/api/es"]`)} title="Copy config">
                 {#if copiedEndpoint === `elasticsearch.hosts: ["${origin}/api/es"]`}
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
+                  <Icon name="check" size={14} />
                 {:else}
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                  </svg>
+                  <Icon name="copy" size={14} />
                 {/if}
               </button>
             </div>
@@ -252,9 +204,7 @@
   <Card padding="none">
     <div class="integration-header">
       <div class="integration-icon grafana">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M22 12c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2s10 4.48 10 10zm-10 8c4.41 0 8-3.59 8-8s-3.59-8-8-8-8 3.59-8 8 3.59 8 8 8zm-2-12h1.5v5H10zm3 0h1.5v5H13zm-4.5 6.5h7v1.5h-7z"/>
-        </svg>
+        <Icon name="grafana" size={24} />
       </div>
       <div class="integration-info">
         <h4>Grafana</h4>
@@ -284,14 +234,9 @@
               title="Copy URL"
             >
               {#if copiedEndpoint === `${origin}/api/es`}
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="20 6 9 17 4 12"/>
-                </svg>
+                <Icon name="check" size={14} />
               {:else}
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                </svg>
+                <Icon name="copy" size={14} />
               {/if}
             </button>
           </div>
@@ -607,13 +552,13 @@
     background: var(--bg-tertiary, #21262d);
   }
 
-  .chevron {
+  .guide-toggle :global(.chevron) {
     flex-shrink: 0;
     transition: transform 0.2s ease;
     color: var(--text-secondary, #8b949e);
   }
 
-  .chevron.open {
+  .guide-toggle :global(.chevron.open) {
     transform: rotate(180deg);
   }
 

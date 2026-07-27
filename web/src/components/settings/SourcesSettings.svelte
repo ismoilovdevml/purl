@@ -13,6 +13,7 @@
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import { formatCount, formatRelativeTime } from '../../utils/format.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
+  import Icon from '../ui/Icon.svelte';
 
   const API_BASE = '/api';
 
@@ -157,11 +158,7 @@
     {:else if sources.length === 0}
       <div class="empty-state">
         <div class="empty-icon">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0022 16z"/>
-            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-            <line x1="12" y1="22.08" x2="12" y2="12"/>
-          </svg>
+          <Icon name="box" size={32} strokeWidth={1.5} />
         </div>
         <span class="empty-title">No sources detected</span>
         <span class="empty-hint">Sources appear automatically when logs are ingested via the API.</span>

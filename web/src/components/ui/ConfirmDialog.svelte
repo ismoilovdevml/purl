@@ -16,6 +16,7 @@
   import { onDestroy } from 'svelte';
   import { fade, scale } from 'svelte/transition';
   import { trapFocus, lockScroll, unlockScroll } from '../../utils/dom.js';
+  import Icon from './Icon.svelte';
 
   /** Whether dialog is visible */
   export let show = false;
@@ -117,25 +118,10 @@
       transition:scale={{ duration: 150, start: 0.95 }}
     >
       <div class="confirm-icon variant-{variant}">
-        {#if variant === 'danger'}
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="15" y1="9" x2="9" y2="15"/>
-            <line x1="9" y1="9" x2="15" y2="15"/>
-          </svg>
-        {:else if variant === 'warning'}
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/>
-            <line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-        {:else}
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="16" x2="12" y2="12"/>
-            <line x1="12" y1="8" x2="12.01" y2="8"/>
-          </svg>
-        {/if}
+        <Icon
+          name={variant === 'danger' ? 'x-circle' : variant === 'warning' ? 'alert-triangle' : 'info'}
+          size={24}
+        />
       </div>
 
       <h3 id="confirm-title" class="confirm-title">{title}</h3>
