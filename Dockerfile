@@ -7,7 +7,7 @@ COPY web/ ./
 RUN npm run build
 
 # Perl dependencies builder (build-essential only here, not in final image)
-FROM perl:5.40-slim-bookworm AS perl-builder
+FROM perl:5.44-slim-bookworm AS perl-builder
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential libssl-dev libxml2-dev \
@@ -22,7 +22,7 @@ COPY cpanfile ./
 RUN cpanm --notest --installdeps .
 
 # Final image (no build-essential = ~400MB smaller)
-FROM perl:5.40-slim-bookworm
+FROM perl:5.44-slim-bookworm
 LABEL maintainer="Purl Contributors"
 LABEL org.opencontainers.image.source="https://github.com/ismoilovdevml/purl"
 LABEL org.opencontainers.image.title="Purl"
