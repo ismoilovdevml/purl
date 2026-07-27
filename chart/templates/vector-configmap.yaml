@@ -202,6 +202,11 @@ data:
     type = "disk"
     # int64: Helm parses YAML numbers as float64, so a bare interpolation
     # renders 1.34217728e+08 and Vector (NonZeroU64) refuses to start.
+    # The floor is Vector's own, enforced at render time so a bad value is a
+    # failed `helm template` rather than a DaemonSet crash-looping on every node.
+    {{- if lt (int64 .Values.vector.buffer.maxSizeBytes) 268435488 }}
+    {{- fail "vector.buffer.maxSizeBytes must be >= 268435488 (Vector's minimum disk buffer size)" }}
+    {{- end }}
     max_size = {{ int64 .Values.vector.buffer.maxSizeBytes }}
     # "block" made Vector stop reading node logs whenever Purl or ClickHouse
     # was unavailable. Because the buffer lives on a hostPath, a blocked

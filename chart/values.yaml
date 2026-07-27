@@ -262,8 +262,11 @@ vector:
       effect: NoSchedule
   # -- Vector on-disk sink buffer (lives on the node via hostPath)
   buffer:
-    # -- Max buffer size in bytes per node (default 128 MiB, was 256 MiB)
-    maxSizeBytes: 134217728
+    # -- Max buffer size in bytes per node. Vector enforces a HARD MINIMUM of
+    # 268435488 bytes for a disk buffer and refuses to start below it
+    # ("parameter 'max_buffer_size' was invalid: must be greater than or equal
+    # to 268435488 bytes"). Do not lower this; the template fails fast if you do.
+    maxSizeBytes: 268435488
     # -- Behaviour when the buffer fills: drop_newest sheds load,
     # block stalls the whole collector and stops it reading node logs.
     whenFull: drop_newest
