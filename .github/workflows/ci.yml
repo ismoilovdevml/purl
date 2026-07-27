@@ -27,7 +27,7 @@ jobs:
     name: Perl Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Cache Perl modules
         uses: actions/cache@v4
@@ -73,7 +73,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -92,7 +92,7 @@ jobs:
     name: K8s Validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Helm
         uses: azure/setup-helm@v4
@@ -136,7 +136,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Blocking gate: dependency vulns (web/package-lock.json, cpanfile)
       # and hardcoded secrets. Suppressions live in /.trivyignore.
@@ -205,7 +205,7 @@ jobs:
       security-events: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -341,7 +341,7 @@ jobs:
     needs: [build-and-push]
     if: github.ref == 'refs/heads/dev'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Remove the previous chart copy so deleted templates don't linger.
       - name: Clean previous chart copy on master-01
@@ -394,7 +394,7 @@ jobs:
     needs: [perl-lint, js-lint, k8s-validate, security-fs]
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build Docker image
         run: docker build -t purl:test .
