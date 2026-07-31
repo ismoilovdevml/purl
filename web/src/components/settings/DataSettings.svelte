@@ -69,13 +69,13 @@
   .section-header h3 {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     margin: 0 0 4px;
   }
 
   .section-header p {
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
@@ -84,7 +84,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .setting-item:last-child {
@@ -99,11 +99,11 @@
 
   .setting-label {
     font-size: 0.875rem;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   .setting-hint {
     font-size: 0.75rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 </style>

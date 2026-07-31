@@ -287,22 +287,22 @@
   .section-header h3 {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     margin: 0 0 4px;
   }
 
   .section-header p {
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
   .error-msg {
     padding: 10px 14px;
     background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--color-error, #f85149);
+    border: 1px solid var(--color-error);
     border-radius: 6px;
-    color: var(--color-error, #f85149);
+    color: var(--color-error);
     font-size: 0.8125rem;
   }
 
@@ -328,7 +328,7 @@
   .created-key-warning {
     margin: 0;
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .created-key-value {
@@ -336,15 +336,15 @@
     align-items: center;
     gap: 8px;
     padding: 10px 14px;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     overflow: hidden;
   }
 
   .created-key-value code {
     flex: 1;
-    font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
+    font-family: var(--font-mono);
     font-size: 0.8125rem;
     color: #3fb950;
     word-break: break-all;
@@ -357,19 +357,19 @@
     justify-content: center;
     width: 32px;
     height: 32px;
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     cursor: pointer;
     flex-shrink: 0;
     transition: all 0.15s ease;
   }
 
   .copy-btn:hover {
-    background: var(--bg-hover, #30363d);
-    color: var(--text-primary, #c9d1d9);
-    border-color: var(--text-secondary, #8b949e);
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
   }
 
   /* Keys header */
@@ -382,7 +382,7 @@
 
   .key-count {
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -402,7 +402,7 @@
 
   .env-note {
     font-size: 0.75rem;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     font-style: italic;
   }
 
@@ -413,7 +413,7 @@
     align-items: flex-end;
     padding: 12px;
     margin-bottom: 16px;
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
     border-radius: 6px;
     flex-wrap: wrap;
   }
@@ -428,11 +428,11 @@
     display: grid;
     grid-template-columns: 1fr 120px 150px 80px auto;
     padding: 6px 0;
-    border-bottom: 1px solid var(--border-color, #30363d);
+    border-bottom: 1px solid var(--border-color);
     margin-bottom: 4px;
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -447,7 +447,7 @@
     grid-template-columns: 1fr 120px 150px 80px auto;
     align-items: center;
     padding: 10px 0;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .key-row:last-child {
@@ -462,14 +462,14 @@
   }
 
   .col-name :global(svg) {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     flex-shrink: 0;
   }
 
   .key-name {
     font-size: 0.875rem;
     font-weight: 500;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -481,10 +481,10 @@
   }
 
   .key-prefix {
-    font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
+    font-family: var(--font-mono);
     font-size: 0.75rem;
-    color: var(--text-secondary, #8b949e);
-    background: var(--bg-tertiary, #21262d);
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
     padding: 2px 6px;
     border-radius: 4px;
   }
@@ -496,7 +496,7 @@
 
   .key-date {
     font-size: 0.75rem;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 
   .col-status {
@@ -530,23 +530,23 @@
     margin: 0 0 8px;
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
   }
 
   .info-text {
     margin: 0 0 12px;
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     line-height: 1.5;
   }
 
   .info-text code {
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
     padding: 2px 6px;
     border-radius: 4px;
-    font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
+    font-family: var(--font-mono);
     font-size: 0.75rem;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   /* The curl example lives in onboarding/IngestSnippet.svelte, which brings

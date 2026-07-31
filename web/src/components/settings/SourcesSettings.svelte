@@ -214,13 +214,13 @@
   .section-header h3 {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     margin: 0 0 4px;
   }
 
   .section-header p {
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
@@ -232,8 +232,8 @@
   }
 
   .stat-card {
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #21262d);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-muted);
     border-radius: 8px;
     padding: 16px 20px;
     display: flex;
@@ -249,14 +249,14 @@
   .stat-value {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     line-height: 1;
   }
 
   .stat-label {
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -267,7 +267,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .group-title {
@@ -275,7 +275,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -300,7 +300,7 @@
   .empty-state {
     padding: 40px 16px;
     text-align: center;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-size: 0.875rem;
     display: flex;
     flex-direction: column;
@@ -319,13 +319,13 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
     transition: background 0.1s;
     gap: 16px;
   }
 
   .source-row:hover {
-    background: var(--bg-tertiary, #161b22);
+    background: var(--bg-secondary);
   }
 
   .source-row:last-child {
@@ -349,7 +349,7 @@
   .source-name {
     font-size: 0.875rem;
     font-weight: 500;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -364,7 +364,7 @@
 
   .meta-item {
     font-size: 0.75rem;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 
   /* Status dot */
@@ -386,7 +386,7 @@
   }
 
   .status-dot.status-inactive {
-    background: var(--text-muted, #848d97);
+    background: var(--text-muted);
   }
 
   /* Source stats */
@@ -407,14 +407,14 @@
   .source-stat-value {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-family: 'SF Mono', 'Fira Code', monospace;
     white-space: nowrap;
   }
 
   .source-stat-label {
     font-size: 0.6875rem;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.03em;
   }

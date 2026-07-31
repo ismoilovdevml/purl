@@ -14,6 +14,12 @@
 
   const dispatch = createEventDispatcher();
 
+  // Canvas text cannot use CSS custom properties, so the axis colour is pinned
+  // here. It must stay >= 4.5:1 against .histogram-container's #161b22 because
+  // the labels render at 10px, far below the WCAG large-text threshold.
+  // #848d97 = 5.14:1 (passes AA); the previous #6e7681 was 3.77:1 (failed).
+  const AXIS_LABEL_COLOR = '#848d97';
+
   let canvas;
   let container;
   let tooltip = { show: false, x: 0, y: 0, data: null, prevData: null, changePercent: null };
@@ -129,7 +135,7 @@
 
       // Y-axis labels
       const value = Math.round(effectiveMax - (effectiveMax / gridLines) * i);
-      ctx.fillStyle = '#6e7681';
+      ctx.fillStyle = AXIS_LABEL_COLOR;
       ctx.font = '10px SFMono-Regular, Consolas, monospace';
       ctx.textAlign = 'right';
       ctx.fillText(formatNumber(value), padding.left - 8, y + 3);
@@ -225,7 +231,7 @@
     // Draw time labels (X-axis)
     const labelCount = Math.min(6, $histogram.length);
     const labelStep = Math.floor($histogram.length / labelCount);
-    ctx.fillStyle = '#6e7681';
+    ctx.fillStyle = AXIS_LABEL_COLOR;
     ctx.font = '10px SFMono-Regular, Consolas, monospace';
     ctx.textAlign = 'center';
 

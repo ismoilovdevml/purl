@@ -1,18 +1,27 @@
 /**
  * Purl Design System - CSS Variables
- * Global design tokens for consistent styling
  *
- * !! NOT CURRENTLY LOADED !!
- * Nothing imports this file. Every component instead writes
- * `var(--token, #literal)` and today only the literal ever applies. 36 of the
- * 54 tokens used in components disagree with the literal beside them (e.g.
- * --text-primary is #c9d1d9 here but #f0f6fc at 33 call sites), so simply
- * importing this file would restyle large parts of the app.
+ * Loaded once from src/main.js. These tokens are the values that actually
+ * ship: components write `var(--token)` with no fallback literal, so changing
+ * a value here changes the app.
  *
- * Wiring it up is a deliberate reconciliation job of its own: align each token
- * with the literal the components actually ship, then import once from main.js
- * and strip the fallbacks. Until then, treat a change here as documentation —
- * the value that ships is the fallback in the component.
+ * Every value below was derived from the literal the components were already
+ * painting, not from the previous (never-loaded) version of this file. Where a
+ * token name was being used with two different literals, the majority value
+ * kept the name and the minority got its own token -- see --text-bright,
+ * --border-muted, --color-*-solid, --color-highlight.
+ *
+ * Rules:
+ *   - No `var(--token, #literal)` fallbacks in components. The fallback only
+ *     applies when the token is undefined, so a fallback that disagrees with
+ *     the token is dead code that silently becomes live if the token is ever
+ *     removed. Reference tokens bare.
+ *   - A token needs at least one consumer. Arithmetic scales (space, radius,
+ *     type, weights) are kept whole because a scale is a unit; one-off
+ *     semantic colour aliases with no consumer are deleted.
+ *   - Log level colours are NOT here. They are applied from JS, never by a CSS
+ *     rule, so src/utils/colors.js owns them outright. Mirroring them here is
+ *     what let TRACE drift to a failing contrast ratio.
  */
 
 :root {
@@ -21,23 +30,37 @@
    * ======================================== */
   --color-primary: #58a6ff;
   --color-primary-hover: #79b8ff;
-  --color-primary-bg: #388bfd26;
+  --color-primary-bg: rgba(88, 166, 255, 0.15);
+  /* Selected/current log row - deliberately fainter than --color-primary-bg. */
+  --color-primary-bg-subtle: rgba(56, 139, 253, 0.08);
+  /* Near-duplicate of --color-primary-bg at a different blue. Kept distinct
+   * only to preserve current rendering in LogDetail; collapse it into
+   * --color-primary-bg once a designer confirms. */
+  --color-primary-bg-alt: rgba(56, 139, 253, 0.15);
 
   --color-success: #3fb950;
-  --color-success-hover: #56d364;
-  --color-success-bg: #23863620;
+  --color-success-bg: rgba(63, 185, 80, 0.15);
+  /* Filled success controls (primary buttons, checked checkboxes) sit on a
+   * darker green than success *text* does. */
+  --color-success-solid: #238636;
+  --color-success-solid-hover: #2ea043;
 
   --color-error: #f85149;
-  --color-error-hover: #ff7b72;
-  --color-error-bg: #f8514920;
+  --color-error-bg: rgba(248, 81, 73, 0.15);
+  --color-error-solid: #da3633;
+  --color-error-solid-hover: #f85149;
 
   --color-warning: #d29922;
-  --color-warning-hover: #e3b341;
-  --color-warning-bg: #d2992220;
+  --color-warning-bg: rgba(210, 153, 34, 0.15);
+
+  /* Search-match marker. A second, brighter amber that the log views use where
+   * the rest of the app uses --color-warning; the two are an unresolved tie
+   * (3 sites each) pending design review, so both are kept. */
+  --color-highlight: #f5a623;
 
   --color-purple: #a371f7;
+  --color-purple-bg: rgba(163, 113, 247, 0.15);
   --color-orange: #f0883e;
-  --color-cyan: #79c0ff;
 
   /* ========================================
    * Backgrounds
@@ -46,20 +69,26 @@
   --bg-secondary: #161b22;
   --bg-tertiary: #21262d;
   --bg-hover: #30363d;
-  --bg-active: #388bfd15;
+  --bg-elevated: #30363d;
+  --bg-row-hover: #1c2128;
+  --bg-overlay: rgba(13, 17, 23, 0.8);
 
   /* ========================================
    * Text Colors
    * ======================================== */
   --text-primary: #c9d1d9;
+  /* Headings in components/settings/. Brighter than --text-primary. */
+  --text-bright: #f0f6fc;
   --text-secondary: #8b949e;
   /* WCAG AA (4.5:1) against every surface muted text is actually painted on:
    * bg-primary 5.62:1, bg-secondary 5.14:1, bg-tertiary 4.52:1.
    * The previous #6e7681 was 3.31:1 on bg-tertiary and failed at every size. */
   --text-muted: #848d97;
-  --text-link: #58a6ff;
+  /* Inactive/unset indicators only. At 2.66:1 on --bg-primary this is below
+   * AA and must never carry information a user has to read. */
+  --text-disabled: #484f58;
 
-  /* Focus ring — see the global :focus-visible rule below. */
+  /* Focus ring - see src/styles/focus.css. */
   --focus-ring-color: var(--color-primary);
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
@@ -68,170 +97,62 @@
    * Borders
    * ======================================== */
   --border-color: #30363d;
-  --border-color-light: #21262d;
-  --border-radius-sm: 4px;
-  --border-radius: 6px;
-  --border-radius-lg: 8px;
-  --border-radius-xl: 10px;
-  --border-radius-full: 9999px;
+  /* Lower-contrast divider used throughout components/settings/. */
+  --border-muted: #21262d;
+  --border-strong: #484f58;
+  --border-hover: var(--border-strong);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
 
   /* ========================================
    * Spacing Scale
    * ======================================== */
-  --space-0: 0;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
-  --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
-  --space-10: 40px;
   --space-12: 48px;
 
   /* ========================================
    * Typography
    * ======================================== */
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-  --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  --font-mono: 'SF Mono', Monaco, monospace;
 
-  --text-xs: 10px;
-  --text-sm: 11px;
+  --text-xs: 11px;
+  --text-sm: 12px;
   --text-base: 13px;
   --text-md: 14px;
   --text-lg: 16px;
   --text-xl: 18px;
-  --text-2xl: 20px;
 
-  --font-normal: 400;
   --font-medium: 500;
   --font-semibold: 600;
-  --font-bold: 700;
-
-  --line-height-tight: 1.25;
-  --line-height-normal: 1.5;
-  --line-height-relaxed: 1.75;
 
   /* ========================================
    * Shadows
    * ======================================== */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
   --shadow-xl: 0 12px 40px rgba(0, 0, 0, 0.6);
 
   /* ========================================
    * Z-Index Scale
    * ======================================== */
-  --z-dropdown: 50;
-  --z-sticky: 100;
+  --z-dropdown: 100;
+  --z-overlay: 100;
   --z-modal: 200;
-  --z-tooltip: 300;
-  --z-toast: 400;
+  --z-tooltip: 1000;
 
   /* ========================================
    * Transitions
    * ======================================== */
-  --transition-fast: 0.1s ease;
-  --transition-base: 0.15s ease;
-  --transition-slow: 0.3s ease;
-
-  /* ========================================
-   * Log Level Colors
-   * ======================================== */
-  --level-debug: #8b949e;
-  --level-info: #3fb950;
-  --level-warn: #d29922;
-  --level-error: #f85149;
-  --level-fatal: #ff7b72;
-  /* Matches --text-muted: trace lines are rendered at 11-12px and the old
-   * #6e7681 was 3.31:1 on the log table's tertiary background. */
-  --level-trace: #848d97;
+  /* These two are the same duration today because every call site shipped
+   * `all 0.15s ease`. Kept as separate names so the distinction can be
+   * reintroduced without touching call sites. */
+  --transition-fast: all 0.15s ease;
+  --transition-base: all 0.15s ease;
 }
-
-/* ========================================
- * Utility Classes
- * ======================================== */
-
-/* Flexbox */
-.flex { display: flex; }
-.flex-col { flex-direction: column; }
-.flex-wrap { flex-wrap: wrap; }
-.items-center { align-items: center; }
-.items-start { align-items: flex-start; }
-.items-end { align-items: flex-end; }
-.justify-center { justify-content: center; }
-.justify-between { justify-content: space-between; }
-.justify-end { justify-content: flex-end; }
-.gap-1 { gap: var(--space-1); }
-.gap-2 { gap: var(--space-2); }
-.gap-3 { gap: var(--space-3); }
-.gap-4 { gap: var(--space-4); }
-
-/* Text */
-.text-primary { color: var(--text-primary); }
-.text-secondary { color: var(--text-secondary); }
-.text-muted { color: var(--text-muted); }
-.text-link { color: var(--text-link); }
-.text-success { color: var(--color-success); }
-.text-error { color: var(--color-error); }
-.text-warning { color: var(--color-warning); }
-
-.text-xs { font-size: var(--text-xs); }
-.text-sm { font-size: var(--text-sm); }
-.text-base { font-size: var(--text-base); }
-.text-md { font-size: var(--text-md); }
-.text-lg { font-size: var(--text-lg); }
-
-.font-normal { font-weight: var(--font-normal); }
-.font-medium { font-weight: var(--font-medium); }
-.font-semibold { font-weight: var(--font-semibold); }
-.font-bold { font-weight: var(--font-bold); }
-
-.font-mono { font-family: var(--font-mono); }
-
-.truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Spacing */
-.p-1 { padding: var(--space-1); }
-.p-2 { padding: var(--space-2); }
-.p-3 { padding: var(--space-3); }
-.p-4 { padding: var(--space-4); }
-
-.m-0 { margin: 0; }
-.mt-1 { margin-top: var(--space-1); }
-.mt-2 { margin-top: var(--space-2); }
-.mt-3 { margin-top: var(--space-3); }
-.mt-4 { margin-top: var(--space-4); }
-.mb-1 { margin-bottom: var(--space-1); }
-.mb-2 { margin-bottom: var(--space-2); }
-.mb-3 { margin-bottom: var(--space-3); }
-.mb-4 { margin-bottom: var(--space-4); }
-
-/* Display */
-.hidden { display: none; }
-.block { display: block; }
-.inline { display: inline; }
-.inline-block { display: inline-block; }
-
-/* Sizing */
-.w-full { width: 100%; }
-.h-full { height: 100%; }
-
-/* Cursor */
-.cursor-pointer { cursor: pointer; }
-.cursor-grab { cursor: grab; }
-.cursor-not-allowed { cursor: not-allowed; }
-
-/* Opacity */
-.opacity-50 { opacity: 0.5; }
-.opacity-70 { opacity: 0.7; }
-
-/* Transitions */
-.transition { transition: var(--transition-base); }
-.transition-fast { transition: var(--transition-fast); }
-.transition-slow { transition: var(--transition-slow); }

@@ -305,13 +305,13 @@
   .section-header h3 {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     margin: 0 0 4px;
   }
 
   .section-header p {
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
@@ -323,8 +323,8 @@
   }
 
   .stat-card {
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #21262d);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-muted);
     border-radius: 8px;
     padding: 16px 20px;
     display: flex;
@@ -344,14 +344,14 @@
   .stat-value {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     line-height: 1;
   }
 
   .stat-label {
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -365,7 +365,7 @@
     padding: 14px 16px;
     background: none;
     border: none;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-size: 0.875rem;
     cursor: pointer;
     text-align: left;
@@ -373,7 +373,7 @@
   }
 
   .setup-toggle:hover {
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
   }
 
   .setup-title {
@@ -381,14 +381,14 @@
   }
 
   .setup-hint {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     font-size: 0.8125rem;
     margin-left: auto;
   }
 
   .setup-content {
     padding: 16px;
-    border-top: 1px solid var(--border-color, #21262d);
+    border-top: 1px solid var(--border-muted);
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -397,14 +397,14 @@
   .setup-step h4 {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     margin: 0 0 8px;
   }
 
   .code-block {
     position: relative;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #21262d);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-muted);
     border-radius: 6px;
     padding: 12px;
     overflow-x: auto;
@@ -413,7 +413,7 @@
   .code-block code {
     font-family: 'SF Mono', 'Fira Code', monospace;
     font-size: 0.8125rem;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     white-space: pre;
   }
 
@@ -421,9 +421,9 @@
     position: absolute;
     top: 8px;
     right: 8px;
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #21262d);
-    color: var(--text-secondary, #8b949e);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-muted);
+    color: var(--text-secondary);
     padding: 4px 10px;
     border-radius: 4px;
     font-size: 0.75rem;
@@ -432,26 +432,26 @@
   }
 
   .copy-btn:hover {
-    color: var(--text-primary, #c9d1d9);
-    background: var(--bg-tertiary, #21262d);
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
   }
 
   .setup-note {
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
     line-height: 1.5;
   }
 
   .setup-description {
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
     line-height: 1.5;
   }
 
   .setup-description code {
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
     padding: 2px 6px;
     border-radius: 3px;
     font-size: 0.8125rem;
@@ -464,12 +464,12 @@
     border: 1px solid rgba(210, 153, 34, 0.2);
     border-radius: 6px;
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .setup-prompts p {
     margin: 0 0 6px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-weight: 500;
   }
 
@@ -482,14 +482,14 @@
   }
 
   .setup-prompts code {
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
     padding: 2px 6px;
     border-radius: 3px;
     font-size: 0.75rem;
   }
 
   .setup-note code {
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
     padding: 2px 6px;
     border-radius: 3px;
     font-size: 0.75rem;
@@ -501,7 +501,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .group-title {
@@ -509,7 +509,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -534,7 +534,7 @@
   .empty-state {
     padding: 40px 16px;
     text-align: center;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-size: 0.875rem;
     display: flex;
     flex-direction: column;
@@ -553,13 +553,13 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
     transition: background 0.1s;
     gap: 16px;
   }
 
   .agent-row:hover {
-    background: var(--bg-tertiary, #161b22);
+    background: var(--bg-secondary);
   }
 
   .agent-row:last-child {
@@ -583,7 +583,7 @@
   .agent-name {
     font-size: 0.875rem;
     font-weight: 500;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -599,11 +599,11 @@
 
   .meta-item {
     font-size: 0.75rem;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 
   .label-tag {
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
     padding: 1px 6px;
     border-radius: 3px;
   }
@@ -622,7 +622,7 @@
   }
 
   .status-dot.status-offline {
-    background: var(--text-muted, #848d97);
+    background: var(--text-muted);
   }
 
   /* Agent stats */
@@ -643,14 +643,14 @@
   .agent-stat-value {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-family: 'SF Mono', 'Fira Code', monospace;
     white-space: nowrap;
   }
 
   .agent-stat-label {
     font-size: 0.6875rem;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.03em;
   }

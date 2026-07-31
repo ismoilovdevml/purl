@@ -313,13 +313,13 @@
   .section-header h3 {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     margin: 0 0 4px;
   }
 
   .section-header p {
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
@@ -332,7 +332,7 @@
     align-items: center;
     gap: 12px;
     padding: 16px;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .notification-icon {
@@ -356,7 +356,7 @@
 
   .notification-icon.webhook {
     background: rgba(88, 166, 255, 0.15);
-    color: var(--color-primary, #58a6ff);
+    color: var(--color-primary);
   }
 
   .notification-info {
@@ -367,13 +367,13 @@
     margin: 0;
     font-size: 0.9375rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
   }
 
   .notification-info p {
     margin: 2px 0 0;
     font-size: 0.75rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .notification-form {
@@ -393,7 +393,7 @@
     width: 140px;
     flex-shrink: 0;
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .form-actions {
@@ -408,13 +408,13 @@
     gap: 8px;
     padding: 10px 16px;
     font-size: 0.8125rem;
-    color: var(--color-error, #f85149);
+    color: var(--color-error);
     background: rgba(248, 81, 73, 0.1);
     border-radius: 6px;
   }
 
   .result-box.success {
-    color: var(--color-success, #3fb950);
+    color: var(--color-success);
     background: rgba(63, 185, 80, 0.1);
   }
 
@@ -442,7 +442,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: var(--bg-tertiary, #21262d);
+    background-color: var(--bg-tertiary);
     border-radius: 24px;
     transition: 0.2s;
   }
@@ -460,7 +460,7 @@
   }
 
   .toggle input:checked + .toggle-slider {
-    background-color: var(--color-success, #238636);
+    background-color: var(--color-success-solid);
   }
 
   .toggle input:checked + .toggle-slider:before {
@@ -475,7 +475,7 @@
 
   .form-hint {
     font-size: 0.6875rem;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     margin-left: 8px;
   }
 
@@ -493,19 +493,19 @@
   :global(.auth-info-card) h4 {
     margin: 0 0 8px;
     font-size: 0.875rem;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
   }
 
   :global(.auth-info-card) p {
     margin: 8px 0;
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   :global(.auth-info-card) code {
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
     padding: 2px 6px;
     border-radius: 4px;
-    font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
+    font-family: var(--font-mono);
   }
 </style>

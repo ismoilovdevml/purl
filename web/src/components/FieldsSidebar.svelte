@@ -157,7 +157,7 @@
               on:click={() => handleFilter('service', item.value)}
               aria-label="Filter by service:{item.value}"
             >
-              <span class="value-dot" style="background: var(--color-primary, #58a6ff)"></span>
+              <span class="value-dot" style="background: var(--color-primary)"></span>
               <span class="value-name">{item.value}</span>
               <span class="value-count">{formatCount(item.count)}</span>
               <span class="value-percent">{getPercentage(item.count, $serviceStats).toFixed(0)}%</span>
@@ -196,7 +196,7 @@
               on:click={() => handleFilter('host', item.value)}
               aria-label="Filter by host:{item.value}"
             >
-              <span class="value-dot" style="background: var(--color-purple, #a371f7)"></span>
+              <span class="value-dot" style="background: var(--color-purple)"></span>
               <span class="value-name">{item.value}</span>
               <span class="value-count">{formatCount(item.count)}</span>
               <span class="value-percent">{getPercentage(item.count, $hostStats).toFixed(0)}%</span>
@@ -242,7 +242,7 @@
               on:click={() => handleFilter('meta.namespace', item.value)}
               aria-label="Filter by meta.namespace:{item.value}"
             >
-              <span class="value-dot" style="background: var(--color-orange, #f0883e)"></span>
+              <span class="value-dot" style="background: var(--color-orange)"></span>
               <span class="value-name">{item.value}</span>
               <span class="value-count">{formatCount(item.count)}</span>
               <span class="value-percent">{getPercentage(item.count, $namespaceStats).toFixed(0)}%</span>
@@ -281,7 +281,7 @@
               on:click={() => handleFilter('meta.pod', item.value)}
               aria-label="Filter by meta.pod:{item.value}"
             >
-              <span class="value-dot" style="background: var(--color-success, #3fb950)"></span>
+              <span class="value-dot" style="background: var(--color-success)"></span>
               <span class="value-name">{item.value}</span>
               <span class="value-count">{formatCount(item.count)}</span>
               <span class="value-percent">{getPercentage(item.count, $podStats).toFixed(0)}%</span>
@@ -359,7 +359,7 @@
               on:click={() => handleFilter('meta.deployment', item.value)}
               aria-label="Filter by meta.deployment:{item.value}"
             >
-              <span class="value-dot" style="background: var(--color-success, #3fb950)"></span>
+              <span class="value-dot" style="background: var(--color-success)"></span>
               <span class="value-name">{item.value}</span>
               <span class="value-count">{formatCount(item.count)}</span>
               <span class="value-percent">{getPercentage(item.count, $deploymentStats).toFixed(0)}%</span>
@@ -398,7 +398,7 @@
               on:click={() => handleFilter('meta.team', item.value)}
               aria-label="Filter by meta.team:{item.value}"
             >
-              <span class="value-dot" style="background: var(--color-orange, #f0883e)"></span>
+              <span class="value-dot" style="background: var(--color-orange)"></span>
               <span class="value-name">{item.value}</span>
               <span class="value-count">{formatCount(item.count)}</span>
               <span class="value-percent">{getPercentage(item.count, $teamStats).toFixed(0)}%</span>
@@ -420,20 +420,20 @@
 <style>
   .fields-sidebar { margin-bottom: 16px; }
   .fields-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-  .fields-header h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-secondary, #8b949e); letter-spacing: 0.5px; margin: 0; }
+  .fields-header h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.5px; margin: 0; }
   .header-actions { display: flex; gap: 4px; }
 
-  .field-search { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--bg-primary, #0d1117); border: 1px solid var(--border-color, #30363d); border-radius: 6px; margin-bottom: 12px; }
-  .field-search :global(.search-icon) { color: var(--text-muted, #848d97); flex-shrink: 0; }
-  .field-search input { flex: 1; background: none; border: none; color: var(--text-primary, #c9d1d9); font-size: 12px; }
-  .field-search input::placeholder { color: var(--text-muted, #848d97); }
+  .field-search { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 12px; }
+  .field-search :global(.search-icon) { color: var(--text-muted); flex-shrink: 0; }
+  .field-search input { flex: 1; background: none; border: none; color: var(--text-primary); font-size: 12px; }
+  .field-search input::placeholder { color: var(--text-muted); }
 
-  .section-divider { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px 0; color: var(--text-muted, #848d97); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .section-divider::before, .section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-color, #30363d); }
+  .section-divider { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px 0; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .section-divider::before, .section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-color); }
 
   .field-section { margin-bottom: 4px; }
-  .section-header { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; background: none; border: none; color: var(--text-primary, #c9d1d9); cursor: pointer; border-radius: 6px; font-size: 13px; font-weight: 500; }
-  .section-header:hover { background: var(--bg-tertiary, #21262d); }
+  .section-header { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; background: none; border: none; color: var(--text-primary); cursor: pointer; border-radius: 6px; font-size: 13px; font-weight: 500; }
+  .section-header:hover { background: var(--bg-tertiary); }
   .section-name { flex: 1; text-align: left; }
   /* :global — the chevron svg is rendered by <Icon>, so the scoping class
      never lands on it; the class name itself is still supplied here. */
@@ -442,19 +442,19 @@
 
   .field-values { padding-left: 12px; }
   .field-value-row { display: flex; align-items: center; gap: 2px; }
-  .field-value { display: flex; align-items: center; gap: 6px; flex: 1; padding: 4px 6px; background: none; border: none; color: var(--text-primary, #c9d1d9); cursor: pointer; border-radius: 4px; font-size: 12px; text-align: left; }
-  .field-value:hover { background: var(--bg-tertiary, #21262d); }
+  .field-value { display: flex; align-items: center; gap: 6px; flex: 1; padding: 4px 6px; background: none; border: none; color: var(--text-primary); cursor: pointer; border-radius: 4px; font-size: 12px; text-align: left; }
+  .field-value:hover { background: var(--bg-tertiary); }
 
-  .exclude-btn { display: flex; align-items: center; justify-content: center; padding: 2px 6px; background: none; border: none; color: var(--text-muted, #848d97); cursor: pointer; border-radius: 4px; opacity: 0; }
+  .exclude-btn { display: flex; align-items: center; justify-content: center; padding: 2px 6px; background: none; border: none; color: var(--text-muted); cursor: pointer; border-radius: 4px; opacity: 0; }
   .field-value-row:hover .exclude-btn { opacity: 1; }
   /* Keyboard users never trigger :hover — keep the button reachable. */
   .exclude-btn:focus-visible { opacity: 1; }
-  .exclude-btn:hover { color: var(--color-error, #f85149); background: rgba(248, 81, 73, 0.1); }
+  .exclude-btn:hover { color: var(--color-error); background: rgba(248, 81, 73, 0.1); }
 
   .value-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
   .value-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 40px; }
-  .value-count { color: var(--text-secondary, #8b949e); font-size: 11px; font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace); min-width: 32px; text-align: right; }
-  .value-percent { color: var(--text-muted, #848d97); font-size: 11px; min-width: 28px; text-align: right; }
+  .value-count { color: var(--text-secondary); font-size: 11px; font-family: var(--font-mono); min-width: 32px; text-align: right; }
+  .value-percent { color: var(--text-muted); font-size: 11px; min-width: 28px; text-align: right; }
 
   .field-skeleton { padding: 8px 0; display: flex; flex-direction: column; gap: 8px; }
 
@@ -463,9 +463,9 @@
     border-radius: 4px;
     background: linear-gradient(
       90deg,
-      var(--bg-tertiary, #21262d) 25%,
-      var(--bg-secondary, #161b22) 50%,
-      var(--bg-tertiary, #21262d) 75%
+      var(--bg-tertiary) 25%,
+      var(--bg-secondary) 50%,
+      var(--bg-tertiary) 75%
     );
     background-size: 200% 100%;
     animation: skeleton-shimmer 1.5s infinite;

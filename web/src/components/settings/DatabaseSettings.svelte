@@ -282,13 +282,13 @@
   .section-header h3 {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     margin: 0 0 4px;
   }
 
   .section-header p {
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
@@ -298,13 +298,13 @@
     justify-content: space-between;
     padding: 12px 16px;
     background: rgba(33, 38, 45, 0.3);
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .group-title {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
@@ -325,7 +325,7 @@
     gap: 8px;
     padding: 12px 16px;
     background: rgba(33, 38, 45, 0.3);
-    border-top: 1px solid var(--border-color, #21262d);
+    border-top: 1px solid var(--border-muted);
   }
 
   .result-box {
@@ -334,13 +334,13 @@
     gap: 8px;
     padding: 10px 16px;
     font-size: 0.8125rem;
-    color: var(--color-error, #f85149);
+    color: var(--color-error);
     background: rgba(248, 81, 73, 0.1);
-    border-top: 1px solid var(--border-color, #21262d);
+    border-top: 1px solid var(--border-muted);
   }
 
   .result-box.success {
-    color: var(--color-success, #3fb950);
+    color: var(--color-success);
     background: rgba(63, 185, 80, 0.1);
   }
 
@@ -349,7 +349,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .setting-item:last-child {
@@ -364,12 +364,12 @@
 
   .setting-label {
     font-size: 0.875rem;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   .setting-hint {
     font-size: 0.75rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .retention-control {
@@ -380,7 +380,7 @@
 
   .retention-control .unit {
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   :global(.retention-card) {
@@ -392,14 +392,14 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 12px;
     padding: 16px;
-    background: var(--bg-primary, #0d1117);
-    border-top: 1px solid var(--border-color, #21262d);
+    background: var(--bg-primary);
+    border-top: 1px solid var(--border-muted);
   }
 
   .stat-card {
     text-align: center;
     padding: 12px 8px;
-    background: var(--bg-secondary, #161b22);
+    background: var(--bg-secondary);
     border-radius: 6px;
   }
 
@@ -407,14 +407,14 @@
     display: block;
     font-size: 0.9375rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
-    font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
+    color: var(--text-bright);
+    font-family: var(--font-mono);
   }
 
   .stat-label {
     display: block;
     font-size: 0.6875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin-top: 4px;
   }
 

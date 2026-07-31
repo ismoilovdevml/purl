@@ -63,12 +63,12 @@
   .badge {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-1, 4px);
+    gap: var(--space-1);
     padding: 2px 8px;
-    font-size: var(--text-xs, 11px);
+    font-size: var(--text-xs);
     font-weight: 500;
     line-height: 1.4;
-    border-radius: var(--radius-sm, 4px);
+    border-radius: var(--radius-sm);
     white-space: nowrap;
     user-select: none;
   }
@@ -81,7 +81,7 @@
 
   .badge.size-lg {
     padding: 4px 12px;
-    font-size: var(--text-sm, 12px);
+    font-size: var(--text-sm);
   }
 
   .badge.pill {
@@ -90,33 +90,33 @@
 
   /* Variants - Filled */
   .badge.variant-default {
-    background: var(--bg-tertiary, #21262d);
-    color: var(--text-secondary, #8b949e);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
   }
 
   .badge.variant-primary {
-    background: var(--color-primary-bg, rgba(88, 166, 255, 0.15));
-    color: var(--color-primary, #58a6ff);
+    background: var(--color-primary-bg);
+    color: var(--color-primary);
   }
 
   .badge.variant-success {
-    background: var(--color-success-bg, rgba(63, 185, 80, 0.15));
-    color: var(--color-success, #3fb950);
+    background: var(--color-success-bg);
+    color: var(--color-success);
   }
 
   .badge.variant-warning {
-    background: var(--color-warning-bg, rgba(210, 153, 34, 0.15));
-    color: var(--color-warning, #d29922);
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
   }
 
   .badge.variant-error {
-    background: var(--color-error-bg, rgba(248, 81, 73, 0.15));
-    color: var(--color-error, #f85149);
+    background: var(--color-error-bg);
+    color: var(--color-error);
   }
 
   .badge.variant-info {
-    background: var(--color-purple-bg, rgba(163, 113, 247, 0.15));
-    color: var(--color-purple, #a371f7);
+    background: var(--color-purple-bg);
+    color: var(--color-purple);
   }
 
   /* Outline variants */
@@ -126,7 +126,7 @@
   }
 
   .badge.outline.variant-default {
-    border-color: var(--border-color, #30363d);
+    border-color: var(--border-color);
   }
 
   /* Dot */

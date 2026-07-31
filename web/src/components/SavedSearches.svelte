@@ -230,12 +230,12 @@
   }
 
   .header:hover h3 {
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   /* :global — the class is forwarded onto the SVG that Icon renders. */
   .header :global(.chevron) {
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     transition: transform 0.15s ease;
   }
 
@@ -247,7 +247,7 @@
     flex: 1;
     font-size: 11px;
     text-transform: uppercase;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-weight: 600;
     margin: 0;
     transition: color 0.15s;
@@ -255,8 +255,8 @@
 
   .count {
     font-size: 10px;
-    color: var(--text-muted, #848d97);
-    background: var(--bg-tertiary, #21262d);
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
     padding: 2px 6px;
     border-radius: 10px;
   }
@@ -282,31 +282,31 @@
     flex-direction: column;
     align-items: flex-start;
     padding: 8px;
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     cursor: pointer;
     text-align: left;
   }
 
   .search-item:hover {
-    border-color: var(--color-primary, #58a6ff);
+    border-color: var(--color-primary);
   }
 
   .name {
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-size: 13px;
     font-weight: 500;
   }
 
   .query {
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-size: 11px;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
   }
 
   :global(.delete-btn):hover {
-    color: var(--color-error, #f85149) !important;
+    color: var(--color-error) !important;
   }
 
   .error-state {
@@ -320,17 +320,17 @@
   }
 
   .retry-btn {
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 4px 12px;
     font-size: 11px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     cursor: pointer;
   }
 
   .retry-btn:hover {
-    background: var(--border-color, #30363d);
+    background: var(--border-color);
   }
 
   .form-content {

@@ -71,7 +71,7 @@
   .spinner-container {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-2, 8px);
+    gap: var(--space-2);
   }
 
   .spinner-container.centered {
@@ -80,7 +80,7 @@
     align-items: center;
     justify-content: center;
     width: 100%;
-    padding: var(--space-8, 48px);
+    padding: var(--space-12);
   }
 
   .spinner-overlay {
@@ -89,20 +89,20 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--bg-overlay, rgba(13, 17, 23, 0.8));
-    z-index: var(--z-overlay, 100);
+    background: var(--bg-overlay);
+    z-index: var(--z-overlay);
   }
 
   .spinner {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     animation: spin 1s linear infinite;
   }
 
   .spinner.variant-primary {
-    color: var(--color-primary, #58a6ff);
+    color: var(--color-primary);
   }
 
   .spinner :global(svg) {
@@ -132,11 +132,11 @@
   }
 
   .spinner-label {
-    font-size: var(--text-sm, 12px);
-    color: var(--text-secondary, #8b949e);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
   }
 
   .spinner-container.centered .spinner-label {
-    margin-top: var(--space-2, 8px);
+    margin-top: var(--space-2);
   }
 </style>

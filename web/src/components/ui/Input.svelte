@@ -163,7 +163,7 @@
   .input-wrapper {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1, 4px);
+    gap: var(--space-1);
   }
 
   .input-wrapper.full-width {
@@ -171,44 +171,44 @@
   }
 
   .input-label {
-    font-size: var(--text-sm, 12px);
+    font-size: var(--text-sm);
     font-weight: 500;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .input-label.required::after {
     content: ' *';
-    color: var(--color-error, #f85149);
+    color: var(--color-error);
   }
 
   .input-container {
     display: flex;
     align-items: center;
-    gap: var(--space-2, 8px);
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: var(--radius-md, 6px);
-    padding: 0 var(--space-3, 12px);
-    transition: var(--transition-fast, all 0.15s ease);
+    gap: var(--space-2);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0 var(--space-3);
+    transition: var(--transition-fast);
   }
 
   .input-container:focus-within {
-    border-color: var(--color-primary, #58a6ff);
-    box-shadow: 0 0 0 2px var(--color-primary-bg, rgba(88, 166, 255, 0.15));
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-primary-bg);
   }
 
   .input-container.has-error {
-    border-color: var(--color-error, #f85149);
+    border-color: var(--color-error);
   }
 
   .input-container.has-error:focus-within {
-    box-shadow: 0 0 0 2px var(--color-error-bg, rgba(248, 81, 73, 0.15));
+    box-shadow: 0 0 0 2px var(--color-error-bg);
   }
 
   .input-container.disabled {
     opacity: 0.5;
     cursor: not-allowed;
-    background: var(--bg-secondary, #161b22);
+    background: var(--bg-secondary);
   }
 
   /* Sizes */
@@ -218,7 +218,7 @@
 
   .input-container.size-sm {
     height: 28px;
-    padding: 0 var(--space-2, 8px);
+    padding: 0 var(--space-2);
   }
 
   .input-container.size-lg {
@@ -232,13 +232,13 @@
     border: none;
     /* No `outline: none` here: the global :focus-visible rule in
        styles/focus.css is what gives keyboard users a visible ring. */
-    font-size: var(--text-base, 13px);
-    color: var(--text-primary, #c9d1d9);
+    font-size: var(--text-base);
+    color: var(--text-primary);
     font-family: inherit;
   }
 
   .input-field::placeholder {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 
   .input-field:disabled {
@@ -248,7 +248,7 @@
   textarea.input-field {
     resize: vertical;
     min-height: 80px;
-    padding: var(--space-2, 8px) 0;
+    padding: var(--space-2) 0;
   }
 
   .input-container:has(textarea) {
@@ -259,7 +259,7 @@
   .input-icon {
     display: flex;
     align-items: center;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     flex-shrink: 0;
   }
 
@@ -271,18 +271,18 @@
   .input-suffix {
     display: flex;
     align-items: center;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     flex-shrink: 0;
   }
 
   .input-error {
-    font-size: var(--text-xs, 11px);
-    color: var(--color-error, #f85149);
+    font-size: var(--text-xs);
+    color: var(--color-error);
   }
 
   .input-helper {
-    font-size: var(--text-xs, 11px);
-    color: var(--text-muted, #848d97);
+    font-size: var(--text-xs);
+    color: var(--text-muted);
   }
 
   /* Number input arrows */

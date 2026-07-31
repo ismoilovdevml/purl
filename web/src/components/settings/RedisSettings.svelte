@@ -148,18 +148,18 @@
   .settings-title {
     font-size: 16px;
     font-weight: 600;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     margin: 0 0 4px;
   }
 
   .settings-desc {
     font-size: 13px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
   .loading-placeholder {
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-size: 13px;
     padding: 20px 0;
   }
@@ -179,13 +179,13 @@
   .field-label {
     font-size: 13px;
     font-weight: 500;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     display: flex;
     align-items: center;
     gap: 6px;
   }
 
-  .optional { font-weight: 400; color: var(--text-secondary, #8b949e); font-size: 12px; }
+  .optional { font-weight: 400; color: var(--text-secondary); font-size: 12px; }
 
   .env-badge {
     font-size: 10px;
@@ -208,8 +208,8 @@
     align-items: flex-start;
     gap: 10px;
     padding: 10px 12px;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     cursor: pointer;
     transition: border-color 0.15s;
@@ -233,20 +233,20 @@
     flex-direction: column;
     gap: 2px;
     font-size: 13px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   .radio-hint {
     font-size: 12px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-weight: 400;
   }
 
   .field-input {
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-size: 13px;
     padding: 7px 10px;
     width: 100%;
@@ -260,7 +260,7 @@
 
   .field-hint {
     font-size: 12px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
@@ -289,8 +289,8 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
   }
 
@@ -299,7 +299,7 @@
     align-items: flex-start;
     gap: 8px;
     font-size: 12px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .info-row :global(svg) { margin-top: 1px; }

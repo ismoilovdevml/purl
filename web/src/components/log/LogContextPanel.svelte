@@ -66,9 +66,9 @@
 <style>
   .context-panel {
     margin-top: 12px;
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: var(--radius-md, 6px);
-    background: var(--bg-primary, #0d1117);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
     overflow: hidden;
   }
 
@@ -77,30 +77,30 @@
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    background: var(--bg-secondary, #161b22);
-    border-bottom: 1px solid var(--border-color, #30363d);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
   }
 
   .context-title {
-    font-size: var(--text-sm, 12px);
-    color: var(--text-secondary, #8b949e);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
     font-weight: 500;
   }
 
   .context-close {
     padding: 2px 8px;
     background: transparent;
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: var(--radius-sm, 4px);
-    color: var(--text-secondary, #8b949e);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
     font-size: 11px;
     cursor: pointer;
-    transition: var(--transition-fast, all 0.15s ease);
+    transition: var(--transition-fast);
   }
 
   .context-close:hover {
-    background: var(--bg-tertiary, #21262d);
-    color: var(--text-primary, #c9d1d9);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .context-logs {
@@ -113,8 +113,8 @@
     align-items: flex-start;
     gap: 12px;
     padding: 6px 12px;
-    font-size: var(--text-sm, 12px);
-    border-bottom: 1px solid var(--bg-tertiary, #21262d);
+    font-size: var(--text-sm);
+    border-bottom: 1px solid var(--bg-tertiary);
   }
 
   .context-log:last-child {
@@ -132,14 +132,14 @@
   }
 
   .context-log.current {
-    background: var(--color-primary-bg, rgba(56, 139, 253, 0.08));
-    border-left: 3px solid var(--color-primary, #58a6ff);
+    background: var(--color-primary-bg-subtle);
+    border-left: 3px solid var(--color-primary);
     font-weight: 500;
   }
 
   .ctx-time {
-    font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace);
-    color: var(--text-secondary, #8b949e);
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
     flex-shrink: 0;
     width: 70px;
   }
@@ -153,8 +153,8 @@
 
   .ctx-message {
     flex: 1;
-    font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace);
-    color: var(--text-primary, #c9d1d9);
+    font-family: var(--font-mono);
+    color: var(--text-primary);
     word-break: break-all;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -164,7 +164,7 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    color: var(--color-primary, #58a6ff);
+    color: var(--color-primary);
     font-size: 11px;
     font-weight: 600;
     flex-shrink: 0;

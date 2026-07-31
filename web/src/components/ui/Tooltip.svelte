@@ -69,15 +69,15 @@
 
   .tooltip {
     position: absolute;
-    z-index: var(--z-tooltip, 1000);
-    padding: var(--space-1, 4px) var(--space-2, 8px);
-    font-size: var(--text-xs, 11px);
+    z-index: var(--z-tooltip);
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--text-xs);
     font-weight: 500;
-    color: var(--text-primary, #c9d1d9);
-    background: var(--bg-elevated, #30363d);
-    border: 1px solid var(--border-color, #484f58);
-    border-radius: var(--radius-sm, 4px);
-    box-shadow: var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.4));
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-lg);
     white-space: nowrap;
     pointer-events: none;
     animation: tooltip-fade 0.15s ease;
@@ -87,8 +87,8 @@
     position: absolute;
     width: 8px;
     height: 8px;
-    background: var(--bg-elevated, #30363d);
-    border: 1px solid var(--border-color, #484f58);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
     transform: rotate(45deg);
   }
 

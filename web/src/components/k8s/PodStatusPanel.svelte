@@ -206,17 +206,17 @@
     justify-content: center;
     width: 28px;
     height: 28px;
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     cursor: pointer;
     transition: all 0.15s;
   }
 
   .refresh-btn:hover {
-    background: var(--border-color, #30363d);
-    color: var(--text-primary, #c9d1d9);
+    background: var(--border-color);
+    color: var(--text-primary);
   }
 
   .refresh-btn:disabled {
@@ -255,8 +255,8 @@
   }
 
   .summary-card {
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 12px;
   }
@@ -273,18 +273,18 @@
     font-size: 24px;
     font-weight: 700;
     line-height: 1.2;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   .summary-label {
     font-size: 12px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin-top: 2px;
   }
 
   .summary-errors {
     font-size: 11px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin-top: 4px;
     opacity: 0.7;
   }
@@ -305,17 +305,17 @@
     padding: 8px 12px;
     font-size: 11px;
     font-weight: 600;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    border-bottom: 1px solid var(--border-color, #30363d);
-    background: var(--bg-tertiary, #21262d);
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
   }
 
   .pods-table td {
     padding: 8px 12px;
-    border-bottom: 1px solid var(--border-color, #30363d);
-    color: var(--text-primary, #c9d1d9);
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
     vertical-align: middle;
   }
 
@@ -337,7 +337,7 @@
 
   .container-text {
     font-size: 11px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .namespace-tag {
@@ -358,7 +358,7 @@
 
   .timestamp {
     font-size: 12px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     white-space: nowrap;
   }
 
@@ -374,13 +374,13 @@
 
   .empty-state p {
     font-size: 13px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .empty-state .no-data-title {
     font-size: 14px;
     font-weight: 600;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     margin: 0;
   }
 
@@ -392,6 +392,6 @@
     gap: 8px;
     padding: 24px;
     font-size: 13px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 </style>

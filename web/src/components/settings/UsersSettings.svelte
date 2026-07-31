@@ -293,19 +293,19 @@
   .section-header h3 {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     margin: 0 0 4px;
   }
 
   .section-header p {
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
   .loading {
     text-align: center;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     padding: 20px;
   }
 
@@ -313,9 +313,9 @@
     padding: 10px 14px;
     margin-bottom: 16px;
     background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--color-error, #f85149);
+    border: 1px solid var(--color-error);
     border-radius: 6px;
-    color: var(--color-error, #f85149);
+    color: var(--color-error);
     font-size: 0.8125rem;
   }
 
@@ -328,11 +328,11 @@
 
   .user-count {
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .limit-info {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 
   .add-form {
@@ -341,7 +341,7 @@
     align-items: flex-end;
     padding: 12px;
     margin-bottom: 16px;
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
     border-radius: 6px;
     flex-wrap: wrap;
   }
@@ -355,15 +355,15 @@
   .form-label {
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .role-select {
     padding: 6px 10px;
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-size: 0.8125rem;
     cursor: pointer;
     transition: border-color 0.15s;
@@ -385,11 +385,11 @@
     display: grid;
     grid-template-columns: 1fr 120px auto;
     padding: 6px 0;
-    border-bottom: 1px solid var(--border-color, #30363d);
+    border-bottom: 1px solid var(--border-color);
     margin-bottom: 4px;
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -404,7 +404,7 @@
     grid-template-columns: 1fr 120px auto;
     align-items: center;
     padding: 10px 0;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .user-row:last-child {
@@ -429,14 +429,14 @@
   }
 
   .user-info :global(svg) {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     flex-shrink: 0;
   }
 
   .username {
     font-size: 0.875rem;
     font-weight: 500;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   /* Role badge */
@@ -477,20 +477,20 @@
     align-items: flex-end;
     padding: 10px 0 10px 24px;
     flex-wrap: wrap;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .form-error {
     width: 100%;
     margin-top: 4px;
     font-size: 0.75rem;
-    color: var(--color-error, #f85149);
+    color: var(--color-error);
   }
 
   .empty {
     text-align: center;
     padding: 20px;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     font-size: 0.875rem;
   }
 
@@ -503,7 +503,7 @@
     background: rgba(31, 111, 235, 0.1);
     border: 1px solid rgba(31, 111, 235, 0.3);
     border-radius: 6px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-size: 0.8125rem;
     line-height: 1.5;
   }

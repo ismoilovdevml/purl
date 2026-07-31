@@ -290,17 +290,17 @@
   }
 
   .retry-btn {
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 4px 12px;
     font-size: 12px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     cursor: pointer;
   }
 
   .retry-btn:hover {
-    background: var(--border-color, #30363d);
+    background: var(--border-color);
   }
 
   .patterns-list {

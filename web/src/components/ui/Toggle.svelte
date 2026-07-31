@@ -85,7 +85,7 @@
   .toggle-wrapper {
     display: inline-flex;
     align-items: flex-start;
-    gap: var(--space-3, 12px);
+    gap: var(--space-3);
     cursor: pointer;
   }
 
@@ -104,15 +104,15 @@
     width: 44px;
     height: 24px;
     padding: 2px;
-    background: var(--bg-hover, #30363d);
+    background: var(--bg-hover);
     border: none;
     border-radius: 12px;
     cursor: pointer;
-    transition: var(--transition-fast, all 0.15s ease);
+    transition: var(--transition-fast);
   }
 
   .toggle:focus-visible {
-    outline: 2px solid var(--color-primary, #58a6ff);
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
 
@@ -121,7 +121,7 @@
   }
 
   .toggle.checked {
-    background: var(--color-primary, #58a6ff);
+    background: var(--color-primary);
   }
 
   .toggle.size-sm {
@@ -136,7 +136,7 @@
     background: white;
     border-radius: 50%;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-    transition: var(--transition-fast, all 0.15s ease);
+    transition: var(--transition-fast);
   }
 
   .toggle.checked .toggle-handle {
@@ -160,15 +160,15 @@
   }
 
   .toggle-label {
-    font-size: var(--text-base, 13px);
+    font-size: var(--text-base);
     font-weight: 500;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     line-height: 1.4;
   }
 
   .toggle-description {
-    font-size: var(--text-sm, 12px);
-    color: var(--text-secondary, #8b949e);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
     line-height: 1.4;
   }
 </style>

@@ -158,7 +158,7 @@
     justify-content: center;
     gap: 12px;
     padding: 40px 0;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-size: 14px;
   }
 
@@ -185,7 +185,7 @@
 
   .analyzed-count {
     font-size: 12px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .result-section {
@@ -197,7 +197,7 @@
   .section-title {
     font-size: 12px;
     font-weight: 600;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin: 0;
@@ -205,7 +205,7 @@
 
   .summary-text {
     font-size: 14px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     line-height: 1.6;
     margin: 0;
   }
@@ -273,8 +273,8 @@
 
   .btn-secondary {
     background: transparent;
-    color: var(--text-secondary, #8b949e);
-    border: 1px solid var(--border-color, #30363d);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 6px 16px;
     font-size: 13px;
@@ -283,8 +283,8 @@
   }
 
   .btn-secondary:hover {
-    background: var(--bg-tertiary, #21262d);
-    color: var(--text-primary, #c9d1d9);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }

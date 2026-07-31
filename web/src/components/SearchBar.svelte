@@ -489,9 +489,9 @@
     font-weight: 500;
     padding: 6px 10px;
     border-radius: 6px;
-    border: 1px solid var(--border-color, #30363d);
-    background: var(--bg-tertiary, #21262d);
-    color: var(--text-secondary, #8b949e);
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
@@ -499,7 +499,7 @@
   }
 
   .mode-toggle-btn:hover {
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   .ai-bar-wrap > :global(.ai-query-bar) {
@@ -551,12 +551,12 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--text-secondary, #8b949e);
+    background: var(--text-secondary);
     transition: all 0.2s;
   }
 
   .live-indicator.active {
-    background: var(--color-success, #3fb950);
+    background: var(--color-success);
     box-shadow: 0 0 6px rgba(63, 185, 80, 0.4);
   }
 
@@ -564,7 +564,7 @@
   .search-con :global(.search-icon) {
     position: absolute;
     left: 12px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     pointer-events: none;
     z-index: 1;
   }
@@ -572,21 +572,21 @@
   input {
     width: 100%;
     padding: 10px 36px;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-size: 14px;
-    font-family: var(--font-mono, 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace);
+    font-family: var(--font-mono);
   }
 
   input:focus {
-    border-color: var(--color-primary, #58a6ff);
+    border-color: var(--color-primary);
     box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
   }
 
   input::placeholder {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 
   :global(.clear-btn) {
@@ -601,8 +601,8 @@
     left: 0;
     right: 0;
     margin-top: 4px;
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     z-index: 100;
@@ -615,9 +615,9 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--text-muted, #848d97);
-    background: var(--bg-tertiary, #21262d);
-    border-top: 1px solid var(--border-color, #30363d);
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border-color);
   }
 
   .history-header {
@@ -625,16 +625,16 @@
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--border-color, #30363d);
+    border-bottom: 1px solid var(--border-color);
     font-size: 11px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
   }
 
   .history-clear {
     background: none;
     border: none;
-    color: var(--color-primary, #58a6ff);
+    color: var(--color-primary);
     cursor: pointer;
     font-size: 11px;
     text-transform: uppercase;
@@ -652,7 +652,7 @@
     padding: 8px 12px;
     background: none;
     border: none;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     text-align: left;
     cursor: pointer;
     font-size: 13px;
@@ -660,7 +660,7 @@
 
   .suggestion-item:hover,
   .suggestion-item.selected {
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
   }
 
   .suggestion-icon {
@@ -669,29 +669,29 @@
     justify-content: center;
     width: 18px;
     height: 18px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .suggestion-text {
     flex: 1;
-    font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace);
+    font-family: var(--font-mono);
   }
 
   .history-query {
-    color: var(--color-primary, #58a6ff);
+    color: var(--color-primary);
   }
 
   .suggestion-hint {
     font-size: 11px;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     padding: 2px 6px;
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
     border-radius: 4px;
   }
 
   .suggestion-field {
     font-size: 11px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .ai-divider {

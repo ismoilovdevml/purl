@@ -159,8 +159,8 @@
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 10px 12px;
     flex-wrap: wrap;
@@ -187,7 +187,7 @@
 
   .log-message {
     font-size: 13px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-family: 'Consolas', 'Monaco', monospace;
     word-break: break-all;
     line-height: 1.4;
@@ -200,7 +200,7 @@
     justify-content: center;
     gap: 12px;
     padding: 30px 0;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-size: 14px;
   }
 
@@ -219,7 +219,7 @@
   .section-title {
     font-size: 12px;
     font-weight: 600;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin: 0;
@@ -227,7 +227,7 @@
 
   .section-text {
     font-size: 14px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     line-height: 1.6;
     margin: 0;
   }
@@ -274,8 +274,8 @@
   .topic-tag {
     font-size: 12px;
     background: rgba(139, 148, 158, 0.1);
-    color: var(--text-secondary, #8b949e);
-    border: 1px solid var(--border-color, #30363d);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 2px 8px;
   }

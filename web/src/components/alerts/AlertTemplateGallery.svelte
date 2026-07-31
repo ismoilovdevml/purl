@@ -125,7 +125,7 @@
     margin: 0;
     font-size: 13px;
     font-weight: 600;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   .severity-filters {
@@ -137,34 +137,34 @@
     padding: 4px 10px;
     font-size: 11px;
     font-weight: 500;
-    background: var(--bg-tertiary, #21262d);
-    color: var(--text-secondary, #8b949e);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     cursor: pointer;
     transition: all 0.15s ease;
   }
 
   .filter-btn:hover {
-    color: var(--text-primary, #c9d1d9);
-    border-color: var(--text-secondary, #8b949e);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
   }
 
   .filter-btn.active {
-    background: var(--color-primary-bg, rgba(88, 166, 255, 0.15));
-    color: var(--color-primary, #58a6ff);
-    border-color: var(--color-primary, #58a6ff);
+    background: var(--color-primary-bg);
+    color: var(--color-primary);
+    border-color: var(--color-primary);
   }
 
   .status-msg {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     font-size: 12px;
     margin: 16px 0;
     text-align: center;
   }
 
   .error-msg {
-    color: var(--color-error, #f85149);
+    color: var(--color-error);
   }
 
   .template-grid {
@@ -174,8 +174,8 @@
   }
 
   .template-card {
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 14px;
     display: flex;
@@ -185,7 +185,7 @@
   }
 
   .template-card:hover {
-    border-color: var(--text-secondary, #8b949e);
+    border-color: var(--text-secondary);
   }
 
   .card-header {
@@ -198,21 +198,21 @@
   .card-name {
     font-size: 13px;
     font-weight: 600;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   .card-description {
     font-size: 12px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
     line-height: 1.4;
   }
 
   .card-query {
     font-size: 11px;
-    font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
-    color: var(--color-primary, #58a6ff);
-    background: var(--bg-primary, #0d1117);
+    font-family: var(--font-mono);
+    color: var(--color-primary);
+    background: var(--bg-primary);
     padding: 6px 8px;
     border-radius: 4px;
     overflow: hidden;
@@ -228,7 +228,7 @@
 
   .meta-item {
     font-size: 11px;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 
   .card-actions {

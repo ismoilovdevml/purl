@@ -93,13 +93,13 @@
 
 <style>
   .card {
-    background: var(--bg-secondary, #161b22);
-    border-radius: var(--radius-lg, 8px);
+    background: var(--bg-secondary);
+    border-radius: var(--radius-lg);
     overflow: hidden;
   }
 
   .card.bordered {
-    border: 1px solid var(--border-color, #30363d);
+    border: 1px solid var(--border-color);
   }
 
   .card.transparent {
@@ -107,12 +107,12 @@
   }
 
   .card.hoverable {
-    transition: var(--transition-fast, all 0.15s ease);
+    transition: var(--transition-fast);
   }
 
   .card.hoverable:hover {
-    border-color: var(--border-hover, #484f58);
-    background: var(--bg-tertiary, #21262d);
+    border-color: var(--border-hover);
+    background: var(--bg-tertiary);
   }
 
   .card.clickable {
@@ -120,7 +120,7 @@
   }
 
   .card.clickable:focus-visible {
-    outline: 2px solid var(--color-primary, #58a6ff);
+    outline: 2px solid var(--color-primary);
     outline-offset: 2px;
   }
 
@@ -129,9 +129,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-3, 12px);
-    padding: var(--space-4, 16px);
-    border-bottom: 1px solid var(--border-color, #30363d);
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-color);
   }
 
   .card-titles {
@@ -141,27 +141,27 @@
 
   .card-title {
     margin: 0;
-    font-size: var(--text-base, 14px);
+    font-size: var(--text-md);
     font-weight: 600;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   .card-subtitle {
-    margin: var(--space-1, 4px) 0 0;
-    font-size: var(--text-sm, 12px);
-    color: var(--text-secondary, #8b949e);
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
   }
 
   .card-actions {
     display: flex;
     align-items: center;
-    gap: var(--space-2, 8px);
+    gap: var(--space-2);
     flex-shrink: 0;
   }
 
   /* Body */
   .card-body {
-    padding: var(--space-4, 16px);
+    padding: var(--space-4);
   }
 
   .card.padding-none .card-body {
@@ -169,17 +169,17 @@
   }
 
   .card.padding-sm .card-body {
-    padding: var(--space-3, 12px);
+    padding: var(--space-3);
   }
 
   .card.padding-lg .card-body {
-    padding: var(--space-6, 24px);
+    padding: var(--space-6);
   }
 
   /* Footer */
   .card-footer {
-    padding: var(--space-3, 12px) var(--space-4, 16px);
-    border-top: 1px solid var(--border-color, #30363d);
-    background: var(--bg-tertiary, #21262d);
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
   }
 </style>

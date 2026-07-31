@@ -272,25 +272,25 @@
     align-items: center;
     gap: 6px;
     padding: 6px 10px;
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: var(--radius-sm, 4px);
-    color: var(--text-primary, #c9d1d9);
-    font-size: var(--text-sm, 12px);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: var(--text-sm);
     font-weight: 500;
     cursor: pointer;
-    transition: var(--transition-fast, all 0.15s ease);
+    transition: var(--transition-fast);
   }
 
   .picker-trigger:hover {
-    background: var(--bg-hover, #30363d);
+    background: var(--bg-hover);
   }
 
   .preset-badge {
     padding: 2px 6px;
-    background: var(--color-primary-bg, rgba(88, 166, 255, 0.15));
-    color: var(--color-primary, #58a6ff);
-    border-radius: var(--radius-sm, 4px);
+    background: var(--color-primary-bg);
+    color: var(--color-primary);
+    border-radius: var(--radius-sm);
     font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
@@ -301,11 +301,11 @@
     top: 100%;
     left: 0;
     margin-top: 4px;
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: var(--radius-lg, 10px);
-    box-shadow: var(--shadow-xl, 0 12px 40px rgba(0, 0, 0, 0.6));
-    z-index: var(--z-dropdown, 100);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-xl);
+    z-index: var(--z-dropdown);
     min-width: 300px;
     max-height: 500px;
     overflow: hidden;
@@ -318,12 +318,12 @@
     align-items: center;
     gap: 8px;
     padding: 12px;
-    border-bottom: 1px solid var(--border-color, #30363d);
-    background: var(--bg-primary, #0d1117);
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-primary);
   }
 
   .picker-search :global(.search-icon) {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     flex-shrink: 0;
   }
 
@@ -331,24 +331,24 @@
     flex: 1;
     background: transparent;
     border: none;
-    color: var(--text-primary, #c9d1d9);
-    font-size: var(--text-base, 13px);
+    color: var(--text-primary);
+    font-size: var(--text-base);
   }
 
   .picker-search input::placeholder {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 
   .picker-presets {
     padding: 10px 12px;
-    background: var(--bg-primary, #0d1117);
+    background: var(--bg-primary);
   }
 
   .presets-label {
     display: block;
     font-size: 10px;
     font-weight: 600;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 8px;
@@ -362,29 +362,29 @@
 
   .preset-chip {
     padding: 5px 10px;
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
     border-radius: 20px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-size: 11px;
     cursor: pointer;
-    transition: var(--transition-fast, all 0.15s ease);
+    transition: var(--transition-fast);
   }
 
   .preset-chip:hover {
-    background: var(--bg-hover, #30363d);
-    border-color: var(--text-secondary, #8b949e);
+    background: var(--bg-hover);
+    border-color: var(--text-secondary);
   }
 
   .preset-chip.active {
-    background: var(--color-primary-bg, rgba(88, 166, 255, 0.15));
-    border-color: var(--color-primary, #58a6ff);
-    color: var(--color-primary, #58a6ff);
+    background: var(--color-primary-bg);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
   }
 
   .picker-divider {
     height: 1px;
-    background: var(--border-color, #30363d);
+    background: var(--border-color);
   }
 
   .picker-groups {
@@ -404,7 +404,7 @@
     padding: 8px 12px;
     font-size: 11px;
     font-weight: 600;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.3px;
   }
@@ -416,7 +416,7 @@
   .group-count {
     margin-left: auto;
     font-size: 10px;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     font-weight: 500;
   }
 
@@ -430,13 +430,13 @@
     gap: 8px;
     padding: 8px;
     margin: 2px 0;
-    border-radius: var(--radius-md, 6px);
+    border-radius: var(--radius-md);
     cursor: grab;
-    transition: var(--transition-fast, all 0.15s ease);
+    transition: var(--transition-fast);
   }
 
   .column-item:hover {
-    background: var(--bg-tertiary, #21262d);
+    background: var(--bg-tertiary);
   }
 
   .column-item.visible {
@@ -445,11 +445,11 @@
 
   .column-item.dragging {
     opacity: 0.5;
-    background: var(--bg-hover, #30363d);
+    background: var(--bg-hover);
   }
 
   .column-item.drag-over {
-    border-top: 2px solid var(--color-primary, #58a6ff);
+    border-top: 2px solid var(--color-primary);
     margin-top: 0;
     padding-top: 6px;
   }
@@ -459,7 +459,7 @@
     align-items: center;
     justify-content: center;
     padding: 4px;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     opacity: 0.5;
     cursor: grab;
   }
@@ -486,18 +486,18 @@
   .checkmark {
     width: 16px;
     height: 16px;
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: var(--radius-sm, 4px);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: var(--transition-fast, all 0.15s ease);
+    transition: var(--transition-fast);
   }
 
   .column-checkbox input:checked ~ .checkmark {
-    background: var(--color-success, #238636);
-    border-color: var(--color-success, #238636);
+    background: var(--color-success-solid);
+    border-color: var(--color-success-solid);
   }
 
   .column-checkbox input:checked ~ .checkmark::after {
@@ -512,8 +512,8 @@
 
   .column-label {
     flex: 1;
-    font-size: var(--text-base, 13px);
-    color: var(--text-primary, #c9d1d9);
+    font-size: var(--text-base);
+    color: var(--text-primary);
   }
 
   .pin-btn {
@@ -523,11 +523,11 @@
     padding: 4px;
     background: transparent;
     border: none;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     cursor: pointer;
-    border-radius: var(--radius-sm, 4px);
+    border-radius: var(--radius-sm);
     opacity: 0;
-    transition: var(--transition-fast, all 0.15s ease);
+    transition: var(--transition-fast);
   }
 
   .column-item:hover .pin-btn {
@@ -535,13 +535,13 @@
   }
 
   .pin-btn:hover {
-    background: var(--bg-hover, #30363d);
-    color: var(--text-primary, #c9d1d9);
+    background: var(--bg-hover);
+    color: var(--text-primary);
   }
 
   .pin-btn.pinned {
     opacity: 1;
-    color: var(--color-primary, #58a6ff);
+    color: var(--color-primary);
   }
 
   .picker-footer {
@@ -549,8 +549,8 @@
     justify-content: space-between;
     align-items: center;
     padding: 10px 12px;
-    border-top: 1px solid var(--border-color, #30363d);
-    background: var(--bg-primary, #0d1117);
+    border-top: 1px solid var(--border-color);
+    background: var(--bg-primary);
   }
 
   .reset-btn {
@@ -559,21 +559,21 @@
     gap: 6px;
     background: none;
     border: none;
-    color: var(--text-secondary, #8b949e);
-    font-size: var(--text-sm, 12px);
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
     cursor: pointer;
     padding: 4px 8px;
-    border-radius: var(--radius-sm, 4px);
-    transition: var(--transition-fast, all 0.15s ease);
+    border-radius: var(--radius-sm);
+    transition: var(--transition-fast);
   }
 
   .reset-btn:hover {
-    background: var(--bg-tertiary, #21262d);
-    color: var(--text-primary, #c9d1d9);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .visible-count {
     font-size: 11px;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 </style>

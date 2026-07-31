@@ -143,8 +143,8 @@
 
 <style>
   .ai-query-bar {
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 12px;
     display: flex;
@@ -173,7 +173,7 @@
 
   .provider-label {
     font-size: 11px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: capitalize;
   }
 
@@ -190,10 +190,10 @@
 
   .ai-input {
     width: 100%;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-size: 13px;
     padding: 8px 10px;
     resize: none;
@@ -215,8 +215,8 @@
     top: 100%;
     left: 0;
     right: 0;
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     border-top: none;
     border-radius: 0 0 6px 6px;
     z-index: 50;
@@ -229,14 +229,14 @@
     gap: 8px;
     padding: 8px 12px;
     font-size: 12px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     cursor: pointer;
     transition: background 0.1s;
   }
 
   .suggestion-item:hover {
-    background: var(--bg-tertiary, #21262d);
-    color: var(--text-primary, #c9d1d9);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .send-btn {
@@ -284,7 +284,7 @@
   .result-label {
     font-size: 11px;
     font-weight: 600;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -303,8 +303,8 @@
   .apply-btn:hover { background: rgba(88, 166, 255, 0.2); }
 
   .sql-block {
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 8px 12px;
     font-size: 12px;
@@ -318,14 +318,14 @@
 
   .result-count {
     font-size: 12px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .results-table-wrap {
     overflow-x: auto;
     max-height: 300px;
     overflow-y: auto;
-    border: 1px solid var(--border-color, #30363d);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
   }
 
@@ -336,8 +336,8 @@
   }
 
   .results-table th {
-    background: var(--bg-tertiary, #21262d);
-    color: var(--text-secondary, #8b949e);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
     padding: 6px 10px;
     text-align: left;
     font-weight: 600;
@@ -348,19 +348,19 @@
 
   .results-table td {
     padding: 5px 10px;
-    color: var(--text-primary, #c9d1d9);
-    border-top: 1px solid var(--border-color, #30363d);
+    color: var(--text-primary);
+    border-top: 1px solid var(--border-color);
     max-width: 300px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .results-table tr:hover td { background: var(--bg-tertiary, #21262d); }
+  .results-table tr:hover td { background: var(--bg-tertiary); }
 
   .no-results {
     font-size: 12px;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-align: center;
     padding: 12px;
   }

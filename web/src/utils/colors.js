@@ -4,10 +4,19 @@
  */
 
 /**
- * Log level color mapping (internal)
+ * Log level color mapping (internal).
+ *
+ * This map is the single source of truth for level colours. They are applied
+ * from JS (inline styles via getLevelColor), never by a CSS rule, so they
+ * deliberately do NOT exist as --level-* tokens in styles/variables.css --
+ * duplicating them there produced two sources of truth that drifted apart.
+ *
+ * Contrast floor: levels render at 11-12px on backgrounds as light as #21262d,
+ * so every colour here must be >= 4.5:1 against #21262d.
+ * TRACE #848d97 = 4.52:1 (passes); the previous #6e7681 was 3.31:1 (failed).
  */
 const LEVEL_COLORS = {
-  TRACE: '#6e7681',
+  TRACE: '#848d97',
   DEBUG: '#8b949e',
   INFO: '#3fb950',
   WARN: '#d29922',

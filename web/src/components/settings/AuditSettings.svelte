@@ -455,13 +455,13 @@
   .section-header h3 {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     margin: 0 0 4px;
   }
 
   .section-header p {
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
@@ -473,8 +473,8 @@
   }
 
   .stat-card {
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #21262d);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-muted);
     border-radius: 8px;
     padding: 16px 20px;
     display: flex;
@@ -495,14 +495,14 @@
   .stat-value {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     line-height: 1;
   }
 
   .stat-label {
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -523,12 +523,12 @@
 
   .breakdown-action {
     flex: 1;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .breakdown-count {
     font-weight: 600;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     min-width: 28px;
     text-align: right;
   }
@@ -552,7 +552,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .group-title {
@@ -560,7 +560,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     display: flex;
     align-items: center;
     gap: 6px;
@@ -602,17 +602,17 @@
   .filter-label {
     font-size: 0.7rem;
     font-weight: 500;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
 
   .filter-input,
   .filter-select {
-    background: var(--bg-tertiary, #161b22);
-    border: 1px solid var(--border-color, #30363d);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     padding: 6px 10px;
     font-size: 0.8125rem;
     transition: border-color 0.15s;
@@ -620,7 +620,7 @@
 
   .filter-input:focus,
   .filter-select:focus {
-    border-color: var(--color-primary, #58a6ff);
+    border-color: var(--color-primary);
     box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
   }
 
@@ -665,10 +665,10 @@
     display: grid;
     grid-template-columns: 100px 100px 140px 1fr 80px 120px;
     padding: 8px 16px;
-    border-bottom: 1px solid var(--border-color, #30363d);
+    border-bottom: 1px solid var(--border-color);
     font-size: 0.7rem;
     font-weight: 600;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -682,14 +682,14 @@
     display: grid;
     grid-template-columns: 100px 100px 140px 1fr 80px 120px;
     padding: 8px 16px;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
     font-size: 0.8125rem;
     align-items: center;
     transition: background 0.1s;
   }
 
   .log-row:hover {
-    background: var(--bg-tertiary, #161b22);
+    background: var(--bg-secondary);
   }
 
   .log-row-expandable {
@@ -701,13 +701,13 @@
   }
 
   .col-time {
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-size: 0.75rem;
     cursor: default;
   }
 
   .actor-name {
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
     font-weight: 500;
   }
 
@@ -719,7 +719,7 @@
     font-weight: 500;
     font-family: 'SF Mono', 'Fira Code', monospace;
     background: rgba(110, 118, 129, 0.15);
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .action-success {
@@ -756,7 +756,7 @@
 
   .resource-id {
     font-size: 0.75rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -767,7 +767,7 @@
     align-items: center;
     gap: 5px;
     font-size: 0.75rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .status-dot {
@@ -787,7 +787,7 @@
 
   .ip-text {
     font-size: 0.75rem;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     font-family: 'SF Mono', 'Fira Code', monospace;
   }
 
@@ -800,7 +800,7 @@
   /* :global() because the svg is rendered by <Icon>, outside this component's
      scoped-class rewriting. */
   .col-ip :global(.expand-icon) {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     transition: transform 0.15s ease;
     margin-left: auto;
   }
@@ -810,17 +810,17 @@
   }
 
   .text-muted {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 
   .log-details {
     padding: 4px 16px 8px 116px;
-    border-bottom: 1px solid var(--border-color, #21262d);
+    border-bottom: 1px solid var(--border-muted);
   }
 
   .details-text {
     font-size: 0.75rem;
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
     font-style: italic;
   }
 
@@ -831,18 +831,18 @@
     justify-content: center;
     gap: 16px;
     padding: 12px 16px;
-    border-top: 1px solid var(--border-color, #21262d);
+    border-top: 1px solid var(--border-muted);
   }
 
   .page-info {
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .empty-state {
     padding: 32px 16px;
     text-align: center;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-size: 0.875rem;
   }
 </style>

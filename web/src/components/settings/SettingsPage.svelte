@@ -180,15 +180,15 @@
   .settings-page {
     display: flex;
     height: calc(100vh - 60px);
-    background: var(--bg-primary, #0d1117);
-    color: var(--text-primary, #c9d1d9);
+    background: var(--bg-primary);
+    color: var(--text-primary);
     overflow: hidden;
   }
 
   .settings-nav {
     width: 220px;
-    background: var(--bg-secondary, #161b22);
-    border-right: 1px solid var(--border-color, #21262d);
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-muted);
     padding: 20px 0;
     flex-shrink: 0;
     overflow-y: auto;
@@ -199,8 +199,8 @@
     font-weight: 600;
     padding: 0 16px 16px;
     margin: 0;
-    border-bottom: 1px solid var(--border-color, #21262d);
-    color: var(--text-primary, #f0f6fc);
+    border-bottom: 1px solid var(--border-muted);
+    color: var(--text-bright);
   }
 
   .settings-nav nav {
@@ -215,7 +215,7 @@
     padding: 10px 16px;
     background: none;
     border: none;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-size: 0.875rem;
     cursor: pointer;
     transition: all 0.15s;
@@ -223,14 +223,14 @@
   }
 
   .nav-item:hover {
-    background: var(--bg-tertiary, #21262d);
-    color: var(--text-primary, #c9d1d9);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .nav-item.active {
     background: rgba(31, 111, 235, 0.15);
-    color: var(--color-primary, #58a6ff);
-    border-left: 2px solid var(--color-primary, #58a6ff);
+    color: var(--color-primary);
+    border-left: 2px solid var(--color-primary);
   }
 
   .nav-item.locked {
@@ -240,7 +240,7 @@
 
   .nav-item.locked:hover {
     background: none;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .nav-item :global(.lock-icon) {

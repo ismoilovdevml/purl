@@ -211,13 +211,13 @@
   .section-header h3 {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     margin: 0 0 4px;
   }
 
   .section-header p {
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
@@ -229,7 +229,7 @@
 
   .loading {
     text-align: center;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     padding: 20px;
   }
 
@@ -247,7 +247,7 @@
 
   .plan-label {
     font-size: 0.75rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     font-weight: 600;
@@ -268,13 +268,13 @@
 
   .expiry-label {
     font-size: 0.75rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .expiry-value {
     font-size: 0.875rem;
-    color: var(--text-primary, #f0f6fc);
-    font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
+    color: var(--text-bright);
+    font-family: var(--font-mono);
   }
 
   .features-list {
@@ -288,19 +288,19 @@
     align-items: center;
     gap: 8px;
     font-size: 0.8125rem;
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   .feature-item .disabled {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 
   .feature-item :global(.feature-icon.check) {
-    color: var(--color-success, #3fb950);
+    color: var(--color-success);
   }
 
   .feature-item :global(.feature-icon.lock) {
-    color: var(--text-muted, #848d97);
+    color: var(--text-muted);
   }
 
   .limits-list {
@@ -317,12 +317,12 @@
   }
 
   .limit-item span:first-child {
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .limit-value {
-    color: var(--text-primary, #f0f6fc);
-    font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
+    color: var(--text-bright);
+    font-family: var(--font-mono);
   }
 
   .license-key-form {
@@ -334,33 +334,33 @@
   .form-error {
     margin-top: 8px;
     font-size: 0.75rem;
-    color: var(--color-error, #f85149);
+    color: var(--color-error);
   }
 
   .form-success {
     margin-top: 8px;
     font-size: 0.75rem;
-    color: var(--color-success, #3fb950);
+    color: var(--color-success);
   }
 
   .upgrade-cta {
     text-align: center;
     padding: 16px;
     background: linear-gradient(135deg, rgba(88, 166, 255, 0.08), rgba(163, 113, 247, 0.08));
-    border: 1px solid var(--border-color, #30363d);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
   }
 
   .upgrade-cta h4 {
     margin: 0 0 8px;
     font-size: 1.125rem;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
   }
 
   .upgrade-cta p {
     margin: 0 0 16px;
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   /* Secondary path: help, not checkout. */
@@ -368,13 +368,13 @@
     display: block;
     margin-top: 12px;
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-decoration: none;
     transition: color 0.15s ease;
   }
 
   .docs-link:hover {
-    color: var(--color-primary, #58a6ff);
+    color: var(--color-primary);
     text-decoration: underline;
   }
 </style>

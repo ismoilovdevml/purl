@@ -13,13 +13,11 @@
  *     "no ugly ring on click" problem this pattern was solving no longer
  *     exists.
  *   - To restyle focus for one control, override `:focus-visible` on it.
- *   - `var(--token, literal)` is used because src/styles/variables.css is not
- *     loaded (see the note at the top of that file).
  */
 
 :focus-visible {
-  outline: var(--focus-ring-width, 2px) solid var(--focus-ring-color, #58a6ff);
-  outline-offset: var(--focus-ring-offset, 2px);
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /*
@@ -30,6 +28,6 @@
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: var(--focus-ring-width, 2px) solid var(--focus-ring-color, #58a6ff);
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: 0;
 }

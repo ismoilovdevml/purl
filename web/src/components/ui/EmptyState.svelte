@@ -79,7 +79,7 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
   }
 
   .empty-state.sm {
@@ -100,49 +100,49 @@
   .empty-icon {
     display: flex;
     margin-bottom: 8px;
-    color: var(--border-color, #30363d);
+    color: var(--border-color);
   }
 
   .tone-accent .empty-icon {
-    color: var(--color-primary, #58a6ff);
+    color: var(--color-primary);
   }
 
   .tone-error .empty-icon {
-    color: var(--color-error, #f85149);
+    color: var(--color-error);
   }
 
   /* An all-clear ("All pods healthy") is a status, not an absence. Without
      this it renders in the muted border colour and reads as "nothing here",
      which is the opposite of what a green check is telling the operator. */
   .tone-success .empty-icon {
-    color: var(--color-success, #3fb950);
+    color: var(--color-success);
   }
 
   .tone-success .empty-title {
-    color: var(--color-success, #3fb950);
+    color: var(--color-success);
   }
 
   .empty-title {
     font-weight: 500;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
   .sm .empty-title {
-    font-size: var(--text-base, 13px);
+    font-size: var(--text-base);
   }
 
   .md .empty-title {
-    font-size: var(--text-lg, 16px);
+    font-size: var(--text-lg);
   }
 
   .lg .empty-title {
-    font-size: var(--text-xl, 18px);
+    font-size: var(--text-xl);
   }
 
   .empty-description {
-    font-size: var(--text-base, 13px);
-    color: var(--text-muted, #848d97);
+    font-size: var(--text-base);
+    color: var(--text-muted);
     max-width: 46ch;
     line-height: 1.5;
   }

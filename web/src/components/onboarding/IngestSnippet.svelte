@@ -58,9 +58,9 @@
 <style>
   .ingest-snippet {
     position: relative;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: var(--border-radius, 6px);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
     padding: 12px 14px;
   }
 
@@ -71,10 +71,10 @@
 
   code {
     display: block;
-    font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
+    font-family: var(--font-mono);
     font-size: 12px;
     line-height: 1.7;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     white-space: pre;
   }
 
@@ -88,16 +88,16 @@
     padding: 4px 8px;
     font-size: 11px;
     font-family: inherit;
-    color: var(--text-secondary, #8b949e);
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: var(--border-radius-sm, 4px);
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
     cursor: pointer;
     transition: all 0.15s ease;
   }
 
   .copy-btn:hover {
-    color: var(--text-primary, #c9d1d9);
-    border-color: var(--border-hover, #484f58);
+    color: var(--text-primary);
+    border-color: var(--border-hover);
   }
 </style>

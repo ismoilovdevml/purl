@@ -444,20 +444,20 @@
   .section-header h3 {
     font-size: 1.25rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     margin: 0 0 4px;
   }
 
   .section-header p {
     font-size: 0.875rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     margin: 0;
   }
 
   /* ── Loading ─────────────────────────────────────────────────────────────── */
   .loading {
     text-align: center;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     padding: 20px;
   }
 
@@ -481,7 +481,7 @@
     height: 36px;
     background: rgba(88, 166, 255, 0.12);
     border-radius: 8px;
-    color: var(--color-primary, #58a6ff);
+    color: var(--color-primary);
   }
 
   .banner-body {
@@ -493,14 +493,14 @@
     display: block;
     font-size: 0.9375rem;
     font-weight: 600;
-    color: var(--text-primary, #f0f6fc);
+    color: var(--text-bright);
     margin-bottom: 4px;
   }
 
   .banner-body p {
     margin: 0;
     font-size: 0.8125rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     line-height: 1.5;
   }
 
@@ -517,7 +517,7 @@
     align-items: center;
     gap: 6px;
     padding: 6px 14px;
-    background: var(--color-primary, #58a6ff);
+    background: var(--color-primary);
     color: #ffffff;
     font-size: 0.8125rem;
     font-weight: 500;
@@ -528,20 +528,20 @@
   }
 
   .upgrade-link:hover {
-    background: var(--color-primary-hover, #79b8ff);
+    background: var(--color-primary-hover);
   }
 
   /* Secondary path: help, not checkout. */
   .docs-link {
     font-size: 0.75rem;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-decoration: none;
     white-space: nowrap;
     transition: color 0.15s ease;
   }
 
   .docs-link:hover {
-    color: var(--color-primary, #58a6ff);
+    color: var(--color-primary);
     text-decoration: underline;
   }
 
@@ -549,7 +549,7 @@
   .card-section-title {
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     margin-bottom: 14px;
@@ -611,7 +611,7 @@
     gap: 8px;
     background: transparent;
     border: none;
-    color: var(--text-secondary, #8b949e);
+    color: var(--text-secondary);
     font-size: 0.8125rem;
     font-weight: 500;
     cursor: pointer;
@@ -620,7 +620,7 @@
   }
 
   .advanced-toggle:hover {
-    color: var(--text-primary, #c9d1d9);
+    color: var(--text-primary);
   }
 
   .advanced-toggle :global(.chevron) {
@@ -635,7 +635,7 @@
   .advanced-body {
     margin-top: 16px;
     padding-top: 16px;
-    border-top: 1px solid var(--border-color, #30363d);
+    border-top: 1px solid var(--border-color);
   }
 
   /* ── Test result banner ──────────────────────────────────────────────────── */
@@ -652,13 +652,13 @@
   .test-ok {
     background: rgba(35, 134, 54, 0.12);
     border: 1px solid rgba(35, 134, 54, 0.4);
-    color: var(--color-success, #3fb950);
+    color: var(--color-success);
   }
 
   .test-fail {
     background: rgba(248, 81, 73, 0.10);
-    border: 1px solid var(--color-error, #f85149);
-    color: var(--color-error, #f85149);
+    border: 1px solid var(--color-error);
+    color: var(--color-error);
   }
 
   /* ── Save messages ───────────────────────────────────────────────────────── */
@@ -667,16 +667,16 @@
     background: rgba(35, 134, 54, 0.10);
     border: 1px solid rgba(35, 134, 54, 0.35);
     border-radius: 6px;
-    color: var(--color-success, #3fb950);
+    color: var(--color-success);
     font-size: 0.8125rem;
   }
 
   .error-msg {
     padding: 10px 14px;
     background: rgba(248, 81, 73, 0.10);
-    border: 1px solid var(--color-error, #f85149);
+    border: 1px solid var(--color-error);
     border-radius: 6px;
-    color: var(--color-error, #f85149);
+    color: var(--color-error);
     font-size: 0.8125rem;
   }
 

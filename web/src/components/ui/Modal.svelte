@@ -153,15 +153,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: var(--z-modal, 200);
-    padding: var(--space-4, 16px);
+    z-index: var(--z-modal);
+    padding: var(--space-4);
   }
 
   .modal {
-    background: var(--bg-secondary, #161b22);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: var(--border-radius-lg, 8px);
-    box-shadow: var(--shadow-xl, 0 12px 40px rgba(0, 0, 0, 0.6));
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
     max-height: calc(100vh - 32px);
     display: flex;
     flex-direction: column;
@@ -199,15 +199,15 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--space-4, 16px);
-    border-bottom: 1px solid var(--border-color, #30363d);
+    padding: var(--space-4);
+    border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
   }
 
   .modal-title {
-    font-size: var(--text-lg, 16px);
-    font-weight: var(--font-semibold, 600);
-    color: var(--text-primary, #c9d1d9);
+    font-size: var(--text-lg);
+    font-weight: var(--font-semibold);
+    color: var(--text-primary);
     margin: 0;
   }
 
@@ -219,19 +219,19 @@
     height: 32px;
     background: transparent;
     border: none;
-    border-radius: var(--border-radius, 6px);
-    color: var(--text-secondary, #8b949e);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
     cursor: pointer;
-    transition: var(--transition-base, all 0.15s ease);
+    transition: var(--transition-base);
   }
 
   .modal-close:hover {
-    background: var(--bg-tertiary, #21262d);
-    color: var(--text-primary, #c9d1d9);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .modal-body {
-    padding: var(--space-4, 16px);
+    padding: var(--space-4);
     overflow-y: auto;
     flex: 1;
   }
@@ -240,9 +240,9 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: var(--space-2, 8px);
-    padding: var(--space-4, 16px);
-    border-top: 1px solid var(--border-color, #30363d);
+    gap: var(--space-2);
+    padding: var(--space-4);
+    border-top: 1px solid var(--border-color);
     flex-shrink: 0;
   }
 </style>
