@@ -19,7 +19,9 @@ sub list {
         my $total  = scalar @$agents;
 
         my $info = $c->stash('license_info') // {};
-        my $max  = $info->{limits}{agents} // 5;
+        # -1 == unlimited (the default for every plan we sell). Never default
+        # this to a finite number: an absent limit means "not metered".
+        my $max  = $info->{limits}{agents} // -1;
         my $plan = $info->{plan} // 'free';
 
         $c->render(json => {

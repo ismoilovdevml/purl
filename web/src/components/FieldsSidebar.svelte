@@ -5,6 +5,8 @@
   import Button from './ui/Button.svelte';
   import Badge from './ui/Badge.svelte';
   import Tooltip from './ui/Tooltip.svelte';
+  import Icon from './ui/Icon.svelte';
+  import { caretDown, caretRight, caretUp, close, search } from './ui/icons.js';
   import { formatCount } from '../utils/format.js';
 
   const dispatch = createEventDispatcher();
@@ -70,23 +72,21 @@
     <h3>Fields</h3>
     <div class="header-actions">
       <Tooltip content="Expand all">
-        <Button icon size="sm" variant="ghost" on:click={() => toggleAll(true)}>
-          <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 4l4 4 4-4"/></svg>
+        <Button icon size="sm" variant="ghost" aria-label="Expand all field sections" on:click={() => toggleAll(true)}>
+          <Icon icon={caretDown} size={12} />
         </Button>
       </Tooltip>
       <Tooltip content="Collapse all">
-        <Button icon size="sm" variant="ghost" on:click={() => toggleAll(false)}>
-          <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 8l4-4 4 4"/></svg>
+        <Button icon size="sm" variant="ghost" aria-label="Collapse all field sections" on:click={() => toggleAll(false)}>
+          <Icon icon={caretUp} size={12} />
         </Button>
       </Tooltip>
     </div>
   </div>
 
   <div class="field-search">
-    <svg width="12" height="12" viewBox="0 0 12 12">
-      <path fill="currentColor" d="M8.5 5.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm-.5 3.2a4 4 0 1 1 .7-.7l2.1 2.1a.5.5 0 0 1-.7.7L8 8.7Z"/>
-    </svg>
-    <input type="text" bind:value={fieldFilter} placeholder="Filter fields..." />
+    <Icon icon={search} size={12} strokeWidth={3} class="search-icon" />
+    <input type="text" bind:value={fieldFilter} placeholder="Filter fields..." aria-label="Filter fields" />
   </div>
 
   {#if loading}
@@ -105,9 +105,7 @@
       on:click={() => toggleSection('level')}
       aria-expanded={expandedSections.level}
     >
-      <svg class="chevron" class:expanded={expandedSections.level} width="12" height="12" viewBox="0 0 12 12">
-        <path fill="currentColor" d="M4.7 10a.5.5 0 0 1-.354-.854L7.293 6 4.346 3.054a.5.5 0 0 1 .708-.708l3.3 3.3a.5.5 0 0 1 0 .708l-3.3 3.3A.5.5 0 0 1 4.7 10Z"/>
-      </svg>
+      <Icon icon={caretRight} size={12} class="chevron {expandedSections.level ? 'expanded' : ''}" />
       <span class="section-name">level</span>
       <Badge variant="default" size="sm">{$levelStats.length}</Badge>
     </button>
@@ -130,7 +128,7 @@
               on:click|stopPropagation={() => handleFilter('level', item.value, true)}
               title="Exclude"
               aria-label="Exclude level:{item.value} from results"
-            >×</button>
+            ><Icon icon={close} size={10} strokeWidth={3.5} /></button>
           </div>
         {/each}
       </div>
@@ -146,9 +144,7 @@
       on:click={() => toggleSection('service')}
       aria-expanded={expandedSections.service}
     >
-      <svg class="chevron" class:expanded={expandedSections.service} width="12" height="12" viewBox="0 0 12 12">
-        <path fill="currentColor" d="M4.7 10a.5.5 0 0 1-.354-.854L7.293 6 4.346 3.054a.5.5 0 0 1 .708-.708l3.3 3.3a.5.5 0 0 1 0 .708l-3.3 3.3A.5.5 0 0 1 4.7 10Z"/>
-      </svg>
+      <Icon icon={caretRight} size={12} class="chevron {expandedSections.service ? 'expanded' : ''}" />
       <span class="section-name">service</span>
       <Badge variant="default" size="sm">{$serviceStats.length}</Badge>
     </button>
@@ -171,7 +167,7 @@
               on:click|stopPropagation={() => handleFilter('service', item.value, true)}
               title="Exclude"
               aria-label="Exclude service:{item.value} from results"
-            >×</button>
+            ><Icon icon={close} size={10} strokeWidth={3.5} /></button>
           </div>
         {/each}
       </div>
@@ -187,9 +183,7 @@
       on:click={() => toggleSection('host')}
       aria-expanded={expandedSections.host}
     >
-      <svg class="chevron" class:expanded={expandedSections.host} width="12" height="12" viewBox="0 0 12 12">
-        <path fill="currentColor" d="M4.7 10a.5.5 0 0 1-.354-.854L7.293 6 4.346 3.054a.5.5 0 0 1 .708-.708l3.3 3.3a.5.5 0 0 1 0 .708l-3.3 3.3A.5.5 0 0 1 4.7 10Z"/>
-      </svg>
+      <Icon icon={caretRight} size={12} class="chevron {expandedSections.host ? 'expanded' : ''}" />
       <span class="section-name">host</span>
       <Badge variant="default" size="sm">{$hostStats.length}</Badge>
     </button>
@@ -212,7 +206,7 @@
               on:click|stopPropagation={() => handleFilter('host', item.value, true)}
               title="Exclude"
               aria-label="Exclude host:{item.value} from results"
-            >×</button>
+            ><Icon icon={close} size={10} strokeWidth={3.5} /></button>
           </div>
         {/each}
       </div>
@@ -235,9 +229,7 @@
       on:click={() => toggleSection('namespace')}
       aria-expanded={expandedSections.namespace}
     >
-      <svg class="chevron" class:expanded={expandedSections.namespace} width="12" height="12" viewBox="0 0 12 12">
-        <path fill="currentColor" d="M4.7 10a.5.5 0 0 1-.354-.854L7.293 6 4.346 3.054a.5.5 0 0 1 .708-.708l3.3 3.3a.5.5 0 0 1 0 .708l-3.3 3.3A.5.5 0 0 1 4.7 10Z"/>
-      </svg>
+      <Icon icon={caretRight} size={12} class="chevron {expandedSections.namespace ? 'expanded' : ''}" />
       <span class="section-name">namespace</span>
       <Badge variant="default" size="sm">{$namespaceStats.length}</Badge>
     </button>
@@ -260,7 +252,7 @@
               on:click|stopPropagation={() => handleFilter('meta.namespace', item.value, true)}
               title="Exclude"
               aria-label="Exclude meta.namespace:{item.value} from results"
-            >×</button>
+            ><Icon icon={close} size={10} strokeWidth={3.5} /></button>
           </div>
         {/each}
       </div>
@@ -276,9 +268,7 @@
       on:click={() => toggleSection('pod')}
       aria-expanded={expandedSections.pod}
     >
-      <svg class="chevron" class:expanded={expandedSections.pod} width="12" height="12" viewBox="0 0 12 12">
-        <path fill="currentColor" d="M4.7 10a.5.5 0 0 1-.354-.854L7.293 6 4.346 3.054a.5.5 0 0 1 .708-.708l3.3 3.3a.5.5 0 0 1 0 .708l-3.3 3.3A.5.5 0 0 1 4.7 10Z"/>
-      </svg>
+      <Icon icon={caretRight} size={12} class="chevron {expandedSections.pod ? 'expanded' : ''}" />
       <span class="section-name">pod</span>
       <Badge variant="default" size="sm">{$podStats.length}</Badge>
     </button>
@@ -301,7 +291,7 @@
               on:click|stopPropagation={() => handleFilter('meta.pod', item.value, true)}
               title="Exclude"
               aria-label="Exclude meta.pod:{item.value} from results"
-            >×</button>
+            ><Icon icon={close} size={10} strokeWidth={3.5} /></button>
           </div>
         {/each}
       </div>
@@ -317,9 +307,7 @@
       on:click={() => toggleSection('node')}
       aria-expanded={expandedSections.node}
     >
-      <svg class="chevron" class:expanded={expandedSections.node} width="12" height="12" viewBox="0 0 12 12">
-        <path fill="currentColor" d="M4.7 10a.5.5 0 0 1-.354-.854L7.293 6 4.346 3.054a.5.5 0 0 1 .708-.708l3.3 3.3a.5.5 0 0 1 0 .708l-3.3 3.3A.5.5 0 0 1 4.7 10Z"/>
-      </svg>
+      <Icon icon={caretRight} size={12} class="chevron {expandedSections.node ? 'expanded' : ''}" />
       <span class="section-name">node</span>
       <Badge variant="default" size="sm">{$nodeStats.length}</Badge>
     </button>
@@ -342,7 +330,7 @@
               on:click|stopPropagation={() => handleFilter('meta.node', item.value, true)}
               title="Exclude"
               aria-label="Exclude meta.node:{item.value} from results"
-            >×</button>
+            ><Icon icon={close} size={10} strokeWidth={3.5} /></button>
           </div>
         {/each}
       </div>
@@ -358,9 +346,7 @@
       on:click={() => toggleSection('deployment')}
       aria-expanded={expandedSections.deployment}
     >
-      <svg class="chevron" class:expanded={expandedSections.deployment} width="12" height="12" viewBox="0 0 12 12">
-        <path fill="currentColor" d="M4.7 10a.5.5 0 0 1-.354-.854L7.293 6 4.346 3.054a.5.5 0 0 1 .708-.708l3.3 3.3a.5.5 0 0 1 0 .708l-3.3 3.3A.5.5 0 0 1 4.7 10Z"/>
-      </svg>
+      <Icon icon={caretRight} size={12} class="chevron {expandedSections.deployment ? 'expanded' : ''}" />
       <span class="section-name">deployment</span>
       <Badge variant="default" size="sm">{$deploymentStats.length}</Badge>
     </button>
@@ -383,7 +369,7 @@
               on:click|stopPropagation={() => handleFilter('meta.deployment', item.value, true)}
               title="Exclude"
               aria-label="Exclude meta.deployment:{item.value} from results"
-            >×</button>
+            ><Icon icon={close} size={10} strokeWidth={3.5} /></button>
           </div>
         {/each}
       </div>
@@ -399,9 +385,7 @@
       on:click={() => toggleSection('team')}
       aria-expanded={expandedSections.team}
     >
-      <svg class="chevron" class:expanded={expandedSections.team} width="12" height="12" viewBox="0 0 12 12">
-        <path fill="currentColor" d="M4.7 10a.5.5 0 0 1-.354-.854L7.293 6 4.346 3.054a.5.5 0 0 1 .708-.708l3.3 3.3a.5.5 0 0 1 0 .708l-3.3 3.3A.5.5 0 0 1 4.7 10Z"/>
-      </svg>
+      <Icon icon={caretRight} size={12} class="chevron {expandedSections.team ? 'expanded' : ''}" />
       <span class="section-name">team</span>
       <Badge variant="default" size="sm">{$teamStats.length}</Badge>
     </button>
@@ -424,7 +408,7 @@
               on:click|stopPropagation={() => handleFilter('meta.team', item.value, true)}
               title="Exclude"
               aria-label="Exclude meta.team:{item.value} from results"
-            >×</button>
+            ><Icon icon={close} size={10} strokeWidth={3.5} /></button>
           </div>
         {/each}
       </div>
@@ -440,33 +424,37 @@
   .header-actions { display: flex; gap: 4px; }
 
   .field-search { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--bg-primary, #0d1117); border: 1px solid var(--border-color, #30363d); border-radius: 6px; margin-bottom: 12px; }
-  .field-search svg { color: var(--text-muted, #6e7681); flex-shrink: 0; }
-  .field-search input { flex: 1; background: none; border: none; color: var(--text-primary, #c9d1d9); font-size: 12px; outline: none; }
-  .field-search input::placeholder { color: var(--text-muted, #6e7681); }
+  .field-search :global(.search-icon) { color: var(--text-muted, #848d97); flex-shrink: 0; }
+  .field-search input { flex: 1; background: none; border: none; color: var(--text-primary, #c9d1d9); font-size: 12px; }
+  .field-search input::placeholder { color: var(--text-muted, #848d97); }
 
-  .section-divider { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px 0; color: var(--text-muted, #6e7681); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .section-divider { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px 0; color: var(--text-muted, #848d97); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
   .section-divider::before, .section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-color, #30363d); }
 
   .field-section { margin-bottom: 4px; }
   .section-header { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; background: none; border: none; color: var(--text-primary, #c9d1d9); cursor: pointer; border-radius: 6px; font-size: 13px; font-weight: 500; }
   .section-header:hover { background: var(--bg-tertiary, #21262d); }
   .section-name { flex: 1; text-align: left; }
-  .chevron { transition: transform 0.2s; flex-shrink: 0; }
-  .chevron.expanded { transform: rotate(90deg); }
+  /* :global — the chevron svg is rendered by <Icon>, so the scoping class
+     never lands on it; the class name itself is still supplied here. */
+  .section-header :global(.chevron) { transition: transform 0.2s; flex-shrink: 0; }
+  .section-header :global(.chevron.expanded) { transform: rotate(90deg); }
 
   .field-values { padding-left: 12px; }
   .field-value-row { display: flex; align-items: center; gap: 2px; }
   .field-value { display: flex; align-items: center; gap: 6px; flex: 1; padding: 4px 6px; background: none; border: none; color: var(--text-primary, #c9d1d9); cursor: pointer; border-radius: 4px; font-size: 12px; text-align: left; }
   .field-value:hover { background: var(--bg-tertiary, #21262d); }
 
-  .exclude-btn { padding: 2px 6px; background: none; border: none; color: var(--text-muted, #6e7681); cursor: pointer; border-radius: 4px; opacity: 0; font-size: 14px; }
+  .exclude-btn { display: flex; align-items: center; justify-content: center; padding: 2px 6px; background: none; border: none; color: var(--text-muted, #848d97); cursor: pointer; border-radius: 4px; opacity: 0; }
   .field-value-row:hover .exclude-btn { opacity: 1; }
+  /* Keyboard users never trigger :hover — keep the button reachable. */
+  .exclude-btn:focus-visible { opacity: 1; }
   .exclude-btn:hover { color: var(--color-error, #f85149); background: rgba(248, 81, 73, 0.1); }
 
   .value-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
   .value-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 40px; }
   .value-count { color: var(--text-secondary, #8b949e); font-size: 11px; font-family: var(--font-mono, 'SFMono-Regular', Consolas, monospace); min-width: 32px; text-align: right; }
-  .value-percent { color: var(--text-muted, #6e7681); font-size: 10px; min-width: 28px; text-align: right; }
+  .value-percent { color: var(--text-muted, #848d97); font-size: 11px; min-width: 28px; text-align: right; }
 
   .field-skeleton { padding: 8px 0; display: flex; flex-direction: column; gap: 8px; }
 

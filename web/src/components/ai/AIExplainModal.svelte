@@ -1,6 +1,8 @@
 <script>
   import Modal from '../ui/Modal.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import Icon from '../ui/Icon.svelte';
+  import { alertCircle, alertCircleSolid, check } from '../ui/icons.js';
   import { aiExplainResult, aiExplainLoading, explainLog } from '../../stores/ai.js';
 
   export let open = false;
@@ -53,9 +55,7 @@
 
     {:else if error}
       <div class="error-state">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
+        <Icon icon={alertCircle} size={20} />
         <p class="error-text">{error}</p>
         <button class="btn-retry" on:click={handleRetry}>Retry</button>
       </div>
@@ -76,9 +76,7 @@
             <ul class="item-list">
               {#each result.possible_causes as cause}
                 <li class="item item-cause">
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1Zm-.75 4.75v3.5h1.5v-3.5h-1.5Zm0 5v1.5h1.5v-1.5h-1.5Z"/>
-                  </svg>
+                  <Icon icon={alertCircleSolid} size={12} />
                   {cause}
                 </li>
               {/each}
@@ -93,9 +91,7 @@
             <ul class="item-list">
               {#each result.suggested_fixes as fix}
                 <li class="item item-fix">
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/>
-                  </svg>
+                  <Icon icon={check} size={12} strokeWidth={3} />
                   {fix}
                 </li>
               {/each}
@@ -227,7 +223,9 @@
     line-height: 1.5;
   }
 
-  .item svg { flex-shrink: 0; margin-top: 2px; }
+  /* :global — the mark is rendered by <Icon>, so it carries that component's
+     scope class, not this one's. */
+  .item :global(svg) { flex-shrink: 0; margin-top: 2px; }
 
   .item-cause {
     color: #f0883e;

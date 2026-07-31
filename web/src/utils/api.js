@@ -18,8 +18,7 @@
  * duplicated by every store racing on the same 401.
  */
 
-import { get } from 'svelte/store';
-import { currentUser } from '../stores/auth.js';
+import { clearSession, markAuthRequired } from '../stores/auth.js';
 import { error as toastError } from '../stores/toast.js';
 
 const API_BASE = '/api';
@@ -129,12 +128,51 @@ function isCsrfRejection(status, body) {
  * Session expiry - the whole point of centralizing this
  * ------------------------------------------------------------------ */
 
-function handleSessionExpiry() {
-  // Guarded by the store's own value: when 9 parallel stats requests all get
-  // a 401, only the first one finds a non-null user, so the user sees exactly
-  // one toast instead of nine.
-  if (get(currentUser) !== null) {
-    currentUser.set(null);
+/**
+ * Endpoints whose 401 says nothing about the dashboard session.
+ *
+ *   /license, /auth/me, /csrf-token, /health*, /metrics*, /auth/sso/*
+ *       public (lib/Purl/API/Server.pm) — the login page fetches /license
+ *       BEFORE anyone has signed in, so treating its 401 as an expiry would
+ *       pop a phantom "session expired" on the sign-in screen.
+ *   /auth/login
+ *       401 = wrong username/password. The form shows the message itself.
+ *   /auth/change-password
+ *       401 = "Current password is incorrect"
+ *       (lib/Purl/API/Controller/Auth.pm). A typo on the forced-change screen
+ *       must not sign the user out.
+ *
+ * A 401 from anything else is the server refusing an unauthenticated request,
+ * which is the only trustworthy evidence that this deployment needs a login.
+ */
+const SESSION_AGNOSTIC_401 = [
+  /^\/license$/,
+  /^\/csrf-token$/,
+  /^\/health(\/|$)/,
+  /^\/metrics(\/|$)/,
+  /^\/auth\/(me|login|logout|change-password)$/,
+  /^\/auth\/sso\//,
+];
+
+function isSessionAgnostic(path) {
+  // Callers pass either '/logs' or '/api/logs'; normalize before matching.
+  const normalized = path.replace(/^\/api/, '').split('?')[0];
+  return SESSION_AGNOSTIC_401.some((re) => re.test(normalized));
+}
+
+function handleSessionExpiry(path) {
+  if (isSessionAgnostic(path)) return;
+
+  // The server refused an unauthenticated request, so credentials are required
+  // here — regardless of what the license endpoint had to say about the plan.
+  markAuthRequired();
+
+  // Unconditional teardown: it has to work when `currentUser` is ALREADY null
+  // (right after a reload), which is precisely when the old guarded version
+  // did nothing and left the user in a dashboard shell with no way out.
+  // The return value keeps the toast single: when 9 parallel requests all get
+  // a 401, only the first one finds a live session to tear down.
+  if (clearSession()) {
     toastError('Your session has expired. Please sign in again.');
   }
 }
@@ -252,7 +290,7 @@ async function request(path, options = {}, _isCsrfRetry = false) {
   }
 
   if (res.status === 401) {
-    handleSessionExpiry();
+    handleSessionExpiry(path);
   }
 
   throw new ApiError(errorMessageFrom(parsed, res.status), {

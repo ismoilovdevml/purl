@@ -1,4 +1,15 @@
 {{- if .Values.networkPolicy.enabled }}
+{{- /*
+Ingress used to contain `- from: [{namespaceSelector: {}}]`, which selects
+EVERY namespace in the cluster — i.e. the policy was enabled but allowed all
+pod traffic anyway. It is now an explicit allow-list.
+
+Egress used to permit only ClickHouse + DNS. That silently killed every
+outbound feature Purl has: Telegram/Slack/webhook alerts and license
+activation + heartbeat all go out over 443, and a license that cannot
+heartbeat degrades to the free plan. networkPolicy.egress.allowInternet
+covers those.
+*/ -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -13,25 +24,63 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from Vector DaemonSet
+    # Vector DaemonSet -> /api/logs
     {{- if .Values.vector.enabled }}
     - from:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: {{ include "purl.name" . }}-vector
+              app.kubernetes.io/instance: {{ .Release.Name }}
       ports:
         - protocol: TCP
           port: {{ .Values.purl.port }}
     {{- end }}
-    # Allow traffic from Ingress controller and other pods
+    {{- $peers := list }}
+    {{- if .Values.networkPolicy.ingress.fromSameNamespace }}
+    {{- $peers = append $peers (dict "podSelector" dict) }}
+    {{- end }}
+    {{- range .Values.networkPolicy.ingress.fromNamespaces }}
+    {{- $peers = append $peers (dict "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" .))) }}
+    {{- end }}
+    {{- range .Values.networkPolicy.ingress.fromCIDRs }}
+    {{- $peers = append $peers (dict "ipBlock" (dict "cidr" .)) }}
+    {{- end }}
+    {{- range .Values.networkPolicy.ingress.extraFrom }}
+    {{- $peers = append $peers . }}
+    {{- end }}
+    {{- if .Values.metrics.serviceMonitor.enabled }}
+    # Prometheus scrape. The Prometheus namespace is not knowable here, so
+    # this allows the metrics scrape from any namespace; narrow it with
+    # networkPolicy.ingress.extraFrom if that is too broad.
     - from:
         - namespaceSelector: {}
       ports:
         - protocol: TCP
           port: {{ .Values.purl.port }}
+    {{- end }}
+    {{- if $peers }}
+    - from:
+        {{- toYaml $peers | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.purl.port }}
+    {{- else }}
+    # No ingress peers configured beyond Vector: nothing else — not the
+    # ingress controller, not a NodePort client — can reach Purl. Set
+    # networkPolicy.ingress.fromSameNamespace / fromNamespaces / fromCIDRs.
+    {{- end }}
   egress:
-    # Allow traffic to ClickHouse
+    # DNS. Port-only (no namespaceSelector) so it also works on clusters
+    # where CoreDNS does not live in kube-system.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
     {{- if .Values.clickhouse.enabled }}
+    # ClickHouse HTTP interface. The native port 9000 is used by the backup
+    # CronJob, which is a separate pod with its own labels and is therefore
+    # not selected by this policy.
     - to:
         - podSelector:
             matchLabels:
@@ -39,11 +88,35 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.clickhouse.port }}
+    {{- else }}
+    # External ClickHouse ({{ .Values.clickhouse.host }}:{{ .Values.clickhouse.port }})
+    # is reached through the allowInternet rule below; if allowInternet is
+    # off, add an explicit ipBlock via networkPolicy.egress.extraRules.
     {{- end }}
-    # Allow DNS resolution
+    {{- if and .Values.purl.redis.enabled .Values.purl.redis.url }}
+    # Redis (cross-replica live-tail broadcast).
     - ports:
-        - protocol: UDP
-          port: 53
         - protocol: TCP
-          port: 53
+          port: 6379
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowInternet }}
+    # Outbound to the public internet: Telegram / Slack / alert webhooks and
+    # license activation + heartbeat. Private ranges are excluded so this
+    # does not quietly become "may talk to anything in the cluster".
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- range .Values.networkPolicy.egress.internetExcludeCIDRs }}
+              - {{ . | quote }}
+              {{- end }}
+      ports:
+        {{- range .Values.networkPolicy.egress.internetPorts }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+    {{- end }}
+    {{- with .Values.networkPolicy.egress.extraRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 {{- end }}

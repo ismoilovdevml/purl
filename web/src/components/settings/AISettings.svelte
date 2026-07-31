@@ -4,6 +4,7 @@
   import { aiProviders } from '../../stores/ai.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
+  import { alertCircle, check } from '../ui/icons.js';
 
   let config = {
     provider: 'openai',
@@ -253,7 +254,7 @@
       <!-- Test result -->
       {#if testResult}
         <div class="test-result" class:success={testResult.status === 'ok'} class:error={testResult.status === 'error'}>
-          <Icon name={testResult.status === 'ok' ? 'check' : 'alert-circle'} size={14} />
+          <Icon icon={testResult.status === 'ok' ? check : alertCircle} size={14} strokeWidth={2.5} />
           {testResult.message}
           {#if testResult.model}<span class="model-name"> ({testResult.model})</span>{/if}
         </div>
@@ -357,7 +358,6 @@
   }
 
   .field-select:focus, .field-input:focus {
-    outline: none;
     border-color: #58a6ff;
   }
 

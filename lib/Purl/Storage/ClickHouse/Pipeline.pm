@@ -51,7 +51,7 @@ sub list_pipelines {
         ORDER BY priority ASC, name ASC
     };
 
-    my $results = $self->_query_json($sql, no_cache => 1);
+    my $results = $self->_crud_read($sql);
 
     # Parse rules JSON
     for my $row (@$results) {
@@ -83,7 +83,7 @@ sub get_pipeline {
         LIMIT 1
     };
 
-    my $results = $self->_query_json($sql, no_cache => 1);
+    my $results = $self->_crud_read($sql);
     return undef unless @$results;
 
     my $row = $results->[0];
@@ -108,7 +108,7 @@ sub create_pipeline {
         VALUES ($name, $description, $filter, $rules, $enabled, $priority)
     };
 
-    $self->_query($sql);
+    $self->_crud_write($sql);
     $self->invalidate_logs_cache() if $self->can('invalidate_logs_cache');
     return { status => 'created' };
 }
@@ -137,7 +137,7 @@ sub update_pipeline {
         VALUES ('$id', $name, $description, $filter, $rules, $enabled, $priority, '$existing->{created_at}', now())
     };
 
-    $self->_query($sql);
+    $self->_crud_write($sql);
     $self->invalidate_logs_cache() if $self->can('invalidate_logs_cache');
     return { status => 'updated' };
 }
@@ -148,7 +148,7 @@ sub delete_pipeline {
 
     my $db = $self->database;
     my $sql = qq{ALTER TABLE ${db}.pipelines DELETE WHERE toString(id) = } . $self->_quote_string($id);
-    $self->_query($sql);
+    $self->_crud_write($sql);
     return { status => 'deleted' };
 }
 

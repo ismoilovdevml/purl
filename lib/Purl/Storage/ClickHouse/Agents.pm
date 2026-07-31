@@ -42,7 +42,7 @@ sub register_agent {
     my $api_key_label = $params->{api_key_label} // '';
     my $labels        = $params->{labels}        // '{}';
 
-    $self->_query(qq{
+    $self->_crud_write(qq{
         INSERT INTO ${db}.agents
             (hostname, os, ip_address, agent_version, api_key_label, labels)
         VALUES (
@@ -66,7 +66,7 @@ sub heartbeat_agent {
 
     # ReplacingMergeTree deduplicates by ORDER BY (hostname, ip_address),
     # keeping the row with the latest last_heartbeat
-    $self->_query(qq{
+    $self->_crud_write(qq{
         INSERT INTO ${db}.agents
             (hostname, ip_address, agent_version, last_heartbeat)
         VALUES (
@@ -82,7 +82,7 @@ sub get_agents {
     my ($self) = @_;
     my $db = $self->database;
 
-    return $self->_query_json(qq{
+    return $self->_crud_read(qq{
         SELECT
             toString(id) AS id,
             hostname,
@@ -103,7 +103,7 @@ sub count_agents {
     my ($self) = @_;
     my $db = $self->database;
 
-    my $result = $self->_query_json(qq{
+    my $result = $self->_crud_read(qq{
         SELECT count() AS total_count
         FROM ${db}.agents FINAL
     }, no_cache => 1);
@@ -115,7 +115,7 @@ sub delete_agent {
     my ($self, $id) = @_;
     my $db = $self->database;
 
-    $self->_query(qq{
+    $self->_crud_write(qq{
         ALTER TABLE ${db}.agents DELETE
         WHERE toString(id) = @{[$self->_quote_string($id)]}
     });

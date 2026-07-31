@@ -9,6 +9,7 @@
   import Card from '../ui/Card.svelte';
   import Badge from '../ui/Badge.svelte';
   import Icon from '../ui/Icon.svelte';
+  import { pipeline, check, copy, caretDown, grafana, kibana } from '../ui/icons.js';
 
   const origin = window.location.origin;
 
@@ -69,7 +70,7 @@
   <Card padding="none">
     <div class="integration-header">
       <div class="integration-icon es">
-        <Icon name="pipeline" size={24} />
+        <Icon icon={pipeline} size={24} />
       </div>
       <div class="integration-info">
         <h4>Elasticsearch Compatibility</h4>
@@ -101,11 +102,12 @@
                 class="copy-btn"
                 on:click={() => copyToClipboard(`${origin}${ep.path}`)}
                 title="Copy endpoint URL"
+                aria-label={`Copy ${ep.method} ${ep.path} endpoint URL`}
               >
                 {#if copiedEndpoint === `${origin}${ep.path}`}
-                  <Icon name="check" size={14} />
+                  <Icon icon={check} size={14} strokeWidth={2.5} />
                 {:else}
-                  <Icon name="copy" size={14} />
+                  <Icon icon={copy} size={14} strokeWidth={2.5} />
                 {/if}
               </button>
             </div>
@@ -121,11 +123,12 @@
           class="copy-btn"
           on:click={() => copyToClipboard(`${origin}/api/es`)}
           title="Copy base URL"
+          aria-label="Copy Elasticsearch base URL"
         >
           {#if copiedEndpoint === `${origin}/api/es`}
-            <Icon name="check" size={14} />
+            <Icon icon={check} size={14} strokeWidth={2.5} />
           {:else}
-            <Icon name="copy" size={14} />
+            <Icon icon={copy} size={14} strokeWidth={2.5} />
           {/if}
         </button>
       </div>
@@ -139,9 +142,9 @@
           class="guide-toggle"
           on:click={() => showGrafanaGuide = !showGrafanaGuide}
         >
-          <Icon name="chevron-down" size={14} class="chevron {showGrafanaGuide ? 'open' : ''}" />
+          <Icon icon={caretDown} size={12} class="chevron {showGrafanaGuide ? 'open' : ''}" />
           <div class="guide-icon grafana">
-            <Icon name="grafana" size={16} />
+            <Icon icon={grafana} size={16} />
           </div>
           <span>Grafana</span>
         </button>
@@ -154,11 +157,16 @@
             </ol>
             <div class="guide-code-row">
               <code>{origin}/api/es</code>
-              <button class="copy-btn" on:click={() => copyToClipboard(`${origin}/api/es`)} title="Copy URL">
+              <button
+                class="copy-btn"
+                on:click={() => copyToClipboard(`${origin}/api/es`)}
+                title="Copy URL"
+                aria-label="Copy Grafana data source URL"
+              >
                 {#if copiedEndpoint === `${origin}/api/es`}
-                  <Icon name="check" size={14} />
+                  <Icon icon={check} size={14} strokeWidth={2.5} />
                 {:else}
-                  <Icon name="copy" size={14} />
+                  <Icon icon={copy} size={14} strokeWidth={2.5} />
                 {/if}
               </button>
             </div>
@@ -174,9 +182,9 @@
           class="guide-toggle"
           on:click={() => showKibanaGuide = !showKibanaGuide}
         >
-          <Icon name="chevron-down" size={14} class="chevron {showKibanaGuide ? 'open' : ''}" />
+          <Icon icon={caretDown} size={12} class="chevron {showKibanaGuide ? 'open' : ''}" />
           <div class="guide-icon kibana">
-            <Icon name="kibana" size={16} />
+            <Icon icon={kibana} size={16} />
           </div>
           <span>Kibana</span>
         </button>
@@ -185,11 +193,16 @@
             <p class="guide-text">Add the following to your <code>kibana.yml</code> configuration:</p>
             <div class="guide-code-block">
               <code>elasticsearch.hosts: ["{origin}/api/es"]</code>
-              <button class="copy-btn" on:click={() => copyToClipboard(`elasticsearch.hosts: ["${origin}/api/es"]`)} title="Copy config">
+              <button
+                class="copy-btn"
+                on:click={() => copyToClipboard(`elasticsearch.hosts: ["${origin}/api/es"]`)}
+                title="Copy config"
+                aria-label="Copy kibana.yml elasticsearch.hosts line"
+              >
                 {#if copiedEndpoint === `elasticsearch.hosts: ["${origin}/api/es"]`}
-                  <Icon name="check" size={14} />
+                  <Icon icon={check} size={14} strokeWidth={2.5} />
                 {:else}
-                  <Icon name="copy" size={14} />
+                  <Icon icon={copy} size={14} strokeWidth={2.5} />
                 {/if}
               </button>
             </div>
@@ -204,7 +217,7 @@
   <Card padding="none">
     <div class="integration-header">
       <div class="integration-icon grafana">
-        <Icon name="grafana" size={24} />
+        <Icon icon={grafana} size={24} />
       </div>
       <div class="integration-info">
         <h4>Grafana</h4>
@@ -232,11 +245,12 @@
               class="copy-btn"
               on:click={() => copyToClipboard(`${origin}/api/es`)}
               title="Copy URL"
+              aria-label="Copy Grafana connection URL"
             >
               {#if copiedEndpoint === `${origin}/api/es`}
-                <Icon name="check" size={14} />
+                <Icon icon={check} size={14} strokeWidth={2.5} />
               {:else}
-                <Icon name="copy" size={14} />
+                <Icon icon={copy} size={14} strokeWidth={2.5} />
               {/if}
             </button>
           </div>
@@ -445,7 +459,7 @@
 
   .endpoint-desc {
     font-size: 0.75rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     white-space: nowrap;
     display: none;
   }

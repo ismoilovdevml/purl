@@ -16,6 +16,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
+  import { check, xCircle } from '../ui/icons.js';
 
   // Server settings state
   let serverSettings = null;
@@ -194,10 +195,10 @@
       {#if dbTestResult}
         <div class="result-box" class:success={dbTestResult.success}>
           {#if dbTestResult.success}
-            <Icon name="check" size={16} />
+            <Icon icon={check} size={16} strokeWidth={2.25} />
             {dbTestResult.message}
           {:else}
-            <Icon name="x-circle" size={16} />
+            <Icon icon={xCircle} size={16} />
             {dbTestResult.error}
           {/if}
         </div>

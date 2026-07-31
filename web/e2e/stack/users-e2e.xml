@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<!--
+  Password overlay for the e2e ClickHouse container.
+
+  The shipped docker/clickhouse/users.xml ships the literal placeholder
+  CHANGE_ME_GENERATE_SECURE_PASSWORD; install.sh sed-replaces it at install
+  time, and CI never runs install.sh — which is exactly why the E2E job has
+  been failing since ClickHouse started rejecting the placeholder login.
+
+  Rather than mutating a tracked repo file (and leaving a dirty working tree
+  when a run is killed), this file is mounted as an ADDITIONAL users.d entry.
+  ClickHouse merges users.d/*.xml in filename order, so "users-e2e.xml" is
+  applied after "custom.xml" and only the <password> nodes are overridden —
+  the profiles, quotas and network ACLs from the shipped file still apply, so
+  the e2e run keeps exercising the real configuration.
+
+  __CH_PASSWORD__ is substituted by web/e2e/stack/up.sh from e2e.env.
+-->
+<clickhouse>
+    <users>
+        <default>
+            <password>__CH_PASSWORD__</password>
+        </default>
+        <purl>
+            <password>__CH_PASSWORD__</password>
+        </purl>
+    </users>
+</clickhouse>

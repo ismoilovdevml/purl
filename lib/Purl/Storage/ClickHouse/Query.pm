@@ -193,6 +193,15 @@ sub _build_where_clause {
         $bind_params{p_query} = $params{query};
     }
 
+    # KQL boolean expression (AST from Purl::Util::KQL, compiled by the
+    # ClickHouse::KQL role). Emitted as ONE parenthesised fragment so it is
+    # ANDed with the flat filters instead of leaking its own OR/NOT into them.
+    if ($params{kql}) {
+        my $seq = 0;
+        my $kql_sql = $self->_kql_to_sql($params{kql}, \%bind_params, \$seq);
+        push @where, $kql_sql if defined $kql_sql && length $kql_sql;
+    }
+
     # Trace ID filter
     if ($params{trace_id}) {
         my $trace_id = $self->_sanitize_trace_id($params{trace_id});

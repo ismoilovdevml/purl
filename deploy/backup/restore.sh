@@ -212,3 +212,26 @@ if [ -n "${ASIDE}" ]; then
 fi
 
 log "Restore completed successfully from: ${BACKUP_NAME}"
+
+# ---------------------------------------------------------
+# /app/config (dashboard users, license key, settings.json)
+#
+# The Helm backup CronJob (backup.includeConfig=true) tars the config volume
+# into <db>.purl_config_archive so it travels inside the same BACKUP. Logs
+# alone are not a recovery: without this you restore every log line and still
+# cannot log in.
+# ---------------------------------------------------------
+if [ "$(ch_query "EXISTS TABLE ${CH_DB}.purl_config_archive" 2>/dev/null | tr -d '[:space:]')" = "1" ]; then
+    SNAPSHOT="$(ch_query "SELECT max(captured_at) FROM ${CH_DB}.purl_config_archive" 2>/dev/null | tr -d '[:space:]')"
+    log ""
+    log "This backup also contains a /app/config snapshot (${SNAPSHOT})."
+    log "Restore it into the running Purl pod's config volume with:"
+    log ""
+    log "  clickhouse-client --host ${CH_HOST} --port ${CH_NATIVE_PORT} \\"
+    log "    --user ${CH_USER} --password \"\$PURL_CLICKHOUSE_PASSWORD\" \\"
+    log "    --query \"SELECT archive FROM ${CH_DB}.purl_config_archive ORDER BY captured_at DESC LIMIT 1 FORMAT RawBLOB\" \\"
+    log "    > /tmp/purl-config.tar.gz"
+    log "  kubectl -n <ns> cp /tmp/purl-config.tar.gz <purl-pod>:/tmp/purl-config.tar.gz"
+    log "  kubectl -n <ns> exec <purl-pod> -- tar xzf /tmp/purl-config.tar.gz -C /app/config"
+    log "  kubectl -n <ns> rollout restart deployment/<purl-release>"
+fi

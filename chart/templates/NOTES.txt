@@ -41,6 +41,59 @@ ClickHouse is configured to use an external instance at:
   {{ .Values.clickhouse.host }}:{{ .Values.clickhouse.port }}
 {{- end }}
 
+{{- if .Values.config.volume.enabled }}
+
+Dashboard users, the license key and settings.json are persisted on the
+{{ include "purl.fullname" . }}-config PVC ({{ .Values.config.volume.size }}).
+If Purl stays Pending, check that the cluster has a default StorageClass:
+  kubectl get storageclass
+  # none? -> set config.volume.storageClass, or config.volume.enabled=false
+{{- else }}
+
+WARNING: config.volume.enabled=false. /app/config is an emptyDir, so EVERY
+restart, rollout or eviction wipes all dashboard logins and the license key.
+{{- end }}
+
+{{- if not .Values.purl.existingSecret }}
+
+Read the generated ingest API key (used by the Vector DaemonSet too):
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "purl.fullname" . }} -o jsonpath="{.data.PURL_API_KEYS}" | base64 -d; echo
+{{- end }}
+
+{{- if and .Values.backup.enabled (not .Values.config.volume.enabled) }}
+
+WARNING: backups are enabled but config.volume.enabled=false — the backup
+covers ClickHouse only. After a restore you would have the logs back and no
+way to log in.
+{{- end }}
+
+{{- if and .Values.metrics.serviceMonitor.enabled (not (and .Values.purl.redis.enabled .Values.purl.redis.url)) }}
+
+NOTE: Prometheus scraping is on but purl.redis.url is not set, so the request
+/ error / latency / ingest counters are kept per prefork worker. A scrape sees
+roughly 1/PURL_WORKERS of the real traffic. purl_metrics_shared reports 0 while
+this is the case (the PurlMetricsNotShared alert covers it). Set
+purl.redis.enabled=true + purl.redis.url for fleet-wide counters.
+{{- end }}
+
+{{- if .Values.networkPolicy.enabled }}
+
+NetworkPolicy is ON. Reachability comes only from the configured peers:
+{{- if .Values.networkPolicy.ingress.fromSameNamespace }}
+  - pods in namespace {{ .Release.Namespace }}
+{{- end }}
+{{- range .Values.networkPolicy.ingress.fromNamespaces }}
+  - namespace {{ . }}
+{{- end }}
+{{- range .Values.networkPolicy.ingress.fromCIDRs }}
+  - {{ . }}
+{{- end }}
+{{- if and (contains "NodePort" .Values.service.type) (not .Values.networkPolicy.ingress.fromCIDRs) }}
+  !! service.type=NodePort with no networkPolicy.ingress.fromCIDRs: NodePort
+     traffic is SNAT'd to a node IP and will be DROPPED. Add your node IPs.
+{{- end }}
+{{- end }}
+
 To send logs to Purl, use the ingest API:
 
   curl -X POST http://<PURL_URL>/api/logs \

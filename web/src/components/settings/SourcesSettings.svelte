@@ -11,11 +11,11 @@
   import Button from '../ui/Button.svelte';
   import Badge from '../ui/Badge.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import EmptyState from '../ui/EmptyState.svelte';
   import { formatCount, formatRelativeTime } from '../../utils/format.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
-  import Icon from '../ui/Icon.svelte';
-
-  const API_BASE = '/api';
+  import { api } from '../../utils/api.js';
+  import { box } from '../ui/icons.js';
 
   let sources = [];
   let loading = true;
@@ -32,17 +32,14 @@
     error = '';
 
     try {
-      const res = await fetch(`${API_BASE}/sources`);
-      if (res.ok) {
-        const data = await res.json();
-        sources = data.sources || [];
-      } else {
-        const data = await res.json().catch(() => ({}));
-        error = data.error || 'Failed to load sources';
-        toastError(error);
-      }
-    } catch {
-      error = 'Failed to load sources';
+      const data = await api.get('/sources');
+      sources = data.sources || [];
+    } catch (err) {
+      // Keep the server's own wording when it sends one; anything else
+      // (network failure, unparsable body) falls back to the generic message.
+      error = err.body?.error || 'Failed to load sources';
+      // A request that never reached the server stays silent, as before.
+      if (!err.isNetworkError) toastError(error);
     } finally {
       loading = false;
       refreshing = false;
@@ -156,13 +153,9 @@
         <LoadingSpinner size="sm" label="Loading sources..." />
       </div>
     {:else if sources.length === 0}
-      <div class="empty-state">
-        <div class="empty-icon">
-          <Icon name="box" size={32} strokeWidth={1.5} />
-        </div>
-        <span class="empty-title">No sources detected</span>
-        <span class="empty-hint">Sources appear automatically when logs are ingested via the API.</span>
-      </div>
+      <EmptyState icon={box} title="No sources detected">
+        Sources appear automatically when logs are ingested via the API.
+      </EmptyState>
     {:else}
       <div class="sources-list">
         {#each sources as source}
@@ -303,7 +296,7 @@
     border-bottom: 1px solid rgba(248, 81, 73, 0.2);
   }
 
-  /* Empty state */
+  /* Loading placeholder — the "no sources" case is <EmptyState>. */
   .empty-state {
     padding: 40px 16px;
     text-align: center;
@@ -313,22 +306,6 @@
     flex-direction: column;
     align-items: center;
     gap: 8px;
-  }
-
-  .empty-icon {
-    color: var(--text-muted, #6e7681);
-    margin-bottom: 4px;
-  }
-
-  .empty-title {
-    font-weight: 500;
-    color: var(--text-primary, #c9d1d9);
-  }
-
-  .empty-hint {
-    font-size: 0.8125rem;
-    color: var(--text-muted, #6e7681);
-    max-width: 360px;
   }
 
   /* Sources list */
@@ -387,7 +364,7 @@
 
   .meta-item {
     font-size: 0.75rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   /* Status dot */
@@ -409,7 +386,7 @@
   }
 
   .status-dot.status-inactive {
-    background: var(--text-muted, #6e7681);
+    background: var(--text-muted, #848d97);
   }
 
   /* Source stats */
@@ -437,7 +414,7 @@
 
   .source-stat-label {
     font-size: 0.6875rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     text-transform: uppercase;
     letter-spacing: 0.03em;
   }

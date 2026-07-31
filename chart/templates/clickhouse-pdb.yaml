@@ -1,4 +1,12 @@
-{{- if and .Values.clickhouse.enabled (or .Values.podDisruptionBudget.enabled .Values.clickhouse.cluster.enabled) }}
+{{- /*
+Same rule as the Purl PDB: single-replica ClickHouse gets NO PDB.
+`minAvailable: 1` over the one and only ClickHouse pod made `kubectl drain`
+of its node impossible — the eviction API can never satisfy the budget, so
+the drain hangs until someone deletes the PDB by hand. A cluster deployment
+(cluster.enabled with >1 replica) does get one, at replicas-1.
+*/ -}}
+{{- $chReplicas := ternary (int .Values.clickhouse.cluster.replicas) 1 .Values.clickhouse.cluster.enabled }}
+{{- if and .Values.clickhouse.enabled (or .Values.podDisruptionBudget.enabled .Values.clickhouse.cluster.enabled) (gt $chReplicas 1) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -6,11 +14,7 @@ metadata:
   labels:
     {{- include "purl.clickhouse.labels" . | nindent 4 }}
 spec:
-  {{- if .Values.clickhouse.cluster.enabled }}
-  minAvailable: {{ sub (int .Values.clickhouse.cluster.replicas) 1 }}
-  {{- else }}
-  minAvailable: 1
-  {{- end }}
+  minAvailable: {{ sub $chReplicas 1 }}
   selector:
     matchLabels:
       {{- include "purl.clickhouse.selectorLabels" . | nindent 6 }}

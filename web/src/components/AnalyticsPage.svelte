@@ -1,5 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import Icon from './ui/Icon.svelte';
+  import { refresh } from './ui/icons.js';
   import { formatBytes, formatNumber } from '../utils/format.js';
   import { success as toastSuccess, error as toastError } from '../stores/toast.js';
   import { api } from '../utils/api.js';
@@ -210,10 +212,7 @@
     <div class="header-right">
       <span class="updated">Updated: {formatTime(lastUpdated)}</span>
       <button class="refresh-btn" on:click={fetchAnalytics} disabled={loading} aria-label="Refresh">
-        <svg class:spinning={loading} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M23 4v6h-6M1 20v-6h6"/>
-          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-        </svg>
+        <Icon icon={refresh} size={14} spin={loading} />
       </button>
     </div>
   </header>
@@ -565,7 +564,7 @@
   }
 
   .factor-weight {
-    color: #6e7681;
+    color: #848d97;
     font-size: 0.625rem;
     width: 32px;
   }
@@ -606,7 +605,7 @@
 
   .updated {
     font-size: 0.6875rem;
-    color: #6e7681;
+    color: #848d97;
   }
 
   .refresh-btn {
@@ -623,9 +622,6 @@
 
   .refresh-btn:hover { background: #30363d; }
   .refresh-btn:disabled { opacity: 0.6; }
-  .refresh-btn svg.spinning { animation: spin 1s linear infinite; }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
 
   .error-banner {
     background: rgba(248, 81, 73, 0.1);
@@ -762,7 +758,7 @@
   .live-badge {
     background: #238636;
     color: #fff;
-    font-size: 0.5625rem;
+    font-size: 0.6875rem;
     padding: 2px 6px;
     border-radius: 8px;
     font-weight: 500;
@@ -818,7 +814,7 @@
 
   .table-size {
     font-size: 0.75rem;
-    color: #6e7681;
+    color: #848d97;
     min-width: 70px;
     text-align: right;
   }
@@ -877,7 +873,7 @@
 
   .cache-label {
     font-size: 0.6875rem;
-    color: #6e7681;
+    color: #848d97;
     text-transform: uppercase;
   }
 
@@ -903,7 +899,7 @@
 
   .query-rank {
     font-size: 0.75rem;
-    color: #6e7681;
+    color: #848d97;
     min-width: 24px;
   }
 

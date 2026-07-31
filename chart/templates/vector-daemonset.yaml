@@ -35,7 +35,12 @@ spec:
       containers:
         - name: vector
           image: "{{ .Values.vector.image.repository }}:{{ .Values.vector.image.tag }}"
+          imagePullPolicy: {{ .Values.vector.image.pullPolicy }}
           args: ["--config-dir", "/etc/vector"]
+          {{- with .Values.vector.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             - name: VECTOR_SELF_NODE_NAME
               valueFrom:
@@ -44,7 +49,7 @@ spec:
             - name: PURL_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "purl.fullname" . }}
+                  name: {{ include "purl.secretName" . }}
                   key: PURL_API_KEYS
             - name: CLUSTER_NAME
               value: {{ .Values.vector.clusterName | quote }}
@@ -55,6 +60,31 @@ spec:
             - name: metrics
               containerPort: 9598
               protocol: TCP
+          {{- /*
+            Probes hit Vector's own API (enabled in vector.toml). Without
+            them a wedged Vector — deadlocked disk buffer, stuck sink — stays
+            Running indefinitely and the node's logs are lost in silence.
+          */}}
+          {{- if .Values.vector.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: api
+            initialDelaySeconds: {{ .Values.vector.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.vector.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.vector.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.vector.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.vector.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: api
+            initialDelaySeconds: {{ .Values.vector.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.vector.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.vector.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.vector.readinessProbe.failureThreshold }}
+          {{- end }}
           resources:
             {{- toYaml .Values.vector.resources | nindent 12 }}
           volumeMounts:

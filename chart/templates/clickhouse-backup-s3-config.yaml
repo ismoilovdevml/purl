@@ -1,0 +1,37 @@
+{{- /*
+S3 credentials for `BACKUP DATABASE ... TO S3(...)`, resolved SERVER-SIDE.
+
+The CronJob used to embed the access key and secret as literal arguments of
+the BACKUP statement. ClickHouse records every statement verbatim in
+system.query_log, and the job then echoed the server's reply — including the
+statement — to stdout, where Vector picked it up and shipped it straight back
+into Purl. The S3 key ended up in the log database, in the query log, and in
+the pod logs.
+
+With this config ClickHouse matches the backup URL against <endpoint> and
+supplies the credentials itself, so the statement carries only the URL. The
+values come from backup.s3.existingSecret via env vars set on the ClickHouse
+container (from_env keeps them out of this ConfigMap).
+*/ -}}
+{{- if and .Values.clickhouse.enabled .Values.backup.enabled (not .Values.backup.s3.credentialsInQuery) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "purl.clickhouse.fullname" . }}-backup-s3
+  labels:
+    {{- include "purl.clickhouse.labels" . | nindent 4 }}
+data:
+  backup-s3.xml: |
+    <clickhouse>
+      <s3>
+        <purl_backup>
+          <endpoint>{{ printf "%s/%s" (include "purl.backup.s3BaseUrl" .) (trimPrefix "/" .Values.backup.s3.prefix) }}</endpoint>
+          <access_key_id from_env="AWS_ACCESS_KEY_ID"></access_key_id>
+          <secret_access_key from_env="AWS_SECRET_ACCESS_KEY"></secret_access_key>
+          {{- if not .Values.backup.s3.endpoint }}
+          <region>{{ .Values.backup.s3.region }}</region>
+          {{- end }}
+        </purl_backup>
+      </s3>
+    </clickhouse>
+{{- end }}

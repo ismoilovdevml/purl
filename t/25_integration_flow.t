@@ -165,11 +165,19 @@ $ENV{PURL_CLICKHOUSE_PORT} = '19999';  # Unlikely to be running
 
     # Saved search methods
     sub get_saved_searches { return $_[0]->_saved_searches }
+    # Positional signature, matching Storage::ClickHouse::SavedSearches. The
+    # old mock took a hashref and only ever "worked" because a feature gate
+    # rejected the request before it was reached.
     sub create_saved_search {
-        my ($self, $search) = @_;
-        $search->{id} //= 'test-' . scalar @{$self->_saved_searches};
+        my ($self, $name, $query, $time_range) = @_;
+        my $search = {
+            id         => 'test-' . scalar @{$self->_saved_searches},
+            name       => $name,
+            query      => $query,
+            time_range => $time_range // '15m',
+        };
         push @{$self->_saved_searches}, $search;
-        return $search;
+        return 1;
     }
     sub delete_saved_search { return 1 }
 
@@ -235,6 +243,22 @@ subtest 'health endpoint returns status and version' => sub {
       ->json_has('/uptime_secs');
 };
 
+# Split k8s probes — both must be reachable WITHOUT auth, otherwise the
+# kubelet gets a 401 and treats the pod as dead.
+subtest 'liveness probe is public and DB-independent' => sub {
+    $t->get_ok('/api/health/live')
+      ->status_is(200)
+      ->json_is('/status' => 'ok')
+      ->json_has('/uptime_secs');
+};
+
+subtest 'readiness probe is public and reports the dependency' => sub {
+    $t->get_ok('/api/health/ready')
+      ->status_is(200)
+      ->json_is('/status' => 'ok')
+      ->json_is('/clickhouse' => 'connected');
+};
+
 # ============================================
 # 2. Metrics endpoint (public, no auth required)
 # ============================================
@@ -243,7 +267,21 @@ subtest 'metrics endpoint returns Prometheus format' => sub {
       ->status_is(200)
       ->content_like(qr/purl_info/)
       ->content_like(qr/purl_uptime_seconds/)
-      ->content_like(qr/purl_logs_stored/);
+      ->content_like(qr/purl_logs_stored/)
+      # Families the chart's alert rules key off
+      ->content_like(qr/purl_http_requests_total\{/)
+      ->content_like(qr/^purl_errors_total \d+$/m)
+      ->content_like(qr/^purl_clickhouse_healthy [01]$/m)
+      ->content_like(qr/^purl_query_latency_seconds_count \d+$/m)
+      ->content_like(qr/^purl_ingest_bytes_total \d+$/m);
+};
+
+subtest 'served metrics count requests made through the app' => sub {
+    # The counters are wired into the after_dispatch hook, so by now the
+    # requests above must be visible in the exposition text.
+    $t->get_ok('/api/metrics')
+      ->status_is(200)
+      ->content_like(qr/purl_http_requests_total\{method="GET",status="200"\} [1-9]\d*/);
 };
 
 # ============================================
@@ -442,29 +480,28 @@ subtest 'GET /api/stats/fields/level returns level stats' => sub {
 };
 
 # ============================================
-# 12. Pattern Endpoints (feature-gated: requires license)
+# 12. Pattern Endpoints (free tier — see Purl::License::Plans)
 # ============================================
-subtest 'GET /api/patterns returns 403 on free plan (feature-gated)' => sub {
+subtest 'GET /api/patterns is available on the free plan' => sub {
     $t->get_ok('/api/patterns', { 'X-API-Key' => 'test-key-123' })
-      ->status_is(403)
-      ->json_has('/feature');
+      ->status_is(200);
 };
 
 # ============================================
-# 13. Saved Searches Endpoints (feature-gated: requires license)
+# 13. Saved Searches Endpoints (free tier, unlimited)
 # ============================================
-subtest 'GET /api/saved-searches returns 403 on free plan' => sub {
+subtest 'GET /api/saved-searches is never feature-gated' => sub {
     $t->get_ok('/api/saved-searches', { 'X-API-Key' => 'test-key-123' })
-      ->status_is(403)
-      ->json_has('/feature');
+      ->status_is(200)
+      ->json_has('/searches');
 };
 
-subtest 'POST /api/saved-searches returns 403 on free plan' => sub {
+subtest 'POST /api/saved-searches works on the free plan' => sub {
     $t->post_ok('/api/saved-searches',
         { 'X-API-Key' => 'test-key-123', 'Content-Type' => 'application/json' },
         json => { name => 'Test Search', query => 'level:ERROR', filters => {} })
-      ->status_is(403)
-      ->json_has('/feature');
+      ->status_is(200)
+      ->json_is('/status' => 'ok');
 };
 
 # ============================================

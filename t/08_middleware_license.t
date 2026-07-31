@@ -11,6 +11,7 @@ use File::Temp qw(tempdir);
 use JSON::XS ();
 
 use Purl::API::Middleware::License;
+use Purl::License::Plans;
 
 # Helper: create a temp config dir with an expired trial (forces free plan)
 sub _expired_trial_dir {
@@ -32,11 +33,49 @@ subtest 'free plan when no license key' => sub {
     my $info = $lic->get_license_info;
     is $info->{plan}, 'free', 'defaults to free plan';
     ok $info->{valid}, 'free plan is valid';
-    is_deeply $info->{features}, ['log_search', 'live_tail', 'basic_alerts'], 'free features';
-    is $info->{limits}{servers}, 3, 'free server limit';
-    is $info->{limits}{retention_days}, 30, 'free retention limit';
-    is $info->{limits}{users}, 1, 'free user limit';
-    is $info->{limits}{alerts}, 3, 'free alert limit';
+    is_deeply $info->{features}, Purl::License::Plans::features_for('free'),
+        'free features come from the canonical catalogue';
+};
+
+# --- REGRESSION: free tier must match purl-web src/lib/stripe/config.ts ------
+# The old free plan granted 3 features and metered servers/users/alerts to
+# tiny finite numbers. purl-web now sells free as "unlimited, self-hosted",
+# so anything finite here is a promise the backend breaks.
+subtest 'free plan grants every self-hosted feature' => sub {
+    local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
+    my $lic = Purl::API::Middleware::License->new;
+    my $info = $lic->get_license_info;
+
+    for my $feature (qw(log_search live_tail basic_alerts pattern_analysis
+                        saved_searches_unlimited telegram_alerts slack_alerts
+                        self_hosted)) {
+        ok $lic->is_feature_allowed($feature), "free grants $feature";
+    }
+    ok !$lic->is_feature_allowed('dashboards'), 'free does NOT grant dashboards';
+    ok !$lic->is_feature_allowed('ai_query'),   'free does NOT grant ai_query';
+    ok !$lic->is_feature_allowed('sso'),        'free does NOT grant sso';
+};
+
+subtest 'free plan limits are all unlimited (-1)' => sub {
+    local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
+    my $lic = Purl::API::Middleware::License->new;
+    my $info = $lic->get_license_info;
+
+    for my $limit (qw(servers agents users alerts saved_searches)) {
+        is $info->{limits}{$limit}, -1, "free $limit limit is unlimited";
+    }
+    ok !exists $info->{limits}{retention_days},
+        'retention_days is not a plan limit (PURL_RETENTION_DAYS owns it)';
+};
+
+subtest 'removed dead limit accessors stay removed' => sub {
+    my $lic = Purl::API::Middleware::License->new;
+    ok !$lic->can('get_retention_limit'),
+        'get_retention_limit removed — nothing read it';
+    ok !$lic->can('check_server_limit'),
+        'check_server_limit removed — duplicated Controller::Base::check_limit';
 };
 
 subtest 'free plan when PURL_LICENSE_KEY not set' => sub {
@@ -64,8 +103,37 @@ subtest 'trial plan auto-starts when no trial file exists' => sub {
     ok $info->{trial_started_at}, 'trial_started_at set';
     ok grep({ $_ eq 'pattern_analysis' } @{$info->{features}}), 'trial has pattern_analysis';
     ok grep({ $_ eq 'saved_searches_unlimited' } @{$info->{features}}), 'trial has saved_searches_unlimited';
-    is $info->{limits}{servers}, 5, 'trial server limit';
-    is $info->{limits}{users}, 5, 'trial user limit';
+    is $info->{limits}{servers}, -1, 'trial server limit unlimited';
+    is $info->{limits}{users}, -1, 'trial user limit unlimited';
+};
+
+# --- REGRESSION: trial must be EXACTLY Pro ----------------------------------
+# The old hand-written trial list granted ai_query and audit_logs (Pro/Ent
+# features) but omitted dashboards (a Pro feature). Both directions are churn
+# machines: trial -> pay used to REMOVE ai_query/audit_logs, and dashboards
+# were never demoed to the people most likely to buy them.
+subtest 'trial features are exactly the Pro feature list' => sub {
+    local $ENV{PURL_LICENSE_KEY} = '';
+    local $ENV{PURL_CONFIG_DIR} = tempdir(CLEANUP => 1);
+    my $lic = Purl::API::Middleware::License->new;
+    my $info = $lic->get_license_info;
+
+    is_deeply [sort @{$info->{features}}],
+              [sort @{Purl::License::Plans::features_for('pro')}],
+              'trial feature set == pro feature set';
+
+    ok $lic->is_feature_allowed('dashboards'),
+        'trial grants dashboards (Pro feature the old trial list omitted)';
+    ok !$lic->is_feature_allowed('audit_logs'),
+        'trial does NOT grant audit_logs — Enterprise-only, would vanish on upgrade to Pro';
+    ok !$lic->is_feature_allowed('sso'),
+        'trial does NOT grant sso — Enterprise-only';
+};
+
+subtest 'no trial feature disappears when upgrading to Pro' => sub {
+    my %pro = map { $_ => 1 } @{Purl::License::Plans::features_for('pro')};
+    my @lost = grep { !$pro{$_} } @{Purl::License::Plans::features_for('trial')};
+    is_deeply \@lost, [], 'paying for Pro never takes a trial feature away';
 };
 
 subtest 'trial plan expires to free plan' => sub {
@@ -154,8 +222,41 @@ subtest 'is_feature_allowed for free plan' => sub {
     ok $lic->is_feature_allowed('log_search'), 'log_search allowed on free';
     ok $lic->is_feature_allowed('live_tail'), 'live_tail allowed on free';
     ok $lic->is_feature_allowed('basic_alerts'), 'basic_alerts allowed on free';
-    ok !$lic->is_feature_allowed('pattern_analysis'), 'pattern_analysis not on free';
+    ok $lic->is_feature_allowed('pattern_analysis'), 'pattern_analysis now on free';
     ok !$lic->is_feature_allowed('audit_log'), 'audit_log not on free';
+};
+
+# ============================================
+# Plan catalogue (single source of truth)
+# ============================================
+subtest 'plan catalogue is cumulative' => sub {
+    my %free = map { $_ => 1 } @{Purl::License::Plans::features_for('free')};
+    my %pro  = map { $_ => 1 } @{Purl::License::Plans::features_for('pro')};
+    my %ent  = map { $_ => 1 } @{Purl::License::Plans::features_for('enterprise')};
+
+    is_deeply [grep { !$pro{$_} } keys %free], [], 'pro is a superset of free';
+    is_deeply [grep { !$ent{$_} } keys %pro],  [], 'enterprise is a superset of pro';
+    ok $ent{sso} && $ent{ldap_auth} && $ent{audit_logs}, 'enterprise adds identity/compliance';
+};
+
+subtest 'plan catalogue returns fresh copies' => sub {
+    my $a = Purl::License::Plans::features_for('free');
+    push @$a, 'injected_feature';
+    my $b = Purl::License::Plans::features_for('free');
+    ok !(grep { $_ eq 'injected_feature' } @$b), 'catalogue cannot be mutated by a caller';
+
+    my $l = Purl::License::Plans::unlimited_limits();
+    $l->{users} = 1;
+    is Purl::License::Plans::unlimited_limits()->{users}, -1, 'limits hashref is a fresh copy';
+};
+
+subtest 'unknown plan falls back to free' => sub {
+    is_deeply Purl::License::Plans::features_for('platinum'),
+              Purl::License::Plans::features_for('free'),
+              'unknown plan name degrades to free, never to pro';
+    is_deeply Purl::License::Plans::features_for(undef),
+              Purl::License::Plans::features_for('free'),
+              'undef plan degrades to free';
 };
 
 # ============================================
@@ -166,22 +267,6 @@ subtest 'get_plan returns free' => sub {
     local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
     my $lic = Purl::API::Middleware::License->new;
     is $lic->get_plan, 'free', 'free plan returned';
-};
-
-subtest 'check_server_limit free plan' => sub {
-    local $ENV{PURL_LICENSE_KEY} = '';
-    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
-    my $lic = Purl::API::Middleware::License->new;
-    ok $lic->check_server_limit(1), '1 server within limit';
-    ok $lic->check_server_limit(3), '3 servers within limit';
-    ok !$lic->check_server_limit(4), '4 servers exceeds free limit';
-};
-
-subtest 'get_retention_limit free plan' => sub {
-    local $ENV{PURL_LICENSE_KEY} = '';
-    local $ENV{PURL_CONFIG_DIR} = _expired_trial_dir();
-    my $lic = Purl::API::Middleware::License->new;
-    is $lic->get_retention_limit, 30, 'free plan 30-day retention';
 };
 
 # ============================================

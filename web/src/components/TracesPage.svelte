@@ -14,10 +14,12 @@
   import Input from './ui/Input.svelte';
   import LoadingSpinner from './ui/LoadingSpinner.svelte';
   import Badge from './ui/Badge.svelte';
+  import Icon from './ui/Icon.svelte';
+  import EmptyState from './ui/EmptyState.svelte';
+  import { search, alertTriangle, alertCircle, activity } from './ui/icons.js';
   import { success as toastSuccess, error as toastError } from '../stores/toast.js';
   import { formatTimestamp, formatFullTimestamp } from '../utils/format.js';
-
-  const API_BASE = '/api';
+  import { api } from '../utils/api.js';
 
   // Service colors for timeline visualization
   const SERVICE_COLORS = [
@@ -54,19 +56,26 @@
     return serviceColorMap[service];
   }
 
+  /**
+   * This page has its own wording for a missing trace ("Trace not found (404)")
+   * which reads better than ApiError's generic "Request failed (HTTP 404)".
+   * Keep the server's own message when it sent one.
+   */
+  function traceLookupError(err, label) {
+    const fromServer = err?.body?.error;
+    if (fromServer) return new Error(fromServer);
+    return new Error(err?.status ? `${label} (${err.status})` : (err?.message || label));
+  }
+
   async function fetchRecentTraces() {
     recentLoading = true;
     recentError = '';
     try {
-      const res = await fetch(`${API_BASE}/traces/recent?range=${recentRange}&limit=50`);
-      if (res.ok) {
-        const data = await res.json();
-        recentTraces = data.traces || [];
-      } else {
-        recentError = `Failed to load traces (${res.status})`;
-      }
-    } catch {
-      recentError = 'Failed to load recent traces';
+      const data = await api.get('/traces/recent', { query: { range: recentRange, limit: 50 } });
+      recentTraces = data.traces || [];
+    } catch (err) {
+      // status 0 means we never reached the server.
+      recentError = err.status ? `Failed to load traces (${err.status})` : 'Failed to load recent traces';
     } finally {
       recentLoading = false;
     }
@@ -119,37 +128,36 @@
     try {
       if (detectedType === 'request') {
         // Fetch request logs
-        const res = await fetch(`${API_BASE}/requests/${encodeURIComponent(query)}`);
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `Request not found (${res.status})`);
+        let data;
+        try {
+          data = await api.get(`/requests/${encodeURIComponent(query)}`);
+        } catch (err) {
+          throw traceLookupError(err, 'Request not found');
         }
-        const data = await res.json();
         logs = data.logs || [];
         requestId = data.request_id || query;
         total = data.total || logs.length;
         searchType = 'request';
       } else {
-        // Fetch trace logs and timeline in parallel
-        const [logsRes, timelineRes] = await Promise.all([
-          fetch(`${API_BASE}/traces/${encodeURIComponent(query)}`),
-          fetch(`${API_BASE}/traces/${encodeURIComponent(query)}/timeline`),
+        // Fetch trace logs and timeline in parallel. allSettled, not all:
+        // a missing timeline must not sink the logs we did get.
+        const [logsResult, timelineResult] = await Promise.allSettled([
+          api.get(`/traces/${encodeURIComponent(query)}`),
+          api.get(`/traces/${encodeURIComponent(query)}/timeline`),
         ]);
 
-        if (!logsRes.ok) {
-          const errData = await logsRes.json().catch(() => ({}));
-          throw new Error(errData.error || `Trace not found (${logsRes.status})`);
+        if (logsResult.status === 'rejected') {
+          throw traceLookupError(logsResult.reason, 'Trace not found');
         }
 
-        const logsData = await logsRes.json();
+        const logsData = logsResult.value;
         logs = logsData.logs || [];
         traceId = logsData.trace_id || query;
         total = logsData.total || logs.length;
         searchType = 'trace';
 
-        if (timelineRes.ok) {
-          const timelineData = await timelineRes.json();
-          timeline = timelineData.timeline || null;
+        if (timelineResult.status === 'fulfilled') {
+          timeline = timelineResult.value?.timeline || null;
         }
       }
 
@@ -259,17 +267,11 @@
           fullWidth
           on:keydown={handleKeydown}
         >
-          <svg slot="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
+          <Icon slot="icon" icon={search} size={16} />
         </Input>
       </div>
       <Button variant="primary" on:click={handleSearch} loading={loading}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"/>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
+        <Icon icon={search} size={16} />
         Search
       </Button>
     </div>
@@ -285,16 +287,10 @@
         <LoadingSpinner size="lg" label="Searching for trace..." centered />
       </div>
     {:else if errorMsg && logs.length === 0}
-      <div class="empty-state">
-        <div class="empty-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/>
-            <line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-        </div>
-        <p class="empty-title">{errorMsg}</p>
-        <p class="empty-sub">Check the ID and try again.</p>
+      <div class="empty-wrap">
+        <EmptyState icon={alertTriangle} title={errorMsg}>
+          Check the ID and try again.
+        </EmptyState>
       </div>
     {:else if !hasSearched}
       <!-- Recent Traces -->
@@ -317,24 +313,18 @@
             <LoadingSpinner size="md" label="Loading recent traces..." centered />
           </div>
         {:else if recentError}
-          <div class="empty-state">
-            <div class="empty-icon error-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-              </svg>
-            </div>
-            <p class="empty-title">{recentError}</p>
-            <button class="retry-btn" on:click={fetchRecentTraces}>Retry</button>
+          <div class="empty-wrap">
+            <EmptyState icon={alertCircle} title={recentError} tone="error">
+              <svelte:fragment slot="actions">
+                <button class="retry-btn" on:click={fetchRecentTraces}>Retry</button>
+              </svelte:fragment>
+            </EmptyState>
           </div>
         {:else if recentTraces.length === 0}
-          <div class="empty-state">
-            <div class="empty-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-              </svg>
-            </div>
-            <p class="empty-title">No traces found</p>
-            <p class="empty-sub">No distributed traces in the last {recentRange}. Send logs with trace_id to see them here.</p>
+          <div class="empty-wrap">
+            <EmptyState icon={activity} title="No traces found">
+              No distributed traces in the last {recentRange}. Send logs with trace_id to see them here.
+            </EmptyState>
           </div>
         {:else}
           <div class="recent-table-wrapper">
@@ -466,9 +456,10 @@
 
       <!-- Logs Table -->
       {#if logs.length === 0 && hasSearched && !loading}
-        <div class="empty-state" style="min-height: 150px;">
-          <p class="empty-title">No logs in this trace</p>
-          <p class="empty-sub">The trace was found but contains no log entries.</p>
+        <div class="empty-wrap short">
+          <EmptyState title="No logs in this trace">
+            The trace was found but contains no log entries.
+          </EmptyState>
         </div>
       {:else if logs.length > 0}
         <div class="logs-section">
@@ -587,7 +578,7 @@
 
   .search-hint {
     font-size: 0.6875rem;
-    color: #6e7681;
+    color: #848d97;
     margin-top: 6px;
   }
 
@@ -606,44 +597,17 @@
     min-height: 300px;
   }
 
-  .empty-state {
+  /* Keeps the content area from collapsing when an EmptyState replaces
+     a full table — the same reserved height the old block had. */
+  .empty-wrap {
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 300px;
-    text-align: center;
-    padding: 40px 20px;
   }
 
-  .empty-icon {
-    width: 48px;
-    height: 48px;
-    color: #30363d;
-    margin-bottom: 16px;
-  }
-
-  .empty-icon svg {
-    width: 100%;
-    height: 100%;
-  }
-
-  .empty-title {
-    font-size: 0.9375rem;
-    font-weight: 500;
-    color: #c9d1d9;
-    margin: 0 0 6px 0;
-  }
-
-  .empty-sub {
-    font-size: 0.8125rem;
-    color: #6e7681;
-    margin: 0;
-    max-width: 400px;
-  }
-
-  .error-icon {
-    color: #f85149;
+  .empty-wrap.short {
+    min-height: 150px;
   }
 
   .retry-btn {
@@ -684,7 +648,7 @@
 
   .stat-label {
     font-size: 0.6875rem;
-    color: #6e7681;
+    color: #848d97;
     text-transform: uppercase;
     letter-spacing: 0.3px;
   }
@@ -724,7 +688,7 @@
 
   .section-meta {
     font-size: 0.6875rem;
-    color: #6e7681;
+    color: #848d97;
   }
 
   /* Timeline */
@@ -752,7 +716,7 @@
 
   .axis-label {
     font-size: 0.625rem;
-    color: #6e7681;
+    color: #848d97;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   }
 
@@ -947,7 +911,7 @@
   }
 
   .muted {
-    color: #6e7681;
+    color: #848d97;
   }
 
   .message-text {
@@ -1097,7 +1061,7 @@
 
   .service-more {
     font-size: 0.6875rem;
-    color: #6e7681;
+    color: #848d97;
   }
 
   .col-count, .col-errors, .col-duration, .col-time {

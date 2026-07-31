@@ -97,14 +97,32 @@ sub _build_redis {
 # ----------------------------------------------------------------------------
 sub incr {
     my ($self, $key, $ttl) = @_;
-    $ttl //= 60;
+    return $self->incr_by($key, 1, $ttl);
+}
+
+# ----------------------------------------------------------------------------
+# incr_by($key, $amount, $ttl_seconds) -> new integer count
+#
+# Same fixed-window semantics as incr(), but adds $amount at once. Needed for
+# accumulating counters (bytes ingested, summed latencies) where calling incr()
+# in a loop would be one Redis round-trip per unit.
+#
+# Redis INCRBY is atomic exactly like INCR; EXPIRE is still applied only when
+# the key was created by this call (returned value == $amount), keeping the
+# window fixed rather than sliding.
+# ----------------------------------------------------------------------------
+sub incr_by {
+    my ($self, $key, $amount, $ttl) = @_;
+    $amount //= 1;
+    $ttl    //= 60;
+    $amount = int($amount);
 
     if ($self->_use_redis) {
         my $count;
         my $ok = eval {
             my $db = $self->_redis->db;
-            $count = $db->incr($key);
-            $db->expire($key, $ttl) if defined $count && $count == 1;
+            $count = $db->incrby($key, $amount);
+            $db->expire($key, $ttl) if defined $count && $count == $amount;
             1;
         };
         return $count if $ok && defined $count;
@@ -112,7 +130,7 @@ sub incr {
         # fall through to local on Redis failure (fail-open degradation)
     }
 
-    return $self->_local_incr($key, $ttl);
+    return $self->_local_incr($key, $ttl, $amount);
 }
 
 # get($key) -> current integer count (0 if absent/expired)
@@ -173,7 +191,8 @@ sub _mark_down {
 }
 
 sub _local_incr {
-    my ($self, $key, $ttl) = @_;
+    my ($self, $key, $ttl, $amount) = @_;
+    $amount //= 1;
     my $now = time();
     $self->_local_gc($now);
 
@@ -182,7 +201,8 @@ sub _local_incr {
         # Fresh window (fixed, starts now, expires $ttl later).
         $entry = $self->_local->{$key} = { count => 0, expires_at => $now + $ttl };
     }
-    return ++$entry->{count};
+    $entry->{count} += $amount;
+    return $entry->{count};
 }
 
 sub _local_get {
@@ -244,6 +264,8 @@ to per-worker accounting (no worse than the pre-shared-store baseline).
 =over 4
 
 =item * C<INCR key> - atomic increment, creates the key at 1 when absent
+
+=item * C<INCRBY key n> - atomic add, for accumulating counters
 
 =item * C<EXPIRE key ttl> - applied ONLY when INCR returned 1 (fixed window)
 

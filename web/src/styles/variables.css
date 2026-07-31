@@ -1,6 +1,18 @@
 /**
  * Purl Design System - CSS Variables
  * Global design tokens for consistent styling
+ *
+ * !! NOT CURRENTLY LOADED !!
+ * Nothing imports this file. Every component instead writes
+ * `var(--token, #literal)` and today only the literal ever applies. 36 of the
+ * 54 tokens used in components disagree with the literal beside them (e.g.
+ * --text-primary is #c9d1d9 here but #f0f6fc at 33 call sites), so simply
+ * importing this file would restyle large parts of the app.
+ *
+ * Wiring it up is a deliberate reconciliation job of its own: align each token
+ * with the literal the components actually ship, then import once from main.js
+ * and strip the fallbacks. Until then, treat a change here as documentation —
+ * the value that ships is the fallback in the component.
  */
 
 :root {
@@ -41,8 +53,16 @@
    * ======================================== */
   --text-primary: #c9d1d9;
   --text-secondary: #8b949e;
-  --text-muted: #6e7681;
+  /* WCAG AA (4.5:1) against every surface muted text is actually painted on:
+   * bg-primary 5.62:1, bg-secondary 5.14:1, bg-tertiary 4.52:1.
+   * The previous #6e7681 was 3.31:1 on bg-tertiary and failed at every size. */
+  --text-muted: #848d97;
   --text-link: #58a6ff;
+
+  /* Focus ring — see the global :focus-visible rule below. */
+  --focus-ring-color: var(--color-primary);
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
 
   /* ========================================
    * Borders
@@ -124,7 +144,9 @@
   --level-warn: #d29922;
   --level-error: #f85149;
   --level-fatal: #ff7b72;
-  --level-trace: #6e7681;
+  /* Matches --text-muted: trace lines are rendered at 11-12px and the old
+   * #6e7681 was 3.31:1 on the log table's tertiary background. */
+  --level-trace: #848d97;
 }
 
 /* ========================================

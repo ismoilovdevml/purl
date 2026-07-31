@@ -9,7 +9,10 @@
   import { createEventDispatcher } from 'svelte';
   import Button from './ui/Button.svelte';
   import Input from './ui/Input.svelte';
+  import Icon from './ui/Icon.svelte';
+  import { logo, alertTriangle, alertCircle, lock } from './ui/icons.js';
   import { login, changePassword, passwordChangeRequired } from '../stores/auth.js';
+  import api from '../utils/api.js';
 
   const dispatch = createEventDispatcher();
 
@@ -25,14 +28,14 @@
 
   let ssoAvailable = false;
 
-  // Check if SSO is configured
+  // Check if SSO is configured.
+  // Runs before the user is authenticated, so a 401/404/network failure here is
+  // not an error condition — it only means "no license info available", and SSO
+  // simply stays hidden. Never surface it.
   async function checkSso() {
     try {
-      const res = await fetch('/api/license');
-      if (res.ok) {
-        const data = await res.json();
-        ssoAvailable = (data.features || []).includes('sso');
-      }
+      const data = await api.get('/license');
+      ssoAvailable = (data?.features || []).includes('sso');
     } catch { /* ignore */ }
   }
 
@@ -93,13 +96,22 @@
   }
 </script>
 
+<!--
+  A failed sign-in has to be announced, not just drawn — the message replaces no
+  focused content, so without role="alert" a screen-reader user gets silence.
+  Declared once and rendered from both branches so the two forms can never drift.
+-->
+{#snippet errorBanner(message)}
+  <div class="login-error" role="alert">
+    <Icon icon={alertCircle} size={14} />
+    {message}
+  </div>
+{/snippet}
+
 <div class="login-page">
   <div class="login-card">
     <div class="login-logo">
-      <svg width="48" height="48" viewBox="0 0 32 32">
-        <circle cx="16" cy="16" r="14" fill="none" stroke="#58a6ff" stroke-width="2"/>
-        <path d="M10 12 L22 12 M10 16 L22 16 M10 20 L18 20" stroke="#58a6ff" stroke-width="2" stroke-linecap="round"/>
-      </svg>
+      <Icon icon={logo} size={48} color="#58a6ff" />
       <h1>Purl</h1>
     </div>
 
@@ -107,20 +119,12 @@
       <p class="login-subtitle">Change your default password</p>
 
       <div class="password-warning">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
+        <Icon icon={alertTriangle} size={14} />
         You are using the default admin password. Please set a new password to continue.
       </div>
 
       {#if error}
-        <div class="login-error">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          {error}
-        </div>
+        {@render errorBanner(error)}
       {/if}
 
       <div class="login-form">
@@ -169,12 +173,7 @@
       <p class="login-subtitle">Sign in to your dashboard</p>
 
       {#if error}
-        <div class="login-error">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          {error}
-        </div>
+        {@render errorBanner(error)}
       {/if}
 
       <div class="login-form">
@@ -213,9 +212,7 @@
             <span>or</span>
           </div>
           <a href="/api/auth/sso/login" class="sso-button">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
-            </svg>
+            <Icon icon={lock} size={16} />
             Sign in with SSO
           </a>
         {/if}
@@ -292,7 +289,8 @@
     line-height: 1.4;
   }
 
-  .password-warning svg {
+  /* :global — the svg now lives inside <Icon>, outside this component's scope. */
+  .password-warning :global(svg) {
     flex-shrink: 0;
     margin-top: 1px;
   }

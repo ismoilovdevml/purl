@@ -1,4 +1,4 @@
-.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint chart-publish e2e-k8s e2e-docker
+.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint chart-publish release e2e-k8s e2e-docker
 
 # Variables
 # Perl deps are installed with local::lib into ~/perl5 (same layout as CI).
@@ -32,6 +32,9 @@ help:
 	@echo "Helm chart:"
 	@echo "  helm-lint     Lint + template-render the chart"
 	@echo "  chart-publish Package chart and publish to charts.purlogs.com"
+	@echo ""
+	@echo "Release:"
+	@echo "  release VERSION=1.2.1   Verify + print the tag commands (see docs/RELEASE.md)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean         Remove containers and volumes"
@@ -91,15 +94,64 @@ preflight: lint test web-build
 helm-lint:
 	@echo "Running Helm lint..."
 	@helm lint chart/
-	@echo "Running Helm template..."
+	@echo "Rendering default values (the path a public helm install takes)..."
 	@helm template purl chart/ > /dev/null
+	@echo "Rendering dev values..."
+	@helm template purl chart/ -f chart/values-dev.yaml > /dev/null
+	@echo "Rendering multi-replica + autoscaling (needs an RWX config volume)..."
 	@helm template purl chart/ \
 		--set autoscaling.enabled=true \
 		--set podDisruptionBudget.enabled=true \
 		--set networkPolicy.enabled=true \
 		--set vector.enabled=true \
+		--set 'config.volume.accessModes[0]=ReadWriteMany' \
 		> /dev/null
+	@echo "Rendering NetworkPolicy with real peers..."
+	@helm template purl chart/ \
+		--set networkPolicy.enabled=true \
+		--set 'networkPolicy.ingress.fromNamespaces[0]=ingress-nginx' \
+		--set 'networkPolicy.ingress.fromCIDRs[0]=10.0.0.0/8' \
+		--set metrics.serviceMonitor.enabled=true \
+		> /dev/null
+	@echo "Rendering backup CronJob + ClickHouse cluster mode..."
+	@helm template purl chart/ \
+		--set backup.enabled=true \
+		--set backup.s3.bucket=example-bucket \
+		--set backup.s3.existingSecret=example-secret \
+		--set clickhouse.cluster.enabled=true \
+		--set networkPolicy.enabled=true \
+		> /dev/null
+	@echo "Rendering with an operator-managed Secret..."
+	@helm template purl chart/ --set purl.existingSecret=my-purl-secret > /dev/null
 	@echo "Helm validation passed."
+
+# Release: cut a semver tag so CI publishes ismoilovdev/purl:X.Y.Z.
+# The chart resolves image.tag from Chart.yaml appVersion, so a chart whose
+# appVersion has no matching Docker tag makes every public `helm install`
+# fail with ImagePullBackOff. This target refuses to let the two drift.
+# Usage: make release VERSION=1.2.1
+release:
+	@test -n "$(VERSION)" || { echo "ERROR: usage: make release VERSION=1.2.1"; exit 1; }
+	@echo "$(VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' \
+		|| { echo "ERROR: VERSION must be semver X.Y.Z (no leading v)"; exit 1; }
+	@APPV=$$(awk '$$1 == "appVersion:" {gsub(/"/, "", $$2); print $$2}' chart/Chart.yaml); \
+	if [ "$$APPV" != "$(VERSION)" ]; then \
+		echo "ERROR: chart/Chart.yaml appVersion is $$APPV but VERSION is $(VERSION)."; \
+		echo "       Bump appVersion first — the chart pulls ismoilovdev/purl:$$APPV."; \
+		exit 1; \
+	fi
+	@git rev-parse -q --verify "refs/tags/v$(VERSION)" >/dev/null \
+		&& { echo "ERROR: tag v$(VERSION) already exists"; exit 1; } || true
+	@test -z "$$(git status --porcelain)" || { echo "ERROR: working tree is dirty"; exit 1; }
+	@BR=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ "$$BR" != "main" ]; then echo "ERROR: releases are cut from main (on $$BR)"; exit 1; fi
+	@$(MAKE) preflight
+	@$(MAKE) helm-lint
+	@echo ""
+	@echo "All gates green. To publish:"
+	@echo "  git tag -a v$(VERSION) -m 'Purl v$(VERSION)'"
+	@echo "  git push origin v$(VERSION)      # CI publishes :$(VERSION), :$$(echo $(VERSION) | cut -d. -f1-2) and :latest-equivalent SHA tags"
+	@echo "  make chart-publish               # after bumping chart/Chart.yaml version"
 
 # Helm chart release to https://charts.purlogs.com (Vercel static project
 # "purl-charts"). Manual only — not wired into CI. The site dir is stable

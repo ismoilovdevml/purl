@@ -1,12 +1,11 @@
 import { writable } from 'svelte/store';
 import { error as toastError } from './toast.js';
+import { api } from '../utils/api.js';
 
 export const podHealth = writable({ pods: [], total: 0 });
 export const healthSummary = writable({ summary: {}, total_unhealthy: 0 });
 export const healthLoading = writable(false);
 export const healthError = writable(null);
-
-const API_BASE = '/api';
 
 let refreshTimer = null;
 
@@ -15,31 +14,35 @@ export async function fetchPodHealth(hours = 1) {
   healthError.set(null);
 
   try {
-    const params = new URLSearchParams({ hours: hours.toString() });
+    const query = { hours: String(hours) };
 
-    const [podsRes, summaryRes] = await Promise.all([
-      fetch(`${API_BASE}/k8s/health/pods?${params}`),
-      fetch(`${API_BASE}/k8s/health?${params}`),
+    // allSettled, not all: unlike raw fetch, api.get rejects on any non-2xx,
+    // so with Promise.all the sibling's rejection is never observed and
+    // surfaces as an unhandled rejection (both endpoints 403 together).
+    const [podsResult, summaryResult] = await Promise.allSettled([
+      api.get('/k8s/health/pods', { query }),
+      api.get('/k8s/health', { query }),
     ]);
 
-    if (podsRes.status === 403) {
-      // Feature not available on current plan
+    if (podsResult.status === 'rejected') throw podsResult.reason;
+    if (summaryResult.status === 'rejected') throw summaryResult.reason;
+
+    podHealth.set(podsResult.value);
+    healthSummary.set(summaryResult.value);
+  } catch (err) {
+    // Both endpoints sit behind the same license feature, so either one
+    // answering 403 means the same thing: the plan does not include K8s.
+    // Surfaced without a toast — it is a state, not a failure.
+    if (err.status === 403) {
       healthError.set('K8s monitoring requires a Pro or Enterprise license');
       return;
     }
 
-    if (!podsRes.ok || !summaryRes.ok) {
-      throw new Error('Failed to fetch pod health data');
-    }
-
-    const podsData = await podsRes.json();
-    const summaryData = await summaryRes.json();
-
-    podHealth.set(podsData);
-    healthSummary.set(summaryData);
-  } catch (err) {
-    healthError.set(err.message);
-    toastError('Failed to load pod health: ' + (err.message || 'Unknown error'));
+    // Keep this page's own wording for HTTP failures; a network-level
+    // failure (status 0) has nothing better to say than its own message.
+    const message = err.status ? 'Failed to fetch pod health data' : (err.message || 'Failed to fetch pod health data');
+    healthError.set(message);
+    toastError('Failed to load pod health: ' + message);
   } finally {
     healthLoading.set(false);
   }

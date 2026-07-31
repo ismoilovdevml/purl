@@ -7,6 +7,8 @@
   import { onMount, onDestroy } from 'svelte';
   import Badge from '../ui/Badge.svelte';
   import Card from '../ui/Card.svelte';
+  import Icon from '../ui/Icon.svelte';
+  import { refresh, alertCircle, activity, checkCircle } from '../ui/icons.js';
   import {
     podHealth,
     healthSummary,
@@ -92,32 +94,28 @@
 <div class="pod-status-panel">
   <Card title="Pod Health" subtitle="Log-based detection of unhealthy K8s pods">
     <svelte:fragment slot="actions">
-      <button class="refresh-btn" on:click={() => fetchPodHealth(hours)} disabled={$healthLoading}>
+      <button
+        class="refresh-btn"
+        on:click={() => fetchPodHealth(hours)}
+        disabled={$healthLoading}
+        aria-label="Refresh pod health"
+      >
         {#if $healthLoading}
           <span class="spinner"></span>
         {:else}
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M23 4v6h-6M1 20v-6h6"/>
-            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-          </svg>
+          <Icon icon={refresh} size={14} />
         {/if}
       </button>
     </svelte:fragment>
 
     {#if $healthError}
       <div class="health-error">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="8" x2="12" y2="12"/>
-          <line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
+        <Icon icon={alertCircle} size={16} />
         <span>{$healthError}</span>
       </div>
     {:else if noK8sData && !$healthLoading}
       <div class="empty-state no-data">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="1.5">
-          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-        </svg>
+        <Icon icon={activity} size={32} strokeWidth={1.5} color="#8b949e" />
         <p class="no-data-title">No Kubernetes audit data yet</p>
         <p>Enable K8s audit log ingestion for your cluster to see pod health here.</p>
       </div>
@@ -182,10 +180,7 @@
         </div>
       {:else if !$healthLoading}
         <div class="empty-state">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="1.5">
-            <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
-            <polyline points="22 4 12 14.01 9 11.01"/>
-          </svg>
+          <Icon icon={checkCircle} size={32} strokeWidth={1.5} color="#4ade80" />
           <p>No unhealthy pods detected in the last {hours} hour{hours !== 1 ? 's' : ''}</p>
         </div>
       {/if}
@@ -236,10 +231,6 @@
     border-top-color: #58a6ff;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
   }
 
   /* Health error */

@@ -16,6 +16,7 @@
   import { fade, scale } from 'svelte/transition';
   import { trapFocus, FOCUSABLE_SELECTOR, lockScroll, unlockScroll } from '../../utils/dom.js';
   import Icon from './Icon.svelte';
+  import { close as closeIcon } from './icons.js';
 
   /** Whether modal is open */
   export let open = false;
@@ -125,7 +126,7 @@
               on:click={close}
               aria-label="Close modal"
             >
-              <Icon name="close" size={16} />
+              <Icon icon={closeIcon} size={16} />
             </button>
           {/if}
         </div>

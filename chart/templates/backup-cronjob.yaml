@@ -5,14 +5,14 @@
 {{- if not .Values.backup.s3.existingSecret }}
 {{- fail "backup.enabled=true requires backup.s3.existingSecret (holding AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)" }}
 {{- end }}
+{{- $archiveConfig := and .Values.backup.includeConfig .Values.config.volume.enabled }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: {{ include "purl.fullname" . }}-backup
   labels:
-    {{- include "purl.labels" . | nindent 4 }}
-    app.kubernetes.io/component: backup
+    {{- include "purl.backup.labels" . | nindent 4 }}
 data:
   run-backup.sh: |
     #!/usr/bin/env bash
@@ -23,7 +23,10 @@ data:
     log() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] $*"; }
 
     : "${CH_HOST:?}" "${CH_PORT:?}" "${CH_USER:?}" "${CH_DB:?}"
-    : "${S3_BUCKET:?}" "${AWS_ACCESS_KEY_ID:?}" "${AWS_SECRET_ACCESS_KEY:?}"
+    : "${S3_BUCKET:?}"
+
+    ch() { clickhouse-client --host "${CH_HOST}" --port "${CH_PORT}" \
+             --user "${CH_USER}" --password "${CH_PASSWORD:-}" "$@"; }
 
     NAME="purl_backup_$(date -u +%Y%m%d_%H%M%S)"
     PREFIX="${S3_PREFIX#/}"; [ -n "${PREFIX}" ] && PREFIX="${PREFIX%/}/"
@@ -33,13 +36,51 @@ data:
       BASE="https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com"
     fi
     URL="${BASE}/${PREFIX}${NAME}"
+    {{- if $archiveConfig }}
+
+    # ---------------------------------------------------------------
+    # /app/config -> <db>.purl_config_archive
+    #
+    # A ClickHouse-only backup restores every log line and still leaves you
+    # locked out of the dashboard: the user database, the license key and
+    # settings.json live on the config volume, not in ClickHouse. Park a
+    # tarball in a ClickHouse table so the single BACKUP DATABASE below
+    # carries it to S3 too.
+    # ---------------------------------------------------------------
+    log "Archiving /purl-config into ${CH_DB}.purl_config_archive"
+    tar czf /tmp/purl-config.tar.gz -C /purl-config .
+    ch --query "CREATE TABLE IF NOT EXISTS ${CH_DB}.purl_config_archive (
+                  captured_at DateTime DEFAULT now(),
+                  archive String
+                ) ENGINE = MergeTree
+                  ORDER BY captured_at
+                  TTL captured_at + INTERVAL ${RETENTION_DAYS:-30} DAY"
+    ch --query "INSERT INTO ${CH_DB}.purl_config_archive (archive) FORMAT RawBLOB" \
+       < /tmp/purl-config.tar.gz
+    rm -f /tmp/purl-config.tar.gz
+    log "Config archived"
+    {{- else if .Values.backup.includeConfig }}
+
+    # backup.includeConfig is on but config.volume.enabled is off: there is
+    # no persistent /app/config to archive (it is an ephemeral emptyDir), so
+    # dashboard users and the license are NOT covered by this backup.
+    {{- end }}
 
     log "Backing up DATABASE ${CH_DB} -> S3 (${URL})"
-    OUT="$(clickhouse-client \
-      --host "${CH_HOST}" --port "${CH_PORT}" \
-      --user "${CH_USER}" --password "${CH_PASSWORD:-}" \
-      --query "BACKUP DATABASE ${CH_DB} TO S3('${URL}', '${AWS_ACCESS_KEY_ID}', '${AWS_SECRET_ACCESS_KEY}')")"
-    log "ClickHouse: ${OUT}"
+    {{- if .Values.backup.s3.credentialsInQuery }}
+    # backup.s3.credentialsInQuery=true — the key and secret are literal
+    # arguments of this statement and WILL be recorded verbatim in
+    # system.query_log. Turn it off unless an old ClickHouse forces it.
+    OUT="$(ch --query "BACKUP DATABASE ${CH_DB} TO S3('${URL}', '${AWS_ACCESS_KEY_ID:?}', '${AWS_SECRET_ACCESS_KEY:?}')")"
+    {{- else }}
+    # Credentials are resolved server-side from config.d/backup-s3.xml, so
+    # the statement — and therefore system.query_log — holds only the URL.
+    OUT="$(ch --query "BACKUP DATABASE ${CH_DB} TO S3('${URL}')")"
+    {{- end }}
+    # The raw server reply is deliberately NOT echoed: in credentialsInQuery
+    # mode it can carry the S3 key, and Vector ships this pod's stdout
+    # straight back into Purl — which is how a backup key ends up searchable
+    # in the log dashboard.
     echo "${OUT}" | grep -q "BACKUP_CREATED" || { echo "ERROR: BACKUP not confirmed" >&2; exit 1; }
     log "Backup created: ${NAME}"
     log "Retention ${RETENTION_DAYS:-30}d: enforce via S3 lifecycle policy on prefix '${S3_PREFIX:-}'."
@@ -49,8 +90,7 @@ kind: CronJob
 metadata:
   name: {{ include "purl.fullname" . }}-backup
   labels:
-    {{- include "purl.labels" . | nindent 4 }}
-    app.kubernetes.io/component: backup
+    {{- include "purl.backup.labels" . | nindent 4 }}
 spec:
   schedule: {{ .Values.backup.schedule | quote }}
   concurrencyPolicy: {{ .Values.backup.concurrencyPolicy }}
@@ -59,16 +99,21 @@ spec:
   jobTemplate:
     metadata:
       labels:
-        {{- include "purl.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: backup
+        {{- include "purl.backup.selectorLabels" . | nindent 8 }}
     spec:
       backoffLimit: {{ .Values.backup.backoffLimit }}
       activeDeadlineSeconds: {{ .Values.backup.activeDeadlineSeconds }}
       template:
         metadata:
+          {{- /*
+            Labels are deliberately NOT purl.selectorLabels. These pods used
+            to carry them, so every backup run counted as a Purl pod for the
+            PodDisruptionBudget and was caught by the Purl NetworkPolicy —
+            whose egress does not allow ClickHouse's native port 9000, the
+            one clickhouse-client actually uses.
+          */}}
           labels:
-            {{- include "purl.selectorLabels" . | nindent 12 }}
-            app.kubernetes.io/component: backup
+            {{- include "purl.backup.selectorLabels" . | nindent 12 }}
         spec:
           restartPolicy: {{ .Values.backup.restartPolicy }}
           serviceAccountName: {{ include "purl.serviceAccountName" . }}
@@ -84,9 +129,20 @@ spec:
           tolerations:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with .Values.backup.affinity }}
+          {{- if .Values.backup.affinity }}
           affinity:
-            {{- toYaml . | nindent 12 }}
+            {{- toYaml .Values.backup.affinity | nindent 12 }}
+          {{- else if $archiveConfig }}
+          affinity:
+            podAffinity:
+              # The config PVC is ReadWriteOnce: only pods on the node that
+              # already has it attached can mount it. Without this the
+              # CronJob pod can land elsewhere and stay Pending forever.
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      {{- include "purl.selectorLabels" . | nindent 22 }}
+                  topologyKey: kubernetes.io/hostname
           {{- end }}
           containers:
             - name: backup
@@ -98,6 +154,10 @@ spec:
               {{- end }}
               command: ["/bin/bash", "/scripts/run-backup.sh"]
               env:
+                # clickhouse-client wants a writable HOME and the root
+                # filesystem is read-only.
+                - name: HOME
+                  value: /tmp
                 - name: CH_HOST
                   value: {{ include "purl.clickhouse.host" . | quote }}
                 - name: CH_PORT
@@ -107,7 +167,7 @@ spec:
                 - name: CH_PASSWORD
                   valueFrom:
                     secretKeyRef:
-                      name: {{ include "purl.fullname" . }}
+                      name: {{ include "purl.secretName" . }}
                       key: PURL_CLICKHOUSE_PASSWORD
                       optional: true
                 - name: CH_DB
@@ -122,6 +182,10 @@ spec:
                   value: {{ .Values.backup.s3.endpoint | quote }}
                 - name: RETENTION_DAYS
                   value: {{ .Values.backup.retentionDays | quote }}
+                {{- if .Values.backup.s3.credentialsInQuery }}
+                # Needed only in the discouraged in-query credentials mode.
+                # Otherwise ClickHouse holds the credentials and this pod
+                # never sees them.
                 - name: AWS_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
@@ -132,6 +196,7 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.backup.s3.existingSecret }}
                       key: AWS_SECRET_ACCESS_KEY
+                {{- end }}
               {{- with .Values.backup.resources }}
               resources:
                 {{- toYaml . | nindent 16 }}
@@ -142,6 +207,11 @@ spec:
                   readOnly: true
                 - name: tmp
                   mountPath: /tmp
+                {{- if $archiveConfig }}
+                - name: purl-config
+                  mountPath: /purl-config
+                  readOnly: true
+                {{- end }}
           volumes:
             - name: scripts
               configMap:
@@ -149,4 +219,10 @@ spec:
                 defaultMode: 0555
             - name: tmp
               emptyDir: {}
+            {{- if $archiveConfig }}
+            - name: purl-config
+              persistentVolumeClaim:
+                claimName: {{ include "purl.fullname" . }}-config
+                readOnly: true
+            {{- end }}
 {{- end }}

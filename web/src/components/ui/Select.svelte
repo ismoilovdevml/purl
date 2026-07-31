@@ -11,6 +11,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
+  import { chevronDown } from './icons.js';
 
   /** Selected value */
   export let value = '';
@@ -67,7 +68,7 @@
     </select>
 
     <span class="select-icon">
-      <Icon name="chevron-down" size={16} />
+      <Icon icon={chevronDown} size={16} strokeWidth={2.25} />
     </span>
   </div>
 
@@ -114,7 +115,6 @@
   }
 
   .select-field:focus {
-    outline: none;
     border-color: var(--color-primary, #58a6ff);
     box-shadow: 0 0 0 2px var(--color-primary-bg, rgba(88, 166, 255, 0.15));
   }
@@ -145,7 +145,7 @@
     right: var(--space-3, 12px);
     display: flex;
     align-items: center;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     pointer-events: none;
   }
 
@@ -170,6 +170,6 @@
   }
 
   .select-field option:disabled {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 </style>

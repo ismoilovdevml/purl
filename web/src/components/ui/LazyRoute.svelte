@@ -31,6 +31,7 @@
 <script>
   import LoadingSpinner from './LoadingSpinner.svelte';
   import Icon from './Icon.svelte';
+  import { alertCircle } from './icons.js';
 
   /** Function returning a dynamic import() promise for the page component */
   export let loader;
@@ -53,7 +54,7 @@
   <svelte:component this={module.default} />
 {:catch}
   <div class="lazy-route lazy-route-error" role="alert">
-    <Icon name="alert-circle" size={20} />
+    <Icon icon={alertCircle} size={20} />
     <span>Failed to load the {name} page. Check your connection and try again.</span>
     <button class="retry-btn" on:click={retry}>Retry</button>
   </div>

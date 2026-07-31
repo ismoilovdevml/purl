@@ -7,6 +7,7 @@
   import { createEventDispatcher } from 'svelte';
   import { selectedCluster, clusters, clustersLoading } from '../../stores/cluster.js';
   import Icon from './Icon.svelte';
+  import { chevronDown, globe } from './icons.js';
 
   const dispatch = createEventDispatcher();
 
@@ -18,7 +19,7 @@
 </script>
 
 <div class="cluster-selector" title="Filter logs by cluster">
-  <Icon name="globe" size={16} />
+  <Icon icon={globe} size={16} />
   <select
     class="cluster-select"
     value={$selectedCluster}
@@ -31,7 +32,7 @@
       <option value={cluster}>{cluster}</option>
     {/each}
   </select>
-  <Icon name="chevron-down" size={12} class="chevron" />
+  <Icon icon={chevronDown} size={12} strokeWidth={3} class="chevron" />
 </div>
 
 <style>
@@ -65,7 +66,6 @@
     font-size: 13px;
     cursor: pointer;
     padding: 0 16px 0 0;
-    outline: none;
     min-width: 100px;
     max-width: 180px;
     overflow: hidden;
@@ -87,7 +87,7 @@
     position: absolute;
     right: 8px;
     pointer-events: none;
-    color: #6e7681;
+    color: #848d97;
     flex-shrink: 0;
   }
 </style>

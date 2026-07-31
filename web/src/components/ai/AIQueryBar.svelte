@@ -2,6 +2,8 @@
   import { createEventDispatcher } from 'svelte';
   import { aiLoading, aiError, aiQueryResult, aiQuerySQL, queryAI, aiSuggestions, fetchSuggestions, aiProvider } from '../../stores/ai.js';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import Icon from '../ui/Icon.svelte';
+  import { clock, check, send, alertCircleSolid } from '../ui/icons.js';
 
   const dispatch = createEventDispatcher();
 
@@ -47,9 +49,7 @@
 <div class="ai-query-bar">
   <div class="ai-header">
     <span class="ai-badge">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l1.872 1.094a.75.75 0 0 1-.992 1.126l-2.25-1.314a.75.75 0 0 1-.378-.654V4.75a.75.75 0 0 1 1.5 0h-.252Z"/>
-      </svg>
+      <Icon icon={clock} size={14} strokeWidth={2.5} />
       Ask AI
     </span>
     <span class="provider-label">{$aiProvider}</span>
@@ -72,9 +72,7 @@
           {#each $aiSuggestions as s}
             <!-- svelte-ignore a11y-click-events-have-key-events -->
             <div class="suggestion-item" on:click={() => useSuggestion(s)}>
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M6 9.99l-2.72-2.72-1.06 1.06L6 12.11l8.78-8.78-1.06-1.06L6 9.99Z"/>
-              </svg>
+              <Icon icon={check} size={12} strokeWidth={3} />
               {s}
             </div>
           {/each}
@@ -87,22 +85,19 @@
       on:click={submit}
       disabled={$aiLoading || !question.trim()}
       title="Send (Ctrl+Enter)"
+      aria-label="Send question to AI"
     >
       {#if $aiLoading}
         <LoadingSpinner size="sm" />
       {:else}
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M1.5 1.5l13 6.5-13 6.5V9l9.5-1.5L1.5 6V1.5Z"/>
-        </svg>
+        <Icon icon={send} size={16} strokeWidth={2.25} />
       {/if}
     </button>
   </div>
 
   {#if $aiError}
     <div class="ai-error">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1Zm-.75 4.75v3.5h1.5v-3.5h-1.5Zm0 5v1.5h1.5v-1.5h-1.5Z"/>
-      </svg>
+      <Icon icon={alertCircleSolid} size={14} />
       {$aiError}
     </div>
   {/if}
@@ -208,7 +203,6 @@
   }
 
   .ai-input:focus {
-    outline: none;
     border-color: #58a6ff;
   }
 

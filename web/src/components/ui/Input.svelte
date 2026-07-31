@@ -4,8 +4,8 @@
 
   Usage:
   <Input bind:value={email} label="Email" type="email" placeholder="Enter email" />
-  <Input bind:value={search} placeholder="Search..." icon>
-    <svg slot="icon">...</svg>
+  <Input bind:value={search} placeholder="Search...">
+    <Icon slot="icon" icon={search} size={16} />
   </Input>
 -->
 <script>
@@ -230,14 +230,15 @@
     min-width: 0;
     background: transparent;
     border: none;
-    outline: none;
+    /* No `outline: none` here: the global :focus-visible rule in
+       styles/focus.css is what gives keyboard users a visible ring. */
     font-size: var(--text-base, 13px);
     color: var(--text-primary, #c9d1d9);
     font-family: inherit;
   }
 
   .input-field::placeholder {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   .input-field:disabled {
@@ -258,7 +259,7 @@
   .input-icon {
     display: flex;
     align-items: center;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     flex-shrink: 0;
   }
 
@@ -270,7 +271,7 @@
   .input-suffix {
     display: flex;
     align-items: center;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     flex-shrink: 0;
   }
 
@@ -281,7 +282,7 @@
 
   .input-helper {
     font-size: var(--text-xs, 11px);
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   /* Number input arrows */

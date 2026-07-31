@@ -13,6 +13,24 @@
   import Toast from './components/ui/Toast.svelte';
   import ClusterSelector from './components/ui/ClusterSelector.svelte';
   import LazyRoute from './components/ui/LazyRoute.svelte';
+  import Icon from './components/ui/Icon.svelte';
+  import {
+    logo,
+    fileText,
+    lineChart,
+    activity,
+    layers,
+    code,
+    grid,
+    lock,
+    settings as settingsIcon,
+    chevronDown,
+    braces,
+    save,
+    clock,
+    alertCircleSolid,
+    close,
+  } from './components/ui/icons.js';
 
   // Route-level code splitting: each non-default page is its own chunk, fetched
   // on first navigation. The `logs` page is intentionally eager — it is the
@@ -47,8 +65,16 @@
     searchLogs,
   } from './stores/logs.js';
   import { refreshInterval, defaultTimeRange } from './stores/settings.js';
-  import { fetchLicense, hasFeature, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining, licenseFeatures, k8sMode } from './stores/license.js';
-  import { currentUser, checkAuth, logout, passwordChangeRequired } from './stores/auth.js';
+  import { fetchLicense, hasFeature, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining, licenseFeatures, k8sMode, planKnown } from './stores/license.js';
+  import {
+    currentUser,
+    checkAuth,
+    logout,
+    passwordChangeRequired,
+    authState,
+    serverRequiresAuth,
+    AUTH_AUTHENTICATED,
+  } from './stores/auth.js';
   import { success as toastSuccess, warning as toastWarning } from './stores/toast.js';
   import { fetchClusters, clusters } from './stores/cluster.js';
   import { initAI } from './stores/ai.js';
@@ -61,7 +87,58 @@
   let hasAppliedDefaultRange = false;
   let unsubscribeRefresh = null;
   let unsubscribeDefaultRange = null;
-  let appReady = false;
+
+  // Boot asks two questions — "which plan is this?" and "is there a session?" —
+  // and must paint neither the dashboard nor the login form until BOTH have
+  // landed. 'loading' | 'ready'.
+  let bootState = 'loading';
+  let initialDataLoaded = false;
+
+  // Does this deployment demand a dashboard session?
+  //   1. What the server told us always wins: a 401 from a protected endpoint,
+  //      or a session we are already holding.
+  //   2. Otherwise fall back to the plan — paid/trial installs run with auth on.
+  //   3. If the plan could not be determined at ALL (/license 401'd or errored),
+  //      demand credentials. The previous code fell through to "no auth needed"
+  //      here, which rendered the dashboard shell to an anonymous user with no
+  //      route back to the login form and a 401 on every request.
+  $: requiresLogin =
+    $serverRequiresAuth !== null
+      ? $serverRequiresAuth
+      : $planKnown
+        ? $isPaidPlan
+        : true;
+
+  // The forced password-change screen lives inside LoginPage, so an
+  // authenticated-but-must-change user still belongs on it.
+  $: showLogin = requiresLogin && ($authState !== AUTH_AUTHENTICATED || $passwordChangeRequired);
+
+  // Load the dashboard's data exactly when the dashboard actually becomes
+  // visible: at boot for an open instance, or right after a successful sign-in.
+  // `initialDataLoaded` is read inside the function on purpose — referencing it
+  // directly here would make this statement re-run on its own assignment.
+  $: syncShellData(bootState, showLogin);
+
+  function syncShellData(state, hidden) {
+    if (state !== 'ready') return;
+    if (hidden) {
+      // Back at the login form: the next sign-in must refetch, not reuse the
+      // previous user's data.
+      initialDataLoaded = false;
+      return;
+    }
+    if (initialDataLoaded) return;
+    initialDataLoaded = true;
+    loadInitialData();
+  }
+
+  async function loadInitialData() {
+    fetchClusters();
+    initAI();
+    if (currentPage === 'logs') {
+      await searchLogs();
+    }
+  }
 
   // Action menus (touch-friendly instead of hover-only)
   let actionsMenuOpen = false;
@@ -137,18 +214,15 @@
   async function handleLogout() {
     await logout();
     currentPage = 'logs';
+    window.location.hash = 'logs';
   }
 
   onMount(async () => {
-    // Fetch license info first
-    await fetchLicense();
-
-    // If Pro/Enterprise, check session auth
-    if ($isPaidPlan) {
-      await checkAuth();
-    }
-
-    appReady = true;
+    // Both are public endpoints answering independent questions, so they run in
+    // parallel. checkAuth() is UNCONDITIONAL: making it depend on the license
+    // plan meant a bad /license response skipped the session check entirely and
+    // the app rendered as if authentication did not exist.
+    await Promise.all([fetchLicense(), checkAuth()]);
 
     // Subscribe to refresh interval changes
     unsubscribeRefresh = refreshInterval.subscribe(v => {
@@ -173,15 +247,10 @@
     window.addEventListener('resize', checkMobile);
     window.addEventListener('click', handleClickOutside, true);
 
-    // Only fetch data if user is authenticated (or free plan)
-    const needsAuth = $isPaidPlan && !$currentUser;
-    if (!needsAuth && !$passwordChangeRequired) {
-      fetchClusters();
-      initAI();
-      if (currentPage === 'logs') {
-        await searchLogs();
-      }
-    }
+    // Last: flipping to 'ready' is what lets the shell paint, and `syncShellData`
+    // picks up the initial fetch from here. `currentPage` must already be
+    // resolved from the URL hash above before that happens.
+    bootState = 'ready';
 
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
@@ -202,7 +271,9 @@
   });
 
   function handleHashChange() {
-    const hash = window.location.hash.slice(1) || 'logs';
+    // Only the first segment selects the page: `#settings/agents` routes to
+    // settings, and the page itself reads the `/agents` suffix for its subtab.
+    const hash = (window.location.hash.slice(1) || 'logs').split('/')[0];
     if (['logs', 'analytics', 'traces', 'k8s', 'query', 'dashboards', 'settings'].includes(hash)) {
       if (hash === 'dashboards' && !hasDashboards) {
         currentPage = 'logs';
@@ -381,15 +452,14 @@
   }
 </script>
 
-{#if !appReady}
+{#if bootState === 'loading'}
   <div class="app-loading">
-    <svg width="48" height="48" viewBox="0 0 32 32">
-      <circle cx="16" cy="16" r="14" fill="none" stroke="#58a6ff" stroke-width="2"/>
-      <path d="M10 12 L22 12 M10 16 L22 16 M10 20 L18 20" stroke="#58a6ff" stroke-width="2" stroke-linecap="round"/>
-    </svg>
+    <Icon icon={logo} size={48} color="#58a6ff" label="Loading Purl" />
   </div>
-{:else if $isPaidPlan && (!$currentUser || $passwordChangeRequired)}
-  <LoginPage on:login={() => { fetchClusters(); searchLogs(); }} />
+{:else if showLogin}
+  <!-- No on:login handler: `syncShellData` reacts to the session state itself,
+       so sign-in and open-instance boot take the exact same code path. -->
+  <LoginPage />
 {:else}
 <main>
   <header>
@@ -401,22 +471,7 @@
       </button>
     {/if}
     <button class="logo" on:click={() => navigate('logs')}>
-      <svg width="32" height="32" viewBox="0 0 32 32">
-        <circle
-          cx="16"
-          cy="16"
-          r="14"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        />
-        <path
-          d="M10 12 L22 12 M10 16 L22 16 M10 20 L18 20"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-        />
-      </svg>
+      <Icon icon={logo} size={32} />
       <span>Purl</span>
       {#if $isTrialPlan}
         <span class="plan-badge trial">Trial</span>
@@ -432,17 +487,7 @@
         class:active={currentPage === 'logs'}
         on:click={() => navigate('logs')}
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-          <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
-        </svg>
+        <Icon icon={fileText} size={16} />
         Logs
       </button>
       {#if $currentUser?.role !== 'viewer'}
@@ -450,17 +495,7 @@
         class:active={currentPage === 'analytics'}
         on:click={() => navigate('analytics')}
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <path d="M3 3v18h18" />
-          <path d="M18 9l-5-6-4 8-3-2" />
-        </svg>
+        <Icon icon={lineChart} size={16} />
         Analytics
       </button>
       {/if}
@@ -468,16 +503,7 @@
         class:active={currentPage === 'traces'}
         on:click={() => navigate('traces')}
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-        </svg>
+        <Icon icon={activity} size={16} />
         Traces
       </button>
       {#if $k8sMode}
@@ -485,18 +511,7 @@
         class:active={currentPage === 'k8s'}
         on:click={() => navigate('k8s')}
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <path d="M12 2L2 7l10 5 10-5-10-5z" />
-          <path d="M2 17l10 5 10-5" />
-          <path d="M2 12l10 5 10-5" />
-        </svg>
+        <Icon icon={layers} size={16} />
         K8s
       </button>
       {/if}
@@ -504,17 +519,7 @@
         class:active={currentPage === 'query'}
         on:click={() => navigate('query')}
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <polyline points="16 18 22 12 16 6" />
-          <polyline points="8 6 2 12 8 18" />
-        </svg>
+        <Icon icon={code} size={16} />
         Query
       </button>
       <button
@@ -522,33 +527,7 @@
         class:locked={!hasDashboards}
         on:click={() => navigate('dashboards')}
       >
-        {#if hasDashboards}
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <rect x="3" y="3" width="7" height="7" rx="1" />
-            <rect x="14" y="3" width="7" height="7" rx="1" />
-            <rect x="3" y="14" width="7" height="7" rx="1" />
-            <rect x="14" y="14" width="7" height="7" rx="1" />
-          </svg>
-        {:else}
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
-        {/if}
+        <Icon icon={hasDashboards ? grid : lock} size={16} />
         Dashboards
         {#if !hasDashboards}
           <span class="pro-badge">Pro</span>
@@ -559,19 +538,7 @@
         class:active={currentPage === 'settings'}
         on:click={() => navigate('settings')}
       >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-        >
-          <circle cx="12" cy="12" r="3" />
-          <path
-            d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"
-          />
-        </svg>
+        <Icon icon={settingsIcon} size={16} />
         Settings
       </button>
       {/if}
@@ -586,7 +553,12 @@
 
     {#if currentPage === 'logs'}
       <SearchBar bind:value={$query} on:search={handleSearch} />
-      <button class="search-help-btn" on:click={() => showSearchHelp = true} title="Search syntax help">?</button>
+      <button
+        class="search-help-btn"
+        on:click={() => showSearchHelp = true}
+        title="Search syntax help"
+        aria-label="Search syntax help"
+      >?</button>
 
       <div class="header-actions">
         {#if $clusters.length > 0}
@@ -603,32 +575,15 @@
               on:click={() => selectionMenuOpen = !selectionMenuOpen}
             >
               Export Selected ({selectedLogs.length})
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"><path d="M6 9l6 6 6-6" /></svg
-              >
+              <Icon icon={chevronDown} size={12} strokeWidth={3} />
             </button>
             <div class="dropdown-menu" class:open={selectionMenuOpen}>
               <button on:click={() => { exportCSV(selectedLogs); selectionMenuOpen = false; }}>
-                <svg width="14" height="14" viewBox="0 0 14 14"
-                  ><path
-                    fill="currentColor"
-                    d="M2 1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1Zm1 3h6v1H3V4Zm0 2h6v1H3V6Zm0 2h4v1H3V8Z"
-                  /></svg
-                >
+                <Icon icon={fileText} size={14} strokeWidth={2.5} />
                 Export CSV
               </button>
               <button on:click={() => { exportJSON(selectedLogs); selectionMenuOpen = false; }}>
-                <svg width="14" height="14" viewBox="0 0 14 14"
-                  ><path
-                    fill="currentColor"
-                    d="M3 2a1 1 0 0 0-1 1v2a1 1 0 0 1-1 1 1 1 0 0 1 1 1v2a1 1 0 0 0 1 1M9 2a1 1 0 0 1 1 1v2a1 1 0 0 0 1 1 1 1 0 0 0-1 1v2a1 1 0 0 1-1 1"
-                  /></svg
-                >
+                <Icon icon={braces} size={14} strokeWidth={2.5} />
                 Export JSON
               </button>
             </div>
@@ -643,43 +598,21 @@
             on:click={() => actionsMenuOpen = !actionsMenuOpen}
           >
             Actions
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"><path d="M6 9l6 6 6-6" /></svg
-            >
+            <Icon icon={chevronDown} size={12} strokeWidth={3} />
           </button>
 
           <div class="dropdown-menu" class:open={actionsMenuOpen}>
             <button on:click={() => { saveCurrentSearch(); actionsMenuOpen = false; }}>
-              <svg width="14" height="14" viewBox="0 0 14 14"
-                ><path
-                  fill="currentColor"
-                  d="M11 1H3a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2ZM7 10a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm3-6H4V2h6v2Z"
-                /></svg
-              >
+              <Icon icon={save} size={14} strokeWidth={2.5} />
               Save Search
             </button>
             <div class="divider"></div>
             <button on:click={() => { exportCSV($logs); actionsMenuOpen = false; }} disabled={$logs.length === 0}>
-              <svg width="14" height="14" viewBox="0 0 14 14"
-                ><path
-                  fill="currentColor"
-                  d="M2 1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1Zm1 3h6v1H3V4Zm0 2h6v1H3V6Zm0 2h4v1H3V8Z"
-                /></svg
-              >
+              <Icon icon={fileText} size={14} strokeWidth={2.5} />
               Export CSV
             </button>
             <button on:click={() => { exportJSON($logs); actionsMenuOpen = false; }} disabled={$logs.length === 0}>
-              <svg width="14" height="14" viewBox="0 0 14 14"
-                ><path
-                  fill="currentColor"
-                  d="M3 2a1 1 0 0 0-1 1v2a1 1 0 0 1-1 1 1 1 0 0 1 1 1v2a1 1 0 0 0 1 1M9 2a1 1 0 0 1 1 1v2a1 1 0 0 0 1 1 1 1 0 0 0-1 1v2a1 1 0 0 1-1 1"
-                /></svg
-              >
+              <Icon icon={braces} size={14} strokeWidth={2.5} />
               Export JSON
             </button>
           </div>
@@ -698,10 +631,7 @@
 
   {#if $isTrialPlan}
     <div class="trial-banner">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10"/>
-        <path d="M12 6v6l4 2"/>
-      </svg>
+      <Icon icon={clock} size={16} />
       <span>
         <strong>Pro Trial</strong> — {$trialDaysRemaining} {$trialDaysRemaining === 1 ? 'day' : 'days'} remaining
       </span>
@@ -720,12 +650,7 @@
 
   {#if errorState.message}
     <div class="error-banner severity-{errorState.severity}" role="alert">
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-2.75a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V6a.75.75 0 0 1 .75-.75Zm0 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
-        />
-      </svg>
+      <Icon icon={alertCircleSolid} size={16} />
       <span>{errorState.message}</span>
       {#if errorState.retryFn}
         <button class="retry-btn" on:click={errorState.retryFn} aria-label="Retry">
@@ -737,12 +662,7 @@
         on:click={clearError}
         aria-label="Dismiss error"
       >
-        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M7 5.586 3.707 2.293a1 1 0 0 0-1.414 1.414L5.586 7 2.293 10.293a1 1 0 1 0 1.414 1.414L7 8.414l3.293 3.293a1 1 0 0 0 1.414-1.414L8.414 7l3.293-3.293a1 1 0 0 0-1.414-1.414L7 5.586Z"
-          />
-        </svg>
+        <Icon icon={close} size={14} strokeWidth={3} />
       </button>
     </div>
   {/if}
@@ -931,11 +851,13 @@
     background: #21262d;
   }
 
-  .nav-tabs button svg {
+  /* :global — icons render inside <Icon>, so they carry that component's scope,
+     not this one's. Every svg rule below is scoped by its parent class. */
+  .nav-tabs button :global(svg) {
     opacity: 0.7;
   }
 
-  .nav-tabs button.active svg {
+  .nav-tabs button.active :global(svg) {
     opacity: 1;
   }
 
@@ -1029,6 +951,9 @@
     border: 2px solid #30363d;
     border-top-color: #58a6ff;
     border-radius: 50%;
+    /* @keyframes spin lives in src/styles/animations.css (declared once).
+       Svelte only rewrites keyframe names it finds declared in this component,
+       so with no local block the name resolves to the global one. */
     animation: spin 0.8s linear infinite;
   }
 
@@ -1036,12 +961,6 @@
     width: 12px;
     height: 12px;
     flex-shrink: 0;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
 
   .container {
@@ -1083,7 +1002,7 @@
     padding-right: 12px;
   }
 
-  .dropdown-trigger svg {
+  .dropdown-trigger :global(svg) {
     opacity: 0.6;
     margin-left: 2px;
   }
@@ -1132,7 +1051,7 @@
     cursor: not-allowed;
   }
 
-  .dropdown-menu button svg {
+  .dropdown-menu button :global(svg) {
     color: #8b949e;
   }
 
@@ -1178,7 +1097,7 @@
     color: #58a6ff;
   }
 
-  .error-banner svg {
+  .error-banner :global(svg) {
     flex-shrink: 0;
   }
 
@@ -1335,7 +1254,7 @@
       font-size: 12px;
     }
 
-    .nav-tabs button svg {
+    .nav-tabs button :global(svg) {
       display: none;
     }
   }
@@ -1350,7 +1269,7 @@
       font-size: 1rem;
     }
 
-    .logo svg {
+    .logo :global(svg) {
       width: 24px;
       height: 24px;
     }
@@ -1396,7 +1315,7 @@
     font-size: 13px;
   }
 
-  .trial-banner svg {
+  .trial-banner :global(svg) {
     flex-shrink: 0;
   }
 

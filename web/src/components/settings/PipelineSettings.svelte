@@ -3,9 +3,11 @@
   import Button from '../ui/Button.svelte';
   import Card from '../ui/Card.svelte';
   import Modal from '../ui/Modal.svelte';
+  import EmptyState from '../ui/EmptyState.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
+  import { lock, arrowRight, close } from '../ui/icons.js';
 
   let pipelines = [];
   let loading = false;
@@ -119,17 +121,23 @@
   {#if licenseError}
     <div class="license-banner">
       <div class="banner-icon">
-        <Icon name="lock" size={20} />
+        <Icon icon={lock} size={20} />
       </div>
       <div class="banner-body">
         <strong>{licenseError.error || 'This feature requires a Pro or Enterprise license.'}</strong>
         <p>Upgrade your plan to configure log pipelines for parsing and enriching logs during ingestion.</p>
       </div>
-      {#if licenseError.upgrade}
-        <a href={licenseError.upgrade} class="upgrade-link" target="_blank" rel="noopener noreferrer">
-          Upgrade Plan &rarr;
+      <div class="banner-actions">
+        {#if licenseError.upgrade}
+          <a href={licenseError.upgrade} class="upgrade-link" target="_blank" rel="noopener noreferrer">
+            Upgrade Plan
+            <Icon icon={arrowRight} size={12} strokeWidth={3} />
+          </a>
+        {/if}
+        <a href="https://purlogs.com/docs" class="docs-link" target="_blank" rel="noopener noreferrer">
+          How log pipelines work
         </a>
-      {/if}
+      </div>
     </div>
   {:else}
     <div class="pipeline-actions">
@@ -140,9 +148,9 @@
       <p class="loading-text">Loading pipelines...</p>
     {:else if pipelines.length === 0}
       <Card>
-        <div class="empty-state">
-          <p>No pipelines configured. Create one to start processing logs.</p>
-        </div>
+        <EmptyState title="No pipelines configured" size="sm">
+          Create one to start processing logs.
+        </EmptyState>
       </Card>
     {:else}
       {#each pipelines as pipeline}
@@ -207,7 +215,13 @@
               {/each}
             </select>
             <input type="text" bind:value={rule.source_field} placeholder="Source field" />
-            <button class="btn-sm btn-danger" on:click={() => removeRule(i)}>&times;</button>
+            <button
+              class="btn-sm btn-danger btn-icon"
+              on:click={() => removeRule(i)}
+              aria-label={`Remove rule ${i + 1} (${rule.type})`}
+            >
+              <Icon icon={close} size={12} strokeWidth={3} />
+            </button>
           </div>
           {#if rule.type === 'regex' || rule.type === 'grok' || rule.type === 'drop'}
             <input type="text" bind:value={rule.pattern} placeholder="Pattern..." class="rule-pattern" />
@@ -347,6 +361,17 @@
     background: rgba(248, 81, 73, 0.1);
   }
 
+  /* Icon-only variant of .btn-sm — keeps the square hit area the glyph needs. */
+  .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+  }
+
   .license-banner {
     display: flex;
     align-items: flex-start;
@@ -390,10 +415,18 @@
     line-height: 1.5;
   }
 
-  .upgrade-link {
+  .banner-actions {
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .upgrade-link {
     display: inline-flex;
     align-items: center;
+    gap: 6px;
     padding: 6px 14px;
     background: #58a6ff;
     color: #0d1117;
@@ -408,7 +441,21 @@
     background: #79b8ff;
   }
 
-  .loading-text, .empty-state {
+  /* Secondary path: help, not checkout. */
+  .docs-link {
+    font-size: 0.75rem;
+    color: #8b949e;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.15s ease;
+  }
+
+  .docs-link:hover {
+    color: #58a6ff;
+    text-decoration: underline;
+  }
+
+  .loading-text {
     text-align: center;
     color: #8b949e;
     padding: 20px;
@@ -436,8 +483,9 @@
     font-size: 13px;
   }
 
+  /* Border-color is the resting cue; the global :focus-visible ring is left
+     intact so keyboard users keep a visible focus indicator. */
   .form-group input:focus, .form-group textarea:focus {
-    outline: none;
     border-color: #58a6ff;
   }
 

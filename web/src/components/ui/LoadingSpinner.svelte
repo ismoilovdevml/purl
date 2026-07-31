@@ -9,6 +9,7 @@
 -->
 <script>
   import Icon from './Icon.svelte';
+  import { spinner } from './icons.js';
 
   /** Size */
   export let size = 'md'; // xs, sm, md, lg, xl
@@ -39,7 +40,7 @@
         role="status"
         aria-label={label || 'Loading'}
       >
-        <Icon name="spinner" />
+        <Icon icon={spinner} />
       </div>
       {#if label}
         <span class="spinner-label">{label}</span>
@@ -58,7 +59,7 @@
       role="status"
       aria-label={label || 'Loading'}
     >
-      <Icon name="spinner" />
+      <Icon icon={spinner} />
     </div>
     {#if label}
       <span class="spinner-label">{label}</span>
@@ -96,7 +97,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     animation: spin 1s linear infinite;
   }
 

@@ -1,6 +1,16 @@
 <script>
   import { onMount, createEventDispatcher } from 'svelte';
   import { histogram, timeRange, previousHistogram, fetchPreviousHistogram } from '../stores/logs.js';
+  import Icon from './ui/Icon.svelte';
+  import {
+    barChartSolid,
+    alertCircleSolid,
+    columns,
+    textLines,
+    arrowUp,
+    arrowDown,
+    arrowRight,
+  } from './ui/icons.js';
 
   const dispatch = createEventDispatcher();
 
@@ -398,16 +408,12 @@
 <div class="histogram-container" bind:this={container}>
   <div class="histogram-header">
     <div class="header-left">
-      <svg width="16" height="16" viewBox="0 0 16 16">
-        <path fill="currentColor" d="M1 14h14v1H1v-1Zm1-3h2v3H2v-3Zm3-2h2v5H5V9Zm3-3h2v8H8V6Zm3-2h2v10h-2V4Zm3-3h1v13h-1V1Z"/>
-      </svg>
+      <Icon icon={barChartSolid} size={16} />
       <span class="histogram-title">Log Activity</span>
       <span class="time-range-badge">{$timeRange}</span>
       {#if anomalies.length > 0}
         <span class="anomaly-badge" title="Anomalies detected">
-          <svg width="12" height="12" viewBox="0 0 16 16">
-            <path fill="currentColor" d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm9 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm-.25-6.25a.75.75 0 0 0-1.5 0v3.5a.75.75 0 0 0 1.5 0v-3.5Z"/>
-          </svg>
+          <Icon icon={alertCircleSolid} size={12} />
           {anomalies.length}
         </span>
       {/if}
@@ -418,7 +424,11 @@
           {formatNumber(totalLogs)}
           {#if totalChangePercent !== null}
             <span class="change-indicator" class:positive={totalChangePercent > 0} class:negative={totalChangePercent < 0}>
-              {totalChangePercent > 0 ? '↑' : totalChangePercent < 0 ? '↓' : '→'}{Math.abs(totalChangePercent)}%
+              <Icon
+                icon={totalChangePercent > 0 ? arrowUp : totalChangePercent < 0 ? arrowDown : arrowRight}
+                size={11}
+                strokeWidth={3}
+              />{Math.abs(totalChangePercent)}%
             </span>
           {/if}
         </span>
@@ -540,13 +550,11 @@
         on:click={toggleComparison}
         title="Compare with previous period"
       >
-        <svg width="14" height="14" viewBox="0 0 16 16">
-          <path fill="currentColor" d="M0 8a1 1 0 0 1 1-1h4.586a1 1 0 0 1 .707.293L8 9H7v5H2a1 1 0 0 1-1-1V8Zm9.707-.293A1 1 0 0 0 9 8H8V9l1.707-1.293ZM15 8a1 1 0 0 0-1-1h-4.586a1 1 0 0 0-.707.293L8 9v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V8Z"/>
-        </svg>
+        <Icon icon={columns} size={14} strokeWidth={2.5} />
         Compare
       </button>
       <span class="legend-hint">
-        <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M1 4h10v1H1V4Zm2-2h6v1H3V2Zm-2 4h10v1H1V6Z"/></svg>
+        <Icon icon={textLines} size={12} strokeWidth={3} />
         Drag to zoom
       </span>
     </div>
@@ -575,7 +583,8 @@
     gap: 10px;
   }
 
-  .header-left svg {
+  /* :global — Icon renders its SVG inside its own component scope. */
+  .header-left :global(svg) {
     color: #58a6ff;
   }
 
@@ -630,6 +639,9 @@
   }
 
   .change-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
     font-size: 11px;
     padding: 1px 4px;
     border-radius: 4px;
@@ -660,7 +672,7 @@
 
   .stat-label {
     font-size: 10px;
-    color: #6e7681;
+    color: #848d97;
     text-transform: uppercase;
   }
 
@@ -710,7 +722,7 @@
   }
 
   .tooltip-anomaly-tag {
-    font-size: 9px;
+    font-size: 11px;
     padding: 1px 4px;
     background: #f85149;
     color: #fff;
@@ -784,7 +796,7 @@
 
   .tooltip-hint {
     font-size: 10px;
-    color: #6e7681;
+    color: #848d97;
     text-align: center;
     margin-top: 8px;
     padding-top: 6px;
@@ -863,10 +875,10 @@
     align-items: center;
     gap: 6px;
     font-size: 11px;
-    color: #6e7681;
+    color: #848d97;
   }
 
-  .legend-hint svg {
+  .legend-hint :global(svg) {
     color: #484f58;
   }
 </style>

@@ -4,6 +4,10 @@
   import { getLevelColor } from '../utils/colors.js';
   import { isFreePlan } from '../stores/license.js';
   import LoadingSpinner from './ui/LoadingSpinner.svelte';
+  import EmptyState from './ui/EmptyState.svelte';
+  import Icon from './ui/Icon.svelte';
+  import { caretRight, refresh, lock, layers } from './ui/icons.js';
+  import { api } from '../utils/api.js';
 
   let selectedPattern = null;
   let patternLogs = null;
@@ -17,10 +21,7 @@
 
   async function fetchPatternStats() {
     try {
-      const res = await fetch('/api/patterns/stats');
-      if (res.ok) {
-        patternStats = await res.json();
-      }
+      patternStats = await api.get('/patterns/stats');
     } catch {
       // Stats are non-critical, silently ignore
     }
@@ -82,16 +83,24 @@
 
 <div class="patterns-sidebar" class:collapsed={!expanded}>
   <div class="sidebar-header">
-    <button class="expand-btn" on:click={toggleExpand} title={expanded ? 'Collapse' : 'Expand'}>
-      <svg width="12" height="12" viewBox="0 0 12 12" class:rotated={!expanded}>
-        <path fill="currentColor" d="M4 2l4 4-4 4V2z"/>
-      </svg>
+    <button
+      class="expand-btn"
+      on:click={toggleExpand}
+      title={expanded ? 'Collapse' : 'Expand'}
+      aria-label={expanded ? 'Collapse patterns sidebar' : 'Expand patterns sidebar'}
+      aria-expanded={expanded}
+    >
+      <Icon icon={caretRight} size={12} class={expanded ? '' : 'rotated'} />
     </button>
     <h3>Patterns</h3>
-    <button class="refresh-btn" on:click={fetchPatterns} disabled={$patternsLoading} title="Refresh patterns">
-      <svg width="14" height="14" viewBox="0 0 14 14" class:spinning={$patternsLoading}>
-        <path fill="currentColor" d="M7 1a6 6 0 0 0-6 6h2a4 4 0 0 1 4-4V1zm0 12a6 6 0 0 0 6-6h-2a4 4 0 0 1-4 4v2zM1 7a6 6 0 0 0 6 6v-2a4 4 0 0 1-4-4H1zm12 0a6 6 0 0 0-6-6v2a4 4 0 0 1 4 4h2z"/>
-      </svg>
+    <button
+      class="refresh-btn"
+      on:click={fetchPatterns}
+      disabled={$patternsLoading}
+      title="Refresh patterns"
+      aria-label="Refresh patterns"
+    >
+      <Icon icon={refresh} size={14} strokeWidth={2.5} spin={$patternsLoading} />
     </button>
   </div>
 
@@ -100,9 +109,7 @@
       {#if $isFreePlan}
         <div class="upgrade-cta">
           <div class="upgrade-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-            </svg>
+            <Icon icon={lock} size={28} strokeWidth={1.5} />
           </div>
           <h4 class="upgrade-title">Pattern Detection</h4>
           <p class="upgrade-desc">Automatically detect and group similar log patterns. Upgrade to Pro to unlock.</p>
@@ -118,9 +125,9 @@
           <LoadingSpinner size="sm" label="Loading patterns..." />
         </div>
       {:else if $patterns.length === 0}
-        <div class="empty-state">
-          <span>No patterns found</span>
-        </div>
+        <EmptyState icon={layers} title="No patterns found" size="sm">
+          Patterns appear once Purl has grouped similar log lines in this time range.
+        </EmptyState>
       {:else}
         {#if patternStats && patternStats.total_patterns != null}
           <div class="pattern-stats">
@@ -226,21 +233,13 @@
     color: #c9d1d9;
   }
 
-  .expand-btn svg {
+  /* :global — Icon renders its SVG inside its own component scope. */
+  .expand-btn :global(svg) {
     transition: transform 0.2s;
   }
 
-  .expand-btn svg.rotated {
+  .expand-btn :global(svg.rotated) {
     transform: rotate(180deg);
-  }
-
-  .refresh-btn svg.spinning {
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
   }
 
   .patterns-content {
@@ -275,7 +274,6 @@
   }
 
   .loading-state,
-  .empty-state,
   .error-state {
     padding: 20px;
     text-align: center;

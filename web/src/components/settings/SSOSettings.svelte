@@ -13,6 +13,7 @@
   import Toggle from '../ui/Toggle.svelte';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
+  import { lock, caretDown, check, copy, close, arrowRight } from '../ui/icons.js';
 
   // ── License gate ──────────────────────────────────────────────────────────
   let plan = $state('free');
@@ -201,15 +202,21 @@
     <!-- Enterprise gate banner -->
     <div class="enterprise-banner">
       <div class="banner-icon">
-        <Icon name="lock" size={20} />
+        <Icon icon={lock} size={20} />
       </div>
       <div class="banner-body">
         <strong>SAML / SSO requires an Enterprise license.</strong>
         <p>Upgrade to enable single sign-on via SAML 2.0 identity providers like Okta, Azure AD, or OneLogin.</p>
       </div>
-      <a href="https://purl.dev/pricing" class="upgrade-link" target="_blank" rel="noopener noreferrer">
-        Upgrade to Enterprise &rarr;
-      </a>
+      <div class="banner-actions">
+        <a href="https://purl.dev/pricing" class="upgrade-link" target="_blank" rel="noopener noreferrer">
+          Upgrade to Enterprise
+          <Icon icon={arrowRight} size={12} strokeWidth={3} />
+        </a>
+        <a href="https://purlogs.com/docs" class="docs-link" target="_blank" rel="noopener noreferrer">
+          How SAML SSO works
+        </a>
+      </div>
     </div>
   {:else}
     <!-- ── Section 1: Enable/Disable ──────────────────────────────────────── -->
@@ -326,11 +333,12 @@
             class="copy-btn"
             onclick={copyMetadataUrl}
             title="Copy metadata URL"
+            aria-label="Copy SP metadata URL"
           >
             {#if copied}
-              <Icon name="check" size={14} />
+              <Icon icon={check} size={14} strokeWidth={2.5} />
             {:else}
-              <Icon name="copy" size={14} />
+              <Icon icon={copy} size={14} strokeWidth={2.5} />
             {/if}
           </button>
         </div>
@@ -345,7 +353,7 @@
         class="advanced-toggle"
         onclick={() => showAdvanced = !showAdvanced}
       >
-        <Icon name="chevron-down" size={14} class="chevron {showAdvanced ? 'open' : ''}" />
+        <Icon icon={caretDown} size={12} class="chevron {showAdvanced ? 'open' : ''}" />
         <span>Advanced — Attribute Mapping &amp; SP Certificates</span>
       </button>
 
@@ -411,10 +419,10 @@
     {#if testResult !== null}
       <div class="test-result" class:test-ok={testResult.ok} class:test-fail={!testResult.ok}>
         {#if testResult.ok}
-          <Icon name="check" size={14} />
+          <Icon icon={check} size={14} strokeWidth={2.5} />
           Valid — {testResult.message}
         {:else}
-          <Icon name="close" size={14} />
+          <Icon icon={close} size={14} strokeWidth={2.5} />
           Validation failed: {testResult.message}
         {/if}
       </div>
@@ -526,10 +534,18 @@
     line-height: 1.5;
   }
 
-  .upgrade-link {
+  .banner-actions {
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .upgrade-link {
     display: inline-flex;
     align-items: center;
+    gap: 6px;
     padding: 6px 14px;
     background: var(--color-primary, #58a6ff);
     color: #ffffff;
@@ -543,6 +559,20 @@
 
   .upgrade-link:hover {
     background: var(--color-primary-hover, #79b8ff);
+  }
+
+  /* Secondary path: help, not checkout. */
+  .docs-link {
+    font-size: 0.75rem;
+    color: var(--text-secondary, #8b949e);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.15s ease;
+  }
+
+  .docs-link:hover {
+    color: var(--color-primary, #58a6ff);
+    text-decoration: underline;
   }
 
   /* ── Card section title ──────────────────────────────────────────────────── */
@@ -638,7 +668,7 @@
   .metadata-hint {
     margin: 0;
     font-size: 0.75rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     line-height: 1.5;
   }
 

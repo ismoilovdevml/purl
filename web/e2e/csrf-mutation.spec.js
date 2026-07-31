@@ -1,69 +1,54 @@
 import { test, expect } from '@playwright/test';
+import { login, gotoTab } from './fixtures/purl.js';
 
 /**
  * CSRF regression guard.
  *
- * The backend enforces CSRF on every mutating request (POST/PUT/PATCH/DELETE):
- * a session-cookie request without a valid `X-CSRF-Token` header is rejected
- * with 403. All dashboard mutations must therefore go through the central
- * apiClient (web/src/utils/api.js), which attaches that header automatically.
+ * The backend rejects any session-cookie mutation (POST/PUT/PATCH/DELETE) that
+ * arrives without a valid `X-CSRF-Token`. Every dashboard mutation must
+ * therefore go through the central apiClient (web/src/utils/api.js), which
+ * attaches the header. A call site that regresses to a raw `fetch()` gets a
+ * silent 403 that the UI shows as "nothing happened".
  *
- * This spec drives a real dashboard mutation end-to-end and asserts the
- * outgoing request carried `x-csrf-token` and did NOT come back 403. Against
- * the pre-fix code (raw `fetch()` with no header) the same action returns 403,
- * so this test fails without the fix.
- *
- * The chosen mutation — Analytics "Clear Cache" (DELETE /api/cache) — is
- * intentionally low-impact: it only flushes the server-side query cache.
- *
- * NOTE: playwright.config.js targets the live demo server, so this requires a
- * running Purl instance (with CSRF enabled) and PURL_TEST_PASSWORD to execute.
+ * The chosen mutation — Analytics "Clear Cache" (DELETE /api/cache) — only
+ * flushes the server-side query cache, so it is safe to fire on every run.
  */
-
-const BASE = 'http://37.27.187.72:3000';
-const USERNAME = 'admin';
-const PASSWORD = process.env.PURL_TEST_PASSWORD || 'changeme';
-
 test.describe('CSRF-protected mutations', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto(BASE);
-    await page.waitForLoadState('networkidle');
-
-    // Login if needed
-    const loginForm = page.locator('input[type="password"]');
-    if (await loginForm.isVisible({ timeout: 3000 }).catch(() => false)) {
-      const usernameInput = page.locator('input[autocomplete="username"]').first();
-      await usernameInput.fill(USERNAME);
-      await loginForm.fill(PASSWORD);
-      await page.locator('button:has-text("Sign In")').first().click();
-      await page.waitForLoadState('networkidle');
-      await page.waitForTimeout(1000);
-    }
-
-    await expect(page.locator('.nav-tabs')).toBeVisible({ timeout: 15000 });
+    await login(page);
   });
 
-  test('clear-cache mutation sends X-CSRF-Token and is not rejected with 403', async ({ page }) => {
-    // Navigate to Analytics
-    await page.locator('.nav-tabs button:has-text("Analytics")').click();
-    await expect(page.locator('.clear-cache-btn')).toBeVisible({ timeout: 10000 });
+  test('clear-cache sends X-CSRF-Token and is not rejected', async ({ page }) => {
+    await gotoTab(page, 'Analytics');
+    await expect(page.locator('.clear-cache-btn')).toBeVisible();
 
-    // Capture the mutating request/response for DELETE /api/cache
-    const cacheResponsePromise = page.waitForResponse(
-      (res) => res.url().includes('/api/cache') && res.request().method() === 'DELETE',
-      { timeout: 10000 }
+    const responsePromise = page.waitForResponse(
+      (res) => res.url().includes('/api/cache') && res.request().method() === 'DELETE'
     );
 
     await page.locator('.clear-cache-btn').click();
 
-    const response = await cacheResponsePromise;
-    const request = response.request();
+    const response = await responsePromise;
+    const headers = response.request().headers();
 
-    // The request must carry the CSRF header (proves it went through apiClient)
-    const headers = request.headers();
     expect(headers['x-csrf-token'], 'mutating request must include X-CSRF-Token').toBeTruthy();
-
-    // And it must not be rejected as a CSRF failure
     expect(response.status(), 'mutation must not be rejected with 403').not.toBe(403);
+    expect(response.status(), 'mutation must succeed').toBeLessThan(400);
+  });
+
+  test('the same mutation without the CSRF header is rejected with 403', async ({ page, request }) => {
+    // Proves the guard above is guarding something: replay the identical
+    // request, authenticated by the session cookie, minus the header.
+    const cookies = await page.context().cookies();
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+
+    const res = await request.delete('/api/cache', {
+      headers: { Cookie: cookieHeader },
+    });
+
+    expect(
+      res.status(),
+      'a session-authenticated mutation without X-CSRF-Token must be rejected'
+    ).toBe(403);
   });
 });

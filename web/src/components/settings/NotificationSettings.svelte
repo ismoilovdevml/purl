@@ -15,6 +15,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
+  import { telegram, slack, link } from '../ui/icons.js';
 
   let serverSettings = null;
   let loadingSettings = true;
@@ -94,7 +95,7 @@
   <Card padding="none" class="notification-card">
     <div class="notification-header">
       <div class="notification-icon telegram">
-        <Icon name="telegram" size={24} />
+        <Icon icon={telegram} size={24} />
       </div>
       <div class="notification-info">
         <h4>Telegram</h4>
@@ -168,7 +169,7 @@
   <Card padding="none" class="notification-card">
     <div class="notification-header">
       <div class="notification-icon slack">
-        <Icon name="slack" size={24} />
+        <Icon icon={slack} size={24} />
       </div>
       <div class="notification-info">
         <h4>Slack</h4>
@@ -232,7 +233,7 @@
   <Card padding="none" class="notification-card">
     <div class="notification-header">
       <div class="notification-icon webhook">
-        <Icon name="link" size={24} />
+        <Icon icon={link} size={24} />
       </div>
       <div class="notification-info">
         <h4>Webhook</h4>
@@ -474,7 +475,7 @@
 
   .form-hint {
     font-size: 0.6875rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     margin-left: 8px;
   }
 

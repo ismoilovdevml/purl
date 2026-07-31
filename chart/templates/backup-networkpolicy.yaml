@@ -1,0 +1,48 @@
+{{- /*
+The backup CronJob pods no longer carry Purl's selector labels, so nothing
+else in this chart selects them — on a cluster without a namespace-wide
+default-deny they are simply unrestricted. This policy makes the chart
+self-sufficient under default-deny: DNS plus the ClickHouse NATIVE port,
+which is the one clickhouse-client actually speaks (9000, not 8123).
+
+Egress to S3 is deliberately absent: `BACKUP ... TO S3(...)` streams
+server-side, so it is the ClickHouse pod that reaches the bucket (see
+clickhouse-networkpolicy.yaml), never this pod.
+*/ -}}
+{{- if and .Values.backup.enabled .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "purl.fullname" . }}-backup
+  labels:
+    {{- include "purl.backup.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "purl.backup.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    # DNS
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if .Values.clickhouse.enabled }}
+    # ClickHouse native protocol
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "purl.clickhouse.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 9000
+    {{- else }}
+    # External ClickHouse ({{ .Values.clickhouse.host }}) — allow the native
+    # port to any peer, since its address is outside this chart.
+    - ports:
+        - protocol: TCP
+          port: 9000
+    {{- end }}
+{{- end }}

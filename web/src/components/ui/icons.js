@@ -14,12 +14,22 @@
  * `polygon` / `path`. Keeping shapes as data (never markup strings) is what lets
  * <Icon> render them without `{@html}`.
  *
- * Every icon is a *named export* on purpose: an object map would be opaque to
- * Rollup, whereas named exports stay individually tree-shakeable for any
- * consumer that imports a glyph directly instead of going through <Icon name>.
+ * Every icon is a *named export* and every consumer imports the glyphs it uses
+ * by name:
  *
- * Names are referenced from <Icon> in kebab-case (`chevron-down`); <Icon>
- * camel-cases before looking the export up.
+ *   import Icon from '../ui/Icon.svelte';
+ *   import { chevronDown, close } from '../ui/icons.js';
+ *   <Icon icon={close} size={16} />
+ *
+ * That is the whole tree-shaking contract. <Icon> deliberately has no string
+ * registry lookup: a `import * as ICONS` + `ICONS[name]` pair forces Rollup to
+ * treat every export as live, which pinned all ~10 kB of glyph data into the
+ * eager first-paint chunk. With direct imports each glyph lands only in the
+ * chunk(s) that reference it, and unused ones are dropped entirely.
+ *
+ * Sizing note: glyphs on the default 24x24 grid are stroked at `stroke-width: 2`,
+ * so the rendered stroke is `size / 12` px. Below ~16px pass `strokeWidth` to
+ * keep the optical weight (e.g. `size={12} strokeWidth={3}` -> 1.5px).
  */
 
 /* ------------------------------------------------------------------ *
@@ -40,6 +50,15 @@ export const arrowUp = ['M12 19V5', 'm5 12 7-7 7 7'];
 export const arrowDown = ['M12 5v14', 'm19 12-7 7-7-7'];
 export const arrowLeft = ['M19 12H5', 'm12 19-7-7 7-7'];
 export const arrowRight = ['M5 12h14', 'm12 5 7 7-7 7'];
+
+/* Solid carets.
+ *
+ * Disclosure toggles need a filled wedge, not a stroked chevron: at 12px a
+ * 24-grid chevron renders a 1px hairline that reads as noise next to the label.
+ * These live on their own 12x12 grid so they stay crisp at their native size. */
+export const caretRight = { fill: true, viewBox: '0 0 12 12', shapes: ['M4 2l4 4-4 4Z'] };
+export const caretDown = { fill: true, viewBox: '0 0 12 12', shapes: ['M2 4l4 4 4-4Z'] };
+export const caretUp = { fill: true, viewBox: '0 0 12 12', shapes: ['M2 8l4-4 4 4Z'] };
 
 /* ------------------------------------------------------------------ *
  * Actions
@@ -99,6 +118,27 @@ export const pin = [
   'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z',
 ];
 
+/**
+ * Solid angled pin — the "pin this column / row" toggle.
+ *
+ * Kept separate from the outlined `pin` because it renders at 10-12px, where a
+ * stroked pin is illegible.
+ */
+export const pinAngle = {
+  fill: true,
+  viewBox: '0 0 16 16',
+  shapes: [
+    'M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z',
+  ],
+};
+
+/** Solid four-point star — the "AI suggestion" affordance at 12px. */
+export const sparkleSolid = {
+  fill: true,
+  viewBox: '0 0 12 12',
+  shapes: ['M6 0l1.5 3.5L11 5l-3.5 1.5L6 10 4.5 6.5 1 5l3.5-1.5z'],
+};
+
 /** Drag handle. */
 export const grip = {
   fill: true,
@@ -135,6 +175,18 @@ export const alertCircle = [
   ['line', { x1: 12, y1: 8, x2: 12, y2: 12 }],
   ['line', { x1: 12, y1: 16, x2: 12.01, y2: 16 }],
 ];
+
+/**
+ * Solid alert badge — a filled disc with the mark knocked out.
+ *
+ * Used where the glyph sits on a coloured chip at 12-14px and needs mass to
+ * survive; the outlined `alertCircle` disappears at that size.
+ */
+export const alertCircleSolid = {
+  fill: true,
+  viewBox: '0 0 16 16',
+  shapes: ['M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1Zm-.75 4.75v3.5h1.5v-3.5h-1.5Zm0 5v1.5h1.5v-1.5h-1.5Z'],
+};
 
 export const alertTriangle = [
   'M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z',
@@ -251,7 +303,22 @@ export const pipeline = [
   'M4 6h16',
   'M4 12h16',
   'M4 18h10',
-  ['circle', { cx: 20, cy: 18, r: 2 }],
+  // Filled terminator: the pipeline mark reads as "stages ending in a sink",
+  // and a hollow ring here loses that (regression fixed 2026-07-27).
+  ['circle', { cx: 20, cy: 18, r: 2, fill: 'currentColor' }],
+];
+
+/** Stacked planes — Kubernetes / grouped resources. */
+export const layers = [
+  'M12 2 2 7l10 5 10-5-10-5z',
+  'M2 17l10 5 10-5',
+  'M2 12l10 5 10-5',
+];
+
+/** Gear — the Settings nav entry. */
+export const settings = [
+  ['circle', { cx: 12, cy: 12, r: 3 }],
+  'M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z',
 ];
 
 export const integrations = [
@@ -324,6 +391,19 @@ export const terminal = [
 
 export const barChart = ['M18 20V10', 'M12 20V4', 'M6 20v-6'];
 
+/** Solid ascending bars — the histogram's own view toggle, at 16px. */
+export const barChartSolid = {
+  fill: true,
+  viewBox: '0 0 16 16',
+  shapes: ['M1 14h14v1H1v-1Zm1-3h2v3H2v-3Zm3-2h2v5H5V9Zm3-3h2v8H8V6Zm3-2h2v10h-2V4Zm3-3h1v13h-1V1Z'],
+};
+
+/** Axes with a plotted line — the Analytics nav entry. */
+export const lineChart = ['M3 3v18h18', 'M18 9l-5-6-4 8-3-2'];
+
+/** Text lines (long, long, short) — "raw text" / message body. */
+export const textLines = ['M4 6h16', 'M4 12h16', 'M4 18h10'];
+
 /** Side-by-side panes — the histogram "compare" toggle. */
 export const columns = [
   ['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2, ry: 2 }],
@@ -347,6 +427,17 @@ export const grid = [
   ['rect', { x: 3, y: 14, width: 7, height: 7, rx: 1 }],
   ['rect', { x: 14, y: 14, width: 7, height: 7, rx: 1 }],
 ];
+
+/** Solid tiles — a denser `grid`, for 14px toolbar toggles. */
+export const gridSolid = {
+  fill: true,
+  shapes: [
+    ['rect', { x: 2, y: 2, width: 9, height: 9, rx: 1.7 }],
+    ['rect', { x: 13, y: 2, width: 9, height: 9, rx: 1.7 }],
+    ['rect', { x: 2, y: 13, width: 9, height: 9, rx: 1.7 }],
+    ['rect', { x: 13, y: 13, width: 9, height: 9, rx: 1.7 }],
+  ],
+};
 
 export const hash = ['M4 9h16', 'M4 15h16', 'M10 3 8 21', 'M16 3l-2 18'];
 

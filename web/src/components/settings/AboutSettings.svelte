@@ -11,8 +11,9 @@
   import Badge from '../ui/Badge.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import Icon from '../ui/Icon.svelte';
+  import { activity, barChart, database, logo } from '../ui/icons.js';
+  import { api } from '../../utils/api.js';
 
-  const API_BASE = '/api';
   let systemInfo = null;
   let metricsInfo = null;
   let loadingInfo = true;
@@ -22,12 +23,12 @@
     loadingInfo = false;
   });
 
+  // Both panels are informational: a failure leaves the value null and the
+  // markup falls back to its own placeholder, exactly as before. Going through
+  // `api` adds the centralized 401 session-expiry handling these calls lacked.
   async function fetchSystemInfo() {
     try {
-      const res = await fetch(`${API_BASE}/health`);
-      if (res.ok) {
-        systemInfo = await res.json();
-      }
+      systemInfo = await api.get('/health');
     } catch {
       // Ignore
     }
@@ -35,10 +36,7 @@
 
   async function fetchMetrics() {
     try {
-      const res = await fetch(`${API_BASE}/metrics/json`);
-      if (res.ok) {
-        metricsInfo = await res.json();
-      }
+      metricsInfo = await api.get('/metrics/json');
     } catch {
       // Ignore
     }
@@ -85,7 +83,7 @@
   <div class="about-grid">
     <Card padding="lg" class="about-card main-card">
       <div class="about-logo">
-        <Icon name="logo" size={72} color="#58a6ff" />
+        <Icon icon={logo} size={72} color="#58a6ff" />
       </div>
 
       <h2>Purl</h2>
@@ -104,7 +102,7 @@
     <div class="info-cards">
       <Card padding="md" class="info-card">
         <div class="info-card-header">
-          <Icon name="activity" size={20} />
+          <Icon icon={activity} size={20} />
           <h4>System Status</h4>
         </div>
         <div class="info-card-content">
@@ -127,7 +125,7 @@
 
       <Card padding="md" class="info-card">
         <div class="info-card-header">
-          <Icon name="database" size={20} />
+          <Icon icon={database} size={20} />
           <h4>Storage</h4>
         </div>
         <div class="info-card-content">
@@ -148,7 +146,7 @@
 
       <Card padding="md" class="info-card">
         <div class="info-card-header">
-          <Icon name="bar-chart" size={20} />
+          <Icon icon={barChart} size={20} />
           <h4>Performance</h4>
         </div>
         <div class="info-card-content">
@@ -229,7 +227,7 @@
   .about-version {
     margin: 8px 0 20px;
     font-size: 0.8125rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
   }
 

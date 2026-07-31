@@ -6,10 +6,16 @@ the "purl" user that values.yaml defaults to.
 
 The password is injected via from_env so it never appears in the ConfigMap;
 the env var comes from the chart Secret (see clickhouse-statefulset.yaml).
+An empty password is no longer possible — see the purl.clickhouse.password
+helper — because <password></password> together with <ip>::/0</ip> meant any
+pod in the cluster could read and write the log database.
 */ -}}
 {{- if and .Values.clickhouse.enabled (ne .Values.clickhouse.user "default") }}
 {{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_-]*$" .Values.clickhouse.user) }}
 {{- fail "clickhouse.user must be a valid identifier (start with a letter or underscore; letters, digits, underscore, hyphen only) — it is used as an XML element name in ClickHouse users.d config" }}
+{{- end }}
+{{- if not .Values.clickhouse.allowedNetworks }}
+{{- fail "clickhouse.allowedNetworks must list at least one CIDR — an empty list creates a ClickHouse user that cannot connect from anywhere" }}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap
@@ -22,17 +28,27 @@ data:
     <clickhouse>
       <users>
         <{{ .Values.clickhouse.user }}>
-          {{- if .Values.clickhouse.password }}
           <password from_env="PURL_APP_USER_PASSWORD"></password>
-          {{- else }}
-          <password></password>
-          {{- end }}
           <networks>
-            <ip>::/0</ip>
+            {{- range .Values.clickhouse.allowedNetworks }}
+            <ip>{{ . }}</ip>
+            {{- end }}
           </networks>
           <profile>default</profile>
           <quota>default</quota>
         </{{ .Values.clickhouse.user }}>
+        {{- if .Values.clickhouse.restrictDefaultUser }}
+        <!-- Purl authenticates as {{ .Values.clickhouse.user }}; the `default`
+             user only has to serve the image's own init scripts, which run on
+             localhost. This merges into the existing <default> definition, so
+             the password/profile written by the entrypoint stay intact. -->
+        <default>
+          <networks replace="replace">
+            <ip>127.0.0.1</ip>
+            <ip>::1</ip>
+          </networks>
+        </default>
+        {{- end }}
       </users>
     </clickhouse>
 {{- end }}

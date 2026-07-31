@@ -14,6 +14,7 @@
   import { licenseInfo, licenseLoading, licenseError, currentPlan, isFreePlan, hasFeature, fetchLicense, saveLicenseKey } from '../../stores/license.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import Icon from '../ui/Icon.svelte';
+  import { check, lock } from '../ui/icons.js';
 
   let licenseKey = '';
   let saving = false;
@@ -115,9 +116,9 @@
           {#each Object.entries(FEATURE_LABELS) as [key, label]}
             <div class="feature-item">
               {#if featureEnabled(key)}
-                <Icon name="check" size={16} class="feature-icon check" />
+                <Icon icon={check} size={16} strokeWidth={2.25} class="feature-icon check" />
               {:else}
-                <Icon name="lock" size={16} class="feature-icon lock" />
+                <Icon icon={lock} size={16} strokeWidth={2.25} class="feature-icon lock" />
               {/if}
               <span class:disabled={!featureEnabled(key)}>{label}</span>
             </div>
@@ -188,6 +189,9 @@
             <Button variant="primary" on:click={() => window.open('https://purlogs.com/pricing', '_blank')}>
               View Pricing
             </Button>
+            <a class="docs-link" href="https://purlogs.com/docs" target="_blank" rel="noopener noreferrer">
+              Read the documentation
+            </a>
           </div>
         </Card>
       {/if}
@@ -288,7 +292,7 @@
   }
 
   .feature-item .disabled {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   .feature-item :global(.feature-icon.check) {
@@ -296,7 +300,7 @@
   }
 
   .feature-item :global(.feature-icon.lock) {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   .limits-list {
@@ -357,5 +361,20 @@
     margin: 0 0 16px;
     font-size: 0.875rem;
     color: var(--text-secondary, #8b949e);
+  }
+
+  /* Secondary path: help, not checkout. */
+  .docs-link {
+    display: block;
+    margin-top: 12px;
+    font-size: 0.8125rem;
+    color: var(--text-secondary, #8b949e);
+    text-decoration: none;
+    transition: color 0.15s ease;
+  }
+
+  .docs-link:hover {
+    color: var(--color-primary, #58a6ff);
+    text-decoration: underline;
   }
 </style>

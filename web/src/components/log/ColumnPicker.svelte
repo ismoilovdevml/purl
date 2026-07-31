@@ -8,6 +8,8 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { clickOutside } from '../../utils/dom.js';
+  import Icon from '../ui/Icon.svelte';
+  import { checkCircle, grip, layers, pinAngle, refresh, search, table, textLines } from '../ui/icons.js';
 
   export let columns = [];
   export let open = false;
@@ -18,11 +20,12 @@
   let draggedColumn = null;
   let dragOverColumn = null;
 
-  // Column groups for organization
+  // Column groups for organization. `icon` holds the imported glyph itself —
+  // never raw path data — so icons.js stays tree-shakeable.
   const columnGroups = {
-    core: { label: 'Core Fields', icon: 'M3 3h18v18H3V3zm2 2v14h14V5H5z' },
-    kubernetes: { label: 'Kubernetes', icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
-    tracing: { label: 'Tracing', icon: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z' }
+    core: { label: 'Core Fields', icon: table },
+    kubernetes: { label: 'Kubernetes', icon: layers },
+    tracing: { label: 'Tracing', icon: checkCircle }
   };
 
   // Presets for quick configuration
@@ -153,9 +156,7 @@
 
 <div class="column-picker">
   <button class="picker-trigger" on:click|stopPropagation={() => open = !open}>
-    <svg width="14" height="14" viewBox="0 0 16 16">
-      <path fill="currentColor" d="M1.5 3a.5.5 0 0 0 0 1h13a.5.5 0 0 0 0-1h-13zM1 7.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 0 1h-13a.5.5 0 0 1-.5-.5zm.5 3.5a.5.5 0 0 0 0 1h8a.5.5 0 0 0 0-1h-8z"/>
-    </svg>
+    <Icon icon={textLines} size={14} strokeWidth={2.5} />
     <span>Columns</span>
     {#if currentPreset}
       <span class="preset-badge">{currentPreset}</span>
@@ -166,9 +167,7 @@
     <div class="picker-dropdown" use:clickOutside={close}>
       <!-- Search -->
       <div class="picker-search">
-        <svg width="14" height="14" viewBox="0 0 16 16">
-          <path fill="currentColor" d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
-        </svg>
+        <Icon icon={search} size={14} strokeWidth={2.5} class="search-icon" />
         <input
           type="text"
           placeholder="Search columns..."
@@ -201,9 +200,7 @@
           {#if groupCols.length > 0}
             <div class="column-group">
               <div class="group-header">
-                <svg width="12" height="12" viewBox="0 0 24 24">
-                  <path fill="currentColor" d={columnGroups[groupKey].icon}/>
-                </svg>
+                <Icon icon={columnGroups[groupKey].icon} size={12} strokeWidth={3} class="group-icon" />
                 <span>{columnGroups[groupKey].label}</span>
                 <span class="group-count">{groupCols.filter(c => c.visible).length}/{groupCols.length}</span>
               </div>
@@ -223,9 +220,7 @@
                     role="listitem"
                   >
                     <div class="drag-handle" title="Drag to reorder">
-                      <svg width="10" height="10" viewBox="0 0 16 16">
-                        <path fill="currentColor" d="M2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm6-10a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
-                      </svg>
+                      <Icon icon={grip} size={10} />
                     </div>
                     <label class="column-checkbox">
                       <input
@@ -242,10 +237,10 @@
                         class:pinned={col.pinned}
                         on:click|stopPropagation={() => togglePin(col.id)}
                         title={col.pinned ? 'Unpin column' : 'Pin column to left'}
+                        aria-label={col.pinned ? `Unpin ${col.label} column` : `Pin ${col.label} column to left`}
+                        aria-pressed={col.pinned}
                       >
-                        <svg width="12" height="12" viewBox="0 0 16 16">
-                          <path fill="currentColor" d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z"/>
-                        </svg>
+                        <Icon icon={pinAngle} size={12} />
                       </button>
                     {/if}
                   </div>
@@ -258,10 +253,7 @@
 
       <div class="picker-footer">
         <button class="reset-btn" on:click={resetColumns}>
-          <svg width="12" height="12" viewBox="0 0 16 16">
-            <path fill="currentColor" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-            <path fill="currentColor" d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
-          </svg>
+          <Icon icon={refresh} size={12} strokeWidth={3} />
           Reset to Default
         </button>
         <span class="visible-count">{visibleColumns.length} visible</span>
@@ -330,8 +322,8 @@
     background: var(--bg-primary, #0d1117);
   }
 
-  .picker-search svg {
-    color: var(--text-muted, #6e7681);
+  .picker-search :global(.search-icon) {
+    color: var(--text-muted, #848d97);
     flex-shrink: 0;
   }
 
@@ -341,11 +333,10 @@
     border: none;
     color: var(--text-primary, #c9d1d9);
     font-size: var(--text-base, 13px);
-    outline: none;
   }
 
   .picker-search input::placeholder {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   .picker-presets {
@@ -357,7 +348,7 @@
     display: block;
     font-size: 10px;
     font-weight: 600;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 8px;
@@ -418,14 +409,14 @@
     letter-spacing: 0.3px;
   }
 
-  .group-header svg {
+  .group-header :global(.group-icon) {
     opacity: 0.7;
   }
 
   .group-count {
     margin-left: auto;
     font-size: 10px;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     font-weight: 500;
   }
 
@@ -468,7 +459,7 @@
     align-items: center;
     justify-content: center;
     padding: 4px;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     opacity: 0.5;
     cursor: grab;
   }
@@ -532,7 +523,7 @@
     padding: 4px;
     background: transparent;
     border: none;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     cursor: pointer;
     border-radius: var(--radius-sm, 4px);
     opacity: 0;
@@ -583,6 +574,6 @@
 
   .visible-count {
     font-size: 11px;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 </style>

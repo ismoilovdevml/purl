@@ -13,7 +13,7 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from Purl pods
+    # Purl pods -> HTTP interface
     - from:
         - podSelector:
             matchLabels:
@@ -21,8 +21,20 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.clickhouse.port }}
+    {{- if .Values.backup.enabled }}
+    # Backup CronJob -> native protocol (clickhouse-client speaks 9000, not
+    # the HTTP port). Without this rule an enabled NetworkPolicy silently
+    # broke every scheduled backup.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "purl.backup.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 9000
+    {{- end }}
     {{- if .Values.clickhouse.cluster.enabled }}
-    # Allow inter-node ClickHouse traffic (native protocol + Keeper)
+    # Inter-node ClickHouse traffic (native protocol + Keeper)
     - from:
         - podSelector:
             matchLabels:
@@ -38,14 +50,42 @@ spec:
         {{- end }}
     {{- end }}
   egress:
-    # Allow DNS resolution
+    # DNS
     - ports:
         - protocol: UDP
           port: 53
         - protocol: TCP
           port: 53
+    {{- if .Values.backup.enabled }}
+    # `BACKUP DATABASE ... TO S3(...)` streams server-side, so it is
+    # ClickHouse — not the CronJob pod — that needs egress to the bucket.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- range .Values.networkPolicy.egress.internetExcludeCIDRs }}
+              - {{ . | quote }}
+              {{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+    {{- if .Values.backup.s3.endpoint }}
+    # Custom S3 endpoint ({{ .Values.backup.s3.endpoint }}). The ipBlock
+    # above excludes private ranges, so an in-cluster MinIO needs its own
+    # rule.
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 9000
+    {{- end }}
+    {{- end }}
     {{- if .Values.clickhouse.cluster.enabled }}
-    # Allow outbound to other ClickHouse replicas
+    # Outbound to other ClickHouse replicas
     - to:
         - podSelector:
             matchLabels:

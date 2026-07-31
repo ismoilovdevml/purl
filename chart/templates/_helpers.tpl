@@ -90,6 +90,45 @@ app.kubernetes.io/component: clickhouse
 {{- end }}
 
 {{/*
+Backup pod selector labels.
+
+Deliberately NOT purl.selectorLabels: the backup pods used to carry them,
+which made every CronJob pod count towards the Purl PodDisruptionBudget and
+put the pods under the Purl NetworkPolicy (whose egress does not allow the
+ClickHouse native port the backup actually uses).
+*/}}
+{{- define "purl.backup.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "purl.name" . }}-backup
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: backup
+{{- end }}
+
+{{/*
+Backup labels
+*/}}
+{{- define "purl.backup.labels" -}}
+helm.sh/chart: {{ include "purl.chart" . }}
+{{ include "purl.backup.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Base S3 URL for backups (bucket + optional custom endpoint), without the
+object key. Shared by the CronJob script and the ClickHouse <s3> credentials
+block so both match on the same endpoint prefix.
+*/}}
+{{- define "purl.backup.s3BaseUrl" -}}
+{{- if .Values.backup.s3.endpoint }}
+{{- printf "%s/%s" (trimSuffix "/" .Values.backup.s3.endpoint) .Values.backup.s3.bucket }}
+{{- else }}
+{{- printf "https://%s.s3.%s.amazonaws.com" .Values.backup.s3.bucket .Values.backup.s3.region }}
+{{- end }}
+{{- end }}
+
+{{/*
 Resolve the ClickHouse host.
 If the built-in ClickHouse is enabled, use the internal service name.
 Otherwise, use the user-provided external host.
@@ -99,6 +138,53 @@ Otherwise, use the user-provided external host.
 {{- include "purl.clickhouse.fullname" . }}
 {{- else }}
 {{- required "clickhouse.host is required when clickhouse.enabled=false" .Values.clickhouse.host }}
+{{- end }}
+{{- end }}
+
+{{/*
+Name of the Secret holding Purl's runtime secrets.
+Either the chart-managed one or purl.existingSecret when the operator brings
+their own (so nothing sensitive has to pass through values / release history).
+*/}}
+{{- define "purl.secretName" -}}
+{{- default (include "purl.fullname" .) .Values.purl.existingSecret }}
+{{- end }}
+
+{{/*
+Resolve the ClickHouse application password.
+
+Empty clickhouse.password must NOT mean "no password": that created a
+passwordless user reachable from ::/0. Resolution order:
+  1. explicit .Values.clickhouse.password
+  2. the value already stored in the release Secret (so upgrades keep it —
+     rotating it silently would lock Purl out of its own database)
+  3. a fresh random 32-char password
+Returns "" when purl.existingSecret is set: the operator supplies
+PURL_CLICKHOUSE_PASSWORD themselves and the chart must not invent one.
+*/}}
+{{- define "purl.clickhouse.password" -}}
+{{- if .Values.purl.existingSecret }}
+{{- "" }}
+{{- else if .Values.clickhouse.password }}
+{{- .Values.clickhouse.password }}
+{{- else }}
+{{- $existing := (lookup "v1" "Secret" .Release.Namespace (include "purl.fullname" .)) }}
+{{- if and $existing (index $existing.data "PURL_CLICKHOUSE_PASSWORD") }}
+{{- index $existing.data "PURL_CLICKHOUSE_PASSWORD" | b64dec }}
+{{- else }}
+{{- randAlphaNum 32 }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Effective number of Purl replicas, honouring autoscaling.
+*/}}
+{{- define "purl.replicaCount" -}}
+{{- if .Values.autoscaling.enabled }}
+{{- .Values.autoscaling.minReplicas }}
+{{- else }}
+{{- .Values.replicaCount }}
 {{- end }}
 {{- end }}
 

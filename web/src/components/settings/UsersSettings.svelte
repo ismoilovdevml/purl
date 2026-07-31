@@ -17,6 +17,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
+  import { monitor, user as userIcon } from '../ui/icons.js';
 
   let users = [];
   let loading = true;
@@ -158,7 +159,7 @@
 
     {#if ldapEnabled}
       <div class="ldap-banner">
-        <Icon name="agent" size={14} />
+        <Icon icon={monitor} size={14} strokeWidth={2.5} />
         <span>LDAP/AD authentication is active. Users can log in with their directory credentials. Local accounts serve as fallback when LDAP is unavailable.</span>
       </div>
     {/if}
@@ -210,7 +211,7 @@
           {#each users as user}
             <div class="user-row">
               <div class="user-info col-user">
-                <Icon name="user" size={16} />
+                <Icon icon={userIcon} size={16} strokeWidth={2.25} />
                 <span class="username">{user.username}</span>
                 {#if $currentUser?.username === user.username}
                   <Badge variant="primary" size="sm">You</Badge>
@@ -331,7 +332,7 @@
   }
 
   .limit-info {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   .add-form {
@@ -369,8 +370,8 @@
     min-width: 180px;
   }
 
+  /* Border-color is the resting cue; the global :focus-visible ring stays. */
   .role-select:focus {
-    outline: none;
     border-color: #388bfd;
   }
 
@@ -388,7 +389,7 @@
     margin-bottom: 4px;
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -428,7 +429,7 @@
   }
 
   .user-info :global(svg) {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     flex-shrink: 0;
   }
 
@@ -489,7 +490,7 @@
   .empty {
     text-align: center;
     padding: 20px;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     font-size: 0.875rem;
   }
 

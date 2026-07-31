@@ -131,12 +131,24 @@ sub require_feature {
     return 0;
 }
 
+# THE quota gate. Every limit check in the codebase goes through here — there
+# is no second implementation, because the one rule everybody forgets is that
+# a limit of -1 means UNLIMITED, and an open-coded `$count >= $max` turns
+# "unlimited" into "nothing allowed at all" (0 >= -1 is true).
+#
+#   $current_count : how many of the thing already exist
+#   $adding        : how many the caller wants to add (default 1)
+#
+# Renders a 403 and returns 0 when the request would exceed the quota;
+# returns 1 (and renders nothing) otherwise, including when no license context
+# is attached or the plan does not meter this resource at all.
 sub check_limit {
-    my ($self, $c, $limit_name, $current_count) = @_;
+    my ($self, $c, $limit_name, $current_count, $adding) = @_;
+    $adding //= 1;
     my $info = $c->stash('license_info') // return 1;
     my $max = $info->{limits}{$limit_name} // return 1;
-    return 1 if $max < 0;  # -1 means unlimited (Enterprise)
-    return 1 if $current_count < $max;
+    return 1 if $max < 0;  # -1 means unlimited
+    return 1 if $current_count + $adding <= $max;
     my $plan = $info->{plan} // 'free';
     $c->render(json => {
         error   => "Limit reached: $limit_name (current: $current_count, max: $max)",

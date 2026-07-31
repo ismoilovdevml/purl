@@ -14,8 +14,10 @@
   import { fly, fade } from 'svelte/transition';
   import toasts, { removeToast } from '../../stores/toast.js';
   import Icon from './Icon.svelte';
+  import { alertTriangle, checkCircle, close, info, xCircle } from './icons.js';
 
-  const TOAST_ICON = { success: 'check-circle', error: 'x-circle', warning: 'alert-triangle' };
+  // Local map of imported glyphs — never `import * as` (see Icon.svelte).
+  const TOAST_ICON = { success: checkCircle, error: xCircle, warning: alertTriangle };
 
   // Limit visible toasts to 5
   $: visibleToasts = $toasts.slice(-5);
@@ -31,7 +33,7 @@
         out:fade={{ duration: 150 }}
       >
         <span class="toast-icon">
-          <Icon name={TOAST_ICON[toast.type] || 'info'} size={16} />
+          <Icon icon={TOAST_ICON[toast.type] ?? info} size={16} />
         </span>
         <span class="toast-message">{toast.message}</span>
         <button
@@ -39,7 +41,7 @@
           on:click={() => removeToast(toast.id)}
           aria-label="Dismiss notification"
         >
-          <Icon name="close" size={14} />
+          <Icon icon={close} size={14} strokeWidth={2.5} />
         </button>
       </div>
     {/each}

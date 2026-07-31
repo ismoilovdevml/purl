@@ -2,6 +2,9 @@
   import { onMount } from 'svelte';
   import Button from './ui/Button.svelte';
   import LoadingSpinner from './ui/LoadingSpinner.svelte';
+  import Icon from './ui/Icon.svelte';
+  import EmptyState from './ui/EmptyState.svelte';
+  import { play, xCircle, table, code, copy, search } from './ui/icons.js';
   import { error as toastError } from '../stores/toast.js';
   import { api } from '../utils/api.js';
 
@@ -175,9 +178,7 @@
     </div>
     <div class="option-group execute-group">
       <Button variant="primary" on:click={executeQuery} loading={loading}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="5 3 19 12 5 21 5 3"></polygon>
-        </svg>
+        <Icon icon={play} size={16} />
         Execute
       </Button>
     </div>
@@ -193,11 +194,7 @@
   <!-- Error Display -->
   {#if errorMessage}
     <div class="error-banner">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10"></circle>
-        <line x1="15" y1="9" x2="9" y2="15"></line>
-        <line x1="9" y1="9" x2="15" y2="15"></line>
-      </svg>
+      <Icon icon={xCircle} size={16} />
       <div class="error-content">
         <span class="error-title">Query Error</span>
         <span class="error-text">{errorMessage}</span>
@@ -224,11 +221,7 @@
             class:active={!showJson}
             on:click={() => showJson = false}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <line x1="3" y1="9" x2="21" y2="9"></line>
-              <line x1="9" y1="21" x2="9" y2="9"></line>
-            </svg>
+            <Icon icon={table} size={14} />
             Table
           </button>
           <button
@@ -236,10 +229,7 @@
             class:active={showJson}
             on:click={() => showJson = true}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="16 18 22 12 16 6"></polyline>
-              <polyline points="8 6 2 12 8 18"></polyline>
-            </svg>
+            <Icon icon={code} size={14} />
             JSON
           </button>
         </div>
@@ -250,11 +240,8 @@
         <div class="sql-block">
           <div class="sql-header">
             <span class="sql-label">Generated SQL</span>
-            <button class="copy-btn" on:click={copySQL} title="Copy SQL">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
-              </svg>
+            <button class="copy-btn" on:click={copySQL} title="Copy SQL" aria-label="Copy generated SQL">
+              <Icon icon={copy} size={14} />
             </button>
           </div>
           <pre class="sql-code">{results.sql}</pre>
@@ -291,13 +278,7 @@
             </table>
           </div>
         {:else}
-          <div class="empty-state">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-            <span>No results found</span>
-          </div>
+          <EmptyState icon={search} title="No results found" />
         {/if}
       {:else}
         <!-- JSON View -->
@@ -390,7 +371,7 @@
     align-items: center;
     gap: 4px;
     font-size: 0.6875rem;
-    color: #6e7681;
+    color: #848d97;
   }
 
   kbd {
@@ -422,7 +403,6 @@
   }
 
   .query-editor:focus {
-    outline: none;
     border-color: #58a6ff;
     box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
   }
@@ -468,7 +448,6 @@
   }
 
   .option-input:focus {
-    outline: none;
     border-color: #58a6ff;
     box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
   }
@@ -512,7 +491,9 @@
     margin-bottom: 16px;
   }
 
-  .error-banner svg {
+  /* :global — the icon is rendered by <Icon>, so it carries that component's
+     scope class, not this one's. */
+  .error-banner :global(svg) {
     color: #f85149;
     flex-shrink: 0;
     margin-top: 1px;
@@ -633,7 +614,7 @@
     background: transparent;
     border: none;
     border-radius: 4px;
-    color: #6e7681;
+    color: #848d97;
     cursor: pointer;
     transition: all 0.15s;
   }
@@ -722,17 +703,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  /* Empty State */
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    padding: 48px 0;
-    color: #484f58;
-    font-size: 0.875rem;
   }
 
   /* JSON View */

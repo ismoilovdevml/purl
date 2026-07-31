@@ -1,6 +1,14 @@
+# Everything listed here stays OUT of the build context. Two reasons: a
+# smaller, faster build, and — more importantly — no secret can be COPYed
+# into a published layer by a future Dockerfile edit.
+#
+# The image only needs: cpanfile, lib/, web/ (sources for the Vite build).
+
 # Git
 .git
 .gitignore
+.gitattributes
+.github/
 
 # IDE
 .vscode
@@ -8,28 +16,53 @@
 *.swp
 *.swo
 
-# Node modules (build will install fresh)
+# Node modules (the build installs fresh ones)
+node_modules/
 web/node_modules
+**/node_modules
 
 # Data directories
 data/
 logs/
+*.log
 
-# Test files
+# Tests / e2e — never shipped in the image
 t/
+tests/
+web/e2e/
+coverage/
 
 # Documentation
 *.md
 !README.md
+docs/
 
-# Local config
+# CREDENTIALS.md holds real secrets. The *.md glob above already catches it,
+# but only by coincidence — a single `!*.md` would put it in the context.
+# Keep this line explicit.
+CREDENTIALS.md
+
+# Local config and env files. ALL variants, not just `.env` / `.env.local`:
+# .env.production, .env.dev, .env.local.bak have exactly the same blast
+# radius as .env.
 .env
-.env.local
+.env.*
+config/
 config/local.yaml
+.credentials
+
+# Infra / deploy manifests — not part of the runtime image
+chart/
+deploy/
+install.sh
+docker-compose*.yml
+Makefile
+
+# Planning / agent state
+.planning/
+.beads/
+.claude/
 
 # OS files
 .DS_Store
 Thumbs.db
-
-# Claude
-.claude/

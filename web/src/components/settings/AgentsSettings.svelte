@@ -17,6 +17,8 @@
   import { currentUser } from '../../stores/auth.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
+  import EmptyState from '../ui/EmptyState.svelte';
+  import { agent as agentIcon, caretDown, caretRight, trash } from '../ui/icons.js';
   // License limits are returned by the /api/agents endpoint directly
 
   let agents = [];
@@ -135,8 +137,8 @@
 
   <!-- Setup Instructions -->
   <Card padding="none">
-    <button class="setup-toggle" on:click={() => showSetup = !showSetup}>
-      <Icon name={showSetup ? 'chevron-down' : 'chevron-right'} size={16} />
+    <button class="setup-toggle" on:click={() => showSetup = !showSetup} aria-expanded={showSetup}>
+      <Icon icon={showSetup ? caretDown : caretRight} size={12} />
       <span class="setup-title">Setup Instructions</span>
       <span class="setup-hint">How to install and configure a Purl agent</span>
     </button>
@@ -212,13 +214,10 @@
         <LoadingSpinner size="sm" label="Loading agents..." />
       </div>
     {:else if agents.length === 0}
-      <div class="empty-state">
-        <div class="empty-icon">
-          <Icon name="agent" size={32} strokeWidth={1.5} />
-        </div>
-        <span class="empty-title">No agents registered</span>
-        <span class="empty-hint">Install the Vector-based Purl agent on your servers to start collecting logs. Click "Setup Instructions" above to get started.</span>
-      </div>
+      <EmptyState icon={agentIcon} title="No agents registered" size="sm">
+        Install the Vector-based Purl agent on your servers to start collecting logs.
+        Click "Setup Instructions" above to get started.
+      </EmptyState>
     {:else}
       <div class="agents-list">
         {#each agents as agent}
@@ -263,8 +262,13 @@
                 <span class="agent-stat-label">registered</span>
               </div>
               {#if isAdmin}
-                <Button variant="ghost" size="sm" on:click={() => confirmDelete(agent)}>
-                  <Icon name="trash" size={14} />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Delete agent {agent.hostname}"
+                  on:click={() => confirmDelete(agent)}
+                >
+                  <Icon icon={trash} size={14} strokeWidth={2.5} />
                 </Button>
               {/if}
             </div>
@@ -377,7 +381,7 @@
   }
 
   .setup-hint {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     font-size: 0.8125rem;
     margin-left: auto;
   }
@@ -538,22 +542,6 @@
     gap: 8px;
   }
 
-  .empty-icon {
-    color: var(--text-muted, #6e7681);
-    margin-bottom: 4px;
-  }
-
-  .empty-title {
-    font-weight: 500;
-    color: var(--text-primary, #c9d1d9);
-  }
-
-  .empty-hint {
-    font-size: 0.8125rem;
-    color: var(--text-muted, #6e7681);
-    max-width: 400px;
-  }
-
   /* Agents list */
   .agents-list {
     display: flex;
@@ -611,7 +599,7 @@
 
   .meta-item {
     font-size: 0.75rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   .label-tag {
@@ -634,7 +622,7 @@
   }
 
   .status-dot.status-offline {
-    background: var(--text-muted, #6e7681);
+    background: var(--text-muted, #848d97);
   }
 
   /* Agent stats */
@@ -662,7 +650,7 @@
 
   .agent-stat-label {
     font-size: 0.6875rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     text-transform: uppercase;
     letter-spacing: 0.03em;
   }

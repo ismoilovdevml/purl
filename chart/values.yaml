@@ -27,16 +27,42 @@ serviceAccount:
 # -- Pod-level annotations
 podAnnotations: {}
 
+# -- Deployment update strategy.
+# MUST be Recreate while config.volume.enabled=true with a ReadWriteOnce PVC:
+# RollingUpdate starts the new pod before the old one is gone, and the second
+# attach of an RWO volume blocks ("Multi-Attach error for volume") until the
+# rollout times out. Set to RollingUpdate only with an RWX config volume or
+# with config.volume.enabled=false.
+updateStrategy:
+  type: Recreate
+
 # -- Pod-level security context
 podSecurityContext:
   fsGroup: 1000
+  # Only chown the config volume when its root is not already fsGroup-owned;
+  # a blanket recursive chown on every start is slow and pointless here.
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
 
-# -- Container-level security context
+# -- Container-level security context.
+# allowPrivilegeEscalation/capabilities/seccompProfile are required by the
+# Pod Security Standards "restricted" profile — without them the pod is
+# rejected outright on any namespace labelled pod-security.kubernetes.io/
+# enforce=restricted.
 securityContext:
   runAsNonRoot: true
   runAsUser: 1000
   runAsGroup: 1000
+  # Purl writes settings.json / users / license under /app/config and
+  # scratch files under /app/data, so the root filesystem stays writable.
   readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
 service:
   # -- Kubernetes service type (ClusterIP, NodePort, LoadBalancer)
@@ -81,6 +107,20 @@ purl:
   # -- Session secret for signed cookies (empty = auto-generate, NOT safe for multi-replica)
   sessionSecret: ""
 
+  # -- Name of an EXISTING Secret holding the Purl runtime secrets. When set,
+  # the chart does NOT create a Secret and none of purl.apiKeys /
+  # purl.sessionSecret / purl.license.key / clickhouse.password /
+  # purl.telegram.* / purl.slack.* / purl.alertWebhook.* are templated —
+  # keeping them out of `helm get values` and the release history.
+  # The Secret must provide the env vars Purl reads, at minimum:
+  #   PURL_API_KEYS, PURL_SESSION_SECRET
+  # plus, as applicable: PURL_CLICKHOUSE_PASSWORD, PURL_LICENSE_KEY,
+  # PURL_TELEGRAM_BOT_TOKEN, PURL_TELEGRAM_CHAT_ID, PURL_SLACK_WEBHOOK_URL,
+  # PURL_SLACK_CHANNEL, PURL_ALERT_WEBHOOK_URL, PURL_ALERT_WEBHOOK_TOKEN.
+  # PURL_API_KEYS is required whenever vector.enabled=true (the DaemonSet
+  # reads it from this Secret).
+  existingSecret: ""
+
   # -- Telegram alerting
   telegram:
     # -- Telegram bot token
@@ -104,12 +144,29 @@ purl:
     # -- License API URL used for online activation/heartbeat
     apiUrl: ""
 
-  # -- Redis for cross-replica WebSocket live tail broadcast
+  # -- Redis for cross-replica WebSocket live tail broadcast AND for the
+  # shared Prometheus counter store.
+  # Without it every prefork worker keeps its own counters, so a scrape sees
+  # roughly 1/PURL_WORKERS of the real traffic — purl_http_requests_total,
+  # purl_errors_total, purl_query_latency_seconds_* and purl_ingest_bytes_total
+  # all under-report, silently. The exporter publishes purl_metrics_shared
+  # (0/1) to make that visible; metrics.prometheusRule alerts on it.
   redis:
-    # -- Enable Redis Pub/Sub for multi-replica WebSocket support
+    # -- Enable Redis Pub/Sub for multi-replica WebSocket support and
+    # cross-worker metric counters. Requires redis.url — the chart does not
+    # deploy Redis.
     enabled: false
     # -- External Redis URL (e.g., redis://redis:6379)
     url: ""
+
+  # -- max_execution_time (seconds) for backup export/import queries.
+  # The default 1h is not enough for a large table on slow storage; a backup
+  # that trips this fails mid-run. Empty = use the app default (3600).
+  backupQueryTimeout: ""
+
+  # -- Lifetime of a metrics counter key in the shared store, in seconds.
+  # Empty = use the app default (604800 = 7d).
+  metricsTtl: ""
 
   # -- Generic webhook alerting
   alertWebhook:
@@ -141,10 +198,52 @@ clickhouse:
   # -- ClickHouse user for Purl
   user: purl
   # -- ClickHouse password for the Purl user.
-  # WARNING: if left empty, the app user is created with NO password — any
-  # pod in the cluster can then read/write the log database. On shared
-  # clusters always set a password AND enable networkPolicy.enabled=true.
+  # Empty is NOT "no password": the chart generates a random 32-char password
+  # into the release Secret and keeps it stable across upgrades (same
+  # mechanism as purl.sessionSecret). An empty password used to create a
+  # passwordless user reachable from ::/0 — any pod in the cluster could
+  # read and write the log database. Set this explicitly only if you need a
+  # known value (e.g. to point an external tool at ClickHouse).
   password: ""
+
+  # -- Networks the ClickHouse application user may connect from, as
+  # <networks><ip> entries. Default ::/0 is required because pod IPs are not
+  # knowable at template time; narrow it to your pod CIDR
+  # (e.g. ["10.244.0.0/16"]) on shared clusters, and/or enable
+  # networkPolicy.enabled=true which restricts this at the network layer.
+  allowedNetworks:
+    - "::/0"
+
+  # -- Grant the ClickHouse `default` user full access management
+  # (CREATE USER / GRANT ...). Purl never needs it; leaving it on means any
+  # connection that reaches the default user can mint new superusers.
+  defaultAccessManagement: false
+
+  # -- Restrict the ClickHouse `default` user to loopback only. Purl connects
+  # as clickhouse.user, so the default user only needs to serve the image's
+  # own init scripts. Ignored when clickhouse.user == "default".
+  restrictDefaultUser: true
+
+  # -- Pod-level security context for the ClickHouse StatefulSet.
+  # uid/gid 101 is the `clickhouse` user baked into the official image, so
+  # the data PVC is already owned by it.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    fsGroup: 101
+    # Never recursively chown a multi-GB data volume on every restart.
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+
+  # -- Container-level security context for ClickHouse.
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
 
   # -- ClickHouse cluster / replication settings
   # All cluster features are DISABLED by default for backward compatibility.
@@ -209,17 +308,76 @@ autoscaling:
   # -- Target memory utilization percentage
   targetMemoryUtilizationPercentage: 80
 
-# -- PodDisruptionBudget for Purl and ClickHouse
+# -- PodDisruptionBudget for Purl and ClickHouse.
+# NOTE: the templates deliberately render NOTHING for a single-replica
+# workload. `minAvailable: 1` in front of one pod does not protect anything —
+# it makes `kubectl drain` block forever, which is how a node upgrade turns
+# into an outage. PDBs appear only when there is a second pod to fail over to
+# (replicaCount > 1 / autoscaling.minReplicas > 1 / clickhouse.cluster).
 podDisruptionBudget:
   # -- Enable PodDisruptionBudget
   enabled: false
-  # -- Minimum number of pods that must be available
+  # -- Minimum number of pods that must be available. Mutually exclusive with
+  # maxUnavailable.
   minAvailable: 1
+  # -- Maximum number of pods that may be unavailable. Set this INSTEAD of
+  # minAvailable if you prefer drain-friendly semantics.
+  maxUnavailable: ""
 
-# -- NetworkPolicy for zero-trust pod networking
+# -- NetworkPolicy for zero-trust pod networking.
+# Verify with: helm template purl chart/ --set networkPolicy.enabled=true
+#
+# Covered: the Purl pods, the ClickHouse StatefulSet and the backup CronJob.
+# NOT covered: the Vector DaemonSet. Vector needs the kube-apiserver for pod
+# metadata, and the apiserver endpoint is not expressible as a portable
+# selector, so shipping a policy for it would break log collection on some
+# clusters. On a namespace with a default-deny policy, write your own Vector
+# egress rule (DNS + the Purl port + your apiserver endpoint).
 networkPolicy:
   # -- Enable NetworkPolicy resources
   enabled: false
+  ingress:
+    # -- Allow any pod in the release namespace to reach the Purl port.
+    # This is what lets in-cluster apps POST to /api/logs.
+    fromSameNamespace: true
+    # -- Additional namespaces (by name) allowed to reach the Purl port,
+    # e.g. ["ingress-nginx", "monitoring"]. Matched on the
+    # kubernetes.io/metadata.name label that Kubernetes sets on every
+    # namespace (>= 1.22).
+    fromNamespaces: []
+    # -- Source CIDRs allowed to reach the Purl port. List your NODE IPs
+    # here for two reasons:
+    #   1. NodePort / LoadBalancer traffic with externalTrafficPolicy=Cluster
+    #      is SNAT'd to a node IP and matches no pod selector.
+    #   2. On CNIs that subject host traffic to policy (Calico), kubelet
+    #      health probes also arrive from the node IP — without this rule the
+    #      probes fail and the pod is restart-looped by its own liveness check.
+    # e.g. ["5.189.148.112/32", "5.189.145.83/32", "5.189.182.131/32"]
+    fromCIDRs: []
+    # -- Extra raw NetworkPolicyPeer entries appended verbatim to the
+    # ingress rule for the Purl port.
+    extraFrom: []
+  egress:
+    # -- Allow outbound HTTPS/HTTP to the public internet. Required for
+    # Telegram/Slack/webhook alerting and for license activation +
+    # heartbeat against purl.license.apiUrl. Without it those silently fail
+    # and the license eventually degrades to the free plan.
+    allowInternet: true
+    # -- Ports opened by allowInternet.
+    internetPorts:
+      - 443
+      - 80
+    # -- Private ranges excluded from the allowInternet rule, so "internet"
+    # does not silently mean "every pod and node in the cluster". Add your
+    # pod/service CIDR here if it is outside RFC1918.
+    internetExcludeCIDRs:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+      - 169.254.0.0/16
+    # -- Extra raw egress rules appended verbatim (e.g. to reach an
+    # in-cluster Redis or an external ClickHouse).
+    extraRules: []
 
 # -- Vector log collector (DaemonSet) for Kubernetes pod log collection
 vector:
@@ -284,14 +442,45 @@ vector:
   clusterName: "default"
   # -- Collect logs from kube-system namespace (control plane components)
   collectKubeSystem: false
+  # -- Container security context for Vector. Vector runs as root because it
+  # reads /var/log/pods and the systemd journal off the node, but it needs no
+  # capabilities to do so (root is the owner of those files) and must never
+  # be able to gain more.
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+  # -- Health probes against Vector's own API (/health on the api port).
+  # Without these a wedged Vector — buffer deadlock, stuck sink — stays
+  # Running forever and node logs are silently lost.
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 15
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
 
-# -- Purl container resource limits and requests
+# -- Purl container resource limits and requests.
+# ephemeral-storage is requested explicitly: with no request the scheduler
+# accounts Purl as using zero node disk and the kubelet ranks it first for
+# eviction under DiskPressure.
 resources:
   limits:
     memory: 512Mi
+    ephemeral-storage: 1Gi
   requests:
     cpu: 100m
     memory: 256Mi
+    ephemeral-storage: 256Mi
 
 # -- Config volume for settings.json, users, license files
 config:
@@ -301,11 +490,20 @@ config:
     # license key and settings.json. With an emptyDir every restart, rollout
     # or eviction silently wipes all dashboard logins and the license, so a
     # default install was not persistent in any meaningful sense.
+    # Requires a default StorageClass in the cluster — if `kubectl get sc`
+    # is empty the PVC stays Pending and Purl never starts. On such clusters
+    # either set config.volume.storageClass or set enabled=false and accept
+    # that logins/license do not survive a restart.
     enabled: true
     # -- PVC size for config data
     size: 1Gi
     # -- Storage class (empty = cluster default)
     storageClass: ""
+    # -- Access modes. ReadWriteOnce forces updateStrategy.type=Recreate and
+    # a single replica; use ReadWriteMany (NFS/CephFS/EFS) to run more than
+    # one Purl pod with a shared config volume.
+    accessModes:
+      - ReadWriteOnce
 
 # -- Prometheus monitoring
 metrics:
@@ -333,6 +531,13 @@ metrics:
     dbSizeLimitBytes: 10737418240
     # -- Lookahead for the disk-fill prediction, in seconds (86400 = 24h)
     diskFillPredictSeconds: 86400
+    # -- PurlHighErrorRate fires above this ratio of 4xx+5xx to all responses
+    # (0.05 = 5%).
+    errorRateThreshold: 0.05
+    # -- PurlHighLatency fires above this AVERAGE request latency in seconds.
+    # purl_query_latency_seconds is a summary without quantiles, so this is
+    # rate(_sum)/rate(_count), not a p99.
+    latencySecondsThreshold: 2
 
 # -- Node selector constraints
 nodeSelector: {}
@@ -377,6 +582,25 @@ backup:
     #     --from-literal=AWS_ACCESS_KEY_ID=... \
     #     --from-literal=AWS_SECRET_ACCESS_KEY=...
     existingSecret: ""
+    # -- Pass the S3 credentials as literal arguments of the BACKUP statement
+    # (`S3(url, key, secret)`) instead of resolving them server-side.
+    # OFF, and should stay off: the statement text lands in
+    # system.query_log.query in plaintext, and anything that reads the
+    # ClickHouse query log — including Purl itself — then holds the S3 key.
+    # With this off the chart mounts an <s3> credentials block into
+    # ClickHouse (values from backup.s3.existingSecret via from_env) and the
+    # statement carries only the URL.
+    credentialsInQuery: false
+
+  # -- Also back up /app/config (dashboard users, license, settings.json).
+  # A ClickHouse-only backup restores every log and still leaves you locked
+  # out of the dashboard, because the user database does not live in
+  # ClickHouse. The job tars the config volume into
+  # <database>.purl_config_archive so the single `BACKUP DATABASE` covers it.
+  # Requires config.volume.enabled=true; the backup pod mounts that
+  # ReadWriteOnce PVC read-only and is therefore pinned to the node running
+  # Purl (pod affinity).
+  includeConfig: true
 
   # -- Retention (days). ClickHouse native BACKUP does not delete old backups;
   # enforce this with an S3 bucket lifecycle rule scoped to s3.prefix. Advisory
@@ -397,11 +621,18 @@ backup:
   # -- Resource requests/limits for the backup pod.
   resources: {}
   # -- Pod-level security context for the backup pod.
+  # uid/gid 1000 (not the image's clickhouse 101) on purpose: the pod mounts
+  # Purl's config PVC, whose files are owned by 1000. A different fsGroup
+  # would make the kubelet chown that volume out from under the running Purl
+  # container the moment the CronJob fires.
   podSecurityContext:
     runAsNonRoot: true
-    runAsUser: 101
-    runAsGroup: 101
-    fsGroup: 101
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
   # -- Container-level security context for the backup pod.
   securityContext:
     allowPrivilegeEscalation: false
@@ -409,6 +640,8 @@ backup:
     capabilities:
       drop:
         - ALL
+    seccompProfile:
+      type: RuntimeDefault
   # -- Scheduling controls for the backup pod.
   nodeSelector: {}
   tolerations: []

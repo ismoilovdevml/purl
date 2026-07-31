@@ -5,12 +5,32 @@
   import Select from './ui/Select.svelte';
   import Modal from './ui/Modal.svelte';
   import ConfirmDialog from './ui/ConfirmDialog.svelte';
+  import EmptyState from './ui/EmptyState.svelte';
+  import Icon from './ui/Icon.svelte';
+  import { caretRight, refresh, gridSolid, plus, dot, dotOutline, close, bell } from './ui/icons.js';
   import AlertTemplateGallery from './alerts/AlertTemplateGallery.svelte';
   import { k8sMode } from '../stores/license.js';
-  import { error as toastError } from '../stores/toast.js';
+  import { error as toastError, success as toastSuccess } from '../stores/toast.js';
   import { api } from '../utils/api.js';
 
-  let alerts = [];
+  // What GET /alerts last returned.
+  let serverAlerts = [];
+
+  // Rows this panel created locally that the server list has not echoed back
+  // yet. POST /alerts answers `{status:'ok'}` with no id, so an optimistic row
+  // carries a temporary one and is matched back by its fields.
+  let pendingAlerts = [];
+  let pendingSeq = 0;
+
+  // How long an unconfirmed optimistic row may survive. Long enough to outlast
+  // the 60s poll (so a slow server still gets to confirm it), short enough that
+  // a write which silently did not persist cannot leave a permanent ghost.
+  const PENDING_TTL_MS = 90000;
+
+  // What the panel renders. Keeping this derived means every read path
+  // (rendering, the trigger baseline, the 60s poll) sees the same list.
+  $: alerts = [...serverAlerts, ...pendingAlerts];
+
   let showModal = false;
   let editingAlert = null;
   let expanded = false;
@@ -55,11 +75,44 @@
   async function loadAlerts() {
     try {
       const data = await api.get('/alerts');
-      alerts = data.alerts || [];
+      serverAlerts = data.alerts || [];
+      // Drop an optimistic row once the server knows about it — or once it has
+      // outlived its TTL, so nothing can linger indefinitely.
+      const now = Date.now();
+      pendingAlerts = pendingAlerts.filter(
+        (p) => !serverAlerts.some((s) => isSameAlert(s, p)) && now - p.createdAt < PENDING_TTL_MS
+      );
     } catch (err) {
       console.error('Failed to load alerts:', err);
       toastError('Failed to load alerts');
     }
+  }
+
+  /**
+   * Does this server row correspond to a locally created one? Needed because
+   * POST /alerts does not return the new id, so there is nothing else to join on.
+   */
+  function isSameAlert(serverAlert, draft) {
+    return serverAlert.name === draft.name
+      && (serverAlert.query || '') === (draft.query || '')
+      && Number(serverAlert.threshold) === Number(draft.threshold)
+      && Number(serverAlert.window_minutes) === Number(draft.window_minutes);
+  }
+
+  /**
+   * Reload after a write, tolerating the moment it takes for the new row to
+   * become visible (network latency; historically also a read-after-write
+   * window on the server, fixed separately).
+   *
+   * Exactly ONE extra attempt — deliberately not a poll loop. The optimistic
+   * row keeps the panel honest in the meantime, and its TTL (not this function)
+   * is what guarantees it cannot linger.
+   */
+  async function reconcileAlerts() {
+    await loadAlerts();
+    if (pendingAlerts.length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await loadAlerts();
   }
 
   // Last `last_triggered` value we have already notified about, per alert id.
@@ -136,14 +189,37 @@
   async function saveAlert() {
     if (!form.name) return;
 
+    // Snapshot: `form` is rebound by openModal(), so the in-flight write must
+    // not read it again once the modal closes.
+    const draft = { ...form };
+    const target = editingAlert;
+
     try {
-      if (editingAlert) {
-        await api.put(`/alerts/${editingAlert.id}`, form);
+      if (target) {
+        await api.put(`/alerts/${target.id}`, draft);
+        // Show the edit right away; the reload below replaces it with the
+        // server's own copy.
+        serverAlerts = serverAlerts.map((a) => (a.id === target.id ? { ...a, ...draft } : a));
       } else {
-        await api.post('/alerts', form);
+        await api.post('/alerts', draft);
+        pendingAlerts = [
+          ...pendingAlerts,
+          {
+            ...draft,
+            id: `pending-${++pendingSeq}`,
+            enabled: 1,
+            last_triggered: null,
+            pending: true,
+            createdAt: Date.now(),
+          },
+        ];
+        // A brand new row is invisible feedback inside a collapsed panel.
+        expanded = true;
       }
+
       showModal = false;
-      await loadAlerts();
+      toastSuccess(target ? `Alert "${draft.name}" updated` : `Alert "${draft.name}" created`);
+      await reconcileAlerts();
     } catch (err) {
       console.error('Failed to save alert:', err);
       toastError('Failed to save alert');
@@ -223,35 +299,38 @@
 <div class="alerts-panel">
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="header" role="button" tabindex="0" on:click={() => expanded = !expanded} on:keydown={handleHeaderKeydown}>
-    <svg class="chevron" class:expanded width="12" height="12" viewBox="0 0 12 12">
-      <path fill="currentColor" d="M4 2l4 4-4 4"/>
-    </svg>
+    <Icon icon={caretRight} size={12} class="chevron {expanded ? 'expanded' : ''}" />
     <h3>Alerts</h3>
     {#if alerts.length > 0}
       <span class="count">{alerts.length}</span>
     {/if}
     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
     <span class="header-actions" on:click|stopPropagation>
-      <Button icon size="sm" variant="ghost" on:click={handleCheckNow} title="Check alerts now" disabled={checking}>
-        <svg class:spinning={checking} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M23 4v6h-6M1 20v-6h6"/>
-          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-        </svg>
+      <Button
+        icon
+        size="sm"
+        variant="ghost"
+        on:click={handleCheckNow}
+        title="Check alerts now"
+        aria-label="Check alerts now"
+        disabled={checking}
+      >
+        <Icon icon={refresh} size={14} strokeWidth={2.5} spin={checking} />
       </Button>
       {#if $k8sMode}
-        <Button icon size="sm" variant="ghost" on:click={() => showTemplateGallery = true} title="Browse K8s Templates">
-          <svg width="14" height="14" viewBox="0 0 14 14">
-            <rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/>
-            <rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/>
-            <rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/>
-            <rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor"/>
-          </svg>
+        <Button
+          icon
+          size="sm"
+          variant="ghost"
+          on:click={() => showTemplateGallery = true}
+          title="Browse K8s Templates"
+          aria-label="Browse K8s alert templates"
+        >
+          <Icon icon={gridSolid} size={14} />
         </Button>
       {/if}
-      <Button icon size="sm" variant="ghost" on:click={() => openModal()} title="Create alert">
-        <svg width="14" height="14" viewBox="0 0 14 14">
-          <path fill="currentColor" d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
+      <Button icon size="sm" variant="ghost" on:click={() => openModal()} title="Create alert" aria-label="Create alert">
+        <Icon icon={plus} size={14} strokeWidth={2.5} />
       </Button>
     </span>
   </div>
@@ -259,28 +338,48 @@
   {#if expanded}
     <div class="content">
       {#if alerts.length === 0}
-        <p class="empty">No alerts configured</p>
+        <EmptyState icon={bell} title="No alerts configured" size="sm">
+          Create an alert to get notified when a query crosses a threshold.
+        </EmptyState>
       {:else}
         <ul>
-          {#each alerts as alert}
-            <li class:disabled={!alert.enabled}>
-              <button class="alert-info" on:click={() => openModal(alert)}>
+          {#each alerts as alert (alert.id)}
+            <!-- A pending row is shown for feedback but carries a placeholder
+                 id, so every action that needs the real one stays disabled
+                 until the server list confirms it. -->
+            <li class:disabled={!alert.enabled} class:pending={alert.pending}>
+              <button class="alert-info" on:click={() => openModal(alert)} disabled={alert.pending}>
                 <span class="name">{alert.name}</span>
                 <span class="details">
                   {alert.query || 'All logs'} >= {alert.threshold} in {alert.window_minutes}m
                 </span>
               </button>
-              <Button icon size="sm" variant="ghost" on:click={() => toggleAlert(alert)} title={alert.enabled ? 'Disable' : 'Enable'}>
+              <Button
+                icon
+                size="sm"
+                variant="ghost"
+                on:click={() => toggleAlert(alert)}
+                title={alert.enabled ? 'Disable' : 'Enable'}
+                aria-label="{alert.enabled ? 'Disable' : 'Enable'} alert {alert.name}"
+                disabled={alert.pending}
+              >
                 {#if alert.enabled}
-                  <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="#3fb950"/></svg>
+                  <Icon icon={dot} size={14} color="#3fb950" />
                 {:else}
-                  <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="#6e7681" stroke-width="1.5"/></svg>
+                  <Icon icon={dotOutline} size={14} strokeWidth={2.5} color="#848d97" />
                 {/if}
               </Button>
-              <Button icon size="sm" variant="ghost" on:click={() => requestDeleteAlert(alert.id)} class="delete-btn">
-                <svg width="12" height="12" viewBox="0 0 12 12">
-                  <path fill="currentColor" d="M9.5 3L3 9.5M3 3l6.5 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
+              <Button
+                icon
+                size="sm"
+                variant="ghost"
+                on:click={() => requestDeleteAlert(alert.id)}
+                title="Delete alert"
+                aria-label="Delete alert {alert.name}"
+                class="delete-btn"
+                disabled={alert.pending}
+              >
+                <Icon icon={close} size={12} strokeWidth={3} />
               </Button>
             </li>
           {/each}
@@ -402,12 +501,13 @@
     color: var(--text-primary, #c9d1d9);
   }
 
-  .chevron {
+  /* :global — the class is forwarded onto the SVG that Icon renders. */
+  .header :global(.chevron) {
     color: var(--text-secondary, #8b949e);
     transition: transform 0.15s ease;
   }
 
-  .chevron.expanded {
+  .header :global(.chevron.expanded) {
     transform: rotate(90deg);
   }
 
@@ -423,7 +523,7 @@
 
   .count {
     font-size: 10px;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     background: var(--bg-tertiary, #21262d);
     padding: 2px 6px;
     border-radius: 10px;
@@ -431,13 +531,6 @@
 
   .content {
     padding-left: 20px;
-  }
-
-  .empty {
-    color: var(--text-muted, #6e7681);
-    font-size: 12px;
-    margin: 0;
-    padding: 8px 0;
   }
 
   ul {
@@ -453,6 +546,17 @@
 
   li.disabled {
     opacity: 0.5;
+  }
+
+  /* Optimistic row: visible immediately, but visibly not settled yet. */
+  li.pending .alert-info {
+    border-style: dashed;
+    border-color: var(--color-primary, #58a6ff);
+    cursor: default;
+  }
+
+  li.pending {
+    opacity: 0.7;
   }
 
   .alert-info {
@@ -509,14 +613,6 @@
     font-size: 12px;
     color: var(--text-secondary, #8b949e);
     line-height: 1.5;
-  }
-
-  .spinning {
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
   }
 
   .notify-info code {

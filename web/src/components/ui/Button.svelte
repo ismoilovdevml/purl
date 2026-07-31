@@ -6,7 +6,7 @@
   <Button>Default</Button>
   <Button variant="primary">Primary</Button>
   <Button variant="danger" size="sm">Delete</Button>
-  <Button icon><svg>...</svg></Button>
+  <Button icon aria-label="Delete"><Icon icon={trash} /></Button>
   <Button loading>Saving...</Button>
 -->
 <script>
@@ -216,17 +216,12 @@
     border: 2px solid transparent;
     border-top-color: currentColor;
     border-radius: 50%;
+    /* @keyframes spin is declared globally in src/styles/animations.css. */
     animation: spin 0.6s linear infinite;
   }
 
   .invisible {
     visibility: hidden;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
 
   .btn-content {

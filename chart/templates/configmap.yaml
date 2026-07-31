@@ -1,3 +1,6 @@
+{{- if and .Values.purl.redis.enabled (not .Values.purl.redis.url) }}
+{{- fail "purl.redis.enabled=true requires purl.redis.url — the chart does not deploy Redis. Without the URL, live-tail broadcast stays single-replica and the Prometheus counters stay per-worker, with nothing to indicate it but purl_metrics_shared=0." }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -23,6 +26,34 @@ data:
   {{- if .Values.purl.license.apiUrl }}
   PURL_LICENSE_API_URL: {{ .Values.purl.license.apiUrl | quote }}
   {{- end }}
+  {{- /*
+    PURL_REDIS_URL drives two things: cross-replica live-tail broadcast AND
+    the shared metrics counter store (Purl::Store::Counter). Without it the
+    Prometheus counters are per-prefork-worker and every rate() reads low.
+  */}}
   {{- if and .Values.purl.redis.enabled .Values.purl.redis.url }}
   PURL_REDIS_URL: {{ .Values.purl.redis.url | quote }}
+  {{- end }}
+  {{- with .Values.purl.backupQueryTimeout }}
+  PURL_BACKUP_QUERY_TIMEOUT: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.purl.metricsTtl }}
+  PURL_METRICS_TTL: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.backup.enabled }}
+  {{- /*
+    The app-side backup manager (restore, delete, retention cleanup) talks to
+    S3 directly, not only the CronJob. Without these it cannot resolve the
+    bucket and delete_backup dies rather than orphan an S3 object.
+    Credentials come from backup.s3.existingSecret via envFrom on the
+    Deployment — never from a ConfigMap.
+  */}}
+  PURL_BACKUP_S3_ENABLED: "1"
+  PURL_BACKUP_S3_BUCKET: {{ .Values.backup.s3.bucket | quote }}
+  PURL_BACKUP_S3_REGION: {{ .Values.backup.s3.region | quote }}
+  PURL_BACKUP_S3_PREFIX: {{ .Values.backup.s3.prefix | quote }}
+  {{- with .Values.backup.s3.endpoint }}
+  PURL_BACKUP_S3_ENDPOINT: {{ . | quote }}
+  {{- end }}
+  PURL_BACKUP_RETENTION_DAYS: {{ .Values.backup.retentionDays | quote }}
   {{- end }}

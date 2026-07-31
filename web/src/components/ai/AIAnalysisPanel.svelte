@@ -1,6 +1,8 @@
 <script>
   import Modal from '../ui/Modal.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import Icon from '../ui/Icon.svelte';
+  import { alertCircleSolid, check } from '../ui/icons.js';
   import { aiAnalysisResult, aiAnalysisLoading, analyzeSelectedLogs } from '../../stores/ai.js';
 
   export let open = false;
@@ -64,9 +66,7 @@
             <ul class="item-list">
               {#each result.root_causes as cause}
                 <li class="item item-error">
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1Zm-.75 4.75v3.5h1.5v-3.5h-1.5Zm0 5v1.5h1.5v-1.5h-1.5Z"/>
-                  </svg>
+                  <Icon icon={alertCircleSolid} size={12} />
                   {cause}
                 </li>
               {/each}
@@ -93,9 +93,7 @@
             <ul class="item-list">
               {#each result.suggestions as s}
                 <li class="item item-suggestion">
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/>
-                  </svg>
+                  <Icon icon={check} size={12} strokeWidth={3} />
                   {s}
                 </li>
               {/each}
@@ -202,7 +200,9 @@
     line-height: 1.5;
   }
 
-  .item svg { flex-shrink: 0; margin-top: 2px; }
+  /* :global — the mark is rendered by <Icon>, so it carries that component's
+     scope class, not this one's. */
+  .item :global(svg) { flex-shrink: 0; margin-top: 2px; }
 
   .item-error {
     color: #f0883e;

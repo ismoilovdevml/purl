@@ -3,6 +3,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
+  import { info } from '../ui/icons.js';
 
   let config = {
     url:  '',
@@ -123,11 +124,11 @@
       <!-- Info box -->
       <div class="info-box">
         <div class="info-row">
-          <Icon name="info" size={14} />
+          <Icon icon={info} size={14} strokeWidth={2.5} />
           <span>Redis is required when running multiple Purl instances behind a load balancer.</span>
         </div>
         <div class="info-row">
-          <Icon name="info" size={14} />
+          <Icon icon={info} size={14} strokeWidth={2.5} />
           <span>Changes take effect on next Purl restart or WebSocket reconnect.</span>
         </div>
       </div>
@@ -253,7 +254,8 @@
     transition: border-color 0.15s;
   }
 
-  .field-input:focus { outline: none; border-color: #58a6ff; }
+  /* Border-color is the resting cue; the global :focus-visible ring stays. */
+  .field-input:focus { border-color: #58a6ff; }
   .field-input:disabled { opacity: 0.6; cursor: not-allowed; }
 
   .field-hint {

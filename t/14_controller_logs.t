@@ -134,7 +134,9 @@ subtest 'search with KQL field:value' => sub {
 
     $ctrl->search($c);
     my $params = $storage->{calls}{search};
-    is $params->{level}, 'ERROR', 'KQL parsed level filter';
+    is_deeply $params->{kql},
+        { op => 'term', field => 'level', value => 'ERROR', quoted => 0 },
+        'KQL parsed level filter into the AST';
 };
 
 subtest 'search with service KQL' => sub {
@@ -146,7 +148,9 @@ subtest 'search with service KQL' => sub {
     my $c = MockCtrl->new(undef, { q => 'service:api-gateway' });
 
     $ctrl->search($c);
-    is $storage->{calls}{search}{service}, 'api-gateway', 'KQL parsed service';
+    is_deeply $storage->{calls}{search}{kql},
+        { op => 'term', field => 'service', value => 'api-gateway', quoted => 0 },
+        'KQL parsed service (dash kept, not treated as negation)';
 };
 
 subtest 'search with meta field KQL' => sub {
@@ -158,8 +162,46 @@ subtest 'search with meta field KQL' => sub {
     my $c = MockCtrl->new(undef, { q => 'meta.namespace:production' });
 
     $ctrl->search($c);
-    is $storage->{calls}{search}{meta_field}, 'namespace', 'KQL parsed meta field';
-    is $storage->{calls}{search}{meta_value}, 'production', 'KQL parsed meta value';
+    is_deeply $storage->{calls}{search}{kql},
+        { op => 'term', field => 'meta.namespace', value => 'production', quoted => 0 },
+        'KQL parsed meta field';
+};
+
+# Regression: `service:svc-a AND level:error` used to be swallowed by a single
+# ^field:(.+)$ regex — the whole tail became the service value (0 results), and
+# in the other operand order the level value failed validation and the filter
+# was DROPPED, returning more rows than either operand alone.
+subtest 'search with boolean AND is order-independent' => sub {
+    my @asts;
+    for my $q ('service:svc-a AND level:error', 'level:error AND service:svc-a') {
+        my $storage = MockStorage->new;
+        $storage->{search_result} = [];
+        $storage->{count_result} = 0;
+
+        my $ctrl = Purl::API::Controller::Logs->new(storage => $storage);
+        $ctrl->search(MockCtrl->new(undef, { q => $q }));
+
+        my $ast = $storage->{calls}{search}{kql};
+        is $ast->{op}, 'and', "'$q' produced an AND node";
+        is scalar @{ $ast->{children} }, 2, "'$q' has two operands";
+        ok !exists $storage->{calls}{search}{service},
+            "'$q' did not leak a mangled flat service filter";
+        ok !exists $storage->{calls}{search}{query},
+            "'$q' did not fall back to a literal text search";
+
+        push @asts, [ sort map { "$_->{field}:$_->{value}" } @{ $ast->{children} } ];
+    }
+    is_deeply $asts[0], $asts[1], 'both operand orders yield the same operand set';
+};
+
+subtest 'search rejects malformed query instead of silently widening' => sub {
+    my $storage = MockStorage->new;
+    my $ctrl = Purl::API::Controller::Logs->new(storage => $storage);
+    my $c = MockCtrl->new(undef, { q => 'level:error AND' });
+
+    $ctrl->search($c);
+    is $c->rendered->{status}, 400, 'incomplete expression is a 400';
+    ok !exists $storage->{calls}{search}, 'storage never queried for a bad query';
 };
 
 subtest 'search caches result' => sub {

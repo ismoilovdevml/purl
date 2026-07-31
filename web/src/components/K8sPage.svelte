@@ -1,5 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import Icon from './ui/Icon.svelte';
+  import EmptyState from './ui/EmptyState.svelte';
+  import { refresh, alertCircle, activity, checkCircle } from './ui/icons.js';
   import {
     podHealth,
     healthSummary,
@@ -194,19 +197,19 @@
 
       <!-- Auto-refresh toggle -->
       <button class="auto-refresh-btn" class:active={autoRefresh} on:click={toggleAutoRefresh} title="Auto-refresh every 30s">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M23 4v6h-6M1 20v-6h6"/>
-          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-        </svg>
+        <Icon icon={refresh} size={14} />
         <span>{autoRefresh ? 'Auto' : 'Manual'}</span>
       </button>
 
       <!-- Manual refresh -->
-      <button class="refresh-btn" on:click={() => fetchPodHealth(selectedHours)} disabled={$healthLoading} title="Refresh now">
-        <svg class:spinning={$healthLoading} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M23 4v6h-6M1 20v-6h6"/>
-          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-        </svg>
+      <button
+        class="refresh-btn"
+        on:click={() => fetchPodHealth(selectedHours)}
+        disabled={$healthLoading}
+        title="Refresh now"
+        aria-label="Refresh pod health"
+      >
+        <Icon icon={refresh} size={14} spin={$healthLoading} />
       </button>
     </div>
   </header>
@@ -214,11 +217,7 @@
   <!-- Error state -->
   {#if $healthError}
     <div class="error-banner">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10"/>
-        <line x1="12" y1="8" x2="12" y2="12"/>
-        <line x1="12" y1="16" x2="12.01" y2="16"/>
-      </svg>
+      <Icon icon={alertCircle} size={16} />
       <span>{$healthError}</span>
       <button class="error-retry" on:click={() => fetchPodHealth(selectedHours)}>Retry</button>
     </div>
@@ -232,15 +231,9 @@
 
   <!-- No-data state: K8s audit ingestion has produced no records yet. -->
   {:else if noK8sData}
-    <div class="empty-state">
-      <div class="empty-icon neutral">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="1.5">
-          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-        </svg>
-      </div>
-      <h3 class="neutral">No Kubernetes audit data yet</h3>
-      <p>Purl has not received any K8s audit records. Enable K8s audit log ingestion for your cluster to see pod health here.</p>
-    </div>
+    <EmptyState icon={activity} title="No Kubernetes audit data yet" size="lg">
+      Purl has not received any K8s audit records. Enable K8s audit log ingestion for your cluster to see pod health here.
+    </EmptyState>
 
   {:else}
     <!-- Stats cards -->
@@ -267,10 +260,7 @@
       {#if summaryEntries.length === 0 && totalUnhealthy === 0}
         <div class="stat-card healthy-card">
           <div class="stat-value green">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2">
-              <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
-              <polyline points="22 4 12 14.01 9 11.01"/>
-            </svg>
+            <Icon icon={checkCircle} size={24} color="#3fb950" />
           </div>
           <div class="stat-label">All Healthy</div>
         </div>
@@ -351,16 +341,9 @@
 
     <!-- Empty state: all pods healthy -->
     {:else if !$healthLoading}
-      <div class="empty-state">
-        <div class="empty-icon">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="1.5">
-            <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
-            <polyline points="22 4 12 14.01 9 11.01"/>
-          </svg>
-        </div>
-        <h3>All Pods Healthy</h3>
-        <p>No unhealthy pods detected in the last {selectedHours >= 168 ? '7 days' : selectedHours >= 24 ? '24 hours' : selectedHours + ' hour' + (selectedHours !== 1 ? 's' : '')}</p>
-      </div>
+      <EmptyState icon={checkCircle} title="All Pods Healthy" size="lg" tone="success">
+        No unhealthy pods detected in the last {selectedHours >= 168 ? '7 days' : selectedHours >= 24 ? '24 hours' : selectedHours + ' hour' + (selectedHours !== 1 ? 's' : '')}
+      </EmptyState>
     {/if}
   {/if}
 </div>
@@ -499,14 +482,6 @@
   .refresh-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-  }
-
-  .refresh-btn svg.spinning {
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
   }
 
   /* Error banner */
@@ -773,52 +748,6 @@
     font-size: 0.75rem;
     color: #8b949e;
     white-space: nowrap;
-  }
-
-  /* Empty state */
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    padding: 60px 20px;
-    text-align: center;
-  }
-
-  .empty-icon {
-    width: 80px;
-    height: 80px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(63, 185, 80, 0.08);
-    border: 1px solid rgba(63, 185, 80, 0.2);
-    border-radius: 50%;
-  }
-
-  .empty-state h3 {
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: #3fb950;
-    margin: 8px 0 0 0;
-  }
-
-  /* Neutral (no-data) variant — distinct from the green all-clear */
-  .empty-icon.neutral {
-    background: rgba(139, 148, 158, 0.08);
-    border-color: rgba(139, 148, 158, 0.2);
-  }
-
-  .empty-state h3.neutral {
-    color: #c9d1d9;
-  }
-
-  .empty-state p {
-    font-size: 0.875rem;
-    color: #8b949e;
-    margin: 0;
-    max-width: 420px;
   }
 
   /* Responsive */

@@ -7,6 +7,7 @@ use Moo;
 use namespace::clean;
 use JSON::XS ();
 use File::Spec;
+use Time::HiRes ();
 
 # Config file path
 has 'config_file' => (
@@ -18,6 +19,13 @@ has 'config_file' => (
 has '_config' => (
     is      => 'rw',
     default => sub { {} },
+);
+
+# Identity of the settings.json revision currently held in _config.
+# "" means "nothing loaded yet" and always forces a load.
+has '_file_stamp' => (
+    is      => 'rw',
+    default => sub { '' },
 );
 
 has '_json' => (
@@ -159,11 +167,61 @@ sub BUILD {
     $self->load();
 }
 
+# ============================================
+# Cross-process freshness
+# ============================================
+#
+# The server runs prefork: setup_routes() builds ONE Purl::Config in the
+# manager and every worker inherits a private copy through fork(). A worker
+# that creates a user mutates its own copy and writes settings.json; the other
+# workers keep the pre-fork snapshot forever. That is why a freshly created
+# user could not log in — the login request usually landed on a worker that had
+# never heard of them.
+#
+# So the in-memory copy is treated as a cache of the file, not as the truth:
+# every read checks whether settings.json changed underneath us and reloads.
+# The check is one stat(2); the file is a few kB and read at most once per
+# change.
+sub _stat_stamp {
+    my ($self) = @_;
+    # Time::HiRes::stat gives a sub-second mtime. Plain stat(2) truncates to
+    # whole seconds, so two saves inside the same second with the same byte
+    # count would look identical and the second one would never be picked up.
+    my @st = Time::HiRes::stat($self->config_file) or return '';
+    # inode : size : mtime — a change to any of them means a new revision.
+    return join(':', $st[1], $st[7], $st[9]);
+}
+
+sub _reload_if_changed {
+    my ($self) = @_;
+    return if $self->{_in_reload};
+
+    my $stamp = $self->_stat_stamp;
+    return if $stamp eq '' || $stamp eq $self->_file_stamp;
+
+    local $self->{_in_reload} = 1;
+    $self->load();
+    return;
+}
+
+# Every read of the in-memory config goes through the accessor, so hooking it
+# is what makes the freshness check impossible to forget in a new call site.
+# Writes (and the reload itself) pass straight through.
+around '_config' => sub {
+    my ($orig, $self, @args) = @_;
+    $self->_reload_if_changed unless @args;
+    return $self->$orig(@args);
+};
+
 # Load config from file
 sub load {
     my ($self) = @_;
 
     my $file = $self->config_file;
+
+    # Stamp BEFORE reading: if the file changes while we read it, the stamp we
+    # recorded is the older one and the next access reloads again.
+    $self->_file_stamp($self->_stat_stamp);
 
     if (-f $file) {
         eval {
@@ -175,8 +233,14 @@ sub load {
             $self->_config($self->_json->decode($json));
         };
         if ($@) {
+            # NEVER blank the in-memory config here. Since workers re-read on
+            # every access, a decode failure is far more likely to be a
+            # transient torn read than a genuinely corrupt file — and blanking
+            # would drop every user, API key and the license, then persist that
+            # emptiness the next time anything called save().
+            # Clearing the stamp makes the next access retry the read.
             warn "Failed to load config from $file: $@";
-            $self->_config({});
+            $self->_file_stamp('');
         }
     }
 
@@ -197,15 +261,33 @@ sub save {
     }
 
     eval {
-        open my $fh, '>:encoding(UTF-8)', $file or die "Cannot write $file: $!";
-        print $fh $self->_json->encode($self->_config);
-        close $fh;
+        # Serialize what the caller actually mutated. A freshness reload here
+        # would silently discard their unsaved change and write someone else's
+        # revision back while still reporting success.
+        local $self->{_in_reload} = 1;
+        my $payload = $self->_json->encode($self->_config);
+
+        # Write-then-rename, NOT truncate-then-print. Every worker now re-reads
+        # this file whenever its stat stamp moves, and truncation moves the
+        # stamp instantly — so an in-place write guarantees that any worker
+        # touching config in that window reads a partial file. rename(2) is
+        # atomic on POSIX: readers see either the old file or the new one.
+        my $tmp = "$file.tmp.$$";
+        open my $fh, '>:encoding(UTF-8)', $tmp or die "Cannot write $tmp: $!";
+        print $fh $payload or do { my $e = $!; close $fh; unlink $tmp; die "Cannot write $tmp: $e" };
+        close $fh or do { my $e = $!; unlink $tmp; die "Cannot close $tmp: $e" };
+        rename $tmp, $file or do { my $e = $!; unlink $tmp; die "Cannot rename $tmp to $file: $e" };
     };
     if ($@) {
         warn "Failed to save config to $file: $@";
         $self->{_last_save_error} = "$@";
         return 0;
     }
+
+    # We are now the newest revision. Without this the next read would reload
+    # what we just wrote and hand back a DIFFERENT hashref, detaching any
+    # reference a caller still holds into the old structure.
+    $self->_file_stamp($self->_stat_stamp);
 
     return 1;
 }

@@ -12,7 +12,7 @@ use Moo::Role;
 sub get_saved_searches {
     my ($self) = @_;
     my $db = $self->database;
-    return $self->_query_json(qq{
+    return $self->_crud_read(qq{
         SELECT toString(id) as id, name, query, time_range, formatDateTime(created_at, '%Y-%m-%dT%H:%i:%SZ') as created_at
         FROM ${db}.saved_searches
         ORDER BY created_at DESC
@@ -27,7 +27,7 @@ sub create_saved_search {
     # Validate time_range format
     $time_range = '15m' unless $time_range =~ /^\d+[mhd]$/;
 
-    $self->_query(qq{
+    $self->_crud_write(qq{
         INSERT INTO ${db}.saved_searches (name, query, time_range)
         VALUES (@{[$self->_quote_string($name)]}, @{[$self->_quote_string($query)]}, @{[$self->_quote_string($time_range)]})
     });
@@ -41,7 +41,7 @@ sub delete_saved_search {
     # Validate UUID format
     return 0 unless $self->_validate_uuid($id);
 
-    $self->_query(qq{
+    $self->_crud_write(qq{
         ALTER TABLE ${db}.saved_searches DELETE WHERE id = @{[$self->_quote_string($id)]}
     });
     return 1;

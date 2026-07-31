@@ -1,0 +1,35 @@
+/**
+ * Purl Design System - Keyboard focus
+ *
+ * One focus ring for the whole app, declared once. Before this file the app
+ * had 17 bare `outline: none` rules and 5 `:focus-visible` rules, so most
+ * controls (every text input, the time-range picker, the column picker, the
+ * field search) gave a keyboard user no indication of where focus was —
+ * WCAG 2.4.7 Focus Visible.
+ *
+ * Rules for components:
+ *   - Never write a bare `outline: none`. It removes the ring for keyboard
+ *     users too. Pointer clicks already don't match `:focus-visible`, so the
+ *     "no ugly ring on click" problem this pattern was solving no longer
+ *     exists.
+ *   - To restyle focus for one control, override `:focus-visible` on it.
+ *   - `var(--token, literal)` is used because src/styles/variables.css is not
+ *     loaded (see the note at the top of that file).
+ */
+
+:focus-visible {
+  outline: var(--focus-ring-width, 2px) solid var(--focus-ring-color, #58a6ff);
+  outline-offset: var(--focus-ring-offset, 2px);
+}
+
+/*
+ * Controls that sit flush inside a bordered shell (text inputs, textareas,
+ * selects) would have an offset ring clipped by the parent's overflow, so the
+ * ring sits on the border instead.
+ */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: var(--focus-ring-width, 2px) solid var(--focus-ring-color, #58a6ff);
+  outline-offset: 0;
+}

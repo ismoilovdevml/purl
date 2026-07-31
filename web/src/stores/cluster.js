@@ -1,7 +1,6 @@
 import { writable } from 'svelte/store';
 import { error as toastError } from './toast.js';
-
-const API_BASE = '/api';
+import { api } from '../utils/api.js';
 
 export const selectedCluster = writable('all');
 export const clusters = writable([]);
@@ -10,12 +9,7 @@ export const clustersLoading = writable(false);
 export async function fetchClusters() {
   clustersLoading.set(true);
   try {
-    const response = await fetch(`${API_BASE}/clusters`);
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || 'Failed to fetch clusters');
-    }
-    const data = await response.json();
+    const data = await api.get('/clusters');
     clusters.set(data.clusters || []);
   } catch (err) {
     console.error('Failed to fetch clusters:', err);

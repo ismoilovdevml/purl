@@ -14,6 +14,7 @@ use Purl::Util::Time qw(to_clickhouse_ts now_clickhouse);
 
 # Consume roles for modular functionality
 with 'Purl::Storage::ClickHouse::Query';
+with 'Purl::Storage::ClickHouse::KQL';
 with 'Purl::Storage::ClickHouse::Cache';
 with 'Purl::Storage::ClickHouse::Alerts';
 with 'Purl::Storage::ClickHouse::SavedSearches';
@@ -261,9 +262,19 @@ sub _async_insert_settings {
     return "async_insert=1&wait_for_async_insert=$wait";
 }
 
-# ClickHouse performance settings
+# ClickHouse performance settings.
+#
+# sync => 1 makes the statement read-after-write consistent:
+#   async_insert=0   — the INSERT is not parked in ClickHouse's async buffer
+#   mutations_sync=1 — ALTER ... UPDATE/DELETE is applied before we return
+#
+# Log ingest batches thousands of rows/s and trades visibility latency for
+# throughput. CRUD statements (alerts, saved searches, dashboards, pipelines,
+# agents) write one row at a time and are read back immediately by the UI, so
+# for them the async buffer and background mutations are pure downside: the row
+# is invisible — or a deleted row still visible — for seconds after a 200 OK.
 sub _query_settings {
-    my ($self) = @_;
+    my ($self, %opts) = @_;
     my @settings = (
         'max_execution_time=' . $self->max_execution_time,
         'max_rows_to_read=' . $self->max_rows_to_read,
@@ -271,37 +282,89 @@ sub _query_settings {
         'use_uncompressed_cache=1',
         'load_balancing=nearest_hostname',
         'prefer_localhost_replica=1',
-        $self->_async_insert_settings,
+        $opts{sync} ? 'async_insert=0&mutations_sync=1' : $self->_async_insert_settings,
     );
     return join('&', @settings);
 }
 
-sub _query {
-    my ($self, $sql, %opts) = @_;
+# Refuse the call outright while the breaker is open; flip to half_open once
+# the cooldown has elapsed so the next call gets to probe the server.
+sub _circuit_guard {
+    my ($self) = @_;
+    return unless $self->_circuit_state eq 'open';
+    if (time() - $self->_circuit_opened_at >= $self->_circuit_cooldown) {
+        $self->_circuit_state('half_open');
+        return;
+    }
+    die "ClickHouse circuit breaker is open — service unavailable";
+}
 
-    # Circuit breaker check
-    if ($self->_circuit_state eq 'open') {
-        if (time() - $self->_circuit_opened_at >= $self->_circuit_cooldown) {
-            $self->_circuit_state('half_open');
-        } else {
-            die "ClickHouse circuit breaker is open — service unavailable";
+# Record the outcome of one ClickHouse round-trip. Shared by every transport
+# path (_query, _query_to_file, _post_file) so a streaming export can trip and
+# reset the breaker exactly like a normal query — there is only one breaker.
+sub _circuit_record {
+    my ($self, $ok, $elapsed) = @_;
+
+    $self->_metrics->{queries_total}++;
+    $self->_metrics->{query_time_total} += $elapsed;
+
+    unless ($ok) {
+        $self->_metrics->{errors_total}++;
+        $self->_consecutive_failures($self->_consecutive_failures + 1);
+        if ($self->_consecutive_failures >= $self->_circuit_failure_threshold) {
+            $self->_circuit_state('open');
+            $self->_circuit_opened_at(time());
+            warn "ClickHouse circuit breaker OPENED after $self->{_consecutive_failures} consecutive failures";
         }
+        return;
     }
 
-    my $start = time();
+    if ($self->_circuit_state ne 'closed') {
+        warn "ClickHouse circuit breaker CLOSED — connection recovered";
+    }
+    $self->_consecutive_failures(0);
+    $self->_circuit_state('closed');
+    return;
+}
+
+# Build the query URL. %opts:
+#   no_settings => 1        omit the standard performance/safety settings
+#   settings    => 'a=1&b'  use THESE settings instead of the standard ones
+#                           (backup export needs its own timeout and an
+#                           unbounded row cap without disabling everything)
+#   format      => 'CSV'    default_format
+#   params      => {}       bind parameters
+#   sync        => 1        disable async insert (read-after-write CRUD)
+sub _query_url {
+    my ($self, %opts) = @_;
+
     my $url = $self->_base_url . '/?' . $self->_auth_params;
-    $url .= '&' . $self->_query_settings unless $opts{no_settings};
 
-    if ($opts{format}) {
-        $url .= '&default_format=' . $opts{format};
+    if (defined $opts{settings}) {
+        $url .= '&' . $opts{settings};
+    }
+    elsif (!$opts{no_settings}) {
+        $url .= '&' . $self->_query_settings(sync => $opts{sync});
     }
 
-    # Add bind parameters to URL
+    $url .= '&default_format=' . $opts{format} if $opts{format};
+
     if (my $params = $opts{params}) {
         for my $key (keys %$params) {
             $url .= '&param_' . uri_escape($key) . '=' . uri_escape($params->{$key});
         }
     }
+
+    return $url;
+}
+
+sub _query {
+    my ($self, $sql, %opts) = @_;
+
+    $self->_circuit_guard;
+
+    my $start = time();
+    my $url   = $self->_query_url(%opts);
 
     my $response = $self->_http->post($url, {
         content => $sql,
@@ -311,29 +374,125 @@ sub _query {
         },
     });
 
-    my $elapsed = time() - $start;
-    $self->_metrics->{queries_total}++;
-    $self->_metrics->{query_time_total} += $elapsed;
+    $self->_circuit_record($response->{success}, time() - $start);
 
     unless ($response->{success}) {
-        $self->_metrics->{errors_total}++;
-        $self->_consecutive_failures($self->_consecutive_failures + 1);
-        if ($self->_consecutive_failures >= $self->_circuit_failure_threshold) {
-            $self->_circuit_state('open');
-            $self->_circuit_opened_at(time());
-            warn "ClickHouse circuit breaker OPENED after $self->{_consecutive_failures} consecutive failures";
-        }
         die "ClickHouse error: $response->{status} - $response->{content}";
     }
 
-    # Success — reset circuit breaker
-    if ($self->_circuit_state ne 'closed') {
-        warn "ClickHouse circuit breaker CLOSED — connection recovered";
-    }
-    $self->_consecutive_failures(0);
-    $self->_circuit_state('closed');
-
     return $response->{content};
+}
+
+# Exact rows written by the last statement, from ClickHouse's summary header.
+# Returns undef when the server did not send one (older versions), so callers
+# can fall back rather than silently reporting 0.
+sub _written_rows {
+    my ($self, $response) = @_;
+    my $summary = $response->{headers}{'x-clickhouse-summary'} // return undef;
+    $summary = $summary->[0] if ref $summary eq 'ARRAY';
+    my ($rows) = $summary =~ /"written_rows"\s*:\s*"?(\d+)/;
+    return $rows;
+}
+
+# Run a query and stream the response STRAIGHT TO A FILE.
+#
+# This exists because a table export must never be materialised in a Perl
+# scalar: `SELECT * FROM logs` on a real deployment is tens of gigabytes and
+# slurping it OOM-kills the worker (which is exactly what backups used to do).
+# Memory here is one HTTP chunk, whatever the table size.
+#
+# Returns the number of bytes written.
+sub _query_to_file {
+    my ($self, $sql, $file_path, %opts) = @_;
+
+    $self->_circuit_guard;
+
+    my $start = time();
+    my $url   = $self->_query_url(%opts);
+
+    open my $fh, '>:raw', $file_path or die "Cannot write $file_path: $!";
+
+    my $bytes = 0;
+    my $response = eval {
+        $self->_http->request('POST', $url, {
+            content => $sql,
+            headers => {
+                'Content-Type' => 'text/plain',
+                'X-ClickHouse-Format' => $opts{format} // 'TabSeparated',
+            },
+            # HTTP::Tiny only routes 2xx bodies through data_callback; an error
+            # response still lands in $response->{content}, so failures keep
+            # their diagnostics instead of being written into the export.
+            data_callback => sub {
+                $bytes += length $_[0];
+                print {$fh} $_[0] or die "Write to $file_path failed: $!";
+            },
+        });
+    };
+    my $err = $@;
+    close $fh;
+
+    if ($err) {
+        unlink $file_path;
+        $self->_circuit_record(0, time() - $start);
+        die $err;
+    }
+
+    $self->_circuit_record($response->{success}, time() - $start);
+
+    unless ($response->{success}) {
+        unlink $file_path;
+        die "ClickHouse error: $response->{status} - $response->{content}";
+    }
+
+    return $bytes;
+}
+
+# POST a file as the body of a statement (INSERT ... FORMAT CSVWithNames).
+# Streams from disk for the same reason as _query_to_file — a restore must not
+# be bounded by RAM.
+sub _post_file {
+    my ($self, $sql, $file_path, %opts) = @_;
+
+    $self->_circuit_guard;
+    die "File not found: $file_path" unless -f $file_path;
+
+    my $start = time();
+    my $url   = $self->_query_url(%opts) . '&query=' . uri_escape($sql);
+
+    open my $fh, '<:raw', $file_path or die "Cannot read $file_path: $!";
+
+    my $response = eval {
+        $self->_http->request('POST', $url, {
+            content => sub {
+                my $buffer = '';
+                my $read = read $fh, $buffer, 262_144;
+                return defined $read && $read > 0 ? $buffer : '';
+            },
+            headers => {
+                'Content-Type'   => 'text/csv',
+                'Content-Length' => (-s $file_path),
+            },
+        });
+    };
+    my $err = $@;
+    close $fh;
+
+    if ($err) {
+        $self->_circuit_record(0, time() - $start);
+        die $err;
+    }
+
+    $self->_circuit_record($response->{success}, time() - $start);
+
+    unless ($response->{success}) {
+        die "ClickHouse error: $response->{status} - $response->{content}";
+    }
+
+    # The full response, not just the body: an INSERT answers with an empty
+    # body but carries X-ClickHouse-Summary, the only exact row count a
+    # restore can get.
+    return $response;
 }
 
 # Note: Cache management methods are provided by Purl::Storage::ClickHouse::Cache role
@@ -368,6 +527,34 @@ sub _query_json {
     }
 
     return \@rows;
+}
+
+# ============================================
+# CRUD (metadata) statements
+# ============================================
+#
+# Alerts, saved searches, dashboards, pipelines, agents: single rows, written
+# and read back immediately by the UI. Both halves of read-after-write have to
+# be forced, and BOTH were broken:
+#
+#   write — async_insert / background mutations meant a 200 OK did not mean
+#           "visible to the next SELECT";
+#   read  — _query_json caches every SELECT for cache_ttl (5s), and under
+#           prefork each worker has its OWN cache, so a create followed by a
+#           list flip-flopped depending on which worker answered.
+#
+# Invalidating the cache on write cannot fix the read side: the writing worker
+# is not the worker that will serve the next list. These rows are a handful per
+# deployment, so not caching them at all is both correct and free.
+
+sub _crud_write {
+    my ($self, $sql, %opts) = @_;
+    return $self->_query($sql, %opts, sync => 1);
+}
+
+sub _crud_read {
+    my ($self, $sql, %opts) = @_;
+    return $self->_query_json($sql, %opts, no_cache => 1);
 }
 
 # Get metrics for monitoring

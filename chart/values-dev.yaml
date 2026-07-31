@@ -38,16 +38,20 @@ clickhouse:
     limits:
       memory: 2Gi
       cpu: "1"
+      ephemeral-storage: 2Gi
     requests:
       memory: 512Mi
       cpu: 250m
+      ephemeral-storage: 512Mi
 
 resources:
   limits:
     memory: 512Mi
+    ephemeral-storage: 1Gi
   requests:
     cpu: 100m
     memory: 256Mi
+    ephemeral-storage: 256Mi
 
 # Persist dashboard users / settings.json / license across pod restarts
 config:

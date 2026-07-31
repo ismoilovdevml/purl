@@ -9,6 +9,8 @@
   import { createEventDispatcher } from 'svelte';
   import { formatTimestamp } from '../../utils/format.js';
   import { getLevelColor } from '../../utils/colors.js';
+  import Icon from '../ui/Icon.svelte';
+  import { arrowLeft } from '../ui/icons.js';
 
   export let currentLog;
   export let beforeLogs = [];
@@ -47,7 +49,7 @@
       <span class="ctx-time">{formatTimestamp(currentLog.timestamp)}</span>
       <span class="ctx-level" style="color: {getLevelColor(currentLog.level)}">{currentLog.level}</span>
       <span class="ctx-message">{currentLog.message}</span>
-      <span class="ctx-marker">← Current</span>
+      <span class="ctx-marker"><Icon icon={arrowLeft} size={12} strokeWidth={3} /> Current</span>
     </div>
 
     <!-- After logs -->
@@ -159,6 +161,9 @@
   }
 
   .ctx-marker {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     color: var(--color-primary, #58a6ff);
     font-size: 11px;
     font-weight: 600;

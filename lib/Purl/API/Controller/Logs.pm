@@ -11,6 +11,7 @@ use Time::HiRes qw(time);
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 
 use Purl::Util::Time qw(parse_time_range epoch_to_iso);
+use Purl::Util::KQL qw(parse_kql);
 
 extends 'Purl::API::Controller::Base';
 
@@ -108,9 +109,28 @@ sub _filter_logs {
     return @matches;
 }
 
+# Parse a user query string into the storage filter params.
+#
+# Returns 1 on success. On a syntax error it renders 400 and returns 0 — the
+# caller MUST stop. Dropping an unparsable filter silently is precisely how
+# `level:error AND service:x` came to return more rows than `level:error`.
+sub _apply_query {
+    my ($self, $c, $params, $query) = @_;
+
+    return 1 unless defined $query && $query =~ /\S/;
+
+    my ($ast, $err) = parse_kql($query);
+    if ($err) {
+        $self->render_error($c, "Invalid query syntax: $err", 400);
+        return 0;
+    }
+    $params->{kql} = $ast if $ast;
+    return 1;
+}
+
 sub query {
     my ($self, $c) = @_;
-    
+
     $self->safe_execute($c, sub {
         my $body = eval { decode_json($c->req->body) };
         unless ($body) {
@@ -127,9 +147,7 @@ sub query {
         $params{from} = $from if $from;
         $params{to}   = $to if $to;
 
-        if ($query) {
-            $params{query} = $query;
-        }
+        return unless $self->_apply_query($c, \%params, $query);
 
         my $results = $self->storage->search(%params);
 
@@ -170,33 +188,13 @@ sub search {
         $params{service} = $service if $service;
         $params{host}    = $host if $host;
 
-        # Parse KQL query (supports field:value and meta.field:value)
-        if ($query) {
-            if ($query =~ /^([\w.]+):(.+)$/) {
-                my ($field, $value) = ($1, $2);
-                $field = lc($field);
-                $value =~ s/^["']|["']$//g;
+        # Parse KQL: booleans, grouping, negation, quoted phrases, meta.* fields
+        return unless $self->_apply_query($c, \%params, $query);
 
-                if ($field eq 'level') {
-                    $params{level} = uc($value);
-                } elsif ($field eq 'service') {
-                    $params{service} = $value;
-                } elsif ($field eq 'host') {
-                    $params{host} = $value;
-                } elsif ($field =~ /^meta\.(\w+)$/) {
-                    # Handle meta.* fields (namespace, pod, node, container, cluster)
-                    $params{meta_field} = $1;
-                    $params{meta_value} = $value;
-                } else {
-                    $params{query} = $value;
-                }
-            } else {
-                $params{query} = $query;
-            }
-        }
-
-        # Check cache
-        my $cache_key = md5_hex(encode_json(\%params));
+        # Check cache. The AST is keyed by its SOURCE string: hash key order in
+        # a nested structure is not stable, so hashing the AST itself would
+        # produce a different key for the same query.
+        my $cache_key = md5_hex(encode_json({ %params, kql => $query }));
         if (my $cached = $self->get_cached($cache_key)) {
             $c->res->headers->header('X-Cache' => 'HIT');
             $c->render(json => $cached);
@@ -270,36 +268,33 @@ sub ingest {
         my $new_server_count = scalar keys %$server_names;
 
         my $license_info = $c->stash('license_info');
-        if ($license_info && $license_info->{valid} && $license_info->{activated}) {
-            my $max_servers = $license_info->{limits}{servers} // 999;
-            # -1 means unlimited servers
-            if ($max_servers >= 0) {
-                # Current unique server list. field_stats('service') is a GROUP BY
-                # over the whole logs table — far too expensive to run on every
-                # ingest. Cache it briefly so the hot path scans at most once per
-                # window instead of once per request.
-                my $existing_servers = $self->get_cached('ingest:known_services');
-                unless (defined $existing_servers) {
-                    $existing_servers = eval {
-                        $self->storage->field_stats('service', limit => 1000);
-                    } // [];
-                    $self->set_cached('ingest:known_services', $existing_servers, 60);
-                }
-                my $total_servers = scalar @$existing_servers;
-                # Add any new servers not already in the existing list
-                my %existing_set = map { $_->{value} => 1 } @$existing_servers;
-                for my $svc (keys %$server_names) {
-                    $total_servers++ unless $existing_set{$svc};
-                }
-                if ($total_servers > $max_servers) {
-                    $c->render(json => {
-                        error   => "Server limit reached (max: $max_servers). Upgrade your plan.",
-                        plan    => $license_info->{plan} // 'free',
-                        upgrade => 'https://purlogs.com/pricing',
-                    }, status => 403);
-                    return;
-                }
+        if ($license_info && $license_info->{valid} && $license_info->{activated}
+            && ($license_info->{limits}{servers} // -1) >= 0)
+        {
+            # Only reached when the plan actually meters servers. Guarding here
+            # (instead of inside check_limit) keeps the expensive field_stats
+            # GROUP BY off the ingest hot path for the unlimited plans, which
+            # is every plan we currently sell.
+            #
+            # Current unique server list. field_stats('service') is a GROUP BY
+            # over the whole logs table — far too expensive to run on every
+            # ingest. Cache it briefly so the hot path scans at most once per
+            # window instead of once per request.
+            my $existing_servers = $self->get_cached('ingest:known_services');
+            unless (defined $existing_servers) {
+                $existing_servers = eval {
+                    $self->storage->field_stats('service', limit => 1000);
+                } // [];
+                $self->set_cached('ingest:known_services', $existing_servers, 60);
             }
+            # Servers this batch would ADD on top of the ones already stored.
+            my %existing_set = map { $_->{value} => 1 } @$existing_servers;
+            my $adding = grep { !$existing_set{$_} } keys %$server_names;
+
+            # Single quota gate for the whole codebase — see Controller::Base.
+            return unless $self->check_limit(
+                $c, 'servers', scalar(@$existing_servers), $adding
+            );
         }
 
         # Validate all logs before inserting

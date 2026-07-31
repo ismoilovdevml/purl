@@ -2,6 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import Badge from '../ui/Badge.svelte';
   import Button from '../ui/Button.svelte';
+  import { api } from '../../utils/api.js';
 
   const dispatch = createEventDispatcher();
 
@@ -10,15 +11,11 @@
   let error = null;
   let severityFilter = 'all'; // 'all' | 'critical' | 'warning'
 
-  const API_BASE = '/api';
-
   async function loadTemplates() {
     loading = true;
     error = null;
     try {
-      const res = await fetch(`${API_BASE}/alerts/templates`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await api.get('/alerts/templates');
       templates = data.templates || [];
     } catch (err) {
       console.error('Failed to load alert templates:', err);
@@ -160,7 +157,7 @@
   }
 
   .status-msg {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     font-size: 12px;
     margin: 16px 0;
     text-align: center;
@@ -231,7 +228,7 @@
 
   .meta-item {
     font-size: 11px;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   .card-actions {

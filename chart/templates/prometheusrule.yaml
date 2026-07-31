@@ -1,14 +1,21 @@
 {{- if .Values.metrics.prometheusRule.enabled }}
 {{- /*
-  Every alert below is written against a metric Purl actually exports:
-    purl_info, purl_uptime_seconds, purl_logs_stored,
-    purl_db_size_bytes, purl_cache_size
-  The previous version of this file alerted on purl_errors_total,
-  purl_clickhouse_healthy, purl_query_latency_p99 and purl_memory_usage_bytes,
-  none of which exist anywhere in lib/. PromQL returns an empty vector for an
-  unknown metric and an empty vector never fires, so those four alerts were
-  permanently green and a 12-day dev outage produced no alert at all.
-  Any new alert MUST be checked against lib/ before being added here.
+  Every alert below is written against a metric Purl actually exports
+  (lib/Purl/Metrics/Prometheus.pm is the authoritative list):
+    purl_info, purl_uptime_seconds, purl_clickhouse_healthy,
+    purl_logs_stored, purl_db_size_bytes, purl_cache_size,
+    purl_http_requests_total{method,status}, purl_errors_total,
+    purl_query_latency_seconds_{sum,count}, purl_ingest_bytes_total,
+    purl_metrics_shared
+  An earlier version alerted on purl_query_latency_p99 and
+  purl_memory_usage_bytes, which exist nowhere in lib/. PromQL returns an
+  empty vector for an unknown metric and an empty vector never fires, so
+  those alerts were permanently green while a 12-day dev outage went
+  unreported. Any new alert MUST be checked against lib/ first.
+
+  purl_query_latency_seconds is a SUMMARY WITHOUT QUANTILES — only _sum and
+  _count exist. Use rate(_sum)/rate(_count) for the average.
+  histogram_quantile() over it returns nothing and would fire never.
 */ -}}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -102,6 +109,97 @@ spec:
               {{ .Values.metrics.prometheusRule.diskFillPredictSeconds }}s.
               Current size {{ "{{" }} $value {{ "}}" }} bytes. Review
               purl.retentionDays or grow clickhouse.persistence.size.
+
+        # -- ClickHouse unreachable from Purl. purl_clickhouse_healthy is
+        # emitted by the /api/metrics scrape itself, which deliberately keeps
+        # succeeding during a database outage, so this stays reportable
+        # exactly when it matters. Liveness no longer restarts pods on this
+        # condition (livenessProbe is on /api/health/live), so without an
+        # alert a ClickHouse outage is invisible apart from readiness flapping.
+        - alert: PurlClickHouseUnhealthy
+          expr: purl_clickhouse_healthy == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Purl cannot reach ClickHouse"
+            description: >-
+              purl_clickhouse_healthy has been 0 for 5 minutes on
+              {{ "{{" }} $labels.instance {{ "}}" }}. Purl pods are alive but
+              out of the Service endpoints (readiness fails); ingest and
+              queries are down.
+
+        # -- Error ratio over all responses. purl_errors_total counts every
+        # response with status >= 400; purl_http_requests_total is the
+        # denominator. clamp_min guards the no-traffic case, where 0/0 would
+        # produce NaN and the alert would never evaluate.
+        - alert: PurlHighErrorRate
+          expr: >-
+            (rate(purl_errors_total[5m])
+             / clamp_min(rate(purl_http_requests_total[5m]), 0.001)) > {{ .Values.metrics.prometheusRule.errorRateThreshold }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Purl is returning errors at an elevated rate"
+            description: >-
+              {{ "{{" }} $value | humanizePercentage {{ "}}" }} of responses are
+              4xx/5xx on {{ "{{" }} $labels.instance {{ "}}" }}
+              (threshold {{ .Values.metrics.prometheusRule.errorRateThreshold }}).
+
+        # -- Server-side failures only. The status label comes from a fixed
+        # allowlist (8 methods x 20 statuses + "other"), so status=~"5.."
+        # matches real series and does not explode cardinality.
+        - alert: PurlServerErrors
+          expr: >-
+            sum by (instance) (rate(purl_http_requests_total{status=~"5.."}[5m])) > 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Purl is returning 5xx responses"
+            description: >-
+              {{ "{{" }} $value {{ "}}" }} 5xx responses/sec on
+              {{ "{{" }} $labels.instance {{ "}}" }}. This is Purl failing, not
+              a client error.
+
+        # -- Average request latency. purl_query_latency_seconds is a summary
+        # with NO quantiles — only _sum and _count exist — so this is
+        # rate(sum)/rate(count). histogram_quantile() over it returns an empty
+        # vector and would never fire.
+        - alert: PurlHighLatency
+          expr: >-
+            (rate(purl_query_latency_seconds_sum[5m])
+             / clamp_min(rate(purl_query_latency_seconds_count[5m]), 0.001)) > {{ .Values.metrics.prometheusRule.latencySecondsThreshold }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Purl request latency is high"
+            description: >-
+              Average request latency is {{ "{{" }} $value {{ "}}" }}s on
+              {{ "{{" }} $labels.instance {{ "}}" }}, above
+              {{ .Values.metrics.prometheusRule.latencySecondsThreshold }}s.
+
+        # -- Counters are per-prefork-worker, not fleet-wide.
+        # Purl::Store::Counter falls back to in-process counters when
+        # PURL_REDIS_URL is unset, so each of the PURL_WORKERS workers keeps
+        # its own tally and a scrape sees roughly 1/N of reality. Every rate()
+        # alert above then under-reports by that factor — quietly. This is the
+        # alert that tells you the other alerts are lying.
+        - alert: PurlMetricsNotShared
+          expr: purl_metrics_shared == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Purl metrics counters are per-worker, not shared"
+            description: >-
+              purl_metrics_shared is 0 on {{ "{{" }} $labels.instance {{ "}}" }}.
+              Request/error/latency/ingest counters reflect a single prefork
+              worker, so rate-based alerts under-report by roughly the worker
+              count. Set purl.redis.enabled=true and purl.redis.url to back
+              the counters with a shared store.
 
         # -- Already over capacity.
         - alert: PurlDiskFull

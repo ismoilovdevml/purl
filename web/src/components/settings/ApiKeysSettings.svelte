@@ -16,6 +16,9 @@
   import { currentUser } from '../../stores/auth.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
+  import EmptyState from '../ui/EmptyState.svelte';
+  import IngestSnippet from '../onboarding/IngestSnippet.svelte';
+  import { check, copy, key as keyIcon, shield } from '../ui/icons.js';
 
   let keys = [];
   let loading = true;
@@ -146,7 +149,7 @@
     {#if createdKey}
       <div class="created-key-banner">
         <div class="created-key-header">
-          <Icon name="shield" size={16} />
+          <Icon icon={shield} size={16} />
           <strong>New API Key Created</strong>
         </div>
         <p class="created-key-warning">
@@ -154,12 +157,14 @@
         </p>
         <div class="created-key-value">
           <code>{createdKey.key}</code>
-          <button class="copy-btn" on:click={() => copyToClipboard(createdKey.key)} title="Copy to clipboard">
-            {#if copied}
-              <Icon name="check" size={16} />
-            {:else}
-              <Icon name="copy" size={16} />
-            {/if}
+          <button
+            type="button"
+            class="copy-btn"
+            on:click={() => copyToClipboard(createdKey.key)}
+            title="Copy to clipboard"
+            aria-label={copied ? 'API key copied to clipboard' : 'Copy API key to clipboard'}
+          >
+            <Icon icon={copied ? check : copy} size={16} />
           </button>
         </div>
         <Button variant="ghost" size="sm" on:click={dismissCreatedKey}>Dismiss</Button>
@@ -215,7 +220,7 @@
           {#each keys as key}
             <div class="key-row">
               <div class="col-name">
-                <Icon name="key" size={16} />
+                <Icon icon={keyIcon} size={16} />
                 <span class="key-name">{key.label || key.id}</span>
               </div>
               <div class="col-key">
@@ -238,10 +243,9 @@
           {/each}
 
           {#if keys.length === 0}
-            <div class="empty">
-              <Icon name="key" size={24} strokeWidth={1.5} />
-              <p>No API keys configured. Create one to start ingesting logs.</p>
-            </div>
+            <EmptyState icon={keyIcon} title="No API keys configured" size="sm">
+              Create one to start ingesting logs.
+            </EmptyState>
           {/if}
         </div>
       </div>
@@ -253,12 +257,7 @@
         Include the API key in your log ingestion requests using the <code>X-API-Key</code> header
         or the <code>Authorization: Bearer</code> header.
       </p>
-      <div class="usage-example">
-        <code>curl -X POST {window.location.origin}/api/v1/logs \</code>
-        <code>  -H 'X-API-Key: YOUR_API_KEY' \</code>
-        <code>  -H 'Content-Type: application/json' \</code>
-        <code>  -d '&#123;\"level\": \"info\", \"message\": \"Hello Purl\"&#125;'</code>
-      </div>
+      <IngestSnippet />
     </Card>
   {/if}
 </section>
@@ -403,7 +402,7 @@
 
   .env-note {
     font-size: 0.75rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     font-style: italic;
   }
 
@@ -433,7 +432,7 @@
     margin-bottom: 4px;
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -463,7 +462,7 @@
   }
 
   .col-name :global(svg) {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     flex-shrink: 0;
   }
 
@@ -497,7 +496,7 @@
 
   .key-date {
     font-size: 0.75rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   .col-status {
@@ -526,25 +525,6 @@
     justify-content: flex-end;
   }
 
-  .empty {
-    text-align: center;
-    padding: 32px 20px;
-    color: var(--text-muted, #6e7681);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .empty p {
-    margin: 0;
-    font-size: 0.875rem;
-  }
-
-  .empty :global(svg) {
-    opacity: 0.5;
-  }
-
   /* Info card */
   .info-title {
     margin: 0 0 8px;
@@ -569,22 +549,6 @@
     color: var(--text-primary, #c9d1d9);
   }
 
-  .usage-example {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 12px 14px;
-    background: var(--bg-primary, #0d1117);
-    border: 1px solid var(--border-color, #21262d);
-    border-radius: 6px;
-    overflow-x: auto;
-  }
-
-  .usage-example code {
-    font-family: var(--font-mono, 'SF Mono', Monaco, monospace);
-    font-size: 0.75rem;
-    color: var(--text-secondary, #8b949e);
-    white-space: pre;
-    line-height: 1.6;
-  }
+  /* The curl example lives in onboarding/IngestSnippet.svelte, which brings
+     its own styles — the old .usage-example block was a duplicate of it. */
 </style>

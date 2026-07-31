@@ -1,33 +1,45 @@
 <!--
   Icon Component
-  Renders a glyph from the shared registry in ./icons.js.
+  Renders a glyph imported from ./icons.js.
 
   Every icon is drawn on the same normalised 24x24 grid with
   `stroke="currentColor"`, `fill="none"` and `stroke-width: 2`, so icons inherit
-  colour from their container and line up with each other at any size.
+  colour from their container and line up with each other at any size. A handful
+  of glyphs opt out (solid marks, brand logos) and carry their own viewBox/fill.
 
   Usage:
-  <Icon name="close" size={16} />
-  <Icon name="lock" size={12} label="Locked" />
-  <Icon name="refresh" size={14} spin={loading} />
-  <Icon name="chevron-right" size={12} class="chevron {open ? 'expanded' : ''}" />
+  import Icon from '../ui/Icon.svelte';
+  import { close, lock, refresh, chevronRight } from '../ui/icons.js';
+
+  <Icon icon={close} size={16} />
+  <Icon icon={lock} size={12} label="Locked" />
+  <Icon icon={refresh} size={14} spin={loading} />
+  <Icon icon={chevronRight} size={12} class="chevron {open ? 'expanded' : ''}" />
+
+  The `icon` prop takes the imported glyph itself, never a name string. That is
+  what keeps icons.js tree-shakeable: a string registry would need
+  `import * as ICONS`, which forces Rollup to retain every glyph in the eager
+  chunk. Dynamic choices build a local map of imported glyphs instead:
+
+      import { check, xCircle } from '../ui/icons.js';
+      const STATUS_ICON = { ok: check, failed: xCircle };
+      <Icon icon={STATUS_ICON[status]} size={14} />
 
   Accessibility: without `label` the icon is decorative (aria-hidden). Pass
-  `label` only when the icon carries meaning no adjacent text already conveys.
+  `label` only when the icon carries meaning no adjacent text already conveys —
+  an icon-only button needs one, an icon beside its own label does not.
 
-  Note: shapes are rendered as real SVG elements, never via {@html}, so an
-  unexpected `name` can only ever render nothing.
+  Note: shapes are rendered as real SVG elements, never via {@html}, so glyph
+  data can never become markup.
 -->
 <script>
-  import * as ICONS from './icons.js';
-
-  /** Registry name, kebab-case or camelCase (e.g. 'chevron-down'). */
-  export let name;
+  /** Glyph imported from ./icons.js. */
+  export let icon;
   /** Rendered width/height in px. */
   export let size = 16;
   /** Accessible name. When omitted the icon is hidden from assistive tech. */
   export let label = null;
-  /** Override the icon's stroke width. */
+  /** Override the icon's stroke width (raise it below ~16px to keep weight). */
   export let strokeWidth = null;
   /** Apply the shared spin animation. */
   export let spin = false;
@@ -37,28 +49,24 @@
   let className = '';
   export { className as class };
 
-  const toKey = (n) => String(n).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  $: def = Array.isArray(icon) ? { shapes: icon } : (icon ?? null);
+  $: shapes = (def?.shapes ?? []).map((s) => (typeof s === 'string' ? ['path', { d: s }] : s));
 
-  $: key = toKey(name);
-  // Module namespace objects have a null prototype, so this cannot be tricked
-  // into resolving inherited properties.
-  $: def = Object.prototype.hasOwnProperty.call(ICONS, key) ? ICONS[key] : null;
-  $: icon = Array.isArray(def) ? { shapes: def } : def;
-  $: shapes = (icon?.shapes ?? []).map((s) => (typeof s === 'string' ? ['path', { d: s }] : s));
-
-  $: if (name && !icon) console.warn(`[Icon] unknown icon name: "${name}"`);
+  $: if (import.meta.env.DEV && !def) {
+    console.warn('[Icon] missing or unknown `icon` prop — did you import the glyph from icons.js?');
+  }
 </script>
 
-{#if icon}
+{#if def}
   <svg
     class={className}
     class:icon-spin={spin}
     width={size}
     height={size}
-    viewBox={icon.viewBox || '0 0 24 24'}
-    fill={icon.fill ? 'currentColor' : 'none'}
-    stroke={icon.fill ? 'none' : 'currentColor'}
-    stroke-width={icon.fill ? null : (strokeWidth ?? icon.strokeWidth ?? 2)}
+    viewBox={def.viewBox || '0 0 24 24'}
+    fill={def.fill ? 'currentColor' : 'none'}
+    stroke={def.fill ? 'none' : 'currentColor'}
+    stroke-width={def.fill ? null : (strokeWidth ?? def.strokeWidth ?? 2)}
     stroke-linecap="round"
     stroke-linejoin="round"
     style={color ? `color: ${color}` : null}

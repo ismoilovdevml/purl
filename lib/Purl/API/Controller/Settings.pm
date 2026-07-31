@@ -575,13 +575,11 @@ sub create_user {
             return;
         }
 
-        # Check user limit from license
-        my $license_info = $c->stash('license_info') // {};
-        my $max_users = $license_info->{limits}{users} // 1;
-        if (scalar(keys %$users) >= $max_users) {
-            $self->render_error($c, "User limit reached ($max_users). Upgrade your plan.", 403);
-            return;
-        }
+        # Check user limit from license. MUST go through check_limit — the
+        # open-coded `>= $max_users` this replaced treated the "unlimited"
+        # sentinel -1 as a hard zero (0 >= -1), so an unlimited plan could not
+        # create a single user.
+        return unless $self->check_limit($c, 'users', scalar keys %$users);
 
         # Hash password
         my $hashed = $self->auth_middleware->hash_password($password);

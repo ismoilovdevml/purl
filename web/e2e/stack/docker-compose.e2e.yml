@@ -1,0 +1,47 @@
+# Ephemeral overrides layered on top of the shipped docker-compose.yml.
+#
+# Design rule: this file only OVERRIDES, it never re-declares the application.
+# The e2e run must exercise the same compose file users deploy, otherwise the
+# suite stops protecting the thing it is named after.
+#
+# Compose merges the `volumes` list keyed by container path, so:
+#   - /app/config          is REPLACED by a throwaway dir (fresh 14-day trial
+#                          license + fresh admin user on every run)
+#   - users.d/users-e2e.xml is ADDED alongside the shipped custom.xml
+#
+# Usage: docker compose -f docker-compose.yml -f web/e2e/stack/docker-compose.e2e.yml ...
+
+services:
+  purl:
+    # Distinct container names so an e2e run cannot collide with a developer's
+    # own `make up` stack sitting on the default names.
+    container_name: purl-e2e
+    volumes:
+      - ${PURL_E2E_CONFIG_DIR:?PURL_E2E_CONFIG_DIR must be set by up.sh}:/app/config
+    # The shipped 30s interval means compose --wait sits idle for half a minute
+    # before it even looks. Tests do not need that patience.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+
+  clickhouse:
+    container_name: purl-clickhouse-e2e
+    environment:
+      # The image entrypoint runs its own clickhouse-client health probe as
+      # CLICKHOUSE_USER. The shipped compose sets CLICKHOUSE_USER=default but no
+      # password, so once the users.d overlay below gives `default` a password
+      # the entrypoint's probe fails with AUTHENTICATION_FAILED and the
+      # container reports unhealthy — which is a first-boot-only failure that
+      # looks exactly like a broken config. Hand it the same password.
+      - CLICKHOUSE_PASSWORD=${PURL_CLICKHOUSE_PASSWORD:?PURL_CLICKHOUSE_PASSWORD must be set}
+    volumes:
+      - ${PURL_E2E_USERS_XML:?PURL_E2E_USERS_XML must be set by up.sh}:/etc/clickhouse-server/users.d/users-e2e.xml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8123/ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 15s

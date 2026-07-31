@@ -130,6 +130,8 @@
   async function downloadBackup(id, name) {
     downloading = id;
     try {
+      // Raw fetch on purpose: this endpoint returns a binary tarball and
+      // utils/api.js parses every response as text/JSON, which would corrupt it.
       const res = await fetch(`${API_BASE}/backup/${encodeURIComponent(id)}/download`);
       if (res.ok) {
         const blob = await res.blob();
@@ -616,7 +618,7 @@
 
   .create-hint {
     font-size: 0.75rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     margin: 8px 0 0;
   }
 
@@ -662,7 +664,6 @@
   }
 
   .field-input:focus {
-    outline: none;
     border-color: var(--color-primary, #58a6ff);
     box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
   }
@@ -736,7 +737,7 @@
 
   .backup-tables {
     font-size: 0.75rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   .backup-error {

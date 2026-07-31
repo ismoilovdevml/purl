@@ -53,6 +53,7 @@ use Purl::API::Controller::AlertTemplates;
 use Purl::API::Controller::AI;
 use Purl::API::Controller::Clusters;
 use Purl::API::Controller::Agents;
+use Purl::Metrics::Counters;
 
 # Package-level state
 my $storage;
@@ -61,6 +62,7 @@ my $settings;  # Purl::Config instance
 my $websockets = [];
 my $broadcaster;
 my %notifiers;
+my $metrics_counters;   # Purl::Metrics::Counters (shared across workers)
 
 # Metrics counters
 my %metrics = (
@@ -539,8 +541,19 @@ sub setup_routes {
     # Common controller args
     my %c_args = (storage => $storage, config => $config, cache => \%cache, namespace_scope => $namespace_scope);
 
+    # Prometheus counters on the SHARED counter store (the same Redis-backed
+    # store used for rate limiting and login lockout). Reusing it is the whole
+    # point: %metrics below is per-worker, so a scrape of a prefork server sees
+    # only one worker's slice of the truth.
+    $metrics_counters = Purl::Metrics::Counters->new(
+        store => $auth_middleware->counter_store,
+    );
+
     # Instantiate controllers
-    my $sys_c    = Purl::API::Controller::System->new(%c_args);
+    my $sys_c    = Purl::API::Controller::System->new(
+        %c_args,
+        metrics_counters => $metrics_counters,
+    );
     my $auth_c   = Purl::API::Controller::Auth->new(
         %c_args,
         auth_middleware    => $auth_middleware,
@@ -679,27 +692,26 @@ sub setup_routes {
                 );
                 app->log->info("Scheduled backup completed: id=$result->{id}, size=$result->{size_bytes}");
 
-                # Auto-upload to S3 if enabled
-                my $s3_enabled = $ENV{PURL_BACKUP_S3_ENABLED}
-                    // ($settings ? $settings->get('backup', 's3_enabled') : 0);
-                if ($s3_enabled) {
+                # Auto-upload to S3 if enabled. Config resolution lives in
+                # Purl::Storage::S3 so the scheduler, the controller and the
+                # storage layer all agree on one bucket.
+                require Purl::Storage::S3;
+                my $s3_config = Purl::Storage::S3->config_from(settings => $settings);
+                if ($s3_config->{enabled}) {
                     eval {
-                        my $s3_config = {
-                            bucket     => $ENV{PURL_BACKUP_S3_BUCKET}     // ($settings ? $settings->get('backup', 's3_bucket')     : ''),
-                            region     => $ENV{PURL_BACKUP_S3_REGION}     // ($settings ? $settings->get('backup', 's3_region')     : 'us-east-1'),
-                            prefix     => $ENV{PURL_BACKUP_S3_PREFIX}     // ($settings ? $settings->get('backup', 's3_prefix')     : 'purl-backups/'),
-                            access_key => $ENV{AWS_ACCESS_KEY_ID}          // ($settings ? $settings->get('backup', 's3_access_key') : ''),
-                            secret_key => $ENV{AWS_SECRET_ACCESS_KEY}      // ($settings ? $settings->get('backup', 's3_secret_key') : ''),
-                            endpoint   => $ENV{PURL_BACKUP_S3_ENDPOINT}   // ($settings ? $settings->get('backup', 's3_endpoint')   : ''),
-                        };
                         my $s3_result = $storage->upload_backup_to_s3($result->{id}, $s3_config);
                         app->log->info("Backup uploaded to S3: $s3_result->{target_path}");
                     };
                     app->log->error("S3 upload failed: $@") if $@;
                 }
 
-                # Auto-cleanup old backups
-                my $cleaned = $storage->cleanup_old_backups($backup_retention_days);
+                # Auto-cleanup old backups. s3_config is passed so expired
+                # backups are removed from the bucket too, not just from the
+                # metadata table.
+                my $cleaned = $storage->cleanup_old_backups(
+                    $backup_retention_days,
+                    s3_config => $s3_config,
+                );
                 app->log->info("Cleaned up $cleaned old backups") if $cleaned > 0;
             };
             app->log->error("Scheduled backup failed: $@") if $@;
@@ -865,6 +877,22 @@ sub setup_routes {
         app->log->$log_level(sprintf("%s - %s %s %d %.2fms", $ip, $method, $path, $status, $duration_ms));
 
         $metrics{errors_total}++ if $status >= 400;
+
+        # Mirror into the SHARED counters that /api/metrics exports. %metrics
+        # above stays as-is for /api/metrics/json (per-worker latency
+        # percentiles need the local circular buffer), but anything Prometheus
+        # scrapes has to be fleet-wide or the numbers are fiction under prefork.
+        if ($metrics_counters) {
+            $metrics_counters->record_request(
+                method      => $method,
+                status      => $status,
+                duration_ms => $duration_ms,
+            );
+            # Ingest volume, measured on the endpoints that actually accept
+            # logs — total bytes_in would be dominated by dashboard traffic.
+            $metrics_counters->record_ingest_bytes($req_size)
+                if $method eq 'POST' && $path =~ m{^/api/(?:logs|v1/(?:otlp/logs|syslog|k8s-audit)|_bulk|[^/]+/_bulk)$};
+        }
     });
 
     # Audit event helper — fire-and-forget, never breaks the app
@@ -888,7 +916,7 @@ sub setup_routes {
     # Protected routes middleware
     my $protected = $api->under('/' => sub ($c) {
         my $path = $c->req->url->path->to_string;
-        return 1 if $path =~ m{^/api/(health|metrics)$};
+        return 1 if $path =~ m{^/api/(health(/live|/ready)?|metrics)$};
 
         my $ip = $auth_middleware->client_ip($c);
 
@@ -944,6 +972,11 @@ sub setup_routes {
     # ============================================
     $api->get('/csrf-token' => sub ($c) { $auth_c->csrf_token($c) });
     $api->get('/health' => sub ($c) { $sys_c->health($c) });
+    # Split probes for Kubernetes. /live must NEVER depend on ClickHouse:
+    # pointing a livenessProbe at a DB-backed endpoint turns a database outage
+    # into a fleet-wide CrashLoopBackOff. /ready carries the dependency check.
+    $api->get('/health/live'  => sub ($c) { $sys_c->health_live($c) });
+    $api->get('/health/ready' => sub ($c) { $sys_c->health_ready($c) });
     $api->get('/metrics' => sub ($c) { $sys_c->metrics($c) });
     $api->get('/metrics/json' => sub ($c) { $sys_c->metrics_json($c) });
 

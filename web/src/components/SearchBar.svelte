@@ -2,6 +2,8 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { levelStats, serviceStats, hostStats, connectWebSocket, isLive } from '../stores/logs.js';
   import Button from './ui/Button.svelte';
+  import Icon from './ui/Icon.svelte';
+  import { search as searchIcon, close, textLines, plus, dot, clock, sparkleSolid } from './ui/icons.js';
   import { debounce } from '../utils/dom.js';
   import { aiConfigured, aiSuggestions, fetchSuggestions } from '../stores/ai.js';
   import AIQueryBar from './ai/AIQueryBar.svelte';
@@ -285,7 +287,7 @@
 {#if aiMode && $aiConfigured}
   <div class="ai-bar-wrap">
     <button class="mode-toggle-btn active-kql" on:click={() => { aiMode = false; }} title="Switch to KQL mode">
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z"/></svg>
+      <Icon icon={searchIcon} size={14} strokeWidth={2.5} />
       KQL
     </button>
     <AIQueryBar on:apply={(e) => { aiMode = false; dispatch('ai-apply', e.detail); }} />
@@ -304,9 +306,7 @@
   </Button>
 
   <div class="search-con">
-    <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path fill="currentColor" d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z"/>
-    </svg>
+    <Icon icon={searchIcon} class="search-icon" size={16} strokeWidth={2.25} />
 
   <input
     bind:this={inputEl}
@@ -324,10 +324,8 @@
   />
 
   {#if value}
-    <Button icon size="sm" variant="ghost" on:click={handleClear} title="Clear search" class="clear-btn">
-      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-        <path fill="currentColor" d="M7 5.586 3.707 2.293a1 1 0 0 0-1.414 1.414L5.586 7 2.293 10.293a1 1 0 1 0 1.414 1.414L7 8.414l3.293 3.293a1 1 0 0 0 1.414-1.414L8.414 7l3.293-3.293a1 1 0 0 0-1.414-1.414L7 5.586Z"/>
-      </svg>
+    <Button icon size="sm" variant="ghost" on:click={handleClear} title="Clear search" aria-label="Clear search" class="clear-btn">
+      <Icon icon={close} size={14} strokeWidth={3} />
     </Button>
   {/if}
 
@@ -344,7 +342,7 @@
             aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
           >
             <span class="suggestion-icon">
-              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 3h8v1H2V3zm0 2.5h8v1H2v-1zm0 2.5h5v1H2V8z"/></svg>
+              <Icon icon={textLines} size={12} strokeWidth={3} />
             </span>
             <span class="suggestion-text">{suggestion.display}</span>
             {#if suggestion.hint}
@@ -369,7 +367,7 @@
             aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
           >
             <span class="suggestion-icon">
-              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M2 3h8v1H2V3zm0 2.5h8v1H2v-1zm0 2.5h5v1H2V8z"/></svg>
+              <Icon icon={textLines} size={12} strokeWidth={3} />
             </span>
             <span class="suggestion-text">{suggestion.display}</span>
             <span class="suggestion-hint">{suggestion.hint}</span>
@@ -386,7 +384,7 @@
           aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
         >
           <span class="suggestion-icon">
-            <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5"/></svg>
+            <Icon icon={plus} size={12} strokeWidth={3} />
           </span>
           <span class="suggestion-text">{suggestion.display}</span>
           {#if suggestion.hint}
@@ -404,7 +402,7 @@
           aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
         >
           <span class="suggestion-icon">
-            <svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="currentColor"/></svg>
+            <Icon icon={dot} size={12} />
           </span>
           <span class="suggestion-text">{suggestion.display}</span>
           {#if suggestion.field}
@@ -428,7 +426,7 @@
             on:mousedown|preventDefault={() => applyHistory(query)}
           >
             <span class="suggestion-icon">
-              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M6 1a5 5 0 1 0 5 5 5 5 0 0 0-5-5zm0 9a4 4 0 1 1 4-4 4 4 0 0 1-4 4zm.5-4V3.5a.5.5 0 0 0-1 0v3a.5.5 0 0 0 .15.35l2 2a.5.5 0 0 0 .7-.7L6.5 6z"/></svg>
+              <Icon icon={clock} size={12} strokeWidth={3} />
             </span>
             <span class="suggestion-text history-query">{query}</span>
           </button>
@@ -446,7 +444,7 @@
             on:mousedown|preventDefault={() => applyAiSuggestion(query)}
           >
             <span class="suggestion-icon ai-icon">
-              <svg width="12" height="12" viewBox="0 0 12 12"><path fill="currentColor" d="M6 0l1.5 3.5L11 5l-3.5 1.5L6 10 4.5 6.5 1 5l3.5-1.5z"/></svg>
+              <Icon icon={sparkleSolid} size={12} />
             </span>
             <span class="suggestion-text">{query}</span>
             <span class="suggestion-hint ai-hint">AI</span>
@@ -463,9 +461,7 @@
       on:click={() => { aiMode = true; }}
       title="Ask AI"
     >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l1.872 1.094a.75.75 0 0 1-.992 1.126l-2.25-1.314a.75.75 0 0 1-.378-.654V4.75a.75.75 0 0 1 1.5 0h-.252Z"/>
-      </svg>
+      <Icon icon={clock} size={14} strokeWidth={2.5} />
       Ask AI
     </button>
   {/if}
@@ -564,7 +560,8 @@
     box-shadow: 0 0 6px rgba(63, 185, 80, 0.4);
   }
 
-  .search-icon {
+  /* :global — the class is forwarded onto the SVG that Icon renders. */
+  .search-con :global(.search-icon) {
     position: absolute;
     left: 12px;
     color: var(--text-secondary, #8b949e);
@@ -584,13 +581,12 @@
   }
 
   input:focus {
-    outline: none;
     border-color: var(--color-primary, #58a6ff);
     box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
   }
 
   input::placeholder {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   :global(.clear-btn) {
@@ -619,7 +615,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     background: var(--bg-tertiary, #21262d);
     border-top: 1px solid var(--border-color, #30363d);
   }
@@ -687,7 +683,7 @@
 
   .suggestion-hint {
     font-size: 11px;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     padding: 2px 6px;
     background: var(--bg-tertiary, #21262d);
     border-radius: 4px;
@@ -708,7 +704,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 700;
     padding: 1px 5px;
     border-radius: 3px;
@@ -722,7 +718,7 @@
   }
 
   .ai-hint {
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 700;
     background: rgba(88, 166, 255, 0.15);
     color: #58a6ff;

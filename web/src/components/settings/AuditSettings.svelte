@@ -10,8 +10,10 @@
   import Card from '../ui/Card.svelte';
   import Button from '../ui/Button.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
-
-  const API_BASE = '/api';
+  import EmptyState from '../ui/EmptyState.svelte';
+  import Icon from '../ui/Icon.svelte';
+  import { caretRight, check, chevronLeft, chevronRight, close, fileText } from '../ui/icons.js';
+  import { api } from '../../utils/api.js';
 
   // Log list state
   let logs = [];
@@ -48,11 +50,8 @@
   async function fetchStats() {
     loadingStats = true;
     try {
-      const res = await fetch(`${API_BASE}/audit/stats`);
-      if (res.ok) {
-        const data = await res.json();
-        stats = data.stats || [];
-      }
+      const data = await api.get('/audit/stats');
+      stats = data.stats || [];
     } catch {
       // stats are optional, don't block
     }
@@ -64,32 +63,26 @@
     searching = true;
     error = '';
     try {
-      const params = new URLSearchParams();
-      params.set('limit', limit + 1); // fetch 1 extra to detect "has more"
-      params.set('offset', offset);
-      if (filterActor.trim()) params.set('actor', filterActor.trim());
-      if (filterAction) params.set('action', filterAction);
-      if (filterResourceType) params.set('resource_type', filterResourceType);
-      if (filterFrom) {
-        params.set('from', Math.floor(new Date(filterFrom).getTime() / 1000));
-      }
-      if (filterTo) {
-        params.set('to', Math.floor(new Date(filterTo).getTime() / 1000));
-      }
-
-      const res = await fetch(`${API_BASE}/audit?${params.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        const fetched = data.logs || [];
-        hasMore = fetched.length > limit;
-        logs = fetched.slice(0, limit);
-        totalCount = data.total_count ?? fetched.length;
-      } else {
-        const data = await res.json().catch(() => ({}));
-        error = data.error || 'Failed to load audit logs';
-      }
-    } catch {
-      error = 'Failed to load audit logs';
+      // api.js drops null/'' entries, so optional filters can be passed inline.
+      const data = await api.get('/audit', {
+        query: {
+          limit: limit + 1, // fetch 1 extra to detect "has more"
+          offset,
+          actor: filterActor.trim() || null,
+          action: filterAction || null,
+          resource_type: filterResourceType || null,
+          from: filterFrom ? Math.floor(new Date(filterFrom).getTime() / 1000) : null,
+          to: filterTo ? Math.floor(new Date(filterTo).getTime() / 1000) : null,
+        },
+      });
+      const fetched = data.logs || [];
+      hasMore = fetched.length > limit;
+      logs = fetched.slice(0, limit);
+      totalCount = data.total_count ?? fetched.length;
+    } catch (err) {
+      // Same wording as before: the server's own message when it sends one,
+      // otherwise the generic line (also used for network failures).
+      error = err?.body?.error || 'Failed to load audit logs';
     }
     loading = false;
     searching = false;
@@ -250,7 +243,14 @@
               <div class="breakdown-item">
                 <span class="breakdown-action {actionColor(entry.action)}">{entry.action}</span>
                 <span class="breakdown-count">{entry.count}</span>
-                <span class="breakdown-status status-{entry.status}">{entry.status === 'success' ? '✓' : '✗'}</span>
+                <span class="breakdown-status status-{entry.status}">
+                  <Icon
+                    icon={entry.status === 'success' ? check : close}
+                    size={12}
+                    strokeWidth={3}
+                    label={entry.status === 'success' ? 'Succeeded' : 'Failed'}
+                  />
+                </span>
               </div>
             {/each}
           </div>
@@ -353,7 +353,7 @@
         <LoadingSpinner size="sm" label="Loading audit logs..." />
       </div>
     {:else if logs.length === 0}
-      <div class="empty-state">No audit events found.</div>
+      <EmptyState icon={fileText} title="No audit events found." size="sm" />
     {:else}
       <div class="table-scroll-wrapper">
         <div class="log-table">
@@ -404,7 +404,11 @@
                 <span class="col-ip">
                   <span class="ip-text">{log.ip_address || '—'}</span>
                   {#if log.details}
-                    <span class="expand-icon" class:expanded={expandedRows.has(log.id)}>&#9656;</span>
+                    <Icon
+                      icon={caretRight}
+                      size={10}
+                      class="expand-icon {expandedRows.has(log.id) ? 'expanded' : ''}"
+                    />
                   {/if}
                 </span>
               </div>
@@ -421,13 +425,15 @@
       <!-- Pagination -->
       <div class="pagination">
         <Button variant="ghost" size="sm" disabled={offset === 0} on:click={prevPage}>
-          &larr; Previous
+          <Icon icon={chevronLeft} size={12} strokeWidth={3} />
+          Previous
         </Button>
         <span class="page-info">
           Showing {formatCount(offset + 1)}&ndash;{formatCount(offset + logs.length)} of {formatCount(totalCount)}
         </span>
         <Button variant="ghost" size="sm" disabled={!hasMore} on:click={nextPage}>
-          Next &rarr;
+          Next
+          <Icon icon={chevronRight} size={12} strokeWidth={3} />
         </Button>
       </div>
     {/if}
@@ -528,7 +534,8 @@
   }
 
   .breakdown-status {
-    font-size: 0.7rem;
+    display: inline-flex;
+    align-items: center;
   }
 
   .status-success {
@@ -595,7 +602,7 @@
   .filter-label {
     font-size: 0.7rem;
     font-weight: 500;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -613,7 +620,6 @@
 
   .filter-input:focus,
   .filter-select:focus {
-    outline: none;
     border-color: var(--color-primary, #58a6ff);
     box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
   }
@@ -662,7 +668,7 @@
     border-bottom: 1px solid var(--border-color, #30363d);
     font-size: 0.7rem;
     font-weight: 600;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
@@ -781,7 +787,7 @@
 
   .ip-text {
     font-size: 0.75rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     font-family: 'SF Mono', 'Fira Code', monospace;
   }
 
@@ -791,20 +797,20 @@
     gap: 4px;
   }
 
-  .expand-icon {
-    font-size: 0.7rem;
-    color: var(--text-muted, #6e7681);
+  /* :global() because the svg is rendered by <Icon>, outside this component's
+     scoped-class rewriting. */
+  .col-ip :global(.expand-icon) {
+    color: var(--text-muted, #848d97);
     transition: transform 0.15s ease;
-    display: inline-block;
     margin-left: auto;
   }
 
-  .expand-icon.expanded {
+  .col-ip :global(.expand-icon.expanded) {
     transform: rotate(90deg);
   }
 
   .text-muted {
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   .log-details {
@@ -814,7 +820,7 @@
 
   .details-text {
     font-size: 0.75rem;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     font-style: italic;
   }
 

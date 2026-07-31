@@ -1,4 +1,12 @@
-{{- if .Values.podDisruptionBudget.enabled }}
+{{- /*
+A PodDisruptionBudget in front of a SINGLE replica protects nothing and
+breaks node maintenance: `minAvailable: 1` with one pod means the eviction
+API can never allow that pod to go, so `kubectl drain` blocks indefinitely
+and a routine node upgrade turns into a stuck cluster. Render only when
+there is a second pod that can take over.
+*/ -}}
+{{- $replicas := int (include "purl.replicaCount" .) }}
+{{- if and .Values.podDisruptionBudget.enabled (gt $replicas 1) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -6,7 +14,11 @@ metadata:
   labels:
     {{- include "purl.labels" . | nindent 4 }}
 spec:
+  {{- if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "purl.selectorLabels" . | nindent 6 }}

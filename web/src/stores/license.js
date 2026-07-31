@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { api } from '../utils/api.js';
 
 // Core license state
@@ -48,6 +48,19 @@ export const licenseLimits = {
 export const k8sMode = {
   subscribe: (fn) => licenseInfo.subscribe(info => fn(info?.k8s_mode || false))
 };
+
+/**
+ * True only once we actually KNOW which plan this instance runs on.
+ *
+ * A failed /license leaves the plan indeterminate — either 'unknown' (401) or
+ * 'free' with `licenseError` set (5xx / network). Neither is a real answer, and
+ * callers that treat "not paid" as "no auth needed" must be able to tell the
+ * difference. See App.svelte's login gate.
+ */
+export const planKnown = derived(
+  [licenseInfo, licenseError],
+  ([info, err]) => Boolean(info) && info.plan !== 'unknown' && !err
+);
 
 // Feature aliases: a granted feature name that also satisfies another gate.
 // Mirrors the backend (e.g. a Pro license granting `custom_dashboards` unlocks

@@ -51,7 +51,7 @@ sub list_dashboards {
         ORDER BY updated_at DESC
     };
 
-    my $results = $self->_query_json($sql, no_cache => 1);
+    my $results = $self->_crud_read($sql);
 
     for my $row (@$results) {
         $row->{widgets} = eval { $self->_json->decode($row->{widgets} // '[]') } // [];
@@ -83,7 +83,7 @@ sub get_dashboard {
         LIMIT 1
     };
 
-    my $results = $self->_query_json($sql, no_cache => 1);
+    my $results = $self->_crud_read($sql);
     return undef unless @$results;
 
     my $row = $results->[0];
@@ -109,7 +109,7 @@ sub create_dashboard {
         VALUES ($name, $description, $widgets, $layout, $owner, $shared)
     };
 
-    $self->_query($sql);
+    $self->_crud_write($sql);
     return { status => 'created' };
 }
 
@@ -138,7 +138,7 @@ sub update_dashboard {
         VALUES ('$id', $name, $description, $widgets, $layout, $owner, $shared, '$existing->{created_at}', now())
     };
 
-    $self->_query($sql);
+    $self->_crud_write($sql);
     return { status => 'updated' };
 }
 
@@ -148,7 +148,7 @@ sub delete_dashboard {
 
     my $db = $self->database;
     my $sql = qq{ALTER TABLE ${db}.dashboards DELETE WHERE toString(id) = } . $self->_quote_string($id);
-    $self->_query($sql);
+    $self->_crud_write($sql);
     return { status => 'deleted' };
 }
 

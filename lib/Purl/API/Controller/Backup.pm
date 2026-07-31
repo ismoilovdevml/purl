@@ -6,6 +6,7 @@ use 5.024;
 use Moo;
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
+use Purl::Storage::S3;
 
 extends 'Purl::API::Controller::Base';
 
@@ -13,6 +14,14 @@ has 'settings' => (
     is      => 'ro',
     default => sub { undef },
 );
+
+# Single resolution point for S3 credentials in this controller — restore,
+# delete and upload all need them, and each having its own copy is how the
+# three drifted apart in the first place.
+sub _s3_config {
+    my ($self) = @_;
+    return Purl::Storage::S3->config_from(settings => $self->settings);
+}
 
 sub list {
     my ($self, $c) = @_;
@@ -63,7 +72,22 @@ sub restore {
             return;
         }
 
-        my $result = $self->storage->restore_backup($id);
+        # 'append' (default) keeps the historical behaviour; 'replace'
+        # TRUNCATEs each table first, which is what makes a repeated restore
+        # idempotent instead of doubling every row.
+        my $mode = $body->{mode} // 'append';
+        unless ($mode eq 'append' || $mode eq 'replace') {
+            $self->render_error($c, "Invalid mode '$mode' (expected 'append' or 'replace')", 400);
+            return;
+        }
+
+        # s3_config is passed unconditionally: a backup whose target_path is an
+        # s3:// URI has to be downloaded before it can be restored at all.
+        my $result = $self->storage->restore_backup(
+            $id,
+            mode      => $mode,
+            s3_config => $self->_s3_config,
+        );
 
         $c->render(json => {
             status  => 'ok',
@@ -86,7 +110,9 @@ sub remove {
             return;
         }
 
-        my $result = $self->storage->delete_backup($id);
+        # s3_config so the remote object is deleted too — otherwise removing a
+        # backup only drops the metadata row and the bucket grows forever.
+        my $result = $self->storage->delete_backup($id, s3_config => $self->_s3_config);
 
         $c->render(json => { status => 'ok' });
     });
@@ -187,17 +213,9 @@ sub upload_to_s3 {
             return;
         }
 
-        my $s = $self->settings;
-        my $s3_config = {
-            bucket     => $ENV{PURL_BACKUP_S3_BUCKET}     // ($s ? $s->get('backup', 's3_bucket')     : ''),
-            region     => $ENV{PURL_BACKUP_S3_REGION}      // ($s ? $s->get('backup', 's3_region')     : 'us-east-1'),
-            prefix     => $ENV{PURL_BACKUP_S3_PREFIX}      // ($s ? $s->get('backup', 's3_prefix')     : 'purl-backups/'),
-            access_key => $ENV{AWS_ACCESS_KEY_ID}           // ($s ? $s->get('backup', 's3_access_key') : ''),
-            secret_key => $ENV{AWS_SECRET_ACCESS_KEY}       // ($s ? $s->get('backup', 's3_secret_key') : ''),
-            endpoint   => $ENV{PURL_BACKUP_S3_ENDPOINT}    // ($s ? $s->get('backup', 's3_endpoint')   : ''),
-        };
+        my $s3_config = $self->_s3_config;
 
-        unless ($s3_config->{bucket} && $s3_config->{access_key} && $s3_config->{secret_key}) {
+        unless (Purl::Storage::S3->config_is_usable($s3_config)) {
             $self->render_error($c, 'S3 not configured: bucket, access key, and secret key are required', 400);
             return;
         }

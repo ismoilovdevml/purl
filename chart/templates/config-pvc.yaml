@@ -7,7 +7,7 @@ metadata:
     {{- include "purl.labels" . | nindent 4 }}
 spec:
   accessModes:
-    - ReadWriteOnce
+    {{- toYaml .Values.config.volume.accessModes | nindent 4 }}
   {{- if .Values.config.volume.storageClass }}
   storageClassName: {{ .Values.config.volume.storageClass | quote }}
   {{- end }}

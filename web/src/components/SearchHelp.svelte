@@ -1,4 +1,7 @@
 <script>
+    import Icon from './ui/Icon.svelte';
+    import { close } from './ui/icons.js';
+
     let { onClose } = $props();
 
     function handleKeydown(e) {
@@ -13,7 +16,9 @@
     <div class="modal-content" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
         <div class="modal-header">
             <h2>Search Syntax Guide</h2>
-            <button class="close-btn" onclick={onClose}>&#215;</button>
+            <button class="close-btn" onclick={onClose} aria-label="Close">
+                <Icon icon={close} size={14} strokeWidth={3} />
+            </button>
         </div>
 
         <div class="modal-body">
@@ -104,12 +109,19 @@
     }
 
     .close-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
         background: none;
         border: none;
         color: #888;
-        font-size: 1.5rem;
         cursor: pointer;
-        padding: 4px 8px;
+        padding: 6px;
+        border-radius: 4px;
+    }
+
+    .close-btn:hover {
+        color: #e0e0e0;
     }
 
     .modal-body {

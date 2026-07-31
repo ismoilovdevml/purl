@@ -6,12 +6,23 @@ use 5.024;
 
 use File::Path qw(make_path remove_tree);
 use File::Spec;
+use File::Temp qw(tempdir);
 use POSIX qw(strftime);
-use URI::Escape qw(uri_escape);
 
 my @BACKUP_TABLES = qw(logs alerts saved_searches audit_logs log_patterns);
 
 my %VALID_BACKUP_TABLES = map { $_ => 1 } @BACKUP_TABLES;
+
+# Export/import settings. Deliberately NOT `no_settings => 1`: that used to
+# strip max_execution_time too, so a runaway export had no timeout at all.
+# max_rows_to_read=0 lifts only the row cap (a full-table dump legitimately
+# reads every row); the timeout stays, and is tunable for very large tables.
+sub _backup_query_settings {
+    my ($self) = @_;
+    my $timeout = $ENV{PURL_BACKUP_QUERY_TIMEOUT} // 3600;
+    $timeout = 3600 unless $timeout =~ /^\d+$/ && $timeout > 0;
+    return "max_execution_time=$timeout&max_rows_to_read=0";
+}
 
 sub _validate_backup_table {
     my ($self, $table) = @_;
@@ -28,6 +39,7 @@ sub _init_backup_schema {
             name String,
             target_type LowCardinality(String) DEFAULT 'local',
             target_path String DEFAULT '',
+            local_path String DEFAULT '',
             status LowCardinality(String) DEFAULT 'pending',
             tables_backed_up String DEFAULT '',
             size_bytes UInt64 DEFAULT 0,
@@ -39,6 +51,18 @@ sub _init_backup_schema {
         ENGINE = @{[$self->_engine_mergetree('backups')]}
         ORDER BY created_at
     });
+
+    # Migration for instances created before local_path existed. Without it,
+    # uploading a backup to S3 overwrote target_path and the local directory
+    # became unreachable — un-deletable AND un-restorable.
+    eval {
+        $self->_query(qq{
+            ALTER TABLE ${db}.backups ADD COLUMN IF NOT EXISTS local_path String DEFAULT ''
+        });
+    };
+    warn "backups.local_path migration failed: $@" if $@;
+
+    return 1;
 }
 
 sub list_backups {
@@ -47,7 +71,7 @@ sub list_backups {
 
     return $self->_query_json(qq{
         SELECT
-            id, name, target_type, target_path, status, tables_backed_up,
+            id, name, target_type, target_path, local_path, status, tables_backed_up,
             size_bytes, rows_total, error,
             formatDateTime(created_at, '%Y-%m-%dT%H:%i:%S') || 'Z' as created_at,
             if(completed_at = toDateTime(0), '',
@@ -68,7 +92,7 @@ sub get_backup {
 
     my $result = $self->_query_json(qq{
         SELECT
-            id, name, target_type, target_path, status, tables_backed_up,
+            id, name, target_type, target_path, local_path, status, tables_backed_up,
             size_bytes, rows_total, error,
             formatDateTime(created_at, '%Y-%m-%dT%H:%i:%S') || 'Z' as created_at,
             if(completed_at = toDateTime(0), '',
@@ -99,8 +123,8 @@ sub create_backup {
     my $safe_path = $self->_quote_string($target_path);
 
     $self->_query(qq{
-        INSERT INTO ${db}.backups (id, name, target_type, target_path, status)
-        VALUES ($safe_id, $safe_name, 'local', $safe_path, 'running')
+        INSERT INTO ${db}.backups (id, name, target_type, target_path, local_path, status)
+        VALUES ($safe_id, $safe_name, 'local', $safe_path, $safe_path, 'running')
     });
 
     my $total_size = 0;
@@ -124,23 +148,32 @@ sub create_backup {
             });
             next unless $exists->[0] && $exists->[0]{cnt} > 0;
 
-            my $csv = $self->_query(
-                "SELECT * FROM $full_table",
-                format      => 'CSVWithNames',
-                no_settings => 1,
-            );
-            next unless $csv && length($csv) > 0;
+            # Ask the server for the row count instead of counting newlines in
+            # the export: a CSV field may legally contain a newline, so the old
+            # `() = $csv =~ /\n/g` under-reported every backup containing a
+            # multi-line log message.
+            my $counted = $self->_query_json("SELECT count() as cnt FROM $full_table",
+                no_cache => 1);
+            my $rows = $counted->[0] ? ($counted->[0]{cnt} // 0) : 0;
 
             my $file = File::Spec->catfile($target_path, "${table}.csv");
-            open my $fh, '>:raw', $file or die "Cannot write $file: $!";
-            print $fh $csv;
-            close $fh;
 
-            my $size = -s $file || 0;
-            $total_size += $size;
+            # Stream the export straight to disk. The previous implementation
+            # read the ENTIRE table into one Perl scalar, which OOM-kills the
+            # worker on any real logs table.
+            my $bytes = $self->_query_to_file(
+                "SELECT * FROM $full_table",
+                $file,
+                format   => 'CSVWithNames',
+                settings => $self->_backup_query_settings,
+            );
 
-            my $rows = () = $csv =~ /\n/g;
-            $rows = $rows > 0 ? $rows - 1 : 0;
+            unless ($bytes && $bytes > 0) {
+                unlink $file;
+                next;
+            }
+
+            $total_size += (-s $file || 0);
             $total_rows += $rows;
 
             push @backed_up, $table;
@@ -182,16 +215,83 @@ sub create_backup {
     };
 }
 
+# Materialise a backup's CSV directory on local disk, wherever it actually
+# lives. Returns ($dir, $tempdir_or_undef); the caller must keep the second
+# value alive for as long as it uses the first (File::Temp cleans on scope
+# exit).
+#
+# This is THE fix for "backups uploaded to S3 can never be restored": once
+# upload_backup_to_s3 rewrote target_path to `s3://...`, every consumer tested
+# it with `-d`, which is false for an S3 URI, so restore/delete/cleanup all
+# gave up.
+sub _materialize_backup_dir {
+    my ($self, $backup, $s3_config) = @_;
+
+    # Prefer the local copy when it is still on disk — no download needed.
+    for my $candidate ($backup->{local_path}, $backup->{target_path}) {
+        next unless $candidate && $candidate !~ m{^s3://};
+        return ($candidate, undef) if -d $candidate;
+    }
+
+    require Purl::Storage::S3;
+    my $uri = Purl::Storage::S3->parse_uri($backup->{target_path});
+
+    unless ($uri) {
+        die "Backup directory not found: " . ($backup->{target_path} // '');
+    }
+
+    die "Backup lives in S3 but S3 is not configured (bucket/access key/secret key)"
+        unless $s3_config && $s3_config->{bucket}
+            && $s3_config->{access_key} && $s3_config->{secret_key};
+
+    my $s3 = $self->_s3_client($s3_config);
+    my $tmp = tempdir(CLEANUP => 1);
+    my $archive = File::Spec->catfile($tmp, 'backup.tar.gz');
+
+    $s3->download_file(
+        s3_key    => $self->_s3_key_for($backup, $s3_config),
+        dest_path => $archive,
+    );
+
+    require Archive::Tar;
+    my $tar = Archive::Tar->new();
+    $tar->read($archive) or die "Cannot read downloaded archive: " . Archive::Tar->error;
+
+    my $extract_dir = File::Spec->catdir($tmp, 'extracted');
+    make_path($extract_dir);
+    for my $file ($tar->get_files) {
+        next unless $file->is_file;
+        # Flatten: archives are created from a flat directory, and refusing
+        # nested paths keeps a crafted archive from writing outside $tmp.
+        my $name = $file->name;
+        $name =~ s{^.*/}{};
+        next unless $name =~ /^[\w\-]+\.csv$/;
+        my $out = File::Spec->catfile($extract_dir, $name);
+        open my $fh, '>:raw', $out or die "Cannot write $out: $!";
+        print {$fh} $file->get_content;
+        close $fh;
+    }
+
+    unlink $archive;
+    return ($extract_dir, $tmp);
+}
+
+# mode => 'append' (default) inserts on top of whatever is there.
+# mode => 'replace' TRUNCATEs each restored table first, which makes restore
+#         idempotent — running it twice used to double every row.
 sub restore_backup {
-    my ($self, $id) = @_;
+    my ($self, $id, %opts) = @_;
+
+    my $mode = $opts{mode} // 'append';
+    die "Invalid restore mode: $mode (expected 'append' or 'replace')"
+        unless $mode eq 'append' || $mode eq 'replace';
 
     my $backup = $self->get_backup($id);
     die "Backup not found" unless $backup;
     die "Backup status is $backup->{status}, expected completed"
         unless $backup->{status} eq 'completed';
 
-    my $path = $backup->{target_path};
-    die "Backup directory not found: $path" unless -d $path;
+    my ($path, $tmp_guard) = $self->_materialize_backup_dir($backup, $opts{s3_config});
 
     my $db = $self->database;
     my @restored;
@@ -199,31 +299,26 @@ sub restore_backup {
 
     for my $table (@BACKUP_TABLES) {
         my $file = File::Spec->catfile($path, "${table}.csv");
-        next unless -f $file && -s $file;
-
-        open my $fh, '<:raw', $file or die "Cannot read $file: $!";
-        local $/;
-        my $csv = <$fh>;
-        close $fh;
-
-        next unless $csv && length($csv) > 10;
+        next unless -f $file && -s $file > 10;
 
         my $full_table = "`${db}`.`${table}`";
-        my $url = $self->_base_url . '/?' . $self->_auth_params;
-        $url .= '&query=' . uri_escape("INSERT INTO $full_table FORMAT CSVWithNames");
 
-        my $response = $self->_http->post($url, {
-            content => $csv,
-            headers => { 'Content-Type' => 'text/csv' },
-        });
-
-        unless ($response->{success}) {
-            die "Restore failed for $table: $response->{status} - $response->{content}";
+        if ($mode eq 'replace') {
+            $self->_query("TRUNCATE TABLE IF EXISTS $full_table");
         }
 
-        my $rows = () = $csv =~ /\n/g;
-        $rows = $rows > 0 ? $rows - 1 : 0;
-        $total_rows += $rows;
+        # Streams the file from disk — a restore is not bounded by RAM.
+        my $response = $self->_post_file(
+            "INSERT INTO $full_table FORMAT CSVWithNames",
+            $file,
+            settings => $self->_backup_query_settings,
+        );
+
+        # Exact count from the server when it reports one; otherwise fall back
+        # to counting CSV lines (approximate for quoted embedded newlines,
+        # which is what the old implementation always did).
+        my $written = $self->_written_rows($response) // _csv_data_rows($file);
+        $total_rows += $written;
         push @restored, $table;
     }
 
@@ -231,8 +326,23 @@ sub restore_backup {
         backup_id => $id,
         tables    => \@restored,
         rows      => $total_rows,
+        mode      => $mode,
         status    => 'completed',
     };
+}
+
+# Count CSV data rows without loading the file: read in fixed blocks and
+# subtract the header line.
+sub _csv_data_rows {
+    my ($file) = @_;
+    open my $fh, '<:raw', $file or return 0;
+    my $lines = 0;
+    my $buffer;
+    while (read $fh, $buffer, 262_144) {
+        $lines += ($buffer =~ tr/\n//);
+    }
+    close $fh;
+    return $lines > 0 ? $lines - 1 : 0;
 }
 
 sub create_backup_archive {
@@ -242,8 +352,10 @@ sub create_backup_archive {
     die "Backup not found" unless $backup;
     die "Backup not completed" unless $backup->{status} eq 'completed';
 
-    my $path = $backup->{target_path};
-    die "Backup directory not found: $path" unless -d $path;
+    # The LOCAL directory, not target_path — target_path becomes an s3:// URI
+    # once the backup has been uploaded.
+    my $path = $backup->{local_path} || $backup->{target_path};
+    die "Backup directory not found: $path" unless $path && -d $path;
 
     require Archive::Tar;
 
@@ -275,8 +387,70 @@ sub create_backup_archive {
     return $archive_path;
 }
 
+# Build an S3 client from a config hashref. One constructor for every S3
+# operation so defaults (region/prefix/endpoint) cannot drift between upload,
+# restore and delete.
+sub _s3_client {
+    my ($self, $s3_config) = @_;
+    require Purl::Storage::S3;
+    return Purl::Storage::S3->new(
+        bucket     => $s3_config->{bucket},
+        region     => $s3_config->{region}     // 'us-east-1',
+        access_key => $s3_config->{access_key},
+        secret_key => $s3_config->{secret_key},
+        prefix     => $s3_config->{prefix}     // 'purl-backups/',
+        endpoint   => $s3_config->{endpoint}   // '',
+    );
+}
+
+# The object key (relative to the client's prefix) for a stored backup.
+# Derived from the recorded s3:// URI when there is one, so a backup uploaded
+# under an old prefix is still reachable after the prefix setting changes.
+sub _s3_key_for {
+    my ($self, $backup, $s3_config) = @_;
+
+    require Purl::Storage::S3;
+    my $uri = Purl::Storage::S3->parse_uri($backup->{target_path} // '');
+    return "$backup->{id}.tar.gz" unless $uri;
+
+    my $prefix = $s3_config->{prefix} // 'purl-backups/';
+    my $key = $uri->{key};
+    $key =~ s/^\Q$prefix\E//;
+    return $key;
+}
+
+# Remove every artefact of a backup: local CSV directory, local archive, and
+# the remote object. Local removal is confined to paths under /backups/ so a
+# corrupted metadata row can never make this delete something else.
+sub _purge_backup_artifacts {
+    my ($self, $backup, $s3_config) = @_;
+
+    for my $dir (grep { $_ } ($backup->{local_path}, $backup->{target_path})) {
+        next if $dir =~ m{^s3://};
+        next unless $dir =~ m{/backups/};
+        remove_tree($dir) if -d $dir;
+        my $archive = "${dir}.tar.gz";
+        unlink $archive if -f $archive;
+    }
+
+    require Purl::Storage::S3;
+    return 1 unless Purl::Storage::S3->parse_uri($backup->{target_path} // '');
+
+    unless ($s3_config && $s3_config->{bucket}
+            && $s3_config->{access_key} && $s3_config->{secret_key}) {
+        # Deleting the metadata row while the object survives would orphan it
+        # forever — the caller must be told.
+        die "Backup is stored in S3 but S3 is not configured — cannot delete the remote object";
+    }
+
+    $self->_s3_client($s3_config)->delete_object(
+        s3_key => $self->_s3_key_for($backup, $s3_config),
+    );
+    return 1;
+}
+
 sub cleanup_old_backups {
-    my ($self, $retention_days) = @_;
+    my ($self, $retention_days, %opts) = @_;
     $retention_days //= 30;
 
     my $db = $self->database;
@@ -284,7 +458,7 @@ sub cleanup_old_backups {
     my $safe_cutoff = $self->_quote_string($cutoff);
 
     my $old_backups = $self->_query_json(qq{
-        SELECT id, target_path
+        SELECT id, target_path, local_path
         FROM ${db}.backups
         WHERE status = 'completed'
           AND created_at < parseDateTimeBestEffort($safe_cutoff)
@@ -294,12 +468,7 @@ sub cleanup_old_backups {
     my $deleted = 0;
     for my $backup (@$old_backups) {
         eval {
-            if ($backup->{target_path} && -d $backup->{target_path}) {
-                remove_tree($backup->{target_path}) if $backup->{target_path} =~ m{/backups/};
-            }
-            # Remove tar.gz archive if exists
-            my $archive = "$backup->{target_path}.tar.gz";
-            unlink $archive if -f $archive;
+            $self->_purge_backup_artifacts($backup, $opts{s3_config});
 
             my $safe_id = $self->_quote_string($backup->{id});
             $self->_query("ALTER TABLE ${db}.backups DELETE WHERE id = $safe_id");
@@ -315,31 +484,30 @@ sub upload_backup_to_s3 {
     my ($self, $id, $s3_config) = @_;
 
     my $archive_path = $self->create_backup_archive($id);
-
-    require Purl::Storage::S3;
-    my $s3 = Purl::Storage::S3->new(
-        bucket     => $s3_config->{bucket},
-        region     => $s3_config->{region}     // 'us-east-1',
-        access_key => $s3_config->{access_key},
-        secret_key => $s3_config->{secret_key},
-        prefix     => $s3_config->{prefix}     // 'purl-backups/',
-        endpoint   => $s3_config->{endpoint}   // '',
-    );
+    my $backup = $self->get_backup($id);
+    my $local_path = ($backup && ($backup->{local_path} || $backup->{target_path})) // '';
 
     my $s3_key = "${id}.tar.gz";
-    my $s3_uri = $s3->upload_file(
+    my $s3_uri = $self->_s3_client($s3_config)->upload_file(
         file_path => $archive_path,
         s3_key    => $s3_key,
     );
 
-    # Update backup metadata
+    # Update backup metadata. local_path is preserved EXPLICITLY: overwriting
+    # target_path used to be the only record of where the backup lived, so an
+    # upload made the local directory unreachable — restore, delete and
+    # retention cleanup all tested it with `-d`, which an s3:// URI never
+    # satisfies. Result: S3 backups could not be restored and local disk grew
+    # forever.
     my $db = $self->database;
-    my $safe_id   = $self->_quote_string($id);
-    my $safe_path = $self->_quote_string($s3_uri);
+    my $safe_id    = $self->_quote_string($id);
+    my $safe_path  = $self->_quote_string($s3_uri);
+    my $safe_local = $self->_quote_string($local_path);
     $self->_query(qq{
         ALTER TABLE ${db}.backups UPDATE
             target_type = 's3',
-            target_path = $safe_path
+            target_path = $safe_path,
+            local_path  = $safe_local
         WHERE id = $safe_id
     });
 
@@ -347,19 +515,17 @@ sub upload_backup_to_s3 {
         id          => $id,
         target_type => 's3',
         target_path => $s3_uri,
+        local_path  => $local_path,
     };
 }
 
 sub delete_backup {
-    my ($self, $id) = @_;
+    my ($self, $id, %opts) = @_;
 
     my $backup = $self->get_backup($id);
     die "Backup not found" unless $backup;
 
-    if ($backup->{target_path} && -d $backup->{target_path}) {
-        die "Invalid backup path" unless $backup->{target_path} =~ m{/backups/};
-        remove_tree($backup->{target_path});
-    }
+    $self->_purge_backup_artifacts($backup, $opts{s3_config});
 
     my $db = $self->database;
     my $safe_id = $self->_quote_string($id);
@@ -380,5 +546,35 @@ Purl::Storage::ClickHouse::Backup - Backup and restore operations for ClickHouse
 
 Moo::Role providing backup/restore via CSV export/import through the ClickHouse HTTP API.
 Tracks backup metadata in the C<purl.backups> table.
+
+=head1 STORAGE TARGETS
+
+A backup always starts as a directory of CSV files on local disk
+(C<local_path>). Uploading it to S3 sets C<target_type> to C<s3> and
+C<target_path> to the C<s3://> URI while B<preserving> C<local_path>, so
+restore, delete and retention cleanup can find both copies. Restoring a
+backup whose local directory is gone downloads and extracts the archive into
+a temporary directory first.
+
+=head1 MEMORY
+
+Export streams the ClickHouse response directly to disk and restore streams
+the CSV file directly into the HTTP request body; neither is bounded by RAM.
+C<create_backup_archive> is the remaining exception — Archive::Tar buffers
+file contents in memory when writing.
+
+=head1 RESTORE MODES
+
+    $storage->restore_backup($id);                      # append (default)
+    $storage->restore_backup($id, mode => 'replace');   # TRUNCATE, then insert
+
+C<replace> makes restore idempotent. C<append> re-inserts every row, so
+running it twice doubles the data — it exists only for merging a backup into
+a live table on purpose.
+
+=head1 ENVIRONMENT
+
+    PURL_BACKUP_QUERY_TIMEOUT - max_execution_time (seconds) for export and
+                                restore queries. Default 3600.
 
 =cut

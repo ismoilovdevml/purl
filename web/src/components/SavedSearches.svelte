@@ -5,6 +5,9 @@
   import Select from './ui/Select.svelte';
   import Modal from './ui/Modal.svelte';
   import ConfirmDialog from './ui/ConfirmDialog.svelte';
+  import EmptyState from './ui/EmptyState.svelte';
+  import Icon from './ui/Icon.svelte';
+  import { caretRight, plus, lock, close, save } from './ui/icons.js';
   import { isFreePlan } from '../stores/license.js';
   import { api } from '../utils/api.js';
 
@@ -102,19 +105,22 @@
 <div class="saved-searches">
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="header" role="button" tabindex="0" on:click={() => expanded = !expanded} on:keydown={handleHeaderKeydown}>
-    <svg class="chevron" class:expanded width="12" height="12" viewBox="0 0 12 12">
-      <path fill="currentColor" d="M4 2l4 4-4 4"/>
-    </svg>
+    <Icon icon={caretRight} size={12} class="chevron {expanded ? 'expanded' : ''}" />
     <h3>Saved Searches</h3>
     {#if searches.length > 0}
       <span class="count">{searches.length}</span>
     {/if}
     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
     <span class="header-actions" on:click|stopPropagation>
-      <Button icon size="sm" variant="ghost" on:click={() => showModal = true} title="Save current search">
-        <svg width="14" height="14" viewBox="0 0 14 14">
-          <path fill="currentColor" d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
+      <Button
+        icon
+        size="sm"
+        variant="ghost"
+        on:click={() => showModal = true}
+        title="Save current search"
+        aria-label="Save current search"
+      >
+        <Icon icon={plus} size={14} strokeWidth={2.5} />
       </Button>
     </span>
   </div>
@@ -123,9 +129,7 @@
     <div class="content">
       {#if $isFreePlan}
         <div class="upgrade-cta">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
+          <Icon icon={lock} size={16} strokeWidth={2} />
           <span>Requires Pro</span>
           <a href="https://purlogs.com/pricing" target="_blank" rel="noopener">Upgrade</a>
         </div>
@@ -135,7 +139,9 @@
           <button class="retry-btn" on:click={loadSearches}>Retry</button>
         </div>
       {:else if searches.length === 0}
-        <p class="empty">No saved searches</p>
+        <EmptyState icon={save} title="No saved searches" size="sm">
+          Save the current query to jump back to it later.
+        </EmptyState>
       {:else}
         <ul>
           {#each searches as search}
@@ -144,10 +150,16 @@
                 <span class="name">{search.name}</span>
                 <span class="query">{search.query}</span>
               </button>
-              <Button icon size="sm" variant="ghost" on:click={() => requestDeleteSearch(search.id)} class="delete-btn">
-                <svg width="12" height="12" viewBox="0 0 12 12">
-                  <path fill="currentColor" d="M9.5 3L3 9.5M3 3l6.5 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                </svg>
+              <Button
+                icon
+                size="sm"
+                variant="ghost"
+                on:click={() => requestDeleteSearch(search.id)}
+                title="Delete saved search"
+                aria-label="Delete saved search {search.name}"
+                class="delete-btn"
+              >
+                <Icon icon={close} size={12} strokeWidth={3} />
               </Button>
             </li>
           {/each}
@@ -221,12 +233,13 @@
     color: var(--text-primary, #c9d1d9);
   }
 
-  .chevron {
+  /* :global — the class is forwarded onto the SVG that Icon renders. */
+  .header :global(.chevron) {
     color: var(--text-secondary, #8b949e);
     transition: transform 0.15s ease;
   }
 
-  .chevron.expanded {
+  .header :global(.chevron.expanded) {
     transform: rotate(90deg);
   }
 
@@ -242,7 +255,7 @@
 
   .count {
     font-size: 10px;
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
     background: var(--bg-tertiary, #21262d);
     padding: 2px 6px;
     border-radius: 10px;
@@ -250,13 +263,6 @@
 
   .content {
     padding-left: 20px;
-  }
-
-  .empty {
-    color: var(--text-muted, #6e7681);
-    font-size: 12px;
-    margin: 0;
-    padding: 8px 0;
   }
 
   ul {
@@ -340,12 +346,12 @@
     gap: 6px;
     padding: 16px 12px;
     text-align: center;
-    color: #6e7681;
+    color: #848d97;
     font-size: 12px;
   }
 
-  .upgrade-cta svg {
-    color: #6e7681;
+  .upgrade-cta :global(svg) {
+    color: #848d97;
   }
 
   .upgrade-cta a {

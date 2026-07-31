@@ -1,5 +1,11 @@
-# Build web assets
-FROM node:20-alpine AS web-builder
+# Base images are pinned by DIGEST, not just by tag. A tag is mutable: the
+# same `docker build` a week later can produce a different image than the one
+# Trivy scanned and cosign signed in CI. Refresh with:
+#   docker buildx imagetools inspect <image>:<tag>   # copy the index Digest
+# and bump the tag comment alongside it.
+
+# Build web assets — node:20-alpine
+FROM node@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS web-builder
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -7,7 +13,8 @@ COPY web/ ./
 RUN npm run build
 
 # Perl dependencies builder (build-essential only here, not in final image)
-FROM perl:5.40-slim-bookworm AS perl-builder
+# perl:5.40-slim-bookworm
+FROM perl@sha256:48af946921e59d23196ac28a40bdbde5b22b7ba89edce911d3d091468a82ff67 AS perl-builder
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential libssl-dev libxml2-dev \
@@ -22,7 +29,8 @@ COPY cpanfile ./
 RUN cpanm --notest --installdeps .
 
 # Final image (no build-essential = ~400MB smaller)
-FROM perl:5.40-slim-bookworm
+# perl:5.40-slim-bookworm
+FROM perl@sha256:48af946921e59d23196ac28a40bdbde5b22b7ba89edce911d3d091468a82ff67
 LABEL maintainer="Purl Contributors"
 LABEL org.opencontainers.image.source="https://github.com/ismoilovdevml/purl"
 LABEL org.opencontainers.image.title="Purl"
@@ -61,6 +69,10 @@ USER purl
 # requests finish and workers drain instead of being hard-killed.
 STOPSIGNAL SIGQUIT
 
+# Deliberately the DB-aware endpoint, unlike the Kubernetes livenessProbe
+# (which uses /api/health/live). Docker never kills a container for being
+# unhealthy, and docker-compose's `depends_on: service_healthy` needs
+# "ready to serve", not "process is up".
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/api/health || exit 1
 

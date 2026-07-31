@@ -5,6 +5,8 @@ use 5.024;
 
 use Moo::Role;
 
+use Purl::Util::KQL qw(parse_kql);
+
 # ============================================
 # Re-notify suppression
 # ============================================
@@ -39,7 +41,7 @@ sub alert_in_cooldown {
 sub get_alerts {
     my ($self) = @_;
     my $db = $self->database;
-    return $self->_query_json(qq{
+    return $self->_crud_read(qq{
         SELECT toString(id) as id, name, query, condition, threshold, window_minutes,
                notify_type, notify_target, enabled,
                formatDateTime(last_triggered, '%Y-%m-%dT%H:%i:%SZ') as last_triggered,
@@ -64,7 +66,7 @@ sub create_alert {
     # Validate notify_type (whitelist)
     $notify_type = 'webhook' unless $notify_type =~ /^(telegram|slack|webhook)$/;
 
-    $self->_query(qq{
+    $self->_crud_write(qq{
         INSERT INTO ${db}.alerts (name, query, condition, threshold, window_minutes, notify_type, notify_target)
         VALUES (@{[$self->_quote_string($name)]}, @{[$self->_quote_string($query)]}, @{[$self->_quote_string($condition)]}, $threshold, $window, @{[$self->_quote_string($notify_type)]}, @{[$self->_quote_string($notify_target)]})
     });
@@ -107,7 +109,7 @@ sub update_alert {
     return 0 unless @updates;
 
     my $set_clause = join(', ', @updates);
-    $self->_query(qq{
+    $self->_crud_write(qq{
         ALTER TABLE ${db}.alerts UPDATE $set_clause WHERE id = @{[$self->_quote_string($id)]}
     });
     return 1;
@@ -120,7 +122,7 @@ sub delete_alert {
     # Validate UUID format
     return 0 unless $self->_validate_uuid($id);
 
-    $self->_query(qq{
+    $self->_crud_write(qq{
         ALTER TABLE ${db}.alerts DELETE WHERE id = @{[$self->_quote_string($id)]}
     });
     return 1;
@@ -131,7 +133,7 @@ sub check_alerts {
     my $db = $self->database;
     my $table = $self->database . '.' . $self->table;
 
-    my $alerts = $self->_query_json(qq{
+    my $alerts = $self->_crud_read(qq{
         SELECT toString(id) as id, name, query, condition, threshold, window_minutes,
                notify_type, notify_target,
                toUnixTimestamp(last_triggered) as last_triggered_ts,
@@ -159,22 +161,30 @@ sub check_alerts {
         # Build UNION ALL query for all alerts in this window
         my @case_conditions;
         my %alert_by_id;
+        my %bind;
+        my $seq = 0;
 
         for my $alert (@$window_alerts) {
             $alert_by_id{$alert->{id}} = $alert;
             my $query_filter = $alert->{query};
             my $alert_id_quoted = $self->_quote_string($alert->{id});
 
+            # Alert filters are the SAME language as the search bar. They used
+            # to be matched by two hard-coded regexes, so anything with a
+            # boolean ("service:a AND level:error") fell through to a literal
+            # message substring search and the alert could never fire.
             my $filter_condition = '1=1';
-            if ($query_filter) {
-                if ($query_filter =~ /^level:(\w+)$/i) {
-                    my $level = $self->_validate_level($1);
-                    $filter_condition = "level = " . $self->_quote_string($level) if $level;
-                } elsif ($query_filter =~ /^service:(\S+)$/i) {
-                    my $service = $self->_sanitize_identifier($1);
-                    $filter_condition = "service = " . $self->_quote_string($service) if $service;
-                } else {
-                    $filter_condition = "position(message, " . $self->_quote_string($query_filter) . ") > 0";
+            if (defined $query_filter && $query_filter =~ /\S/) {
+                my ($ast, $err) = parse_kql($query_filter);
+                if ($err) {
+                    # Never widen to 1=1 on a bad filter: that would notify on
+                    # every log line. Match nothing and leave a trace.
+                    warn "Alert $alert->{id} has an unparsable query: $err";
+                    $filter_condition = '0';
+                }
+                elsif ($ast) {
+                    $filter_condition =
+                        $self->_kql_to_sql($ast, \%bind, \$seq) // '0';
                 }
             }
 
@@ -186,9 +196,11 @@ sub check_alerts {
             };
         }
 
-        # Execute single query for all alerts in this window
+        # Execute single query for all alerts in this window.
+        # no_cache: an alert evaluation must see the current window, never a
+        # result cached from the previous tick.
         my $combined_sql = join("\nUNION ALL\n", @case_conditions);
-        my $results = $self->_query_json($combined_sql);
+        my $results = $self->_query_json($combined_sql, params => \%bind, no_cache => 1);
 
         # Check thresholds
         for my $row (@$results) {
@@ -210,7 +222,7 @@ sub check_alerts {
     # Batch update last_triggered for all triggered alerts
     if (@triggered_ids) {
         my $ids_str = join(', ', map { $self->_quote_string($_) } @triggered_ids);
-        $self->_query(qq{
+        $self->_crud_write(qq{
             ALTER TABLE ${db}.alerts UPDATE last_triggered = now() WHERE id IN ($ids_str)
         });
     }

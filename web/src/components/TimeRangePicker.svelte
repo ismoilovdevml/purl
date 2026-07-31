@@ -1,5 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
+  import Icon from './ui/Icon.svelte';
+  import { clock, caretDown, calendar } from './ui/icons.js';
 
   export let value = '15m';
   export let customFrom = null;
@@ -136,13 +138,9 @@
     aria-expanded={showDropdown}
     aria-label="Select time range: {currentLabel}"
   >
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <path fill="currentColor" d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0Zm0 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM8 3a.75.75 0 0 1 .75.75v3.69l2.28 2.28a.75.75 0 0 1-1.06 1.06L7.22 8.03A.75.75 0 0 1 7 7.5v-3.75A.75.75 0 0 1 8 3Z"/>
-    </svg>
+    <Icon icon={clock} size={16} strokeWidth={2.25} />
     <span class="label-text">{currentLabel}</span>
-    <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-      <path fill="currentColor" d="M6 8.825a.5.5 0 0 1-.354-.146l-4-4a.5.5 0 0 1 .708-.708L6 7.617l3.646-3.646a.5.5 0 0 1 .708.708l-4 4A.5.5 0 0 1 6 8.825Z"/>
-    </svg>
+    <Icon icon={caretDown} class="chevron" size={12} />
   </button>
 
   {#if showDropdown}
@@ -194,9 +192,7 @@
         </div>
         <div class="dropdown-divider"></div>
         <button class="dropdown-item custom-btn" on:click|stopPropagation={openCustom}>
-          <svg width="14" height="14" viewBox="0 0 16 16">
-            <path fill="currentColor" d="M4.75 0a.75.75 0 0 1 .75.75V2h5V.75a.75.75 0 0 1 1.5 0V2H14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h2.25V.75A.75.75 0 0 1 4.75 0ZM2.5 6v8.5h11V6h-11Z"/>
-          </svg>
+          <Icon icon={calendar} size={14} strokeWidth={2.5} />
           Custom range...
         </button>
       {/if}
@@ -233,7 +229,8 @@
     white-space: nowrap;
   }
 
-  .chevron {
+  /* :global — the class is forwarded onto the SVG that Icon renders. */
+  .picker-btn :global(.chevron) {
     margin-left: 4px;
     flex-shrink: 0;
   }
@@ -290,7 +287,7 @@
     color: #58a6ff;
   }
 
-  .custom-btn svg {
+  .custom-btn :global(svg) {
     opacity: 0.8;
   }
 
@@ -335,7 +332,6 @@
   }
 
   .datetime-inputs input:focus {
-    outline: none;
     border-color: #58a6ff;
   }
 

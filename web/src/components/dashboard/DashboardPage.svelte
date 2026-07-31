@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import Button from '../ui/Button.svelte';
   import Modal from '../ui/Modal.svelte';
+  import Icon from '../ui/Icon.svelte';
+  import { hash, activity, table, terminal, arrowLeft, close } from '../ui/icons.js';
   import {
     dashboards,
     currentDashboard,
@@ -22,12 +24,13 @@
   let showCreateModal = false;
   let widgetResults = {};
 
-  // Widget type options
+  // Widget type options. `icon` holds the imported glyph itself, not a name —
+  // that is what keeps icons.js tree-shakeable.
   const widgetTypes = [
-    { value: 'counter', label: 'Counter', icon: '#' },
-    { value: 'chart', label: 'Time Chart', icon: '~' },
-    { value: 'table', label: 'Top Values', icon: '=' },
-    { value: 'log_stream', label: 'Log Stream', icon: '>' },
+    { value: 'counter', label: 'Counter', icon: hash },
+    { value: 'chart', label: 'Time Chart', icon: activity },
+    { value: 'table', label: 'Top Values', icon: table },
+    { value: 'log_stream', label: 'Log Stream', icon: terminal },
   ];
 
   onMount(async () => {
@@ -180,7 +183,10 @@
 
   {:else if view === 'edit' && $currentDashboard}
     <div class="page-header">
-      <button class="back-btn" on:click={backToList}>&larr; Back</button>
+      <button class="back-btn" on:click={backToList}>
+        <Icon icon={arrowLeft} size={12} strokeWidth={3} />
+        Back
+      </button>
       <h2>{$currentDashboard.name}</h2>
       <div class="header-actions">
         <Button on:click={refreshWidgets}>Refresh</Button>
@@ -189,7 +195,7 @@
           <div class="widget-menu">
             {#each widgetTypes as wt}
               <button on:click={() => addWidget(wt.value)}>
-                <span class="widget-icon">{wt.icon}</span>
+                <span class="widget-icon"><Icon icon={wt.icon} size={14} strokeWidth={2.5} /></span>
                 {wt.label}
               </button>
             {/each}
@@ -204,7 +210,13 @@
         <div class="widget-card">
           <div class="widget-header">
             <span class="widget-title">{widget.title}</span>
-            <button class="widget-close" on:click={() => removeWidget(widget.id)}>&times;</button>
+            <button
+              class="widget-close"
+              on:click={() => removeWidget(widget.id)}
+              aria-label="Remove widget {widget.title}"
+            >
+              <Icon icon={close} size={12} strokeWidth={3} />
+            </button>
           </div>
           <div class="widget-body">
             {#if !widgetResults[widget.id]}
@@ -280,6 +292,9 @@
   }
 
   .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 6px 12px;
     background: #21262d;
     border: 1px solid #30363d;
@@ -361,12 +376,14 @@
   }
 
   .widget-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: none;
     border: none;
     color: #8b949e;
-    font-size: 18px;
     cursor: pointer;
-    padding: 0 4px;
+    padding: 2px 4px;
     line-height: 1;
   }
 
@@ -533,9 +550,10 @@
   }
 
   .widget-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 20px;
-    text-align: center;
-    font-weight: 700;
     color: #58a6ff;
   }
 
@@ -561,7 +579,6 @@
   }
 
   .form-group input:focus {
-    outline: none;
     border-color: #58a6ff;
   }
 

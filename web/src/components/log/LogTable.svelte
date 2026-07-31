@@ -18,6 +18,13 @@
   import AIAnalysisPanel from '../ai/AIAnalysisPanel.svelte';
   import AIExplainModal from '../ai/AIExplainModal.svelte';
   import { aiEnabled, aiConfigured } from '../../stores/ai.js';
+  import Icon from '../ui/Icon.svelte';
+  import {
+    alertCircleSolid, box, chevronLeft, chevronRight, close, fileText, pinAngle, search
+  } from '../ui/icons.js';
+  import EmptyState from '../ui/EmptyState.svelte';
+  import IngestSnippet from '../onboarding/IngestSnippet.svelte';
+  import { hasEverIngested, refreshIngestState } from '../../stores/ingest.js';
 
   export let logs = [];
 
@@ -87,6 +94,11 @@
   let startWidth = 0;
 
   onMount(() => {
+    // Decides which empty state to draw when a result set comes back empty:
+    // "you have never sent a log" vs "your filter matched nothing". Cheap,
+    // cached and never throws, so it is safe to fire unconditionally.
+    refreshIngestState();
+
     // Initialize subscriptions
     unsubscribeCompact = compactMode.subscribe(v => isCompact = v);
     unsubscribeWrap = lineWrap.subscribe(v => shouldWrap = v);
@@ -409,31 +421,53 @@
   </div>
 
   {#if logs.length === 0}
-    <div class="empty-state">
-      <svg width="48" height="48" viewBox="0 0 48 48">
-        <path fill="currentColor" opacity="0.3" d="M24 4C12.954 4 4 12.954 4 24s8.954 20 20 20 20-8.954 20-20S35.046 4 24 4Zm0 36c-8.837 0-16-7.163-16-16S15.163 8 24 8s16 7.163 16 16-7.163 16-16 16Z"/>
-        <path fill="currentColor" d="M24 14a2 2 0 0 1 2 2v8a2 2 0 0 1-4 0v-8a2 2 0 0 1 2-2Zm0 16a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/>
-      </svg>
-      <p>No logs found</p>
-      <span>Try adjusting your search or time range</span>
-    </div>
+    <!--
+      Two very different empty results. `$hasEverIngested === false` means this
+      instance has never received a single line, so search advice is useless and
+      the user needs onboarding. `true` (and `null` = not known) keep the
+      original meaning — never guess "you have no logs" on an unknown probe.
+    -->
+    {#if $hasEverIngested === false}
+      <EmptyState icon={box} title="No logs yet" tone="accent">
+        <span slot="description">
+          Purl has not received any logs from this instance yet. Point a log source at it and
+          they will show up here.
+        </span>
+        <svelte:fragment slot="actions">
+          <a class="onboard-btn" href="#settings/agents">Set up a log source</a>
+          <a
+            class="onboard-link"
+            href="https://purlogs.com/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+          >Read the docs</a>
+        </svelte:fragment>
+        <svelte:fragment slot="extra">
+          <IngestSnippet />
+        </svelte:fragment>
+      </EmptyState>
+    {:else}
+      <EmptyState icon={search} title="No logs found">
+        Try adjusting your search or time range.
+      </EmptyState>
+    {/if}
   {:else}
     <!-- Selection bar -->
     {#if selectionCount > 0}
       <div class="selection-bar">
         <span class="selection-count"><strong>{selectionCount}</strong> {selectionCount === 1 ? 'row' : 'rows'} selected</span>
         <button class="selection-action-btn" on:click={exportSelected}>
-          <svg width="12" height="12" viewBox="0 0 14 14"><path fill="currentColor" d="M2 1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1Zm1 3h6v1H3V4Zm0 2h6v1H3V6Zm0 2h4v1H3V8Z"/></svg>
+          <Icon icon={fileText} size={12} strokeWidth={3} />
           Export selected
         </button>
         {#if $aiEnabled && $aiConfigured}
           <button class="selection-action-btn ai-analyze-btn" on:click={() => { showAnalysisPanel = true; }}>
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1Zm0 1.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM7 4.75h2v4.5H7v-4.5Zm0 5.5h2v2H7v-2Z"/></svg>
+            <Icon icon={alertCircleSolid} size={12} />
             AI Analyze
           </button>
         {/if}
         <button class="selection-clear-btn" on:click={clearSelection}>
-          <svg width="12" height="12" viewBox="0 0 14 14"><path fill="currentColor" d="M7 5.586 3.707 2.293a1 1 0 0 0-1.414 1.414L5.586 7 2.293 10.293a1 1 0 1 0 1.414 1.414L7 8.414l3.293 3.293a1 1 0 0 0 1.414-1.414L8.414 7l3.293-3.293a1 1 0 0 0-1.414-1.414L7 5.586Z"/></svg>
+          <Icon icon={close} size={12} strokeWidth={3} />
           Clear selection
         </button>
       </div>
@@ -465,9 +499,7 @@
                 class:pinned={col.pinned}
               >
                 {#if col.pinned}
-                  <svg class="pin-icon" width="10" height="10" viewBox="0 0 16 16">
-                    <path fill="currentColor" d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146z"/>
-                  </svg>
+                  <Icon icon={pinAngle} size={10} class="pin-icon" label="Pinned column" />
                 {/if}
                 {col.label}
                 {#if col.id !== 'message'}
@@ -566,7 +598,7 @@
                   {#if $aiEnabled && $aiConfigured}
                     <div class="ai-explain-bar">
                       <button class="ai-explain-btn" on:click|stopPropagation={() => { logToExplain = log; showExplainModal = true; }}>
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1Zm-.75 4.75v3.5h1.5v-3.5h-1.5Zm0 5v1.5h1.5v-1.5h-1.5Z"/></svg>
+                        <Icon icon={alertCircleSolid} size={12} />
                         Explain with AI
                       </button>
                     </div>
@@ -599,7 +631,7 @@
           disabled={currentPage === 1}
           aria-label="Previous page"
         >
-          <svg width="14" height="14" viewBox="0 0 14 14"><path fill="currentColor" d="M8.707 3.293a1 1 0 0 0-1.414 0L3.586 7l3.707 3.707a1 1 0 1 0 1.414-1.414L6.414 7l2.293-2.293a1 1 0 0 0 0-1.414Z"/></svg>
+          <Icon icon={chevronLeft} size={14} strokeWidth={3} />
           Prev
         </button>
         <span class="page-indicator">Page {currentPage} of {totalPages}</span>
@@ -610,7 +642,7 @@
           aria-label="Next page"
         >
           Next
-          <svg width="14" height="14" viewBox="0 0 14 14"><path fill="currentColor" d="M5.293 3.293a1 1 0 0 1 1.414 0L10.414 7 6.707 10.707a1 1 0 0 1-1.414-1.414L7.586 7 5.293 4.707a1 1 0 0 1 0-1.414Z"/></svg>
+          <Icon icon={chevronRight} size={14} strokeWidth={3} />
         </button>
       </div>
     </div>
@@ -743,29 +775,39 @@
     color: var(--text-primary, #c9d1d9);
   }
 
-  .empty-state {
-    display: flex;
-    flex-direction: column;
+  /* Onboarding empty state (never-ingested instance) */
+  .onboard-btn {
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    padding: 60px 20px;
+    padding: 6px 14px;
+    background: var(--color-primary, #58a6ff);
+    border: 1px solid var(--color-primary, #58a6ff);
+    border-radius: var(--radius-sm, 4px);
+    color: var(--bg-primary, #0d1117);
+    font-size: var(--text-sm, 12px);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .onboard-btn:hover {
+    filter: brightness(1.1);
+  }
+
+  .onboard-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    background: transparent;
+    border: 1px solid var(--border-color, #30363d);
+    border-radius: var(--radius-sm, 4px);
     color: var(--text-secondary, #8b949e);
+    font-size: var(--text-sm, 12px);
+    text-decoration: none;
   }
 
-  .empty-state svg {
-    margin-bottom: 16px;
-    color: var(--border-color, #30363d);
-  }
-
-  .empty-state p {
-    font-size: var(--text-lg, 16px);
-    font-weight: 500;
-    margin-bottom: 4px;
-  }
-
-  .empty-state span {
-    font-size: var(--text-base, 14px);
-    color: var(--text-muted, #6e7681);
+  .onboard-link:hover {
+    background: var(--bg-tertiary, #21262d);
+    color: var(--text-primary, #c9d1d9);
   }
 
   .log-table {
@@ -804,7 +846,8 @@
     background: var(--bg-secondary, #161b22);
   }
 
-  th .pin-icon {
+  /* :global — rendered by <Icon>, so the scoping class never lands on the svg. */
+  th :global(.pin-icon) {
     margin-right: 4px;
     color: var(--color-primary, #58a6ff);
     vertical-align: middle;

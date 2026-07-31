@@ -215,7 +215,10 @@ subtest 'list - no license_info defaults' => sub {
 
     my $r = $c->rendered;
     is $r->{json}{total}, 0, 'total is 0';
-    is $r->{json}{limit}{max}, 5, 'default max is 5';
+    # An absent agents limit means "not metered", which is -1 (unlimited) —
+    # NOT some invented finite number that would throttle an unlicensed
+    # instance harder than a paid one.
+    is $r->{json}{limit}{max}, -1, 'default max is unlimited';
     is $r->{json}{limit}{plan}, 'free', 'default plan is free';
 };
 

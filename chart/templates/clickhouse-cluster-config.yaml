@@ -30,7 +30,11 @@ data:
       {{- if .Values.clickhouse.cluster.keeper.enabled }}
       <keeper_server>
         <tcp_port>{{ .Values.clickhouse.cluster.keeper.port }}</tcp_port>
-        <server_id from_env="CH_KEEPER_ID"/>
+        <!-- server_id is supplied by config.d/keeper-id.xml, written per-pod
+             by the set-keeper-id init container. It must be the 1-based
+             ordinal so it matches the <raft_configuration> ids below; it
+             used to come from the 0-based pod-index label via from_env,
+             which meant no node ever matched its own raft entry. -->
         <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
         <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
         <coordination_settings>

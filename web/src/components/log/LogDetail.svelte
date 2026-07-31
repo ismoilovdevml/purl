@@ -343,7 +343,7 @@
   .line-key {
     min-width: 80px;
     font-size: var(--text-sm, 12px);
-    color: var(--text-muted, #6e7681);
+    color: var(--text-muted, #848d97);
   }
 
   .line-value {

@@ -27,10 +27,10 @@ jobs:
     name: Perl Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Cache Perl modules
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: cache-perl
         with:
           path: |
@@ -73,10 +73,10 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
           cache: 'npm'
@@ -92,39 +92,126 @@ jobs:
     name: K8s Validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78 # v4
 
       - name: Helm Lint
         run: helm lint chart/
 
-      - name: Helm Template (default values)
+      # Every render below is a shape a real install can take. `make helm-lint`
+      # runs the same set locally.
+      - name: Helm Template (default values — the public `helm install` path)
         run: helm template purl chart/ > /dev/null
 
-      - name: Helm Template (all features enabled)
+      - name: Helm Template (dev values)
+        run: helm template purl chart/ -f chart/values-dev.yaml > /dev/null
+
+      - name: Helm Template (multi-replica + autoscaling + PDB)
         run: |
           helm template purl chart/ \
             --set autoscaling.enabled=true \
             --set podDisruptionBudget.enabled=true \
             --set networkPolicy.enabled=true \
             --set vector.enabled=true \
+            --set 'config.volume.accessModes[0]=ReadWriteMany' \
             > /dev/null
 
-      - name: Install kubeconform
+      - name: Helm Template (NetworkPolicy with real peers)
         run: |
-          wget -q https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          helm template purl chart/ \
+            --set networkPolicy.enabled=true \
+            --set 'networkPolicy.ingress.fromNamespaces[0]=ingress-nginx' \
+            --set 'networkPolicy.ingress.fromCIDRs[0]=10.0.0.0/8' \
+            --set metrics.serviceMonitor.enabled=true \
+            > /dev/null
+
+      - name: Helm Template (backup CronJob + ClickHouse cluster)
+        run: |
+          helm template purl chart/ \
+            --set backup.enabled=true \
+            --set backup.s3.bucket=example-bucket \
+            --set backup.s3.existingSecret=example-secret \
+            --set clickhouse.cluster.enabled=true \
+            --set networkPolicy.enabled=true \
+            > /dev/null
+
+      - name: Helm Template (operator-managed Secret)
+        run: helm template purl chart/ --set purl.existingSecret=my-purl-secret > /dev/null
+
+      # Pinned version + checksum. `releases/latest/download` silently changes
+      # what it serves, and the tarball was previously executed unverified.
+      - name: Install kubeconform
+        env:
+          KUBECONFORM_VERSION: v0.8.0
+          KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+        run: |
+          set -euo pipefail
+          wget -q "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform-linux-amd64.tar.gz" | sha256sum -c -
           tar xzf kubeconform-linux-amd64.tar.gz
 
       - name: Validate Helm output against K8s schemas
         run: |
+          set -euo pipefail
           helm template purl chart/ \
-            --set autoscaling.enabled=true \
             --set podDisruptionBudget.enabled=true \
             --set networkPolicy.enabled=true \
             --set vector.enabled=true \
+            --set backup.enabled=true \
+            --set backup.s3.bucket=example-bucket \
+            --set backup.s3.existingSecret=example-secret \
             | ./kubeconform -strict -summary -kubernetes-version 1.29.0
+          helm template purl chart/ \
+            --set autoscaling.enabled=true \
+            --set 'config.volume.accessModes[0]=ReadWriteMany' \
+            | ./kubeconform -strict -summary -kubernetes-version 1.29.0
+
+  # ==========================================
+  # Stage 1c: Release tag guard
+  # ==========================================
+  # The chart resolves the image tag from Chart.yaml appVersion
+  # (image.tag defaults to ""), so a git tag that does not match appVersion
+  # publishes a Docker tag the chart never pulls — and leaves the chart
+  # pointing at an image that does not exist (ImagePullBackOff for every
+  # public `helm install`). Block the mismatch before anything is published.
+  # The job itself always runs (a skipped job would skip build-and-push with
+  # it, since a skipped `needs` dependency propagates); the checks are
+  # step-level and only fire on tag pushes.
+  release-guard:
+    name: Release Tag Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          # merge-base needs real history, not a depth-1 checkout.
+          fetch-depth: 0
+
+      - name: Tag must match chart appVersion
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          APP_VERSION="$(awk '$1 == "appVersion:" {gsub(/"/, "", $2); print $2}' chart/Chart.yaml)"
+          echo "git tag      : ${GITHUB_REF_NAME} (version ${TAG_VERSION})"
+          echo "chart appVer : ${APP_VERSION}"
+          if [ "${TAG_VERSION}" != "${APP_VERSION}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match chart/Chart.yaml appVersion ${APP_VERSION}."
+            echo "::error::Bump appVersion (and chart version) in the same commit you tag."
+            exit 1
+          fi
+
+      - name: Tag must be reachable from main
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} is not an ancestor of main. Releases are cut from main."
+            exit 1
+          fi
 
   # ==========================================
   # Stage 1b: Security — source & dependency scan
@@ -136,12 +223,12 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Blocking gate: dependency vulns (web/package-lock.json, cpanfile)
       # and hardcoded secrets. Suppressions live in /.trivyignore.
       - name: Trivy filesystem scan (vuln + secret) — fails on HIGH/CRITICAL
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -156,7 +243,7 @@ jobs:
       # Informational only for now — flipping exit-code to '1' here would
       # gate on files owned by the infra/chart work in flight.
       - name: Trivy config scan (IaC misconfig) — informational
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: config
           scan-ref: .
@@ -170,7 +257,7 @@ jobs:
       # feature is disabled, so it never blocks the pipeline.
       - name: Trivy filesystem scan (SARIF)
         if: always()
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -185,7 +272,7 @@ jobs:
       - name: Upload SARIF to code scanning
         if: always()
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
@@ -196,7 +283,7 @@ jobs:
   build-and-push:
     name: Build & Push Docker
     runs-on: ubuntu-latest
-    needs: [perl-lint, js-lint, k8s-validate, security-fs]
+    needs: [perl-lint, js-lint, k8s-validate, security-fs, release-guard]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: read
@@ -205,13 +292,13 @@ jobs:
       security-events: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.USER }}
           password: ${{ secrets.PASSWORD }}
@@ -231,7 +318,7 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           # semver tags only materialise on refs/tags/v* pushes; the Helm chart
@@ -246,7 +333,7 @@ jobs:
       # The push step below re-uses the same buildx/gha cache, so it is a
       # cache hit and does not rebuild.
       - name: Build image locally (no push)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           push: false
@@ -263,7 +350,7 @@ jobs:
       # OUR OWN secrets are still gated: the security-fs job scans the repo
       # with scanners: vuln,secret and fails the build on any finding.
       - name: Trivy image scan (vuln) — fails on HIGH/CRITICAL
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: purl:scan
@@ -276,7 +363,7 @@ jobs:
 
       - name: Build and push Docker image
         id: build-and-push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           push: true
@@ -289,10 +376,10 @@ jobs:
       # Keyless (OIDC) — no secrets required. Signature + attestation are
       # pushed to Docker Hub alongside the image digest.
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
 
       - name: Generate SBOM (SPDX JSON)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: spdx-json
@@ -341,11 +428,11 @@ jobs:
     needs: [build-and-push]
     if: github.ref == 'refs/heads/dev'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Remove the previous chart copy so deleted templates don't linger.
       - name: Clean previous chart copy on master-01
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: 5.189.148.112
           username: root
@@ -353,7 +440,7 @@ jobs:
           script: rm -rf /opt/purl-dev/chart && mkdir -p /opt/purl-dev
 
       - name: Copy Helm chart to master-01
-        uses: appleboy/scp-action@v1
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1
         with:
           host: 5.189.148.112
           username: root
@@ -362,7 +449,7 @@ jobs:
           target: /opt/purl-dev/
 
       - name: Helm upgrade purl-dev
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: 5.189.148.112
           username: root
@@ -383,7 +470,12 @@ jobs:
               --set-string podAnnotations.deployedAt="$(date +%s)" \
               --wait --timeout 10m --atomic --cleanup-on-fail
             kubectl -n purl-dev rollout status deployment/purl --timeout=5m
-            curl -sf http://localhost:30300/api/health || { echo "Health check failed"; exit 1; }
+            # /api/health/ready includes the ClickHouse check. Fall back to
+            # the legacy /api/health so a rollback to an image predating the
+            # split probes still verifies rather than false-failing.
+            curl -sf http://localhost:30300/api/health/ready \
+              || curl -sf http://localhost:30300/api/health \
+              || { echo "Health check failed"; exit 1; }
 
   # ==========================================
   # Stage 4: Build test (for PRs)
@@ -391,10 +483,10 @@ jobs:
   build-test:
     name: Build Test
     runs-on: ubuntu-latest
-    needs: [perl-lint, js-lint, k8s-validate, security-fs]
+    needs: [perl-lint, js-lint, k8s-validate, security-fs, release-guard]
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Build Docker image
         run: docker build -t purl:test .
@@ -404,7 +496,7 @@ jobs:
       # scanners: vuln for the same reason as build-and-push — see the
       # comment there. Repo secrets are covered by the security-fs job.
       - name: Trivy image scan (vuln) — fails on HIGH/CRITICAL
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: purl:test
@@ -418,7 +510,7 @@ jobs:
       # SBOM for the PR image — uploaded as a build artifact for review.
       # Not signed (nothing is published from a PR).
       - name: Generate SBOM (SPDX JSON)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: purl:test
           format: spdx-json

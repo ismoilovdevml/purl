@@ -6,30 +6,40 @@ use 5.024;
 use Moo;
 use namespace::clean;
 use Time::HiRes qw(time);
+use Purl::Metrics::Prometheus;
 
 extends 'Purl::API::Controller::Base';
 
 # Version constant
-our $VERSION = '1.2.0';
+our $VERSION = '1.3.0';
 
+# Cross-worker Prometheus counters (Purl::Metrics::Counters). Optional: when
+# absent the exporter still renders, just with zeroed request counters.
+has 'metrics_counters' => (
+    is      => 'ro',
+    default => sub { undef },
+);
+
+# One ClickHouse probe, used by /api/health and /api/health/ready. Returns
+# (ok, error_string).
+sub _clickhouse_probe {
+    my ($self, $c) = @_;
+    my $ok = eval { $self->storage->stats(); 1 } // 0;
+    my $error = $@;
+    $c->app->log->warn("Health check - ClickHouse error: $error") if $error;
+    return ($ok, $error);
+}
+
+# Legacy combined endpoint. Behaviour deliberately UNCHANGED (200 when
+# ClickHouse answers, 503 otherwise) — external monitors and the dashboard
+# already depend on it. New deployments should use /live and /ready.
 sub health {
     my ($self, $c) = @_;
-    
-    # Eval DB check
-    my $ch_ok = eval { $self->storage->stats(); 1 };
-    my $ch_error = $@;
-    $ch_ok //= 0;
 
-    if ($ch_error) {
-        $c->app->log->warn("Health check - ClickHouse error: $ch_error");
-    }
+    my ($ch_ok, $ch_error) = $self->_clickhouse_probe($c);
 
     my $status = $ch_ok ? 'ok' : 'degraded';
     my $code = $ch_ok ? 200 : 503;
-    
-    # Calculate uptime if start_time is available in app or stashed?
-    # We can pass start_time in config or use $^T
-    my $start_time = $^T; 
 
     my $cb_status = eval { $self->storage->circuit_breaker_status() } // {};
 
@@ -39,43 +49,72 @@ sub health {
         version     => $VERSION,
         clickhouse  => $ch_ok ? 'connected' : 'disconnected',
         circuit_breaker => $cb_status,
-        uptime_secs => int(time() - $start_time),
+        uptime_secs => int(time() - $^T),
         ($ch_error ? (error => substr($ch_error, 0, 200)) : ()),
     }, status => $code);
 }
 
+# LIVENESS: is this process running and able to serve? Deliberately touches
+# NOTHING external.
+#
+# Wiring a k8s livenessProbe to a database-dependent endpoint means a
+# ClickHouse outage makes the kubelet kill every Purl pod, turning a recoverable
+# dependency failure into a cluster-wide CrashLoopBackOff that cannot recover
+# even after the database comes back. Liveness must only answer "is this
+# process wedged?".
+sub health_live {
+    my ($self, $c) = @_;
+
+    $c->render(json => {
+        status      => 'ok',
+        timestamp   => time(),
+        version     => $VERSION,
+        uptime_secs => int(time() - $^T),
+    }, status => 200);
+}
+
+# READINESS: should this instance receive traffic? Requires ClickHouse.
+# Failing readiness pulls the pod out of the Service endpoints without
+# restarting it, so it rejoins automatically once the database recovers.
+sub health_ready {
+    my ($self, $c) = @_;
+
+    my ($ch_ok, $ch_error) = $self->_clickhouse_probe($c);
+    my $cb_status = eval { $self->storage->circuit_breaker_status() } // {};
+
+    $c->render(json => {
+        status      => $ch_ok ? 'ok' : 'unready',
+        timestamp   => time(),
+        version     => $VERSION,
+        clickhouse  => $ch_ok ? 'connected' : 'disconnected',
+        circuit_breaker => $cb_status,
+        uptime_secs => int(time() - $^T),
+        ($ch_error ? (error => substr($ch_error, 0, 200)) : ()),
+    }, status => $ch_ok ? 200 : 503);
+}
+
 sub metrics {
     my ($self, $c) = @_;
-    
+
     $self->safe_execute($c, sub {
-        my $stats = eval { $self->storage->stats() } // {};
-        my $start_time = $^T;
-        my $uptime = int(time() - $start_time);
-        
-        # We don't have access to global %metrics from Server.pm easily here unless passed
-        # For now, we output what we can from storage and system
-        
-        my $output = <<"METRICS";
-# HELP purl_info Purl server information
-# TYPE purl_info gauge
-purl_info{version="$VERSION"} 1
+        # A failed stats() call is NOT an error here — it is the signal for
+        # purl_clickhouse_healthy 0. The scrape must still succeed, otherwise
+        # the outage takes the metrics down with it.
+        my $stats = eval { $self->storage->stats() };
+        my $ch_ok = ($stats && !$@) ? 1 : 0;
 
-# HELP purl_uptime_seconds Server uptime in seconds
-# TYPE purl_uptime_seconds counter
-purl_uptime_seconds $uptime
+        my $snapshot = $self->metrics_counters
+            ? $self->metrics_counters->snapshot
+            : {};
 
-# HELP purl_logs_stored Total logs in storage
-# TYPE purl_logs_stored gauge
-purl_logs_stored $stats->{total_logs}
-
-# HELP purl_db_size_bytes Database size in bytes
-# TYPE purl_db_size_bytes gauge
-purl_db_size_bytes $stats->{db_size_bytes}
-
-# HELP purl_cache_size Cache entries count
-# TYPE purl_cache_size gauge
-purl_cache_size @{[scalar keys %{$self->cache}]}
-METRICS
+        my $output = Purl::Metrics::Prometheus::render(
+            version            => $VERSION,
+            uptime_seconds     => int(time() - $^T),
+            clickhouse_healthy => $ch_ok,
+            stats              => $stats // {},
+            cache_size         => scalar keys %{ $self->cache },
+            counters           => $snapshot,
+        );
 
         $c->render(text => $output, format => 'txt');
     });
