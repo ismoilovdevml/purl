@@ -188,7 +188,7 @@
   .log-message {
     font-size: 13px;
     color: var(--text-primary);
-    font-family: 'Consolas', 'Monaco', monospace;
+    font-family: var(--font-mono);
     word-break: break-all;
     line-height: 1.4;
   }

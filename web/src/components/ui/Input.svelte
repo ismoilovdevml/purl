@@ -10,6 +10,7 @@
 -->
 <script>
   import { createEventDispatcher } from 'svelte';
+  import EnvBadge from './EnvBadge.svelte';
 
   /** Input type */
   export let type = 'text';
@@ -62,6 +63,18 @@
   /** Input id (auto-generated if not provided) */
   export let id = '';
 
+  /**
+   * Field is pinned by a server environment variable.
+   *
+   * Forces the control disabled (the server answers 409 for such a change) AND
+   * shows an <EnvBadge> next to the label, so the field is never disabled
+   * without a visible reason. Independent of `disabled`: a field can be locked
+   * by ENV and disabled for an unrelated reason at the same time.
+   */
+  export let envLocked = false;
+
+  $: isDisabled = disabled || envLocked;
+
   const dispatch = createEventDispatcher();
 
   // Generate unique id for label-input association
@@ -93,13 +106,14 @@
 </script>
 
 <div class="input-wrapper" class:full-width={fullWidth}>
-  {#if label}
+  {#if label || envLocked}
     <label class="input-label" class:required for={uniqueId}>
       {label}
+      <EnvBadge locked={envLocked} />
     </label>
   {/if}
 
-  <div class="input-container" class:has-error={error} class:disabled class:size-sm={size === 'sm'} class:size-lg={size === 'lg'}>
+  <div class="input-container" class:has-error={error} class:disabled={isDisabled} class:size-sm={size === 'sm'} class:size-lg={size === 'lg'}>
     {#if $$slots.icon}
       <span class="input-icon">
         <slot name="icon" />
@@ -111,7 +125,7 @@
         id={uniqueId}
         {name}
         {placeholder}
-        {disabled}
+        disabled={isDisabled}
         {readonly}
         {required}
         class="input-field"
@@ -128,7 +142,7 @@
         {type}
         {name}
         {placeholder}
-        {disabled}
+        disabled={isDisabled}
         {readonly}
         {required}
         {autocomplete}

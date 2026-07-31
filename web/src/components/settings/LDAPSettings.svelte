@@ -11,7 +11,9 @@
   import Input from '../ui/Input.svelte';
   import Select from '../ui/Select.svelte';
   import Toggle from '../ui/Toggle.svelte';
+  import EnvBadge from '../ui/EnvBadge.svelte';
   import { api } from '../../utils/api.js';
+  import { isEnvLocked } from '../../utils/envLock.js';
   import Icon from '../ui/Icon.svelte';
   import { lock, caretDown, check, close, arrowRight } from '../ui/icons.js';
 
@@ -31,6 +33,14 @@
 
   // ── Advanced section toggle ────────────────────────────────────────────────
   let showAdvanced = $state(false);
+
+  /*
+   * Which ldap.* keys the environment owns: { server: 1, bind_dn: 0, ... }.
+   * GET /settings/ldap has always sent this map (as `from_env`); this page
+   * ignored it, so a field pinned by PURL_LDAP_* rendered editable and the save
+   * came back 409.
+   */
+  let fromEnv = $state({});
 
   // ── Form fields ────────────────────────────────────────────────────────────
   let enabled = $state(false);
@@ -111,6 +121,7 @@
     try {
       const data = await api.get('/settings/ldap');
       const cfg = data.config ?? {};
+      fromEnv      = data.from_env ?? {};
       enabled      = cfg.enabled      ?? false;
       serverUrl    = cfg.server       ?? 'ldap://dc.example.com';
       port         = String(cfg.port  ?? 389);
@@ -229,7 +240,9 @@
           bind:checked={enabled}
           label="Enable LDAP Authentication"
           description="Requires Enterprise license"
+          disabled={isEnvLocked(fromEnv, 'enabled')}
         />
+        <EnvBadge locked={isEnvLocked(fromEnv, 'enabled')} />
       </div>
     </Card>
 
@@ -243,6 +256,7 @@
           placeholder="ldap://dc.example.com"
           fullWidth
           disabled={!enabled}
+          envLocked={isEnvLocked(fromEnv, 'server')}
         />
       </div>
       <div class="form-row">
@@ -255,6 +269,7 @@
             min="1"
             max="65535"
             disabled={!enabled}
+            envLocked={isEnvLocked(fromEnv, 'port')}
             fullWidth
           />
         </div>
@@ -264,6 +279,7 @@
             label="TLS Verify"
             options={tlsVerifyOptions}
             disabled={!enabled || !useTLS}
+            envLocked={isEnvLocked(fromEnv, 'tls_verify')}
             fullWidth
           />
         </div>
@@ -273,8 +289,9 @@
           bind:checked={useTLS}
           label="Use TLS / LDAPS"
           size="sm"
-          disabled={!enabled}
+          disabled={!enabled || isEnvLocked(fromEnv, 'tls_enabled')}
         />
+        <EnvBadge locked={isEnvLocked(fromEnv, 'tls_enabled')} />
       </div>
     </Card>
 
@@ -288,6 +305,7 @@
           placeholder="CN=svc-purl,DC=corp,DC=com"
           fullWidth
           disabled={!enabled}
+          envLocked={isEnvLocked(fromEnv, 'bind_dn')}
           autocomplete="off"
         />
       </div>
@@ -299,6 +317,7 @@
           placeholder="••••••••••••"
           fullWidth
           disabled={!enabled}
+          envLocked={isEnvLocked(fromEnv, 'bind_password')}
           autocomplete="new-password"
         />
       </div>
@@ -314,6 +333,7 @@
           placeholder="DC=corp,DC=com"
           fullWidth
           disabled={!enabled}
+          envLocked={isEnvLocked(fromEnv, 'search_base')}
         />
       </div>
       <div class="form-row">
@@ -323,6 +343,7 @@
             label="Mode"
             options={modeOptions}
             disabled={!enabled}
+            envLocked={isEnvLocked(fromEnv, 'mode')}
             fullWidth
             on:change={handleModeChange}
           />
@@ -334,6 +355,7 @@
             placeholder={'({user_attr}={username})'}
             fullWidth
             disabled={!enabled}
+            envLocked={isEnvLocked(fromEnv, 'search_filter')}
           />
         </div>
       </div>
@@ -360,6 +382,7 @@
                 placeholder="sAMAccountName"
                 fullWidth
                 disabled={!enabled}
+                envLocked={isEnvLocked(fromEnv, 'user_attr')}
               />
             </div>
             <div class="form-group">
@@ -369,6 +392,7 @@
                 placeholder="mail"
                 fullWidth
                 disabled={!enabled}
+                envLocked={isEnvLocked(fromEnv, 'mail_attr')}
               />
             </div>
             <div class="form-group">
@@ -378,6 +402,7 @@
                 placeholder="memberOf"
                 fullWidth
                 disabled={!enabled}
+                envLocked={isEnvLocked(fromEnv, 'group_attr')}
               />
             </div>
           </div>

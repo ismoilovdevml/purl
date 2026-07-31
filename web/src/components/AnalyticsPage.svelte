@@ -536,7 +536,7 @@
 
   .factor-value {
     color: #c9d1d9;
-    font-family: monospace;
+    font-family: var(--font-mono);
     text-align: right;
   }
 
@@ -801,7 +801,7 @@
 
   .table-name {
     color: #58a6ff;
-    font-family: "SFMono-Regular", Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 0.8125rem;
     font-weight: 500;
     flex: 1;
@@ -911,7 +911,7 @@
   }
 
   .query-text {
-    font-family: "SFMono-Regular", Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     color: #8b949e;
     overflow: hidden;

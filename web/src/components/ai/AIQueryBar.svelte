@@ -308,7 +308,7 @@
     border-radius: 6px;
     padding: 8px 12px;
     font-size: 12px;
-    font-family: 'Consolas', 'Monaco', monospace;
+    font-family: var(--font-mono);
     color: #79c0ff;
     overflow-x: auto;
     white-space: pre-wrap;

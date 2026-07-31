@@ -360,7 +360,7 @@
   }
 
   .pattern-text {
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     color: #c9d1d9;
     line-height: 1.4;

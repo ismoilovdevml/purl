@@ -3,6 +3,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
+  import EnvBadge from '../ui/EnvBadge.svelte';
   import { info } from '../ui/icons.js';
 
   let config = {
@@ -62,7 +63,7 @@
       <div class="field">
         <div class="field-label">
           Broadcast Mode
-          {#if fromEnv.mode}<span class="env-badge">ENV</span>{/if}
+          <EnvBadge locked={fromEnv.mode} />
         </div>
         <div class="radio-group">
           <label class="radio-item" class:disabled={fromEnv.mode}>
@@ -94,7 +95,7 @@
         <div class="field">
           <label for="redis-url" class="field-label">
             Redis URL
-            {#if fromEnv.url}<span class="env-badge">ENV</span>{/if}
+            <EnvBadge locked={fromEnv.url} />
             {#if config.mode === 'auto'}<span class="optional">(optional)</span>{/if}
           </label>
           <input
@@ -186,16 +187,6 @@
   }
 
   .optional { font-weight: 400; color: var(--text-secondary); font-size: 12px; }
-
-  .env-badge {
-    font-size: 10px;
-    font-weight: 700;
-    background: rgba(210, 153, 34, 0.15);
-    color: #d29922;
-    border: 1px solid rgba(210, 153, 34, 0.3);
-    border-radius: 4px;
-    padding: 1px 5px;
-  }
 
   .radio-group {
     display: flex;

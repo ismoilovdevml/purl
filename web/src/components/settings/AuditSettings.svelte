@@ -717,7 +717,7 @@
     border-radius: 4px;
     font-size: 0.7rem;
     font-weight: 500;
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-family: var(--font-mono);
     background: rgba(110, 118, 129, 0.15);
     color: var(--text-secondary);
   }
@@ -788,7 +788,7 @@
   .ip-text {
     font-size: 0.75rem;
     color: var(--text-muted);
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-family: var(--font-mono);
   }
 
   .col-ip {

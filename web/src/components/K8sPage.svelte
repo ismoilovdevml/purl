@@ -702,7 +702,7 @@
     border-radius: 4px;
     font-size: 0.6875rem;
     color: #a371f7;
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
   }
 
   /* Pod name */
@@ -711,7 +711,7 @@
   }
 
   .pod-name-text {
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     color: #58a6ff;
     word-break: break-all;
@@ -719,7 +719,7 @@
 
   /* Container name */
   .container-name {
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     color: #8b949e;
   }

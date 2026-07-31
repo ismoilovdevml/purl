@@ -121,7 +121,15 @@
   /* ========================================
    * Typography
    * ======================================== */
-  --font-mono: 'SF Mono', Monaco, monospace;
+  /*
+   * Ordered so it actually resolves. 'SF Mono' is a system-reserved family on
+   * macOS that browsers do not hand out by name, so a stack starting with it
+   * fell through to Monaco while neighbouring components (whose own hardcoded
+   * stack started with SFMono-Regular) rendered something else entirely — two
+   * different monospace faces side by side. `ui-monospace` is the supported way
+   * to ask for SF Mono, and SFMono-Regular is the name that does resolve.
+   */
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 
   --text-xs: 11px;
   --text-sm: 12px;

@@ -937,7 +937,7 @@
     background: #21262d;
     padding: 2px 6px;
     border-radius: 4px;
-    font-family: "SFMono-Regular", Consolas, monospace;
+    font-family: var(--font-mono);
     color: #58a6ff;
   }
 

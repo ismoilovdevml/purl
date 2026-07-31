@@ -11,7 +11,9 @@
   import Input from '../ui/Input.svelte';
   import Select from '../ui/Select.svelte';
   import Toggle from '../ui/Toggle.svelte';
+  import EnvBadge from '../ui/EnvBadge.svelte';
   import { api } from '../../utils/api.js';
+  import { isEnvLocked } from '../../utils/envLock.js';
   import Icon from '../ui/Icon.svelte';
   import { lock, caretDown, check, copy, close, arrowRight } from '../ui/icons.js';
 
@@ -34,6 +36,14 @@
 
   // ── Copy state ─────────────────────────────────────────────────────────────
   let copied = $state(false);
+
+  /*
+   * Which saml.* keys the environment owns: { idp_sso_url: 1, acs_url: 0, ... }.
+   * GET /settings/sso has always sent this map (as `from_env`); this page
+   * ignored it, so a field pinned by PURL_SAML_* rendered editable and the save
+   * came back 409.
+   */
+  let fromEnv = $state({});
 
   // ── Form fields ────────────────────────────────────────────────────────────
   let enabled = $state(false);
@@ -98,17 +108,26 @@
     try {
       const data = await api.get('/settings/sso');
       const cfg = data.config ?? {};
+      fromEnv        = data.from_env       ?? {};
+      /*
+       * Key names are the saml.* config keys, NOT prettier aliases. This page
+       * used to read idp_certificate / sp_entity_id / sp_certificate /
+       * sp_private_key, none of which the API sends or accepts (they are
+       * idp_cert / entity_id / sp_cert / sp_key), so every one of those four
+       * fields loaded blank and never saved — and with entity_id missing, the
+       * server rejected any attempt to enable SSO at all.
+       */
       enabled        = cfg.enabled         ?? false;
       idpEntityId    = cfg.idp_entity_id   ?? '';
       idpSsoUrl      = cfg.idp_sso_url     ?? '';
       idpSloUrl      = cfg.idp_slo_url     ?? '';
-      idpCertificate = cfg.idp_certificate  ?? '';
-      spEntityId     = cfg.sp_entity_id    ?? '';
+      idpCertificate = cfg.idp_cert        ?? '';
+      spEntityId     = cfg.entity_id       ?? '';
       acsUrl         = cfg.acs_url         ?? '';
       nameIdFormat   = cfg.name_id_format  ?? 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress';
       signRequests   = cfg.sign_requests   ?? false;
-      spCertificate  = cfg.sp_certificate  ?? '';
-      spPrivateKey   = cfg.sp_private_key  ?? '';
+      spCertificate  = cfg.sp_cert         ?? '';
+      spPrivateKey   = cfg.sp_key          ?? '';
       usernameAttr   = cfg.username_attr   ?? 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name';
       groupsAttr     = cfg.groups_attr     ?? 'http://schemas.xmlsoap.org/claims/Group';
       allowedGroups  = cfg.allowed_groups  ?? '';
@@ -126,13 +145,13 @@
       idp_entity_id:  idpEntityId,
       idp_sso_url:    idpSsoUrl,
       idp_slo_url:    idpSloUrl,
-      idp_certificate: idpCertificate,
-      sp_entity_id:   spEntityId,
+      idp_cert:       idpCertificate,
+      entity_id:      spEntityId,
       acs_url:        acsUrl,
       name_id_format: nameIdFormat,
       sign_requests:  signRequests,
-      sp_certificate: spCertificate,
-      sp_private_key: spPrivateKey,
+      sp_cert:        spCertificate,
+      sp_key:         spPrivateKey,
       username_attr:  usernameAttr,
       groups_attr:    groupsAttr,
       allowed_groups: allowedGroups,
@@ -226,7 +245,9 @@
           bind:checked={enabled}
           label="Enable SAML SSO"
           description="Requires Enterprise license"
+          disabled={isEnvLocked(fromEnv, 'enabled')}
         />
+        <EnvBadge locked={isEnvLocked(fromEnv, 'enabled')} />
       </div>
     </Card>
 
@@ -240,6 +261,7 @@
           placeholder="https://idp.example.com/metadata"
           fullWidth
           disabled={!enabled}
+          envLocked={isEnvLocked(fromEnv, 'idp_entity_id')}
         />
       </div>
       <div class="form-group">
@@ -249,6 +271,7 @@
           placeholder="https://idp.example.com/sso/saml"
           fullWidth
           disabled={!enabled}
+          envLocked={isEnvLocked(fromEnv, 'idp_sso_url')}
         />
       </div>
       <div class="form-group">
@@ -258,6 +281,7 @@
           placeholder="https://idp.example.com/slo/saml"
           fullWidth
           disabled={!enabled}
+          envLocked={isEnvLocked(fromEnv, 'idp_slo_url')}
         />
       </div>
       <div class="form-group">
@@ -268,6 +292,7 @@
           placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
           fullWidth
           disabled={!enabled}
+          envLocked={isEnvLocked(fromEnv, 'idp_cert')}
         />
       </div>
     </Card>
@@ -282,6 +307,7 @@
           placeholder="https://purl.example.com"
           fullWidth
           disabled={!enabled}
+          envLocked={isEnvLocked(fromEnv, 'entity_id')}
         />
       </div>
       <div class="form-group">
@@ -291,6 +317,7 @@
           placeholder="https://purl.example.com/api/auth/saml/acs"
           fullWidth
           disabled={!enabled}
+          envLocked={isEnvLocked(fromEnv, 'acs_url')}
         />
       </div>
       <div class="form-row">
@@ -300,6 +327,7 @@
             label="NameID Format"
             options={nameIdFormatOptions}
             disabled={!enabled}
+            envLocked={isEnvLocked(fromEnv, 'name_id_format')}
             fullWidth
           />
         </div>
@@ -309,16 +337,18 @@
           bind:checked={signRequests}
           label="Sign Authentication Requests"
           size="sm"
-          disabled={!enabled}
+          disabled={!enabled || isEnvLocked(fromEnv, 'sign_requests')}
         />
+        <EnvBadge locked={isEnvLocked(fromEnv, 'sign_requests')} />
       </div>
       <div class="toggle-row toggle-row--inline">
         <Toggle
           bind:checked={forceAuthn}
           label="Force Authentication"
           size="sm"
-          disabled={!enabled}
+          disabled={!enabled || isEnvLocked(fromEnv, 'force_authn')}
         />
+        <EnvBadge locked={isEnvLocked(fromEnv, 'force_authn')} />
       </div>
     </Card>
 
@@ -367,6 +397,7 @@
                 placeholder="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
                 fullWidth
                 disabled={!enabled}
+                envLocked={isEnvLocked(fromEnv, 'username_attr')}
               />
             </div>
             <div class="form-group">
@@ -376,6 +407,7 @@
                 placeholder="http://schemas.xmlsoap.org/claims/Group"
                 fullWidth
                 disabled={!enabled}
+                envLocked={isEnvLocked(fromEnv, 'groups_attr')}
               />
             </div>
           </div>
@@ -386,6 +418,7 @@
               placeholder="Comma-separated group names (leave empty for all)"
               fullWidth
               disabled={!enabled}
+              envLocked={isEnvLocked(fromEnv, 'allowed_groups')}
               helper="Only users in these groups will be allowed to log in. Leave empty to allow all."
             />
           </div>
@@ -397,6 +430,7 @@
               placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
               fullWidth
               disabled={!enabled}
+              envLocked={isEnvLocked(fromEnv, 'sp_cert')}
               helper="Required if Sign Requests is enabled."
             />
           </div>
@@ -408,6 +442,7 @@
               placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
               fullWidth
               disabled={!enabled}
+              envLocked={isEnvLocked(fromEnv, 'sp_key')}
               helper="Required if Sign Requests is enabled. Stored securely on server."
             />
           </div>
@@ -639,7 +674,7 @@
     border-radius: 6px;
     font-size: 0.8125rem;
     color: var(--text-primary);
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-family: var(--font-mono);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

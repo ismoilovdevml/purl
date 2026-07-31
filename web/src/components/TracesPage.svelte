@@ -660,7 +660,7 @@
   }
 
   .stat-value.mono {
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     color: #58a6ff;
     max-width: 220px;
@@ -717,7 +717,7 @@
   .axis-label {
     font-size: 0.625rem;
     color: #848d97;
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-family: var(--font-mono);
   }
 
   .timeline-row {
@@ -892,7 +892,7 @@
   }
 
   .timestamp {
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     color: #8b949e;
   }
@@ -919,7 +919,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
   }
 
@@ -935,7 +935,7 @@
 
   .log-json {
     margin: 0;
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     color: #c9d1d9;
     line-height: 1.5;
@@ -1032,7 +1032,7 @@
   }
 
   .trace-id-text {
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     color: #58a6ff;
     max-width: 200px;

@@ -456,7 +456,7 @@
     gap: 8px;
     padding: 3px 0;
     font-size: 12px;
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
   }
 
   .log-level {

@@ -380,7 +380,7 @@
     background: #21262d;
     border: 1px solid #30363d;
     border-radius: 4px;
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-family: var(--font-mono);
     font-size: 0.625rem;
     color: #8b949e;
     line-height: 1.4;
@@ -394,7 +394,7 @@
     border: 1px solid #30363d;
     border-radius: 8px;
     color: #c9d1d9;
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-family: var(--font-mono);
     font-size: 0.875rem;
     line-height: 1.6;
     resize: vertical;
@@ -627,7 +627,7 @@
   .sql-code {
     margin: 0;
     padding: 10px 14px;
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-family: var(--font-mono);
     font-size: 0.8125rem;
     line-height: 1.5;
     color: #e6edf3;
@@ -674,7 +674,7 @@
     padding: 6px 12px;
     border-bottom: 1px solid #21262d;
     color: #c9d1d9;
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     vertical-align: top;
   }
@@ -693,7 +693,7 @@
     text-align: right;
     width: 40px;
     min-width: 40px;
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-family: var(--font-mono);
     user-select: none;
   }
 
@@ -717,7 +717,7 @@
   .json-code {
     margin: 0;
     padding: 14px 16px;
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-family: var(--font-mono);
     font-size: 0.75rem;
     line-height: 1.6;
     color: #c9d1d9;

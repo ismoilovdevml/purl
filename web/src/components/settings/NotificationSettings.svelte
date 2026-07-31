@@ -12,8 +12,10 @@
   import Card from '../ui/Card.svelte';
   import Badge from '../ui/Badge.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import EnvBadge from '../ui/EnvBadge.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
+  import { isEnvLocked } from '../../utils/envLock.js';
   import Icon from '../ui/Icon.svelte';
   import { telegram, slack, link } from '../ui/icons.js';
 
@@ -25,6 +27,17 @@
     slack: { enabled: false, webhook_url: '', channel: '' },
     webhook: { enabled: false, url: '', auth_token: '' }
   };
+
+  /*
+   * Per-key truth, keyed by the dotted name inside the notifications section
+   * ('telegram.chat_id', 'slack.channel', 'webhook.auth_token', ...).
+   *
+   * The per-channel `from_env` flags below it only track each channel's
+   * bot_token/webhook_url, so a chat_id or channel pinned by its OWN variable
+   * rendered editable and 409'd on save. Both are consulted; neither replaces
+   * the other.
+   */
+  $: envKeys = serverSettings?.notifications?.from_env_keys;
 
   let savingNotification = null;
   let notificationMessage = {};
@@ -46,12 +59,30 @@
     }
   }
 
+  /*
+   * Payload without the keys the environment owns.
+   *
+   * The server answers 409 to any attempt to CHANGE such a key, and this form
+   * never receives their current values — GET /settings only reports whether a
+   * token is set. So a disabled, blank field would still be submitted as "",
+   * which the server reads as a change and rejects, failing the whole save
+   * including the fields the user CAN edit.
+   */
+  function payloadFor(type) {
+    const out = {};
+    for (const [key, value] of Object.entries(notifications[type])) {
+      if (isEnvLocked(envKeys, `${type}.${key}`)) continue;
+      out[key] = value;
+    }
+    return out;
+  }
+
   async function saveNotification(type) {
     savingNotification = type;
     notificationMessage[type] = null;
 
     try {
-      const data = await api.put(`/settings/notifications/${type}`, notifications[type]);
+      const data = await api.put(`/settings/notifications/${type}`, payloadFor(type));
       notificationMessage[type] = { success: true, text: data.message };
       toastSuccess(`${type.charAt(0).toUpperCase() + type.slice(1)} settings saved`);
     } catch (err) {
@@ -115,21 +146,27 @@
     {#if notifications.telegram.enabled || serverSettings?.notifications?.telegram?.enabled}
     <div class="notification-form">
       <div class="form-row">
-        <span class="form-label">Bot Token</span>
+        <span class="form-label">
+          Bot Token
+          <EnvBadge locked={isEnvLocked(envKeys, 'telegram.bot_token')} />
+        </span>
         <Input
           type="password"
           bind:value={notifications.telegram.bot_token}
           placeholder="123456:ABC-DEF..."
-          disabled={serverSettings?.notifications?.telegram?.from_env}
+          disabled={serverSettings?.notifications?.telegram?.from_env || isEnvLocked(envKeys, 'telegram.bot_token')}
           fullWidth
         />
       </div>
       <div class="form-row">
-        <span class="form-label">Chat ID</span>
+        <span class="form-label">
+          Chat ID
+          <EnvBadge locked={isEnvLocked(envKeys, 'telegram.chat_id')} />
+        </span>
         <Input
           bind:value={notifications.telegram.chat_id}
           placeholder="-1001234567890"
-          disabled={serverSettings?.notifications?.telegram?.from_env}
+          disabled={serverSettings?.notifications?.telegram?.from_env || isEnvLocked(envKeys, 'telegram.chat_id')}
           fullWidth
         />
       </div>
@@ -189,21 +226,27 @@
     {#if notifications.slack.enabled || serverSettings?.notifications?.slack?.enabled}
     <div class="notification-form">
       <div class="form-row">
-        <span class="form-label">Webhook URL</span>
+        <span class="form-label">
+          Webhook URL
+          <EnvBadge locked={isEnvLocked(envKeys, 'slack.webhook_url')} />
+        </span>
         <Input
           type="password"
           bind:value={notifications.slack.webhook_url}
           placeholder="https://hooks.slack.com/services/..."
-          disabled={serverSettings?.notifications?.slack?.from_env}
+          disabled={serverSettings?.notifications?.slack?.from_env || isEnvLocked(envKeys, 'slack.webhook_url')}
           fullWidth
         />
       </div>
       <div class="form-row">
-        <span class="form-label">Channel (optional)</span>
+        <span class="form-label">
+          Channel (optional)
+          <EnvBadge locked={isEnvLocked(envKeys, 'slack.channel')} />
+        </span>
         <Input
           bind:value={notifications.slack.channel}
           placeholder="#alerts"
-          disabled={serverSettings?.notifications?.slack?.from_env}
+          disabled={serverSettings?.notifications?.slack?.from_env || isEnvLocked(envKeys, 'slack.channel')}
           fullWidth
         />
       </div>
@@ -253,21 +296,27 @@
     {#if notifications.webhook.enabled || serverSettings?.notifications?.webhook?.enabled}
     <div class="notification-form">
       <div class="form-row">
-        <span class="form-label">Webhook URL</span>
+        <span class="form-label">
+          Webhook URL
+          <EnvBadge locked={isEnvLocked(envKeys, 'webhook.url')} />
+        </span>
         <Input
           bind:value={notifications.webhook.url}
           placeholder="https://your-server.com/webhook"
-          disabled={serverSettings?.notifications?.webhook?.from_env}
+          disabled={serverSettings?.notifications?.webhook?.from_env || isEnvLocked(envKeys, 'webhook.url')}
           fullWidth
         />
       </div>
       <div class="form-row">
-        <span class="form-label">Auth Token (optional)</span>
+        <span class="form-label">
+          Auth Token (optional)
+          <EnvBadge locked={isEnvLocked(envKeys, 'webhook.auth_token')} />
+        </span>
         <Input
           type="password"
           bind:value={notifications.webhook.auth_token}
           placeholder="Bearer token"
-          disabled={serverSettings?.notifications?.webhook?.from_env}
+          disabled={serverSettings?.notifications?.webhook?.from_env || isEnvLocked(envKeys, 'webhook.auth_token')}
           fullWidth
         />
       </div>

@@ -547,11 +547,11 @@
     border-radius: 4px;
     color: #c9d1d9;
     font-size: 12px;
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
   }
 
   .code-input {
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
     resize: vertical;
   }
 
@@ -576,7 +576,7 @@
   .test-result pre {
     font-size: 12px;
     color: #c9d1d9;
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
     white-space: pre-wrap;
     word-break: break-all;
   }

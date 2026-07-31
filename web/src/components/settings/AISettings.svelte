@@ -4,6 +4,7 @@
   import { aiProviders } from '../../stores/ai.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
+  import EnvBadge from '../ui/EnvBadge.svelte';
   import { alertCircle, check } from '../ui/icons.js';
 
   let config = {
@@ -176,7 +177,7 @@
       <div class="field">
         <label for="ai-provider" class="field-label">
           AI Provider
-          {#if fromEnv.provider}<span class="env-badge">ENV</span>{/if}
+          <EnvBadge locked={fromEnv.provider} />
         </label>
         <select
           id="ai-provider"
@@ -196,7 +197,7 @@
         <div class="field">
           <label for="ai-api-key" class="field-label">
             API Key
-            {#if fromEnv.api_key}<span class="env-badge">ENV</span>{/if}
+            <EnvBadge locked={fromEnv.api_key} />
           </label>
           <div class="key-row">
             <input
@@ -219,7 +220,7 @@
         <div class="field">
           <label for="ai-base-url" class="field-label">
             Base URL
-            {#if fromEnv.base_url}<span class="env-badge">ENV</span>{/if}
+            <EnvBadge locked={fromEnv.base_url} />
           </label>
           <input
             id="ai-base-url"
@@ -237,7 +238,7 @@
       <div class="field">
         <label for="ai-model" class="field-label">
           Model
-          {#if fromEnv.model}<span class="env-badge">ENV</span>{/if}
+          <EnvBadge locked={fromEnv.model} />
           <span class="optional">(optional)</span>
         </label>
         <div class="model-row">
@@ -334,16 +335,6 @@
   }
 
   .optional { font-weight: 400; color: var(--text-secondary); font-size: 12px; }
-
-  .env-badge {
-    font-size: 10px;
-    font-weight: 700;
-    background: rgba(210, 153, 34, 0.15);
-    color: #d29922;
-    border: 1px solid rgba(210, 153, 34, 0.3);
-    border-radius: 4px;
-    padding: 1px 5px;
-  }
 
   .field-select, .field-input {
     background: var(--bg-primary);
@@ -636,7 +627,7 @@
   .provider-model {
     font-size: 12px;
     color: var(--text-secondary);
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-family: var(--font-mono);
   }
 
   .provider-model.default {

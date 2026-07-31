@@ -411,7 +411,7 @@
   }
 
   .code-block code {
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-family: var(--font-mono);
     font-size: 0.8125rem;
     color: var(--text-primary);
     white-space: pre;
@@ -644,7 +644,7 @@
     font-size: 0.8125rem;
     font-weight: 600;
     color: var(--text-primary);
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-family: var(--font-mono);
     white-space: nowrap;
   }
 

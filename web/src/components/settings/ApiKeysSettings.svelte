@@ -12,6 +12,7 @@
   import Input from '../ui/Input.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import ConfirmDialog from '../ui/ConfirmDialog.svelte';
+  import EnvBadge from '../ui/EnvBadge.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { currentUser } from '../../stores/auth.js';
   import { api } from '../../utils/api.js';
@@ -175,7 +176,7 @@
       <div class="keys-header">
         <span class="key-count">
           {keys.length} key{keys.length !== 1 ? 's' : ''}
-          {#if fromEnv}<span class="env-badge">ENV</span>{/if}
+          <EnvBadge locked={fromEnv} />
         </span>
         {#if !fromEnv && isAdmin}
           <Button variant="primary" size="sm" on:click={() => { showCreateForm = !showCreateForm; }}>
@@ -386,18 +387,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-
-  .env-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    background: rgba(187, 128, 9, 0.15);
-    color: #d29922;
   }
 
   .env-note {

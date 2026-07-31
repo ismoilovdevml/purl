@@ -11,6 +11,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
+  import EnvBadge from './EnvBadge.svelte';
   import { chevronDown } from './icons.js';
 
   /** Selected value */
@@ -37,6 +38,11 @@
   /** Error message */
   export let error = '';
 
+  /** Field is pinned by a server environment variable — see Input.svelte */
+  export let envLocked = false;
+
+  $: isDisabled = disabled || envLocked;
+
   const dispatch = createEventDispatcher();
 
   function handleChange(event) {
@@ -46,14 +52,17 @@
 </script>
 
 <div class="select-wrapper" class:full-width={fullWidth}>
-  {#if label}
-    <span class="select-label">{label}</span>
+  {#if label || envLocked}
+    <span class="select-label">
+      {label}
+      <EnvBadge locked={envLocked} />
+    </span>
   {/if}
 
-  <div class="select-container" class:has-error={error} class:disabled class:size-sm={size === 'sm'} class:size-lg={size === 'lg'}>
+  <div class="select-container" class:has-error={error} class:disabled={isDisabled} class:size-sm={size === 'sm'} class:size-lg={size === 'lg'}>
     <select
       class="select-field"
-      {disabled}
+      disabled={isDisabled}
       bind:value
       on:change={handleChange}
     >

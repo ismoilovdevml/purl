@@ -330,7 +330,7 @@
   }
 
   .name-text {
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     color: #58a6ff;
   }
@@ -348,7 +348,7 @@
     border-radius: 4px;
     font-size: 11px;
     color: #a371f7;
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
   }
 
   .error-count {

@@ -13,8 +13,10 @@
   import Modal from '../ui/Modal.svelte';
   import Toggle from '../ui/Toggle.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import EnvBadge from '../ui/EnvBadge.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
+  import { isEnvLocked } from '../../utils/envLock.js';
 
   const API_BASE = '/api';
 
@@ -36,7 +38,10 @@
     enabled: false,
     interval_hours: 24,
     retention_days: 30,
+    // Coarse flag: PURL_BACKUP_SCHEDULE_ENABLED only.
     from_env: false,
+    // Per-key truth for every backup.* key %ENV_MAP can manage.
+    from_env_keys: {},
   };
   let loadingSchedule = true;
   let savingSchedule = false;
@@ -49,8 +54,16 @@
     prefix: 'purl-backups/',
     endpoint: '',
     has_credentials: false,
+    // Coarse flag: PURL_BACKUP_S3_ENABLED only.
     from_env: false,
+    from_env_keys: {},
   };
+
+  // The whole panel is frozen by the coarse flag; individual fields are frozen
+  // by their own variable. Both must disable a control, or the save 409s on a
+  // field that looked editable.
+  $: scheduleEnv = schedule.from_env_keys;
+  $: s3Env = s3Config.from_env_keys;
   let loadingS3 = true;
   let savingS3 = false;
   let s3AccessKey = '';
@@ -301,13 +314,16 @@
           bind:checked={schedule.enabled}
           label="Enable scheduled backups"
           description="Automatically create backups at a regular interval"
-          disabled={schedule.from_env}
+          disabled={schedule.from_env || isEnvLocked(scheduleEnv, 'schedule_enabled')}
         />
 
         {#if schedule.enabled}
           <div class="schedule-fields">
             <div class="field-row">
-              <label class="field-label" for="backup-interval">Backup interval (hours)</label>
+              <label class="field-label" for="backup-interval">
+                Backup interval (hours)
+                <EnvBadge locked={isEnvLocked(scheduleEnv, 'schedule_interval_hours')} />
+              </label>
               <input
                 id="backup-interval"
                 type="number"
@@ -315,11 +331,14 @@
                 bind:value={schedule.interval_hours}
                 min="1"
                 max="168"
-                disabled={schedule.from_env}
+                disabled={schedule.from_env || isEnvLocked(scheduleEnv, 'schedule_interval_hours')}
               />
             </div>
             <div class="field-row">
-              <label class="field-label" for="backup-retention">Auto-delete backups older than (days)</label>
+              <label class="field-label" for="backup-retention">
+                Auto-delete backups older than (days)
+                <EnvBadge locked={isEnvLocked(scheduleEnv, 'retention_days')} />
+              </label>
               <input
                 id="backup-retention"
                 type="number"
@@ -327,7 +346,7 @@
                 bind:value={schedule.retention_days}
                 min="1"
                 max="365"
-                disabled={schedule.from_env}
+                disabled={schedule.from_env || isEnvLocked(scheduleEnv, 'retention_days')}
               />
             </div>
           </div>
@@ -343,9 +362,7 @@
           >
             Save Schedule
           </Button>
-          {#if schedule.from_env}
-            <span class="env-badge">Configured via ENV</span>
-          {/if}
+          <EnvBadge locked={schedule.from_env} label="Configured via ENV" />
         </div>
         <p class="create-hint">Changes require a server restart to take effect</p>
       {/if}
@@ -365,75 +382,93 @@
           bind:checked={s3Config.enabled}
           label="Enable S3 upload"
           description="Upload backup archives to Amazon S3 or S3-compatible storage (MinIO)"
-          disabled={s3Config.from_env}
+          disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_enabled')}
         />
 
         {#if s3Config.enabled}
           <div class="schedule-fields">
             <div class="field-row">
-              <label class="field-label" for="s3-bucket">S3 Bucket</label>
+              <label class="field-label" for="s3-bucket">
+                S3 Bucket
+                <EnvBadge locked={isEnvLocked(s3Env, 's3_bucket')} />
+              </label>
               <input
                 id="s3-bucket"
                 type="text"
                 class="field-input field-input-wide"
                 bind:value={s3Config.bucket}
                 placeholder="my-backups-bucket"
-                disabled={s3Config.from_env}
+                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_bucket')}
               />
             </div>
             <div class="field-row">
-              <label class="field-label" for="s3-region">Region</label>
+              <label class="field-label" for="s3-region">
+                Region
+                <EnvBadge locked={isEnvLocked(s3Env, 's3_region')} />
+              </label>
               <input
                 id="s3-region"
                 type="text"
                 class="field-input"
                 bind:value={s3Config.region}
                 placeholder="us-east-1"
-                disabled={s3Config.from_env}
+                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_region')}
               />
             </div>
             <div class="field-row">
-              <label class="field-label" for="s3-prefix">Key Prefix</label>
+              <label class="field-label" for="s3-prefix">
+                Key Prefix
+                <EnvBadge locked={isEnvLocked(s3Env, 's3_prefix')} />
+              </label>
               <input
                 id="s3-prefix"
                 type="text"
                 class="field-input"
                 bind:value={s3Config.prefix}
                 placeholder="purl-backups/"
-                disabled={s3Config.from_env}
+                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_prefix')}
               />
             </div>
             <div class="field-row">
-              <label class="field-label" for="s3-endpoint">Custom Endpoint (optional)</label>
+              <label class="field-label" for="s3-endpoint">
+                Custom Endpoint (optional)
+                <EnvBadge locked={isEnvLocked(s3Env, 's3_endpoint')} />
+              </label>
               <input
                 id="s3-endpoint"
                 type="text"
                 class="field-input field-input-wide"
                 bind:value={s3Config.endpoint}
                 placeholder="https://minio.example.com"
-                disabled={s3Config.from_env}
+                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_endpoint')}
               />
             </div>
             <div class="field-row">
-              <label class="field-label" for="s3-access-key">Access Key ID</label>
+              <label class="field-label" for="s3-access-key">
+                Access Key ID
+                <EnvBadge locked={isEnvLocked(s3Env, 's3_access_key')} />
+              </label>
               <input
                 id="s3-access-key"
                 type="text"
                 class="field-input"
                 bind:value={s3AccessKey}
                 placeholder={s3Config.has_credentials ? '••••••••' : 'AKIA...'}
-                disabled={s3Config.from_env}
+                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_access_key')}
               />
             </div>
             <div class="field-row">
-              <label class="field-label" for="s3-secret-key">Secret Access Key</label>
+              <label class="field-label" for="s3-secret-key">
+                Secret Access Key
+                <EnvBadge locked={isEnvLocked(s3Env, 's3_secret_key')} />
+              </label>
               <input
                 id="s3-secret-key"
                 type="password"
                 class="field-input field-input-wide"
                 bind:value={s3SecretKey}
                 placeholder={s3Config.has_credentials ? '••••••••' : 'Secret key'}
-                disabled={s3Config.from_env}
+                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_secret_key')}
               />
             </div>
           </div>
@@ -449,9 +484,7 @@
           >
             Save S3 Settings
           </Button>
-          {#if s3Config.from_env}
-            <span class="env-badge">Configured via ENV</span>
-          {/if}
+          <EnvBadge locked={s3Config.from_env} label="Configured via ENV" />
         </div>
       {/if}
     </div>
@@ -677,14 +710,6 @@
     display: flex;
     align-items: center;
     gap: 12px;
-  }
-
-  .env-badge {
-    font-size: 0.75rem;
-    color: var(--color-warning);
-    padding: 2px 8px;
-    border: 1px solid rgba(210, 153, 34, 0.3);
-    border-radius: 4px;
   }
 
   .empty-state {

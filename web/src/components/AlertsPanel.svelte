@@ -696,7 +696,7 @@
   }
 
   .notify-info code {
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
     color: var(--color-primary);
     background: rgba(88, 166, 255, 0.1);

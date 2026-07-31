@@ -20,6 +20,22 @@
   // #848d97 = 5.14:1 (passes AA); the previous #6e7681 was 3.77:1 (failed).
   const AXIS_LABEL_COLOR = '#848d97';
 
+  // Same problem for the axis FONT, but here the token can be resolved at
+  // runtime instead of duplicated: canvas takes a plain font shorthand, so read
+  // --font-mono off the document once and reuse it. Hardcoding a second stack
+  // is what made these labels render in a different face than every other
+  // monospace surface in the app.
+  let axisFontCache = '';
+  function axisFont() {
+    if (!axisFontCache) {
+      const stack = getComputedStyle(document.documentElement)
+        .getPropertyValue('--font-mono')
+        .trim();
+      axisFontCache = `10px ${stack || 'monospace'}`;
+    }
+    return axisFontCache;
+  }
+
   let canvas;
   let container;
   let tooltip = { show: false, x: 0, y: 0, data: null, prevData: null, changePercent: null };
@@ -136,7 +152,7 @@
       // Y-axis labels
       const value = Math.round(effectiveMax - (effectiveMax / gridLines) * i);
       ctx.fillStyle = AXIS_LABEL_COLOR;
-      ctx.font = '10px SFMono-Regular, Consolas, monospace';
+      ctx.font = axisFont();
       ctx.textAlign = 'right';
       ctx.fillText(formatNumber(value), padding.left - 8, y + 3);
     }
@@ -232,7 +248,7 @@
     const labelCount = Math.min(6, $histogram.length);
     const labelStep = Math.floor($histogram.length / labelCount);
     ctx.fillStyle = AXIS_LABEL_COLOR;
-    ctx.font = '10px SFMono-Regular, Consolas, monospace';
+    ctx.font = axisFont();
     ctx.textAlign = 'center';
 
     for (let i = 0; i < $histogram.length; i += labelStep) {
@@ -640,7 +656,7 @@
     gap: 6px;
     font-size: 14px;
     font-weight: 600;
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
     color: #c9d1d9;
   }
 
@@ -782,7 +798,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: var(--font-mono);
     font-weight: 500;
   }
 
