@@ -59,7 +59,14 @@ test.describe('Logs page', () => {
     ).toBeGreaterThan(0);
 
     if (emptyCount > 0 && tableCount === 0) {
-      await expect(empty).toContainText('No logs found');
+      // WHICH empty state renders depends on GET /api/stats (see
+      // onboarding-empty-state.spec.js), so asserting the wording here would
+      // be asserting on whatever data the stack happens to hold. This file
+      // owns the page shell, not the ingest-history branch: assert that the
+      // empty state is a labelled status region, and leave the copy to the
+      // spec that controls the inputs.
+      await expect(empty).toHaveAttribute('role', 'status');
+      await expect(empty.locator('.empty-title')).not.toBeEmpty();
     }
   });
 

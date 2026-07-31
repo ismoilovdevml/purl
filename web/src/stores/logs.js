@@ -1,7 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { escapeHtml } from '../utils/dom.js';
 import { api } from '../utils/api.js';
-import { settings } from './settings.js';
+import { settings, clampMaxResults } from './settings.js';
 import { passwordChangeRequired } from './auth.js';
 import { error as toastError } from './toast.js';
 import { selectedCluster } from './cluster.js';
@@ -60,7 +60,9 @@ export async function searchLogs() {
     const currentCustom = get(customTimeRange);
 
     const currentSettings = settings.get();
-    const params = new URLSearchParams({ limit: currentSettings.maxResults || 500 });
+    // Clamped again at the request boundary: `limit` lands in the backend's
+    // `LIMIT n` unchecked, so it must be in range no matter how it got here.
+    const params = new URLSearchParams({ limit: clampMaxResults(currentSettings.maxResults) });
 
     // Use custom range if set, otherwise use preset range
     if (currentRange === 'custom' && currentCustom.from && currentCustom.to) {
@@ -112,6 +114,14 @@ export async function searchLogs() {
     // 401 -> session cleared centrally by the api client (with one toast).
     // 403 -> permission / pending password change; stay quiet, as before.
     if (err.isAuthError) return;
+
+    // The previous result set does NOT describe this query. Leaving it on
+    // screen (a rejected KQL query 400s) makes the table read as the answer to
+    // the broken query in the search box — with the banner gone 10s later,
+    // there is nothing left saying otherwise. Clear it and let `error` drive an
+    // explicit failure state instead.
+    logs.set([]);
+    total.set(0);
 
     error.set(err.message);
     console.error('Search error:', err);

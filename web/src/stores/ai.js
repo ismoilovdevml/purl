@@ -16,13 +16,20 @@ export const aiError = writable(null);
 export const aiQueryResult = writable(null);
 export const aiQuerySQL = writable('');
 
-// Analysis results
+// Analysis results.
+// `aiAnalysisError` is what a failed run leaves behind. It exists because these
+// calls resolve with `null` on failure instead of rejecting: without a sticky
+// failure marker the panels' `!result && !loading` guards go true again the
+// moment the request settles and re-POST forever — including for an upstream
+// LLM call that succeeded and was already billed (a 200 carrying `{error}`).
 export const aiAnalysisResult = writable(null);
 export const aiAnalysisLoading = writable(false);
+export const aiAnalysisError = writable(null);
 
-// Explanation results
+// Explanation results (see the note above for aiExplainError).
 export const aiExplainResult = writable(null);
 export const aiExplainLoading = writable(false);
+export const aiExplainError = writable(null);
 
 // Suggestions
 export const aiSuggestions = writable([]);
@@ -73,8 +80,14 @@ export async function queryAI(question, execute = true) {
     aiQueryResult.set(data);
     return data;
   } catch (err) {
-    // 401 -> session cleared centrally by the api client (with one toast).
-    if (err.isUnauthorized) return null;
+    if (err.isUnauthorized) {
+      // Session cleared centrally by the api client, which already toasted.
+      // The store is still set, for the same reason as the other two below:
+      // every failure path must leave a marker, or a caller that guards on
+      // `!result && !loading && !error` re-fires the moment this settles.
+      aiError.set('Session expired. Sign in again.');
+      return null;
+    }
     const msg = err.isNetworkError
       ? 'Failed to connect to AI service'
       : (err.body?.error || 'AI query failed');
@@ -95,12 +108,14 @@ export async function analyzeSelectedLogs(logs) {
 
   aiAnalysisLoading.set(true);
   aiAnalysisResult.set(null);
+  aiAnalysisError.set(null);
 
   try {
     const data = await api.post('/ai/analyze', { logs });
 
     if (data?.error) {
       const msg = data.error || 'Analysis failed';
+      aiAnalysisError.set(msg);
       toastError(msg);
       return null;
     }
@@ -108,10 +123,17 @@ export async function analyzeSelectedLogs(logs) {
     aiAnalysisResult.set(data);
     return data;
   } catch (err) {
-    if (err.isUnauthorized) return null;
+    // Every failure path must leave `aiAnalysisError` set — it is the only
+    // thing that stops the caller's reactive guard from firing again.
+    if (err.isUnauthorized) {
+      // Session cleared centrally by the api client, which already toasted.
+      aiAnalysisError.set('Session expired. Sign in again.');
+      return null;
+    }
     const msg = err.isNetworkError
       ? 'Failed to connect to AI service'
       : (err.body?.error || 'Analysis failed');
+    aiAnalysisError.set(msg);
     toastError(msg);
     return null;
   } finally {
@@ -128,12 +150,14 @@ export async function explainLog(log) {
 
   aiExplainLoading.set(true);
   aiExplainResult.set(null);
+  aiExplainError.set(null);
 
   try {
     const data = await api.post('/ai/explain', { log });
 
     if (data?.error) {
       const msg = data.error || 'Explanation failed';
+      aiExplainError.set(msg);
       toastError(msg);
       return null;
     }
@@ -141,10 +165,17 @@ export async function explainLog(log) {
     aiExplainResult.set(data);
     return data;
   } catch (err) {
-    if (err.isUnauthorized) return null;
+    // Every failure path must leave `aiExplainError` set — it is the only
+    // thing that stops the caller's reactive guard from firing again.
+    if (err.isUnauthorized) {
+      // Session cleared centrally by the api client, which already toasted.
+      aiExplainError.set('Session expired. Sign in again.');
+      return null;
+    }
     const msg = err.isNetworkError
       ? 'Failed to connect to AI service'
       : (err.body?.error || 'Explanation failed');
+    aiExplainError.set(msg);
     toastError(msg);
     return null;
   } finally {

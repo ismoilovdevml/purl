@@ -88,8 +88,14 @@ test.describe('Accessibility', () => {
       return { width: s.outlineWidth, style: s.outlineStyle, color: s.outlineColor };
     });
 
+    // `outline-width` on its own proves nothing — Chromium computes `3px` even
+    // for a button with `outline: none`, because the width property keeps its
+    // value and the *style* is what suppresses the ring. So the style check has
+    // to come first, and the colour has to be checked too: a transparent ring
+    // is an invisible ring.
     expect(outline.style, 'focused Button must render an outline').not.toBe('none');
     expect(parseFloat(outline.width), 'focus outline must have non-zero width').toBeGreaterThan(0);
+    expect(outline.color, 'focus outline must not be transparent').not.toMatch(/transparent|, ?0\)$/);
   });
 
   test('the hamburger button is labelled', async ({ page }) => {
@@ -176,13 +182,40 @@ test.describe('Accessibility', () => {
     await expect(modal).toHaveCount(0);
   });
 
-  test('body text is readable against the page background', async ({ page }) => {
+  test('body text meets the WCAG AA contrast ratio against the page background', async ({ page }) => {
+    // The previous version asserted `expect(bg).toBeTruthy()`, which
+    // getComputedStyle can never fail — it always returns a non-empty string,
+    // even for a fully transparent colour. The test claimed contrast and
+    // measured nothing. Compute the real ratio instead.
     const { bg, fg } = await page.locator('body').evaluate((el) => {
       const s = getComputedStyle(el);
-      return { bg: s.backgroundColor, fg: s.color };
+      // `background-color` on <body> is commonly transparent, with the paint
+      // coming from <html>. Walk up until something opaque is found.
+      let bgEl = el;
+      let bgColor = s.backgroundColor;
+      while (bgEl && /^rgba\(.*,\s*0\)$/.test(bgColor)) {
+        bgEl = bgEl.parentElement;
+        bgColor = bgEl ? getComputedStyle(bgEl).backgroundColor : 'rgb(255, 255, 255)';
+      }
+      return { bg: bgColor, fg: s.color };
     });
-    expect(bg).toBeTruthy();
-    expect(fg).toBeTruthy();
-    expect(fg).not.toBe(bg);
+
+    const luminance = (color) => {
+      const [r, g, b] = color.match(/[\d.]+/g).slice(0, 3).map(Number);
+      const channel = (v) => {
+        const c = v / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    };
+
+    const l1 = luminance(fg);
+    const l2 = luminance(bg);
+    const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+
+    expect(
+      ratio,
+      `body text ${fg} on ${bg} has a contrast ratio of ${ratio.toFixed(2)}:1, below the WCAG AA minimum of 4.5:1`
+    ).toBeGreaterThanOrEqual(4.5);
   });
 });

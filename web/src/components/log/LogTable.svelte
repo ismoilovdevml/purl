@@ -7,11 +7,13 @@
 -->
 <script>
   import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
-  import { query, fetchLogContext, filterByTrace, filterByRequest } from '../../stores/logs.js';
+  import {
+    query, error as searchError, searchLogs, fetchLogContext, filterByTrace, filterByRequest
+  } from '../../stores/logs.js';
   import { formatTimestamp, formatFullTimestamp } from '../../utils/format.js';
   import { getLevelColor, getLevelBgColor } from '../../utils/colors.js';
   import { highlightText } from '../../utils/dom.js';
-  import { compactMode, lineWrap, highlightErrors, showHost, timestampFormat, maxResults } from '../../stores/settings.js';
+  import { compactMode, lineWrap, highlightErrors, showHost, timestampFormat, maxResults, clampMaxResults } from '../../stores/settings.js';
   import ColumnPicker from './ColumnPicker.svelte';
   import LogDetail from './LogDetail.svelte';
   import LogContextPanel from './LogContextPanel.svelte';
@@ -19,8 +21,9 @@
   import AIExplainModal from '../ai/AIExplainModal.svelte';
   import { aiEnabled, aiConfigured } from '../../stores/ai.js';
   import Icon from '../ui/Icon.svelte';
+  import Button from '../ui/Button.svelte';
   import {
-    alertCircleSolid, box, chevronLeft, chevronRight, close, fileText, pinAngle, search
+    alertCircle, alertCircleSolid, box, chevronLeft, chevronRight, close, fileText, pinAngle, search
   } from '../ui/icons.js';
   import EmptyState from '../ui/EmptyState.svelte';
   import IngestSnippet from '../onboarding/IngestSnippet.svelte';
@@ -105,7 +108,9 @@
     unsubscribeHighlight = highlightErrors.subscribe(v => shouldHighlightErrors = v);
     unsubscribeTimeFormat = timestampFormat.subscribe(v => timeFormat = v);
     unsubscribeQuery = query.subscribe(v => searchQuery = v);
-    unsubscribeMaxResults = maxResults.subscribe(v => maxResultsValue = v || 500);
+    // Clamped: this value is rendered ("Showing max N logs") and compared
+    // against the row count, so an out-of-range setting must not reach the UI.
+    unsubscribeMaxResults = maxResults.subscribe(v => maxResultsValue = clampMaxResults(v));
     unsubscribeHost = showHost.subscribe(v => {
       // Update host column visibility when setting changes
       const hostCol = columns.find(c => c.id === 'host');
@@ -422,12 +427,22 @@
 
   {#if logs.length === 0}
     <!--
-      Two very different empty results. `$hasEverIngested === false` means this
-      instance has never received a single line, so search advice is useless and
-      the user needs onboarding. `true` (and `null` = not known) keep the
-      original meaning — never guess "you have no logs" on an unknown probe.
+      Three very different empty results. `$searchError` means the last search
+      never produced a result set at all (rejected query, server down) — saying
+      "no logs found" there would report a broken query as an answer.
+      `$hasEverIngested === false` means this instance has never received a
+      single line, so search advice is useless and the user needs onboarding.
+      `true` (and `null` = not known) keep the original meaning — never guess
+      "you have no logs" on an unknown probe.
     -->
-    {#if $hasEverIngested === false}
+    {#if $searchError}
+      <EmptyState icon={alertCircle} title="Search failed" tone="error">
+        <span slot="description">{$searchError}</span>
+        <svelte:fragment slot="actions">
+          <Button size="sm" on:click={searchLogs}>Retry search</Button>
+        </svelte:fragment>
+      </EmptyState>
+    {:else if $hasEverIngested === false}
       <EmptyState icon={box} title="No logs yet" tone="accent">
         <span slot="description">
           Purl has not received any logs from this instance yet. Point a log source at it and

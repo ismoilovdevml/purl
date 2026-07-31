@@ -32,6 +32,12 @@
     { value: 'iso', label: 'ISO 8601' },
   ];
 
+  // The store clamps numeric settings to their documented range (see
+  // NUMERIC_BOUNDS in stores/settings.js) — the inputs' min/max attributes are
+  // a native hint the change handler cannot rely on, so raw field text is
+  // handed over as-is and the store is the one authority on what is valid. A
+  // corrected value flows straight back into `localSettings`, so the field
+  // visibly snaps to the clamped number.
   function updateSetting(key, value) {
     settings.setSetting(key, value);
     toastSuccess('Settings saved');
@@ -67,7 +73,7 @@
         min={0}
         max={300}
         value={localSettings.refreshInterval}
-        on:change={(e) => updateSetting('refreshInterval', parseInt(e.target.value) || 0)}
+        on:change={(e) => updateSetting('refreshInterval', e.target.value)}
       />
     </div>
 
@@ -81,7 +87,7 @@
         min={50}
         max={5000}
         value={localSettings.maxResults}
-        on:change={(e) => updateSetting('maxResults', parseInt(e.target.value) || 500)}
+        on:change={(e) => updateSetting('maxResults', e.target.value)}
       />
     </div>
 

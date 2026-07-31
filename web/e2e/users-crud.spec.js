@@ -20,7 +20,19 @@ test.describe('Users CRUD', () => {
   const userRow = (page, username) =>
     page.locator('.user-row', { has: page.locator('.username', { hasText: username }) });
 
-  test('creates a user, lists it, then deletes it', async ({ page }) => {
+  /*
+   * `request` (the isolated fixture), never `page.request`.
+   *
+   * `page.request` shares the BrowserContext cookie jar, so logging in as the
+   * newly created operator would overwrite the admin session cookie the page
+   * is holding. The very next step — DELETE /api/settings/users/:username — is
+   * admin-gated (Settings.pm) and CSRF-checked against the session that just
+   * got replaced, so it answered 403 every single run. The isolated fixture
+   * has its own jar: the credential is exercised for real, the page's session
+   * is untouched. See csrf-mutation.spec.js for the inverse case, where the
+   * cookie is copied across deliberately.
+   */
+  test('creates a user, lists it, then deletes it', async ({ page, request }) => {
     const username = unique('e2euser').replace(/-/g, '');
     const password = 'e2e-User-Pass-1234';
 
@@ -60,11 +72,22 @@ test.describe('Users CRUD', () => {
     await expect(userRow(page, username)).toHaveCount(1);
 
     // --- the credential actually works ---------------------------------
-    const loginOk = await page.request.post('/api/auth/login', {
+    const loginOk = await request.post('/api/auth/login', {
       data: { username, password },
     });
     expect(loginOk.status(), 'a newly created user must be able to log in').toBe(200);
     expect((await loginOk.json()).role).toBe('operator');
+
+    // Guard the mistake this spec used to make: the operator login above must
+    // not have touched the browser's session. If this ever reads back
+    // "operator", the isolation broke and every admin-gated step below would
+    // start failing with a 403 that looks like a backend authz bug.
+    const whoami = await page.request.get('/api/auth/me');
+    expect(whoami.status()).toBe(200);
+    expect(
+      (await whoami.json()).username,
+      'the page must still be the admin — an out-of-band login may not hijack the browser session'
+    ).toBe(stackEnv.ADMIN_USERNAME);
 
     // --- delete (two-click inline confirm, not a dialog) ---------------
     const deleteResponse = page.waitForResponse(
@@ -80,7 +103,7 @@ test.describe('Users CRUD', () => {
     await expect(userRow(page, username)).toHaveCount(0);
 
     // --- and the credential stops working ------------------------------
-    const loginAfter = await page.request.post('/api/auth/login', {
+    const loginAfter = await request.post('/api/auth/login', {
       data: { username, password },
     });
     expect(

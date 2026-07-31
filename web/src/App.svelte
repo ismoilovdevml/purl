@@ -169,31 +169,64 @@
   // Export progress indicator for large exports
   let exportStatus = '';
 
-  // Sync the logs store error into local errorState (auto-set retry to searchLogs)
-  $: if ($error) {
-    setError($error, searchLogs, 'error');
-  } else if (!$error && errorState.message && errorState.retryFn === searchLogs) {
-    clearError();
+  // Which `$error` value the user (or the auto-dismiss timer) already sent away.
+  // This is the loop-breaker. The banner and the `error` store have different
+  // lifetimes on purpose — the store must stay set so LogTable knows its rows
+  // are not an answer to the current query — so dismissal cannot be expressed by
+  // clearing the store. Instead the sync below remembers what was dismissed and
+  // refuses to raise it a second time. Reset whenever the store goes null (i.e.
+  // a new search started), so the same message from a NEW failure shows again.
+  let dismissedMessage = null;
+
+  // Sync the logs store error into the local banner (retry defaults to
+  // searchLogs). Deliberately a single function call: the reactive statement's
+  // only tracked dependency is `$error`, so the writes this makes to
+  // `errorState`/`dismissedMessage` cannot re-trigger it. Reading `errorState`
+  // directly in the statement is what previously made dismissal impossible —
+  // clearError() wrote the tracked dependency, the pre-effect re-ran in the same
+  // flush, `$error` was still set, and the banner was rebuilt before paint.
+  $: syncBannerWithStoreError($error);
+
+  function syncBannerWithStoreError(storeError) {
+    if (storeError) {
+      if (storeError === dismissedMessage) return;
+      setError(storeError, searchLogs, 'error');
+      return;
+    }
+    dismissedMessage = null;
+    if (errorState.message && errorState.retryFn === searchLogs) clearError();
   }
 
   function setError(message, retryFn = null, severity = 'error') {
-    // Avoid reactive loop: skip if same error already displayed
+    // Avoid redundant re-renders: skip if the same error is already displayed
     if (errorState.message === message && errorState.severity === severity) return;
     if (errorDismissTimer) clearTimeout(errorDismissTimer);
     errorState = { message, retryFn, severity };
     // Auto-dismiss after 10 seconds
     errorDismissTimer = setTimeout(() => {
-      clearError();
+      dismissError();
     }, 10000);
   }
 
+  // User-initiated (X button) or timer-initiated hide. Records the message so
+  // the store→banner sync does not raise it again while `$error` still holds it.
+  function dismissError() {
+    if (errorState.message && errorState.message === $error) {
+      dismissedMessage = errorState.message;
+    }
+    clearError();
+  }
+
+  // Hides the BANNER only. The `error` store is deliberately left alone: it is
+  // also what tells the log table that the current rows are not an answer to the
+  // current query, and that stays true after the banner is gone. The store is
+  // cleared by the next search (searchLogs sets it to null on entry).
   function clearError() {
     if (errorDismissTimer) {
       clearTimeout(errorDismissTimer);
       errorDismissTimer = null;
     }
     errorState = { message: '', retryFn: null, severity: 'error' };
-    error.set(null);
   }
 
   function setupRefreshInterval() {
@@ -659,7 +692,7 @@
       {/if}
       <button
         class="dismiss-btn"
-        on:click={clearError}
+        on:click={dismissError}
         aria-label="Dismiss error"
       >
         <Icon icon={close} size={14} strokeWidth={3} />

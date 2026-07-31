@@ -10,7 +10,7 @@
   import { caretRight, refresh, gridSolid, plus, dot, dotOutline, close, bell } from './ui/icons.js';
   import AlertTemplateGallery from './alerts/AlertTemplateGallery.svelte';
   import { k8sMode } from '../stores/license.js';
-  import { error as toastError, success as toastSuccess } from '../stores/toast.js';
+  import { error as toastError, success as toastSuccess, warning as toastWarning } from '../stores/toast.js';
   import { api } from '../utils/api.js';
 
   // What GET /alerts last returned.
@@ -44,12 +44,27 @@
     notify_target: ''
   };
 
+  // "Browser" is deliberately absent: the backend coerces every notify_type
+  // outside telegram|slack|webhook into `webhook`, so an alert saved as
+  // "browser" is delivered through the webhook branch with an empty target —
+  // i.e. nowhere, while the user is told it was created (issue #38). The
+  // option comes back when the backend accepts `browser` end to end.
   const notifyOptions = [
-    { value: 'browser', label: 'Browser' },
     { value: 'webhook', label: 'Webhook' },
     { value: 'slack', label: 'Slack' },
     { value: 'telegram', label: 'Telegram' }
   ];
+
+  /**
+   * Coerce a stored notify_type onto one of the three options above. Rows
+   * written before "browser" was removed still carry it, and opening one used
+   * to render an empty <Select> with no target field at all — no way to see or
+   * repair the alert. `webhook` is the honest default: it is what the backend
+   * already coerces every unknown type to when the alert fires.
+   */
+  function normalizeNotifyType(value) {
+    return notifyOptions.some((o) => o.value === value) ? value : 'webhook';
+  }
 
   let checkInterval;
 
@@ -61,42 +76,105 @@
   let showTemplateGallery = false;
 
   onMount(async () => {
-    // Seed the baseline BEFORE polling starts, otherwise every alert that has
-    // ever fired would pop a browser notification the moment the panel mounts.
     await loadAlerts();
-    seedTriggeredBaseline();
-    checkInterval = setInterval(refreshAndNotify, 60000);
+    // Evaluation is the server's job — a leader-elected timer runs
+    // check_alerts() and fans out to Telegram/Slack/webhook. This panel must
+    // NOT call POST /alerts/check on a timer: that endpoint sends
+    // notifications, so with the server timer also running, every open
+    // dashboard tab would multiply every message. Here we only READ.
+    checkInterval = setInterval(loadAlerts, 60000);
   });
 
   onDestroy(() => {
     if (checkInterval) clearInterval(checkInterval);
   });
 
+  // Monotonic id for GET /alerts. Three callers can be in flight at once (the
+  // 60s poll, reconcileAlerts, every write path), and responses can land out of
+  // order: a poll issued BEFORE a create can resolve after the reconcile that
+  // already confirmed it. Unconditionally assigning `serverAlerts` there
+  // restores the pre-write list and the new alert vanishes for up to a minute,
+  // while the green "created" toast is still on screen. Only the newest request
+  // is allowed to write. (Same "latest wins" rule as the search path in
+  // stores/logs.js, which enforces it with an AbortController.)
+  let loadSeq = 0;
+
   async function loadAlerts() {
+    const seq = ++loadSeq;
     try {
       const data = await api.get('/alerts');
+      if (seq !== loadSeq) return;
       serverAlerts = data.alerts || [];
-      // Drop an optimistic row once the server knows about it — or once it has
-      // outlived its TTL, so nothing can linger indefinitely.
-      const now = Date.now();
-      pendingAlerts = pendingAlerts.filter(
-        (p) => !serverAlerts.some((s) => isSameAlert(s, p)) && now - p.createdAt < PENDING_TTL_MS
-      );
+      // Confirmed: the server now knows about this row, so the optimistic copy
+      // has done its job and disappears silently.
+      pendingAlerts = pendingAlerts.filter((p) => !serverAlerts.some((s) => isSameAlert(s, p)));
     } catch (err) {
+      if (seq !== loadSeq) return;
       console.error('Failed to load alerts:', err);
-      toastError('Failed to load alerts');
+      // Prefixed because this one fires from the background poll: on its own,
+      // "Network error - could not reach the server" gives the user no idea
+      // what the dashboard was doing. The write paths below stay unprefixed —
+      // there the user just clicked something and the server's own wording
+      // (e.g. a plan limit) is the actionable part.
+      toastError('Failed to load alerts: ' + (err.message || 'Unknown error'));
+    } finally {
+      // In `finally`, not in the `try`: the case the TTL exists for is exactly
+      // the one where this reload failed (server down, network gone). Sweeping
+      // only on the success path would leave the dashed ghost row on screen
+      // for as long as the panel stays open. Superseded requests skip it — the
+      // one that overtook them owns the sweep.
+      if (seq === loadSeq) sweepExpiredPending();
+    }
+  }
+
+  /**
+   * Drop optimistic rows the server never echoed back — and say so. Expiry is
+   * NOT the same event as confirmation: the write announced itself with a
+   * success toast, so if the row never turns up, the user has to hear about it
+   * rather than watch it quietly vanish.
+   *
+   * The wording is deliberately NOT "was not saved". A pending row only exists
+   * after POST /alerts already answered 2xx, so the write almost certainly did
+   * persist; what failed is the read-back (server unreachable for 90s, or a
+   * value the backend rewrote on the way in). Claiming it was not saved makes
+   * the user create the alert a second time — a real duplicate, and duplicate
+   * Telegram/Slack messages from then on. All the client actually knows is that
+   * it could not confirm.
+   */
+  function sweepExpiredPending() {
+    if (pendingAlerts.length === 0) return;
+
+    const now = Date.now();
+    const expired = pendingAlerts.filter((p) => now - p.createdAt >= PENDING_TTL_MS);
+    if (expired.length === 0) return;
+
+    pendingAlerts = pendingAlerts.filter((p) => now - p.createdAt < PENDING_TTL_MS);
+    for (const alert of expired) {
+      toastWarning(`Could not confirm alert "${alert.name}" — reload to check whether it exists.`);
     }
   }
 
   /**
    * Does this server row correspond to a locally created one? Needed because
-   * POST /alerts does not return the new id, so there is nothing else to join on.
+   * POST /alerts answers `{status:'ok'}` with no id, so there is nothing else
+   * to join on.
+   *
+   * Only `name` and `query` are compared — the fields the backend stores
+   * verbatim. `threshold` and `window_minutes` are NOT usable here:
+   * Storage/ClickHouse/Alerts.pm clamps them (1..1000000 and 1..1440) instead
+   * of rejecting, so a window of 2000 is stored as 1440 and a join on it never
+   * matches. The row then rendered twice for 90s (real + dashed ghost) and the
+   * expiry toast fired on an alert that was saved perfectly well.
+   *
+   * The looser join can confirm a pending row against a pre-existing alert with
+   * the same name and query. That is the better failure: the two are
+   * indistinguishable to the user anyway, and the outcome is a missing dashed
+   * outline for a few seconds instead of a false "not saved" claim. The real
+   * fix is for POST /alerts to return the created row — see the report.
    */
   function isSameAlert(serverAlert, draft) {
     return serverAlert.name === draft.name
-      && (serverAlert.query || '') === (draft.query || '')
-      && Number(serverAlert.threshold) === Number(draft.threshold)
-      && Number(serverAlert.window_minutes) === Number(draft.window_minutes);
+      && (serverAlert.query || '') === (draft.query || '');
   }
 
   /**
@@ -115,36 +193,28 @@
     await loadAlerts();
   }
 
-  // Last `last_triggered` value we have already notified about, per alert id.
-  let seenTriggered = new Map();
-
-  function seedTriggeredBaseline() {
-    seenTriggered = new Map(alerts.map((a) => [a.id, a.last_triggered]));
-  }
-
-  // Evaluation is the server's job — a leader-elected timer runs check_alerts()
-  // and fans out to Telegram/Slack/webhook. This panel must NOT call
-  // POST /alerts/check on a timer: that endpoint sends notifications, so with
-  // the server timer also running, every open dashboard tab multiplied every
-  // message. Here we only READ, and raise the one channel the server cannot
-  // reach — the browser notification — when an alert's last_triggered advances.
-  async function refreshAndNotify() {
+  /**
+   * Feedback for an explicit "Check now": the evaluation the operator just
+   * asked for is reported in the browser as well as through the alert's own
+   * channel. There is deliberately no passive notify-on-poll path — it keyed
+   * off `notify_type === 'browser'`, which the backend never persists
+   * (issue #38), so it was dead code pretending to be a delivery channel.
+   *
+   * Nothing in the app ever called Notification.requestPermission(), so the
+   * default 'default' permission made this return early every time and the
+   * whole path was dead code. The ask now happens in handleCheckNow, where a
+   * click is what triggers it — browsers reject the prompt outside a user
+   * gesture, and prompting on page load is what gets a site permanently
+   * blocked.
+   */
+  async function requestNotificationPermission() {
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'default') return;
     try {
-      await loadAlerts();
+      await Notification.requestPermission();
     } catch {
-      return; // loadAlerts already surfaced the error
-    }
-
-    for (const alert of alerts) {
-      const previous = seenTriggered.get(alert.id);
-      const current = alert.last_triggered;
-      if (!current || current === previous) continue;
-
-      seenTriggered.set(alert.id, current);
-      // Only alerts routed to "browser" have no server-side delivery path.
-      if (previous !== undefined && alert.notify_type === 'browser') {
-        showNotification(alert);
-      }
+      // Older browsers expose only the callback form, and a rejected prompt is
+      // not an error worth surfacing. Either way notifications stay off.
     }
   }
 
@@ -169,8 +239,8 @@
         query: alert.query,
         threshold: alert.threshold,
         window_minutes: alert.window_minutes,
-        notify_type: alert.notify_type,
-        notify_target: alert.notify_target
+        notify_type: normalizeNotifyType(alert.notify_type),
+        notify_target: alert.notify_target || ''
       };
     } else {
       editingAlert = null;
@@ -222,7 +292,10 @@
       await reconcileAlerts();
     } catch (err) {
       console.error('Failed to save alert:', err);
-      toastError('Failed to save alert');
+      // The server's own wording matters here — the likeliest rejection is a
+      // plan limit ("Alert limit reached for your plan (3)"), which a generic
+      // message would hide behind something the user cannot act on.
+      toastError(err.message || 'Failed to save alert');
     }
   }
 
@@ -232,6 +305,7 @@
       await loadAlerts();
     } catch (err) {
       console.error('Failed to toggle alert:', err);
+      toastError(err.message || `Failed to ${alert.enabled ? 'disable' : 'enable'} alert`);
     }
   }
 
@@ -247,6 +321,7 @@
       await loadAlerts();
     } catch (err) {
       console.error('Failed to delete alert:', err);
+      toastError(err.message || 'Failed to delete alert');
     }
     deleteTargetId = null;
   }
@@ -258,16 +333,21 @@
   // at scale — it only runs when someone clicks.
   async function handleCheckNow() {
     checking = true;
+    // Asked for here and nowhere else: this is the only click that can produce
+    // a browser notification, and the prompt needs a user gesture. Awaited
+    // before the check so a first-time "Allow" still applies to this run's
+    // results. Failure is silent — a denied or dismissed prompt just means
+    // showNotification() stays a no-op, which is its documented behaviour.
+    await requestNotificationPermission();
     try {
       const data = await api.post('/alerts/check');
       for (const alert of data.triggered || []) {
         showNotification(alert);
       }
       await loadAlerts();
-      seedTriggeredBaseline();
     } catch (err) {
       console.error('Alert check failed:', err);
-      toastError('Alert check failed');
+      toastError(err.message || 'Alert check failed');
     } finally {
       checking = false;
     }

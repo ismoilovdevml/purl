@@ -1,38 +1,65 @@
 <script>
   import Modal from '../ui/Modal.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import Button from '../ui/Button.svelte';
+  import EmptyState from '../ui/EmptyState.svelte';
   import Icon from '../ui/Icon.svelte';
   import { alertCircle, alertCircleSolid, check } from '../ui/icons.js';
-  import { aiExplainResult, aiExplainLoading, explainLog } from '../../stores/ai.js';
+  import {
+    aiExplainResult, aiExplainLoading, aiExplainError, explainLog
+  } from '../../stores/ai.js';
 
   export let open = false;
   export let log = null;
 
+  // The explain stores are module-level, so they outlive this modal. Two ways
+  // that bites: (1) a run can end without `handleClose` ever firing — a 401
+  // routes through clearSession() and unmounts the whole dashboard, so the next
+  // mount after a successful re-login opens on a stale "Session expired." and
+  // the guard below refuses to send the request; (2) `log` can be swapped while
+  // the modal stays mounted, which would show one entry's explanation under
+  // another entry's header. Keying the reset on the target log covers both: it
+  // runs on mount (null -> id) and on every swap.
+  //
+  // Declared before the run guard so it clears in the same flush, ahead of it.
+  // Its only tracked dependency is `log`; the writes it makes are read nowhere
+  // in this statement, so it cannot re-trigger itself.
+  let explainTargetKey;
+  $: syncExplainTarget(log);
+
+  function syncExplainTarget(target) {
+    const key = target ? (target.id ?? null) : null;
+    if (key === explainTargetKey) return;
+    explainTargetKey = key;
+    aiExplainResult.set(null);
+    aiExplainError.set(null);
+  }
+
   $: result = $aiExplainResult;
   $: loading = $aiExplainLoading;
+  // explainLog() never rejects — it reports failure through this store. The
+  // guard below MUST honour it, otherwise a failed run leaves result=null and
+  // loading=false and the condition immediately re-fires (unbounded POSTs).
+  $: error = $aiExplainError;
 
-  let error = null;
+  function runExplain() {
+    aiExplainError.set(null);
+    explainLog(log);
+  }
 
-
-  $: if (open && log && !result && !loading) {
-    error = null;
-    explainLog(log).catch(err => {
-      error = err.message || 'Failed to get AI explanation';
-    });
+  $: if (open && log && !result && !loading && !error) {
+    runExplain();
   }
 
   function handleClose() {
     open = false;
-    error = null;
+    aiExplainError.set(null);
     aiExplainResult.set(null);
   }
 
   function handleRetry() {
-    error = null;
     aiExplainResult.set(null);
-    explainLog(log).catch(err => {
-      error = err.message || 'Failed to get AI explanation';
-    });
+    runExplain();
   }
 </script>
 
@@ -54,11 +81,12 @@
       </div>
 
     {:else if error}
-      <div class="error-state">
-        <Icon icon={alertCircle} size={20} />
-        <p class="error-text">{error}</p>
-        <button class="btn-retry" on:click={handleRetry}>Retry</button>
-      </div>
+      <EmptyState icon={alertCircle} title="Could not explain this log" tone="error" size="sm">
+        <span slot="description">{error}</span>
+        <svelte:fragment slot="actions">
+          <Button size="sm" on:click={handleRetry}>Retry</Button>
+        </svelte:fragment>
+      </EmptyState>
 
     {:else if result}
       <div class="result-body">
@@ -264,33 +292,4 @@
   }
 
   .btn-primary:hover { background: #2ea043; }
-
-  .error-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 30px 0;
-    color: #f85149;
-  }
-
-  .error-text {
-    font-size: 13px;
-    margin: 0;
-    text-align: center;
-  }
-
-  .btn-retry {
-    background: var(--bg-tertiary, #21262d);
-    border: 1px solid var(--border-color, #30363d);
-    border-radius: 6px;
-    padding: 6px 16px;
-    font-size: 13px;
-    color: var(--text-primary, #c9d1d9);
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-
-  .btn-retry:hover { background: var(--border-color, #30363d); }
 </style>

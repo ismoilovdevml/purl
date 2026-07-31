@@ -10,12 +10,37 @@ import { login, gotoTab, expandSidebarPanel, unique } from './fixtures/purl.js';
  *
  * The assertions here are on the persisted list, not on the modal closing: a
  * modal that closes on a failed save is exactly the bug this must catch.
+ *
+ * NOTIFICATION TYPE — why telegram.
+ *
+ * This spec used to pick "Browser", which was removed from the UI in issue #38
+ * (the backend coerced it to `webhook` with an empty target, so the user got a
+ * success toast and no notification anywhere).
+ *
+ * Of the three remaining options, `telegram` is the only drop-in replacement:
+ *   - it is the one option that renders NO target field — the bot token and
+ *     chat id come from server env vars — so the spec stays about the CRUD
+ *     lifecycle instead of about URL validation;
+ *   - `telegram_alerts` is a FREE feature (License/Plans.pm @FREE_FEATURES),
+ *     whereas `webhook_alerts` is Pro-only. Picking webhook would have made
+ *     this spec silently plan-dependent and it would 403 the moment it ran
+ *     against a free instance.
+ * Creating a telegram alert sends nothing — delivery only happens when the
+ * server-side evaluator fires — so no Telegram credentials are needed.
  */
 test.describe('Alerts CRUD', () => {
   const openAlerts = async (page) => {
     await gotoTab(page, 'Logs');
     return expandSidebarPanel(page, '.alerts-panel');
   };
+
+  /**
+   * A freshly created alert first renders as an OPTIMISTIC row (`.pending`)
+   * with every action button disabled until the server list confirms it.
+   * Acting on it before then is a race that would surface as a mystery
+   * "element is not enabled" timeout, so wait for the confirmed row.
+   */
+  const confirmedRow = (panel, name) => panel.locator('.content li:not(.pending)', { hasText: name });
 
   test.beforeEach(async ({ page }) => {
     await login(page);
@@ -37,9 +62,15 @@ test.describe('Alerts CRUD', () => {
     await modal.getByLabel('Query (optional)').fill('level:ERROR');
     await modal.getByLabel('Threshold', { exact: true }).fill('7');
     await modal.getByLabel('Window (minutes)').fill('11');
-    // "browser" needs no delivery target and is not license-gated, so this
-    // spec stays valid on every plan.
-    await modal.locator('select.select-field').selectOption('browser');
+    await modal.locator('select.select-field').selectOption('telegram');
+    // Removing "Browser" was the whole point of issue #38 — assert it is gone,
+    // so nobody reintroduces an option the backend cannot deliver.
+    await expect(
+      modal.locator('select.select-field option[value="browser"]'),
+      'the "Browser" notification type is undeliverable (issue #38) and must not be offered'
+    ).toHaveCount(0);
+    // Telegram is configured server-side, so no target field is shown.
+    await expect(modal.getByLabel('Webhook URL')).toHaveCount(0);
 
     const createResponse = page.waitForResponse(
       (res) => new URL(res.url()).pathname === '/api/alerts' && res.request().method() === 'POST'
@@ -51,7 +82,7 @@ test.describe('Alerts CRUD', () => {
     await expect(modal).toHaveCount(0);
 
     // --- appears in the list -----------------------------------------
-    const row = panel.locator('.content li', { hasText: name });
+    const row = confirmedRow(panel, name);
     await expect(row).toHaveCount(1);
     await expect(row.locator('.name')).toHaveText(name);
     // The details line proves the form values reached the server, not just the name.
@@ -94,17 +125,17 @@ test.describe('Alerts CRUD', () => {
     await panel.locator('[title="Create alert"]').click();
     const modal = page.locator('[role="dialog"]');
     await modal.getByLabel('Name', { exact: true }).fill(name);
-    await modal.locator('select.select-field').selectOption('browser');
+    await modal.locator('select.select-field').selectOption('telegram');
     await modal.locator('.modal-footer button.btn-success').click();
-    await expect(panel.locator('.content li', { hasText: name })).toHaveCount(1);
+    await expect(confirmedRow(panel, name)).toHaveCount(1);
 
-    await panel.locator('.content li', { hasText: name }).locator('.delete-btn').click();
+    await confirmedRow(panel, name).locator('.delete-btn').click();
     await page.locator('.confirm-dialog .btn-cancel').click();
     await expect(page.locator('.confirm-dialog')).toHaveCount(0);
-    await expect(panel.locator('.content li', { hasText: name })).toHaveCount(1);
+    await expect(confirmedRow(panel, name)).toHaveCount(1);
 
     // Clean up so the alert limit is not consumed for later specs.
-    await panel.locator('.content li', { hasText: name }).locator('.delete-btn').click();
+    await confirmedRow(panel, name).locator('.delete-btn').click();
     await page.locator('.confirm-dialog .btn-confirm').click();
     await expect(panel.locator('.content li', { hasText: name })).toHaveCount(0);
   });

@@ -1,15 +1,34 @@
 <script>
   import Modal from '../ui/Modal.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import Button from '../ui/Button.svelte';
+  import EmptyState from '../ui/EmptyState.svelte';
   import Icon from '../ui/Icon.svelte';
-  import { alertCircleSolid, check } from '../ui/icons.js';
-  import { aiAnalysisResult, aiAnalysisLoading, analyzeSelectedLogs } from '../../stores/ai.js';
+  import { alertCircle, alertCircleSolid, check } from '../ui/icons.js';
+  import {
+    aiAnalysisResult, aiAnalysisLoading, aiAnalysisError, analyzeSelectedLogs
+  } from '../../stores/ai.js';
 
   export let open = false;
   export let selectedLogs = [];
 
+  // The analysis stores are module-level and outlive this panel, which is
+  // mounted inside an {#if} and can be torn down without `handleClose` running
+  // — a 401 goes through clearSession() and unmounts the dashboard. Whatever
+  // the last run left behind would then be the first thing the next mount
+  // shows: a stale "Session expired." that also stops the guard below from
+  // sending the request, or an old result rendered as the answer for a
+  // different selection. This runs during init, before any reactive statement.
+  aiAnalysisResult.set(null);
+  aiAnalysisError.set(null);
+
   $: result = $aiAnalysisResult;
   $: loading = $aiAnalysisLoading;
+  // analyzeSelectedLogs() never rejects — it reports failure through this
+  // store. The guard below MUST honour it, otherwise a failed run leaves
+  // result=null and loading=false and the condition immediately re-fires
+  // (unbounded POSTs for as long as the panel stays open).
+  $: error = $aiAnalysisError;
 
   const SEVERITY_COLOR = {
     low:      '#3fb950',
@@ -20,16 +39,18 @@
 
   async function runAnalysis() {
     if (!selectedLogs.length) return;
+    aiAnalysisError.set(null);
     await analyzeSelectedLogs(selectedLogs);
   }
 
-  $: if (open && selectedLogs.length > 0 && !result && !loading) {
+  $: if (open && selectedLogs.length > 0 && !result && !loading && !error) {
     runAnalysis();
   }
 
   function handleClose() {
     open = false;
     aiAnalysisResult.set(null);
+    aiAnalysisError.set(null);
   }
 </script>
 
@@ -40,6 +61,14 @@
         <LoadingSpinner />
         <p>AI is analyzing {selectedLogs.length} log{selectedLogs.length !== 1 ? 's' : ''}…</p>
       </div>
+
+    {:else if error}
+      <EmptyState icon={alertCircle} title="Could not analyze these logs" tone="error" size="sm">
+        <span slot="description">{error}</span>
+        <svelte:fragment slot="actions">
+          <Button size="sm" on:click={runAnalysis}>Retry</Button>
+        </svelte:fragment>
+      </EmptyState>
 
     {:else if result}
       <div class="result-body">

@@ -37,7 +37,14 @@ function pick(key, fallback) {
 }
 
 export const stackEnv = {
-  PURL_PORT: pick('PURL_PORT', '3000'),
+  /*
+   * Deliberately NOT `pick()`: this is the port of the stack up.sh boots, and
+   * up.sh reads it from the file. A developer who happens to have PURL_PORT
+   * exported for their own `make up` stack must not be able to redirect the
+   * suite onto it — that is what PLAYWRIGHT_BASE_URL is for, and when that is
+   * set this value is not consulted at all.
+   */
+  PURL_PORT: fileEnv.PURL_PORT || '3100',
   ADMIN_USERNAME: pick('PURL_ADMIN_USERNAME', 'admin'),
   ADMIN_PASSWORD: pick('PURL_ADMIN_PASSWORD', ''),
   // PURL_API_KEYS is a comma-separated list; ingest only needs one of them.

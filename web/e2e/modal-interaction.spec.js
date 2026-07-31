@@ -9,9 +9,11 @@ import { login, gotoTab, expandSidebarPanel } from './fixtures/purl.js';
  * This file replaces three: modal-input.spec.js, modal-keypress-debug.spec.js
  * and modal-real-user.spec.js. The first two were debugging scratchpads left
  * in the suite —
- *   - modal-keypress-debug.spec.js had no assertion in any of its three tests
- *     and called getEventListeners(), a DevTools-console-only API that does not
- *     exist in a Playwright page, so it could never fail;
+ *   - modal-keypress-debug.spec.js had no assertion in any of its three tests;
+ *     it only printed keypress narration to the console. It also called
+ *     getEventListeners(), a DevTools-console-only API that does not exist in a
+ *     page context — so that test did not "always pass", it threw a
+ *     ReferenceError and failed for a reason unrelated to the product;
  *   - modal-input.spec.js duplicated modal-real-user.spec.js, and its third test
  *     announced itself as a debugging capture in its own name.
  * The layering check from modal-real-user.spec.js is kept because it carried a
@@ -61,8 +63,28 @@ test.describe('Modal input interaction', () => {
     // Space and Enter are the keys most likely to be swallowed by an overlay
     // or to submit the form out from under the user.
     await name.click();
+    await name.press('End'); // pin the caret so the assertion below is exact
     await page.keyboard.press('Space');
     await expect(modal).toBeVisible();
+    await expect(name, 'Space must reach the input, not the overlay').toHaveValue('Hello World ');
+
+    // Enter: the modal body is not a <form>, so there is no implicit
+    // submission. Pressing Enter must therefore neither close the modal nor
+    // save anything behind the user's back — saving is the Save button's job.
+    const saves = [];
+    const onRequest = (req) => {
+      if (req.method() === 'POST' && new URL(req.url()).pathname.includes('/api/saved-searches')) {
+        saves.push(req.url());
+      }
+    };
+    page.on('request', onRequest);
+    await page.keyboard.press('Enter');
+    await expect(modal, 'Enter in a modal field must not dismiss the modal').toBeVisible();
+    await expect(name).toHaveValue('Hello World ');
+    // Give a stray submit a chance to actually leave the browser before judging.
+    await page.waitForTimeout(500);
+    page.off('request', onRequest);
+    expect(saves, `Enter must not silently save the search (saw ${saves.length} POSTs)`).toEqual([]);
 
     await modal.locator('.modal-footer button.btn-default').click();
     await expect(modal).toHaveCount(0);

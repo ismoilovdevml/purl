@@ -14,12 +14,15 @@ import { login, gotoTab, expandSidebarPanel, unique } from './fixtures/purl.js';
 test.describe('Saved searches CRUD', () => {
   const openPanel = async (page) => {
     await gotoTab(page, 'Logs');
-    const panel = page.locator('.saved-searches');
+    const panel = await expandSidebarPanel(page, '.saved-searches');
+    // The plan check has to run AFTER the panel is expanded: `.upgrade-cta`
+    // lives inside `{#if expanded}`, so a count of 0 on a collapsed panel is
+    // true on every plan and would have proved nothing.
     await expect(
       panel.locator('.upgrade-cta'),
       'saved searches are Pro-gated; the e2e target must be on a trial/paid plan'
     ).toHaveCount(0);
-    return expandSidebarPanel(page, '.saved-searches');
+    return panel;
   };
 
   test.beforeEach(async ({ page }) => {
