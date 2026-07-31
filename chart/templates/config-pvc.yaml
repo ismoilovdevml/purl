@@ -5,6 +5,15 @@ metadata:
   name: {{ include "purl.fullname" . }}-config
   labels:
     {{- include "purl.labels" . | nindent 4 }}
+  {{- if .Values.config.volume.keepOnUninstall }}
+  annotations:
+    # ClickHouse data survives `helm uninstall` because StatefulSet
+    # volumeClaimTemplates PVCs are not Helm-managed. This PVC IS, and it is
+    # the only home of the dashboard user database, the license key and
+    # settings.json — so an uninstall/reinstall cycle used to delete every
+    # login and the license while leaving all the logs intact.
+    "helm.sh/resource-policy": keep
+  {{- end }}
 spec:
   accessModes:
     {{- toYaml .Values.config.volume.accessModes | nindent 4 }}

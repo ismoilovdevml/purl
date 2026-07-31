@@ -21,6 +21,36 @@ echo -e "${NC}"
 echo "Kubernetes Installer"
 echo ""
 
+# ---------------------------------------------------------------------------
+# UNMAINTAINED PATH — see ./README.md and issue #41.
+# These raw manifests predate chart/ and received none of its hardening: no
+# securityContext anywhere, no config persistence (dashboard logins and the
+# license are wiped on every restart), no NetworkPolicy allow-list, no
+# backups, and secret.yaml still ships CHANGE_ME placeholders. The chart
+# templates all of it. Refuse to install by accident.
+# ---------------------------------------------------------------------------
+if [[ "${PURL_ACCEPT_UNMAINTAINED:-0}" != "1" ]]; then
+    echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
+    echo -e "${RED}  This installer is UNMAINTAINED.${NC}"
+    echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo "  Use the Helm chart instead — it is the only supported path:"
+    echo ""
+    echo -e "    ${BLUE}helm repo add purl https://charts.purlogs.com${NC}"
+    echo -e "    ${BLUE}helm install purl purl/purl -n purl --create-namespace${NC}"
+    echo ""
+    echo "  Compared with the chart, these manifests have NO securityContext,"
+    echo "  NO config persistence, NO NetworkPolicy allow-list and NO backups."
+    echo "  See deploy/kubernetes/README.md for the full list."
+    echo ""
+    echo "  To proceed anyway:  PURL_ACCEPT_UNMAINTAINED=1 $0"
+    echo ""
+    exit 1
+fi
+
+echo -e "${YELLOW}!${NC} Proceeding with the UNMAINTAINED manifest installer."
+echo ""
+
 # Check kubectl
 if ! command -v kubectl &> /dev/null; then
     echo -e "${RED}Error: kubectl not found${NC}"
@@ -70,11 +100,23 @@ fetch_manifest "clickhouse.yaml" | kubectl apply -f -
 fetch_manifest "purl.yaml" | kubectl apply -f -
 fetch_manifest "vector-daemonset.yaml" | kubectl apply -f -
 
+# `|| true` used to swallow these, so the script printed "Installation
+# Complete!" and an API key for a deployment that never became ready.
 echo -e "${YELLOW}→${NC} Waiting for ClickHouse..."
-kubectl wait --for=condition=ready pod -l app=clickhouse -n "$NAMESPACE" --timeout=120s 2>/dev/null || true
+if ! kubectl wait --for=condition=ready pod -l app=clickhouse -n "$NAMESPACE" --timeout=120s; then
+    echo -e "${RED}Error: ClickHouse did not become ready within 120s${NC}"
+    echo "  kubectl -n $NAMESPACE get pods -l app=clickhouse"
+    echo "  kubectl -n $NAMESPACE describe pod -l app=clickhouse"
+    exit 1
+fi
 
 echo -e "${YELLOW}→${NC} Waiting for Purl..."
-kubectl wait --for=condition=ready pod -l app=purl -n "$NAMESPACE" --timeout=60s 2>/dev/null || true
+if ! kubectl wait --for=condition=ready pod -l app=purl -n "$NAMESPACE" --timeout=120s; then
+    echo -e "${RED}Error: Purl did not become ready within 120s${NC}"
+    echo "  kubectl -n $NAMESPACE get pods -l app=purl"
+    echo "  kubectl -n $NAMESPACE logs -l app=purl --tail=50"
+    exit 1
+fi
 
 echo ""
 echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"

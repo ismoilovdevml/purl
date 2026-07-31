@@ -89,13 +89,31 @@ jobs:
         run: npm run lint
 
   k8s-validate:
-    name: K8s Validate
+    name: K8s Validate (Helm ${{ matrix.helm }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # BOTH majors, deliberately. Helm 3 and Helm 4 disagree about what a
+        # clusterless `lookup` returns — 3 gives an empty map, 4 gives nil —
+        # and Go template `and` evaluates every argument, so
+        # `and $s (index $s.data "K")` renders fine on 4 and dies on 3 with
+        # "index of untyped nil". That shipped and only surfaced because CI
+        # happened to fall back to Helm 3.9.0. Most public installs use Helm 3,
+        # so rendering only under 4 hides the failure from exactly the people
+        # who hit it.
+        helm: ['v3.16.4', 'v4.2.3']
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # The action is SHA-pinned but `version` was not, so it installed
+      # whatever Helm was newest that morning — and when it could not reach
+      # the GitHub API it silently fell back to v3.9.0. An unpinned renderer
+      # gating every chart change is not a gate.
       - name: Install Helm
         uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78 # v4
+        with:
+          version: ${{ matrix.helm }}
 
       - name: Helm Lint
         run: helm lint chart/
@@ -124,7 +142,9 @@ jobs:
             --set networkPolicy.enabled=true \
             --set 'networkPolicy.ingress.fromNamespaces[0]=ingress-nginx' \
             --set 'networkPolicy.ingress.fromCIDRs[0]=10.0.0.0/8' \
+            --set 'networkPolicy.clickhouse.ingress.fromCIDRs[0]=10.0.0.0/8' \
             --set metrics.serviceMonitor.enabled=true \
+            --set metrics.prometheusNamespace=monitoring \
             > /dev/null
 
       - name: Helm Template (backup CronJob + ClickHouse cluster)
@@ -137,8 +157,115 @@ jobs:
             --set networkPolicy.enabled=true \
             > /dev/null
 
-      - name: Helm Template (operator-managed Secret)
-        run: helm template purl chart/ --set purl.existingSecret=my-purl-secret > /dev/null
+      - name: Helm Template (operator-managed Secret, external ClickHouse)
+        run: |
+          helm template purl chart/ \
+            --set purl.existingSecret=my-purl-secret \
+            --set clickhouse.enabled=false \
+            --set clickhouse.host=clickhouse.example.com \
+            > /dev/null
+
+      - name: Helm Template (operator-managed Secret, built-in ClickHouse)
+        run: |
+          helm template purl chart/ \
+            --set purl.existingSecret=my-purl-secret \
+            --set purl.existingSecretHasClickHousePassword=true \
+            > /dev/null
+
+      # Rendering successfully is NOT evidence the chart is correct. These
+      # assert on the rendered content, which is where the last round of
+      # silent misconfigurations lived: a policy that rendered fine and
+      # dropped replication traffic, a guard that rendered fine and allowed a
+      # passwordless database. Each check maps to a fixed, verified bug.
+      - name: Assert rendered manifests (security + correctness invariants)
+        run: |
+          set -euo pipefail
+
+          echo "--- ReplicatedMergeTree fetches parts over interserver 9009."
+          echo "--- Without it replicas register, entries propagate, every"
+          echo "--- fetch is dropped and replication_queue grows unbounded."
+          NP=$(helm template purl chart/ \
+                 --set clickhouse.cluster.enabled=true \
+                 --set networkPolicy.enabled=true \
+               | awk '/kind: NetworkPolicy/,0')
+          COUNT=$(printf '%s\n' "$NP" | grep -c 'port: 9009' || true)
+          echo "9009 rules found: ${COUNT} (expect 2: ingress + egress)"
+          test "$COUNT" -eq 2
+
+          echo "--- PURL_CLICKHOUSE_PASSWORD must never be optional: a missing"
+          echo "--- key has to be CreateContainerConfigError, not an empty"
+          echo "--- password on a database still reachable from ::/0."
+          # backup.enabled defaults to false, so the earlier version of this
+          # assertion never rendered the backup CronJob and could not see the
+          # `optional: true` that survived there. An assertion cannot protect
+          # a configuration it does not render. Enable every workload that
+          # consumes this key.
+          # Rendered into a variable first, on its own line: inside `if
+          # <pipeline>; then` a render FAILURE is indistinguishable from "no
+          # match" and the check reports PASSED.
+          RENDER=$(helm template purl chart/ \
+                     --set purl.existingSecret=my-purl-secret \
+                     --set purl.existingSecretHasClickHousePassword=true \
+                     --set backup.enabled=true \
+                     --set backup.s3.bucket=b \
+                     --set backup.s3.existingSecret=aws)
+          KINDS=$(printf '%s\n' "$RENDER" | grep -cE '^kind: (Deployment|StatefulSet|CronJob)$' || true)
+          echo "workloads rendered: ${KINDS} (expect >= 3: Deployment, StatefulSet, CronJob)"
+          test "$KINDS" -ge 3
+          OPT=$(printf '%s\n' "$RENDER" \
+                | grep -A3 'key: PURL_CLICKHOUSE_PASSWORD' | grep -cE '^[[:space:]]*optional:' || true)
+          echo "optional markers on PURL_CLICKHOUSE_PASSWORD keyRefs: ${OPT} (expect 0)"
+          test "$OPT" -eq 0
+
+          echo "--- users.d fragment must sort after the image entrypoint's"
+          echo "--- default-user.xml or restrictDefaultUser silently does nothing."
+          helm template purl chart/ | grep -q 'users.d/zz-purl-users.xml'
+
+          echo "--- ServiceMonitor must not reopen the allow-list cluster-wide."
+          helm template purl chart/ \
+            --set networkPolicy.enabled=true \
+            --set metrics.serviceMonitor.enabled=true \
+            --set metrics.prometheusNamespace=monitoring \
+            | grep -q 'kubernetes.io/metadata.name: "monitoring"'
+
+          echo "--- Config PVC must outlive helm uninstall."
+          helm template purl chart/ | grep -q '"helm.sh/resource-policy": keep'
+
+          echo "All rendered-content assertions passed."
+
+      # A guard that does not fire is not a guard. Each of these MUST fail to
+      # render; a chart change that quietly removes one is caught here.
+      - name: Assert render-time guards fire
+        run: |
+          set -euo pipefail
+          assert_fails() {
+            desc="$1"; shift
+            if helm template purl chart/ "$@" > /dev/null 2>&1; then
+              echo "::error::guard did NOT fire: ${desc}"
+              exit 1
+            fi
+            echo "ok (correctly rejected): ${desc}"
+          }
+
+          assert_fails "existingSecret + built-in ClickHouse without acknowledgement" \
+            --set purl.existingSecret=my-purl-secret
+
+          assert_fails "serviceMonitor + networkPolicy without a Prometheus namespace" \
+            --set networkPolicy.enabled=true \
+            --set metrics.serviceMonitor.enabled=true
+
+          # The 1.x key must not be silently ignored: a value set that used to
+          # work has to say so, not render a policy Prometheus cannot pass.
+          assert_fails "the 1.x metrics.serviceMonitor.namespace key" \
+            --set networkPolicy.enabled=true \
+            --set metrics.serviceMonitor.enabled=true \
+            --set metrics.serviceMonitor.namespace=monitoring
+
+          assert_fails "Vector disk buffer below Vector's hard minimum" \
+            --set vector.buffer.maxSizeBytes=1024
+
+          assert_fails "multi-replica on a ReadWriteOnce config volume" \
+            --set replicaCount=3
 
       # Pinned version + checksum. `releases/latest/download` silently changes
       # what it serves, and the tarball was previously executed unverified.
@@ -203,13 +330,58 @@ jobs:
             exit 1
           fi
 
+      # The message above tells you to bump the chart version too, so enforce
+      # it. Publishing an unchanged chart version is rejected by
+      # `make chart-publish` at the very end of a release, after the Docker
+      # tags are already public — this catches it before anything ships.
+      - name: Chart version must be bumped since the previous release tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          # ^{commit} dereferences an annotated tag to the commit it points at.
+          # GITHUB_SHA is the tag OBJECT for an annotated tag, not the commit.
+          TAG_COMMIT="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
+          CHART_VERSION="$(awk '$1 == "version:" {gsub(/"/, "", $2); print $2}' chart/Chart.yaml)"
+          PREV_TAG="$(git describe --tags --abbrev=0 --match 'v*.*.*' "${TAG_COMMIT}^" 2>/dev/null || true)"
+          if [ -z "${PREV_TAG}" ]; then
+            echo "No previous release tag — nothing to compare. chart version ${CHART_VERSION}."
+            exit 0
+          fi
+          # chart/ did not exist at every past tag (it does not exist at
+          # v1.2.0). `git show <tag>:chart/Chart.yaml` exits 128 there, and
+          # under `set -euo pipefail` that aborted the whole step — the guard
+          # meant to protect the release was blocking it, taking
+          # build-and-push (needs: release-guard) down with it. Tolerate the
+          # missing path, and treat "no previous chart" as nothing to compare.
+          PREV_CHART_YAML="$(git show "${PREV_TAG}:chart/Chart.yaml" 2>/dev/null || true)"
+          PREV_CHART_VERSION="$(printf '%s\n' "${PREV_CHART_YAML}" \
+            | awk '$1 == "version:" {gsub(/"/, "", $2); print $2}')"
+          if [ -z "${PREV_CHART_VERSION}" ]; then
+            echo "chart/Chart.yaml has no version at ${PREV_TAG} (the chart did not"
+            echo "exist yet, or the file is unreadable there) — nothing to compare."
+            echo "this tag: ${GITHUB_REF_NAME} (chart version ${CHART_VERSION})."
+            exit 0
+          fi
+          echo "previous tag  : ${PREV_TAG} (chart version ${PREV_CHART_VERSION})"
+          echo "this tag      : ${GITHUB_REF_NAME} (chart version ${CHART_VERSION})"
+          if [ "${CHART_VERSION}" = "${PREV_CHART_VERSION}" ]; then
+            echo "::error::chart/Chart.yaml version is still ${CHART_VERSION}, unchanged since ${PREV_TAG}."
+            echo "::error::Bump it — charts.purlogs.com will refuse to republish the same version."
+            exit 1
+          fi
+
       - name: Tag must be reachable from main
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
           git fetch --no-tags origin main:refs/remotes/origin/main
-          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
-            echo "::error::${GITHUB_REF_NAME} is not an ancestor of main. Releases are cut from main."
+          # GITHUB_SHA is the ANNOTATED TAG OBJECT's sha for `git tag -a`, not
+          # the commit it points at, so `merge-base --is-ancestor` on it was
+          # comparing the wrong object. ^{commit} dereferences to the commit.
+          TAG_COMMIT="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
+          echo "tag ${GITHUB_REF_NAME} -> commit ${TAG_COMMIT}"
+          if ! git merge-base --is-ancestor "${TAG_COMMIT}" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} (${TAG_COMMIT}) is not an ancestor of main. Releases are cut from main."
             exit 1
           fi
 
@@ -239,17 +411,21 @@ jobs:
           trivyignores: .trivyignore
           format: table
 
-      # Non-blocking: IaC misconfig findings (Dockerfile, chart/, deploy/).
-      # Informational only for now — flipping exit-code to '1' here would
-      # gate on files owned by the infra/chart work in flight.
-      - name: Trivy config scan (IaC misconfig) — informational
+      # Blocking gate: IaC misconfig findings (Dockerfile, chart/, deploy/).
+      # This was pinned to exit-code '0' as "informational for now, the infra
+      # work is in flight" — the only check in the release deliberately
+      # disabled. The infra work is done, the findings were triaged, and the
+      # gate is blocking. Suppressions live in /.trivyignore.yaml, which is
+      # PATH-SCOPED (a bare `id:` would disable the rule repo-wide) and
+      # carries a reason + owner + expiry per entry.
+      - name: Trivy config scan (IaC misconfig) — fails on HIGH/CRITICAL
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: config
           scan-ref: .
           severity: HIGH,CRITICAL
-          exit-code: '0'
-          trivyignores: .trivyignore
+          exit-code: '1'
+          trivyignores: .trivyignore.yaml
           format: table
 
       # SARIF upload requires GitHub code scanning (free on public repos,
@@ -306,15 +482,28 @@ jobs:
       - name: Determine Docker tag
         id: docker-tag
         run: |
+          set -euo pipefail
           # Only main publishes :latest — that is what every `install.sh` and
           # docker-compose pulls. Tags are not branch-constrained in git, so
           # `git tag v9.9.9` on dev would otherwise republish production
-          # :latest from unmerged code. Tags still get their semver tags below
-          # via docker/metadata-action, which is all appVersion needs.
-          case "${{ github.ref }}" in
-            refs/heads/main) echo "tag=latest" >> $GITHUB_OUTPUT ;;
-            *)               echo "tag=dev"    >> $GITHUB_OUTPUT ;;
+          # :latest from unmerged code.
+          #
+          # Release tags get NO moving tag at all. The catch-all `*)` branch
+          # used to map them to `dev`, so cutting v1.3.0 republished
+          # ismoilovdev/purl:dev — and values-dev.yaml sets
+          # imagePullPolicy: Always, so the dev cluster silently adopted the
+          # release image on its next pod restart. Tags get their semver tags
+          # from docker/metadata-action below, which is all the chart's
+          # appVersion resolution needs.
+          case "$GITHUB_REF" in
+            refs/heads/main) MOVING=latest ;;
+            refs/heads/dev)  MOVING=dev ;;
+            *)               MOVING="" ;;
           esac
+          echo "ref=$GITHUB_REF -> moving tag='${MOVING:-<none, semver only>}'"
+          echo "tag=${MOVING}" >> "$GITHUB_OUTPUT"
+          # Non-empty label for artifact names, which cannot be blank.
+          echo "slug=${MOVING:-$GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata
         id: meta
@@ -324,7 +513,7 @@ jobs:
           # semver tags only materialise on refs/tags/v* pushes; the Helm chart
           # needs them because image.tag defaults to Chart.AppVersion.
           tags: |
-            type=raw,value=${{ steps.docker-tag.outputs.tag }}
+            type=raw,value=${{ steps.docker-tag.outputs.tag }},enable=${{ steps.docker-tag.outputs.tag != '' }}
             type=sha,prefix=
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -384,7 +573,7 @@ jobs:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
           format: spdx-json
           output-file: sbom.spdx.json
-          artifact-name: purl-sbom-${{ steps.docker-tag.outputs.tag }}.spdx.json
+          artifact-name: purl-sbom-${{ steps.docker-tag.outputs.slug }}.spdx.json
           upload-artifact: true
 
       - name: Sign image (cosign keyless)

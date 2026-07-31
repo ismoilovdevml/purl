@@ -34,7 +34,13 @@ spec:
           port: 9000
     {{- end }}
     {{- if .Values.clickhouse.cluster.enabled }}
-    # Inter-node ClickHouse traffic (native protocol + Keeper)
+    # Inter-node ClickHouse traffic (native protocol + interserver + Keeper).
+    # 9009 is interserver_http_port — the port ReplicatedMergeTree uses to
+    # FETCH parts from a sibling replica. Omitting it did not fail the
+    # install or the replica registration: replicas came up, log entries
+    # propagated through Keeper, and every part fetch was dropped, so
+    # system.replication_queue grew without bound and the replicas never
+    # converged. Silent data divergence, no error anywhere.
     - from:
         - podSelector:
             matchLabels:
@@ -44,10 +50,47 @@ spec:
           port: 9000
         - protocol: TCP
           port: 8123
+        - protocol: TCP
+          port: {{ .Values.clickhouse.interserverHttpPort }}
         {{- if .Values.clickhouse.cluster.keeper.enabled }}
         - protocol: TCP
           port: {{ .Values.clickhouse.cluster.keeper.port }}
         {{- end }}
+    {{- end }}
+    {{- $cidrPeers := list }}
+    {{- range .Values.networkPolicy.clickhouse.ingress.fromCIDRs }}
+    {{- $cidrPeers = append $cidrPeers (dict "ipBlock" (dict "cidr" .)) }}
+    {{- end }}
+    {{- if $cidrPeers }}
+    # networkPolicy.clickhouse.ingress.fromCIDRs — HTTP port only, on purpose.
+    # This list exists for the kubelet: on CNIs that subject host traffic to
+    # policy (Calico), health probes arrive from the NODE IP, and ClickHouse's
+    # liveness probe is an httpGet on 8123. With no rule for the node IPs the
+    # probe fails, the kubelet restart-loops ClickHouse, and the whole install
+    # goes CrashLoopBackOff on what looks like a database fault. A probe never
+    # needs the native protocol, so this rule does not open it.
+    - from:
+        {{- toYaml $cidrPeers | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.clickhouse.port }}
+    {{- end }}
+    {{- with .Values.networkPolicy.clickhouse.ingress.extraFrom }}
+    # networkPolicy.clickhouse.ingress.extraFrom — HTTP *and* native 9000.
+    # These peers are documented as a DBA namespace or an external ETL pod,
+    # and both of those speak the native protocol: clickhouse-client, the Go
+    # and Python drivers and every JDBC/ODBC bridge connect on 9000, not 8123.
+    # Opening 8123 alone let the policy render, look correct, and time out
+    # every real client — the same shape of silent drop as the missing 9009
+    # interserver rule. The kubelet CIDR list above is deliberately kept off
+    # this rule so node IPs do not gain native access as a side effect.
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.clickhouse.port }}
+        - protocol: TCP
+          port: 9000
     {{- end }}
   egress:
     # DNS
@@ -85,7 +128,8 @@ spec:
     {{- end }}
     {{- end }}
     {{- if .Values.clickhouse.cluster.enabled }}
-    # Outbound to other ClickHouse replicas
+    # Outbound to other ClickHouse replicas. 9009 (interserver_http_port) is
+    # the fetch side of the same replication path guarded on ingress above.
     - to:
         - podSelector:
             matchLabels:
@@ -95,9 +139,14 @@ spec:
           port: 9000
         - protocol: TCP
           port: 8123
+        - protocol: TCP
+          port: {{ .Values.clickhouse.interserverHttpPort }}
         {{- if .Values.clickhouse.cluster.keeper.enabled }}
         - protocol: TCP
           port: {{ .Values.clickhouse.cluster.keeper.port }}
         {{- end }}
+    {{- end }}
+    {{- with .Values.networkPolicy.clickhouse.egress.extraRules }}
+    {{- toYaml . | nindent 4 }}
     {{- end }}
 {{- end }}

@@ -24,7 +24,10 @@ metadata:
   labels:
     {{- include "purl.clickhouse.labels" . | nindent 4 }}
 data:
-  app-user.xml: |
+  # Key name is the mounted filename and MUST sort after the entrypoint's
+  # users.d/default-user.xml — see the volumeMount comment in
+  # clickhouse-statefulset.yaml. Renaming this breaks restrictDefaultUser.
+  zz-purl-users.xml: |
     <clickhouse>
       <users>
         <{{ .Values.clickhouse.user }}>

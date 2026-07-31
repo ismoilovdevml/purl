@@ -111,7 +111,9 @@ helm-lint:
 		--set networkPolicy.enabled=true \
 		--set 'networkPolicy.ingress.fromNamespaces[0]=ingress-nginx' \
 		--set 'networkPolicy.ingress.fromCIDRs[0]=10.0.0.0/8' \
+		--set 'networkPolicy.clickhouse.ingress.fromCIDRs[0]=10.0.0.0/8' \
 		--set metrics.serviceMonitor.enabled=true \
+		--set metrics.prometheusNamespace=monitoring \
 		> /dev/null
 	@echo "Rendering backup CronJob + ClickHouse cluster mode..."
 	@helm template purl chart/ \
@@ -121,8 +123,57 @@ helm-lint:
 		--set clickhouse.cluster.enabled=true \
 		--set networkPolicy.enabled=true \
 		> /dev/null
-	@echo "Rendering with an operator-managed Secret..."
-	@helm template purl chart/ --set purl.existingSecret=my-purl-secret > /dev/null
+	@echo "Rendering with an operator-managed Secret (external ClickHouse)..."
+	@helm template purl chart/ \
+		--set purl.existingSecret=my-purl-secret \
+		--set clickhouse.enabled=false \
+		--set clickhouse.host=clickhouse.example.com \
+		> /dev/null
+	@echo "Rendering with an operator-managed Secret (built-in ClickHouse)..."
+	@helm template purl chart/ \
+		--set purl.existingSecret=my-purl-secret \
+		--set purl.existingSecretHasClickHousePassword=true \
+		> /dev/null
+	@echo "Asserting rendered content (not just that it renders)..."
+	@set -e; \
+	NP=$$(helm template purl chart/ --set clickhouse.cluster.enabled=true --set networkPolicy.enabled=true | awk '/kind: NetworkPolicy/,0'); \
+	COUNT=$$(printf '%s\n' "$$NP" | grep -c 'port: 9009' || true); \
+	if [ "$$COUNT" -ne 2 ]; then \
+		echo "  FAIL: interserver port 9009 rules = $$COUNT, expected 2 (ingress+egress)."; \
+		echo "        ReplicatedMergeTree fetches parts over 9009; without it"; \
+		echo "        replication stalls silently."; exit 1; \
+	fi; \
+	RENDER=$$(helm template purl chart/ --set purl.existingSecret=s --set purl.existingSecretHasClickHousePassword=true \
+		--set backup.enabled=true --set backup.s3.bucket=b --set backup.s3.existingSecret=aws); \
+	KINDS=$$(printf '%s\n' "$$RENDER" | grep -cE '^kind: (Deployment|StatefulSet|CronJob)$$' || true); \
+	if [ "$$KINDS" -lt 3 ]; then \
+		echo "  FAIL: only $$KINDS workloads rendered, expected >= 3 (Deployment,"; \
+		echo "        StatefulSet, CronJob). backup.enabled defaults to false, so"; \
+		echo "        without it the CronJob is never rendered and this assertion"; \
+		echo "        cannot see what is in it."; exit 1; \
+	fi; \
+	OPT=$$(printf '%s\n' "$$RENDER" | grep -A3 'key: PURL_CLICKHOUSE_PASSWORD' | grep -cE '^[[:space:]]*optional:' || true); \
+	if [ "$$OPT" -ne 0 ]; then \
+		echo "  FAIL: PURL_CLICKHOUSE_PASSWORD secretKeyRef is optional ($$OPT keyRef(s))."; \
+		echo "        A missing key must be CreateContainerConfigError, not an"; \
+		echo "        empty password."; exit 1; \
+	fi; \
+	helm template purl chart/ | grep -q 'users.d/zz-purl-users.xml' \
+		|| { echo "  FAIL: users.d fragment must sort after default-user.xml."; exit 1; }; \
+	helm template purl chart/ | grep -q '"helm.sh/resource-policy": keep' \
+		|| { echo "  FAIL: config PVC is not retained on uninstall."; exit 1; }
+	@echo "Asserting render-time guards fire..."
+	@set -e; \
+	for guard in \
+		"--set purl.existingSecret=s" \
+		"--set networkPolicy.enabled=true --set metrics.serviceMonitor.enabled=true" \
+		"--set networkPolicy.enabled=true --set metrics.serviceMonitor.enabled=true --set metrics.serviceMonitor.namespace=monitoring" \
+		"--set vector.buffer.maxSizeBytes=1024" \
+		"--set replicaCount=3" ; do \
+		if helm template purl chart/ $$guard > /dev/null 2>&1; then \
+			echo "  FAIL: guard did not fire for: $$guard"; exit 1; \
+		fi; \
+	done
 	@echo "Helm validation passed."
 
 # Release: cut a semver tag so CI publishes ismoilovdev/purl:X.Y.Z.

@@ -112,14 +112,29 @@ purl:
   # purl.sessionSecret / purl.license.key / clickhouse.password /
   # purl.telegram.* / purl.slack.* / purl.alertWebhook.* are templated —
   # keeping them out of `helm get values` and the release history.
-  # The Secret must provide the env vars Purl reads, at minimum:
-  #   PURL_API_KEYS, PURL_SESSION_SECRET
-  # plus, as applicable: PURL_CLICKHOUSE_PASSWORD, PURL_LICENSE_KEY,
-  # PURL_TELEGRAM_BOT_TOKEN, PURL_TELEGRAM_CHAT_ID, PURL_SLACK_WEBHOOK_URL,
-  # PURL_SLACK_CHANNEL, PURL_ALERT_WEBHOOK_URL, PURL_ALERT_WEBHOOK_TOKEN.
-  # PURL_API_KEYS is required whenever vector.enabled=true (the DaemonSet
-  # reads it from this Secret).
+  # The Secret must provide the env vars Purl reads. REQUIRED keys:
+  #   PURL_API_KEYS            (also read by the Vector DaemonSet)
+  #   PURL_SESSION_SECRET
+  #   PURL_CLICKHOUSE_PASSWORD (ALWAYS required — with clickhouse.enabled=true
+  #                             it is both the `default` user's password and,
+  #                             via from_env, the application user's. Omit it
+  #                             and ClickHouse comes up with an EMPTY password
+  #                             while still accepting connections from
+  #                             clickhouse.allowedNetworks, i.e. any pod in
+  #                             the cluster can read and write your logs.)
+  # Optional, as applicable: PURL_LICENSE_KEY, PURL_TELEGRAM_BOT_TOKEN,
+  # PURL_TELEGRAM_CHAT_ID, PURL_SLACK_WEBHOOK_URL, PURL_SLACK_CHANNEL,
+  # PURL_ALERT_WEBHOOK_URL, PURL_ALERT_WEBHOOK_TOKEN.
   existingSecret: ""
+
+  # -- Confirm that the Secret named by purl.existingSecret really contains
+  # PURL_CLICKHOUSE_PASSWORD. The chart cannot read that Secret at template
+  # time, so with clickhouse.enabled=true it refuses to render until you say
+  # so explicitly. The secretKeyRef in the StatefulSet carries no
+  # `optional: true`, so if you assert this wrongly the ClickHouse pod fails
+  # with CreateContainerConfigError instead of silently starting open.
+  # Ignored when purl.existingSecret is empty or clickhouse.enabled=false.
+  existingSecretHasClickHousePassword: false
 
   # -- Telegram alerting
   telegram:
@@ -193,6 +208,12 @@ clickhouse:
   host: ""
   # -- ClickHouse HTTP port
   port: 8123
+  # -- ClickHouse interserver_http_port. This is the port a ReplicatedMergeTree
+  # replica uses to FETCH parts from its siblings, so it must be open between
+  # ClickHouse pods whenever cluster.enabled=true and networkPolicy.enabled=true.
+  # Only change this if you also override interserver_http_port in the server
+  # config; the chart uses it solely to write the NetworkPolicy rules.
+  interserverHttpPort: 9009
   # -- ClickHouse database name
   database: purl
   # -- ClickHouse user for Purl
@@ -222,6 +243,14 @@ clickhouse:
   # -- Restrict the ClickHouse `default` user to loopback only. Purl connects
   # as clickhouse.user, so the default user only needs to serve the image's
   # own init scripts. Ignored when clickhouse.user == "default".
+  #
+  # Delivered through users.d/zz-purl-users.xml. The filename matters: the
+  # image entrypoint writes users.d/default-user.xml, which re-creates the
+  # default user with <ip>::/0</ip>, and ClickHouse merges users.d/* in
+  # sorted filename order. This fragment used to be mounted as
+  # "app-user.xml", which sorts BEFORE default-user.xml — so the entrypoint
+  # won every time and this knob restricted nothing at all while reporting
+  # itself as on.
   restrictDefaultUser: true
 
   # -- Pod-level security context for the ClickHouse StatefulSet.
@@ -379,12 +408,55 @@ networkPolicy:
     # in-cluster Redis or an external ClickHouse).
     extraRules: []
 
+  # -- Peers for the ClickHouse StatefulSet's own NetworkPolicy. The Purl
+  # policy above already has these hooks; ClickHouse had none, which made
+  # networkPolicy.enabled=true unusable on some CNIs (see fromCIDRs).
+  clickhouse:
+    ingress:
+      # -- Source CIDRs allowed to reach the ClickHouse HTTP port
+      # (clickhouse.port). List your NODE IPs here on CNIs that subject host
+      # traffic to policy (Calico): ClickHouse's liveness probe is an httpGet
+      # on 8123 and kubelet probes arrive from the node IP. Without this the
+      # probe is dropped, the kubelet restart-loops ClickHouse, and the whole
+      # install lands in CrashLoopBackOff looking like a database fault.
+      # e.g. ["5.189.148.112/32", "5.189.145.83/32", "5.189.182.131/32"]
+      fromCIDRs: []
+      # -- Extra raw NetworkPolicyPeer entries for ClickHouse ingress (e.g. a
+      # DBA namespace, an external ETL pod). These peers are allowed on BOTH
+      # the HTTP port (clickhouse.port) and the native protocol port 9000 —
+      # clickhouse-client, the Go/Python drivers and the JDBC/ODBC bridges all
+      # connect on 9000, so an HTTP-only rule rendered fine and timed out
+      # every real client. fromCIDRs above stays HTTP-only: it exists for
+      # kubelet probes, which never need the native port.
+      extraFrom: []
+    egress:
+      # -- Extra raw egress rules appended verbatim to the ClickHouse policy
+      # (e.g. an external Keeper ensemble or a remote S3 gateway).
+      extraRules: []
+
 # -- Vector log collector (DaemonSet) for Kubernetes pod log collection
 vector:
   # -- Deploy Vector as part of this chart. ON by default: Purl is a log
   # aggregator, so a fresh k8s install should collect pod logs out of the box
   # (the DaemonSet ships them to /api/logs with the ingest API key). Set false
   # to run Purl as an ingest-only endpoint with an external collector.
+  #
+  # !! Pod Security Standards: Vector requires a `privileged` namespace.
+  # It mounts four hostPath volumes (/var/log, /var/log/pods,
+  # /var/log/journal, /var/lib/vector) and runs as root, because that is what
+  # reading node-level container logs takes. hostPath is forbidden at
+  # `baseline`, and root + hostPath are both forbidden at `restricted`.
+  # No securityContext can fix this — it is inherent to node log collection.
+  #
+  # On a namespace labelled pod-security.kubernetes.io/enforce=restricted (or
+  # =baseline), Purl, ClickHouse and the backup CronJob admit normally and
+  # EVERY Vector pod is rejected by the admission webhook: the release looks
+  # healthy and collects nothing. Choose one:
+  #   1. label the namespace privileged:
+  #        kubectl label ns <ns> pod-security.kubernetes.io/enforce=privileged
+  #   2. run Vector in its own privileged namespace via the upstream Vector
+  #      chart, pointed at Purl's /api/logs
+  #   3. vector.enabled=false and ingest from your applications directly
   enabled: true
   image:
     # -- Vector image repository
@@ -442,6 +514,16 @@ vector:
   clusterName: "default"
   # -- Collect logs from kube-system namespace (control plane components)
   collectKubeSystem: false
+  # -- Pod-level security context for Vector. Explicit root (uid/gid 0)
+  # rather than inherited from the image: reading /var/log/pods and the
+  # journal needs it, and stating it here keeps the requirement visible
+  # instead of implicit. See the PSS note on vector.enabled above — this is
+  # NOT a workaround for `restricted`, which Vector cannot satisfy.
+  podSecurityContext:
+    runAsUser: 0
+    runAsGroup: 0
+    seccompProfile:
+      type: RuntimeDefault
   # -- Container security context for Vector. Vector runs as root because it
   # reads /var/log/pods and the systemd journal off the node, but it needs no
   # capabilities to do so (root is the owner of those files) and must never
@@ -495,6 +577,15 @@ config:
     # either set config.volume.storageClass or set enabled=false and accept
     # that logins/license do not survive a restart.
     enabled: true
+    # -- Keep the config PVC when the release is uninstalled
+    # (helm.sh/resource-policy: keep). ON by default: unlike the ClickHouse
+    # data PVC — which survives because StatefulSet volumeClaimTemplates are
+    # not Helm-managed — this PVC IS Helm-managed, so `helm uninstall` used
+    # to delete every dashboard login and the license key while every log
+    # line survived. Set false for throwaway/CI installs; note that a kept
+    # PVC must then be deleted by hand:
+    #   kubectl -n <ns> delete pvc <release>-purl-config
+    keepOnUninstall: true
     # -- PVC size for config data
     size: 1Gi
     # -- Storage class (empty = cluster default)
@@ -507,6 +598,24 @@ config:
 
 # -- Prometheus monitoring
 metrics:
+  # -- Namespace PROMETHEUS ITSELF runs in (e.g. "monitoring"). This does NOT
+  # place the ServiceMonitor: that object is always created in the release
+  # namespace. The only consumer is the NetworkPolicy, which uses it to build
+  # the scrape ingress rule.
+  #
+  # REQUIRED when metrics.serviceMonitor.enabled=true AND
+  # networkPolicy.enabled=true. The scrape rule allows this namespace to reach
+  # purl.port, and purl.port is the application port — the one serving
+  # /api/logs and the dashboard, not a separate metrics port. It used to be
+  # `namespaceSelector: {}` (every namespace in the cluster), so enabling
+  # metrics quietly reopened the entire allow-list. Rendering now fails
+  # rather than doing that.
+  #
+  # Renamed from metrics.serviceMonitor.namespace in chart 2.0.0: nested under
+  # serviceMonitor it read as "the namespace to create the ServiceMonitor in",
+  # which is what the key means in most other charts. Setting it to your own
+  # release namespace — the natural reading — left Prometheus blocked.
+  prometheusNamespace: ""
   serviceMonitor:
     # -- Enable ServiceMonitor for Prometheus Operator
     enabled: false

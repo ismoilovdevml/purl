@@ -112,8 +112,13 @@ jobs:
           chmod +x ./kind
           sudo mv ./kind /usr/local/bin/kind
 
+      # Same pin as the k8s-validate job in ci.yml — the smoke test installs
+      # the chart for real, so it must not drift onto a different Helm than
+      # the one that gated it.
       - name: Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78 # v4
+        with:
+          version: v4.2.3
 
       - name: Run K8s E2E smoke test
         run: ./tests/e2e/k8s-smoke.sh

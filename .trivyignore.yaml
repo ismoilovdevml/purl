@@ -1,0 +1,94 @@
+# Trivy IaC (misconfiguration) suppressions for Purl.
+#
+# WIRED INTO CI: .github/workflows/ci.yml, security-fs job, the
+# "Trivy config scan (IaC misconfig)" step, which runs with exit-code: '1'.
+# That step used to run with exit-code: '0' ("informational only for now"),
+# which meant chart/, Dockerfile and deploy/ had NO blocking IaC gate at all.
+# It is blocking now, and every accepted finding is recorded here with a
+# reason, an owner and an expiry instead.
+#
+# Vulnerability and secret suppressions live in the separate /.trivyignore,
+# which the filesystem and image scans use.
+#
+# Path-scoped on purpose: `id:` alone would disable the check repo-wide, so a
+# NEW container that could run read-only would never be flagged.
+#
+# The expiry key is `expired_at`, snake_case. Trivy drops unknown keys without
+# a warning, so the earlier camelCase `expiredAt` parsed fine, scanned fine,
+# and made every entry below permanent — the exact opposite of what the
+# paragraph above promises. Verified on trivy 0.72.0: a past date under
+# `expiredAt` still suppresses (exit 0); under `expired_at` the suppression
+# lapses and the finding comes back (exit 1). When these lapse, CI turns red
+# on the finding itself — that is the review trigger, by design.
+
+misconfigurations:
+  # --------------------------------------------------------------------
+  # chart/ — accepted, each of these containers genuinely writes to its
+  # root filesystem. Documented in chart/values.yaml next to the
+  # securityContext values. The init containers that write nothing
+  # (wait-for-clickhouse, set-keeper-id) DO set readOnlyRootFilesystem:
+  # true and are deliberately not listed here.
+  # --------------------------------------------------------------------
+  - id: KSV-0014
+    paths:
+      - "chart/templates/deployment.yaml"
+    statement: >-
+      Purl writes settings.json, the dashboard user database and the license
+      under /app/config, plus scratch files under /app/data. Those are
+      volume mounts, but the Perl runtime also writes its own temp files to
+      the container filesystem. readOnlyRootFilesystem: false is set
+      explicitly in chart/values.yaml (securityContext) with this rationale.
+      owner: devops, added: 2026-07-31
+    expired_at: 2027-01-31
+
+  - id: KSV-0014
+    paths:
+      - "chart/templates/clickhouse-statefulset.yaml"
+    statement: >-
+      The official clickhouse-server entrypoint rewrites
+      /etc/clickhouse-server/users.d/default-user.xml on every start, so the
+      root filesystem cannot be read-only. Set explicitly in
+      chart/values.yaml (clickhouse.securityContext).
+      owner: devops, added: 2026-07-31
+    expired_at: 2027-01-31
+
+  - id: KSV-0014
+    paths:
+      - "chart/templates/vector-daemonset.yaml"
+    statement: >-
+      Vector needs a writable filesystem for its disk buffer and internal
+      state. It also requires root and hostPath to read /var/log/pods — see
+      the Pod Security Standards note on vector.enabled in chart/values.yaml.
+      Not fixable without giving up node log collection.
+      owner: devops, added: 2026-07-31
+    expired_at: 2027-01-31
+
+  # --------------------------------------------------------------------
+  # deploy/kubernetes/ — UNMAINTAINED, see deploy/kubernetes/README.md and
+  # issue #41. These findings are REAL and are precisely why that path is
+  # deprecated: no securityContext anywhere, root by default. They are not
+  # fixed because fixing them means maintaining a second copy of the chart.
+  # install.sh there refuses to run without PURL_ACCEPT_UNMAINTAINED=1.
+  # Remove these entries when the directory is deleted.
+  # --------------------------------------------------------------------
+  - id: KSV-0014
+    paths:
+      - "deploy/kubernetes/purl.yaml"
+      - "deploy/kubernetes/clickhouse.yaml"
+      - "deploy/kubernetes/vector-daemonset.yaml"
+    statement: >-
+      Unmaintained legacy manifests superseded by chart/ (issue #41).
+      owner: devops, added: 2026-07-31
+    expired_at: 2027-01-31
+
+  - id: KSV-0118
+    paths:
+      - "deploy/kubernetes/purl.yaml"
+      - "deploy/kubernetes/clickhouse.yaml"
+      - "deploy/kubernetes/vector-daemonset.yaml"
+    statement: >-
+      Unmaintained legacy manifests superseded by chart/ (issue #41). The
+      chart sets Pod Security Standards restricted contexts on every
+      workload; these manifests never received them.
+      owner: devops, added: 2026-07-31
+    expired_at: 2027-01-31

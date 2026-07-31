@@ -2,7 +2,14 @@ apiVersion: v2
 name: purl
 description: Lightweight self-hosted log aggregation system
 type: application
-version: 1.1.0
+# 2.0.0, not 1.2.0. Three render-time guards reject value sets that were valid
+# in 1.1.x (see chart/README.md "Upgrading to 2.0.0"), so a minor bump would
+# have been a lie to `helm upgrade`. A major also removes a second problem:
+# CHANGELOG.md's `## [1.2.0]` is the APPLICATION release of 2025-12-15, and
+# publishing a chart 1.2.0 to charts.purlogs.com would have shipped a version
+# string that already means something else. Chart versions are independent of
+# appVersion and are documented in chart/README.md.
+version: 2.0.0
 # Must track the app version that is actually published to Docker Hub:
 # image.tag defaults to "" and falls back to appVersion, so bumping this ahead
 # of a released tag makes every public `helm install` ImagePullBackOff.

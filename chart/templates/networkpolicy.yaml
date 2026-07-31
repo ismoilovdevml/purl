@@ -49,11 +49,28 @@ spec:
     {{- $peers = append $peers . }}
     {{- end }}
     {{- if .Values.metrics.serviceMonitor.enabled }}
-    # Prometheus scrape. The Prometheus namespace is not knowable here, so
-    # this allows the metrics scrape from any namespace; narrow it with
-    # networkPolicy.ingress.extraFrom if that is too broad.
+    {{- /*
+      This rule used to be `- from: [{namespaceSelector: {}}]` on
+      .Values.purl.port. namespaceSelector:{} matches EVERY namespace, and
+      the port is the application port, not a separate metrics port — so
+      simply turning on metrics.serviceMonitor re-opened the whole
+      allow-list this policy exists to enforce, cluster-wide, on the same
+      port that serves /api/logs and the dashboard. Naming the Prometheus
+      namespace is required instead.
+    */}}
+    {{- if not .Values.metrics.prometheusNamespace }}
+    {{- if dig "serviceMonitor" "namespace" "" .Values.metrics }}
+    {{- fail (printf "metrics.serviceMonitor.namespace was RENAMED to metrics.prometheusNamespace in chart 2.0.0. Move your value: metrics.prometheusNamespace=%q. The old nesting read as \"the namespace to create the ServiceMonitor in\" (its meaning in most charts); it has always meant \"the namespace Prometheus itself runs in\", and it is used only to build the NetworkPolicy scrape rule. The ServiceMonitor is created in the release namespace either way." (dig "serviceMonitor" "namespace" "" .Values.metrics)) }}
+    {{- end }}
+    {{- fail "metrics.serviceMonitor.enabled=true with networkPolicy.enabled=true requires metrics.prometheusNamespace — the namespace PROMETHEUS runs in (e.g. \"monitoring\"), not the release namespace. The scrape rule opens purl.port to it, and purl.port also serves /api/logs and the dashboard; it was previously opened to every namespace in the cluster, which silently reopened the whole allow-list. There is no way around this guard: networkPolicy.ingress.extraFrom adds peers but does not satisfy it. To render without setting it, turn off metrics.serviceMonitor.enabled or networkPolicy.enabled." }}
+    {{- end }}
+    # Prometheus scrape, restricted to the namespace Prometheus runs in.
+    # Matched on kubernetes.io/metadata.name, set by Kubernetes on every
+    # namespace since 1.22.
     - from:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.metrics.prometheusNamespace | quote }}
       ports:
         - protocol: TCP
           port: {{ .Values.purl.port }}

@@ -164,12 +164,21 @@ spec:
                   value: "9000"
                 - name: CH_USER
                   value: {{ .Values.clickhouse.user | quote }}
+                {{- /*
+                  This keyRef is NOT optional, deliberately, and the CI
+                  assertion renders the CronJob with backup.enabled=true to
+                  keep it that way. Marked optional, a Secret missing the key
+                  started the job with an empty CH_PASSWORD: every scheduled
+                  backup then failed authentication silently, the CronJob
+                  stayed Active, nothing warned, and the gap was only
+                  discovered at restore time. Without it the pod is a loud
+                  CreateContainerConfigError instead.
+                */}}
                 - name: CH_PASSWORD
                   valueFrom:
                     secretKeyRef:
                       name: {{ include "purl.secretName" . }}
                       key: PURL_CLICKHOUSE_PASSWORD
-                      optional: true
                 - name: CH_DB
                   value: {{ .Values.clickhouse.database | quote }}
                 - name: S3_BUCKET

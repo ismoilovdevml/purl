@@ -61,8 +61,16 @@ spec:
           # The init container is subject to the same Pod Security Standards
           # as the main one — without this block the pod is rejected on a
           # namespace enforcing `restricted`.
+          # readOnlyRootFilesystem is forced true regardless of
+          # .Values.securityContext: that value is false because the Purl
+          # container writes /app/config and /app/data, but this container
+          # only runs `wget --spider` in a loop and writes nothing at all.
+          # `default dict` is load-bearing: an empty `securityContext:` key in
+          # a user's -f values file is null, and deepCopy on a nil value is a
+          # Go reflect panic ("reflect.Value.Type on zero Value") instead of a
+          # chart message.
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- toYaml (mergeOverwrite (deepCopy (default dict .Values.securityContext)) (dict "readOnlyRootFilesystem" true)) | nindent 12 }}
           resources:
             limits:
               cpu: 100m
@@ -102,6 +110,19 @@ spec:
               reaches S3 — restore, delete_backup and retention cleanup, not
               just the CronJob's upload. Without these delete_backup refuses
               to run rather than orphan the S3 object behind a deleted record.
+
+              `optional: true` here is a DELIBERATE exception to the rule
+              applied to PURL_CLICKHOUSE_PASSWORD (loud CreateContainerConfigError
+              over an empty value), and the two are not the same trade-off.
+              This ref is on the main Purl Deployment: making it mandatory
+              means a typo in backup.s3.existingSecret stops log ingestion,
+              the dashboard and alerting for the whole install because an
+              optional backup feature is misconfigured. The degraded mode is
+              also bounded and self-announcing — delete_backup and restore
+              refuse to run instead of orphaning objects — where an empty
+              database password was an open database. If this ever becomes
+              mandatory, add it to the CI assertion in ci.yml alongside the
+              PURL_CLICKHOUSE_PASSWORD check.
             */}}
             - secretRef:
                 name: {{ .Values.backup.s3.existingSecret }}

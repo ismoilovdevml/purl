@@ -168,9 +168,12 @@ PURL_CLICKHOUSE_PASSWORD themselves and the chart must not invent one.
 {{- else if .Values.clickhouse.password }}
 {{- .Values.clickhouse.password }}
 {{- else }}
+{{- /* See secret.yaml: `and` has no short-circuit and Helm 3 returns an empty
+       map from a clusterless lookup, so .data must be normalised before index. */}}
 {{- $existing := (lookup "v1" "Secret" .Release.Namespace (include "purl.fullname" .)) }}
-{{- if and $existing (index $existing.data "PURL_CLICKHOUSE_PASSWORD") }}
-{{- index $existing.data "PURL_CLICKHOUSE_PASSWORD" | b64dec }}
+{{- $existingData := (default dict (default dict $existing).data) }}
+{{- if index $existingData "PURL_CLICKHOUSE_PASSWORD" }}
+{{- index $existingData "PURL_CLICKHOUSE_PASSWORD" | b64dec }}
 {{- else }}
 {{- randAlphaNum 32 }}
 {{- end }}

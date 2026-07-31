@@ -21,6 +21,23 @@ spec:
         app.kubernetes.io/component: vector
     spec:
       serviceAccountName: {{ include "purl.fullname" . }}-vector
+      {{- /*
+        Vector CANNOT satisfy Pod Security Standards `restricted` or even
+        `baseline`: it mounts four hostPath volumes (forbidden at baseline)
+        and must run as root to read /var/log/pods and the journal off the
+        node. In a namespace labelled pod-security.kubernetes.io/enforce at
+        restricted or baseline, Purl / ClickHouse / backup admit fine and
+        every Vector pod is rejected — log collection dies while the rest of
+        the release looks healthy. This is a real constraint of node-level
+        log collection, not something a securityContext can fix; see
+        vector.enabled in values.yaml and the NOTES output.
+        The context below is explicit rather than inherited from the image so
+        the root requirement is visible in `kubectl get ds -o yaml`.
+      */}}
+      {{- with .Values.vector.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       # NOTE: a blanket `- operator: Exists` used to live here. It tolerated
       # every taint in the cluster, including NoExecute and operator-specific
       # ones, so Vector chased nodes that were deliberately cordoned off.

@@ -1,4 +1,21 @@
 {{- if .Values.clickhouse.enabled }}
+{{- /*
+purl.existingSecret means the chart templates NO Secret, so
+purl.clickhouse.password returns "" and nothing generates
+PURL_CLICKHOUSE_PASSWORD. With the built-in ClickHouse that key is not
+optional: it is both the `default` user's password and (via from_env in
+users.d) the application user's password. A Secret holding only the two keys
+the docs used to call "required" produced <password></password> next to
+<ip>::/0</ip> — a passwordless log database readable and writable by every
+pod in the cluster, with a healthy-looking install and no render-time signal.
+
+There is no way to inspect the operator's Secret at template time, so this is
+an explicit acknowledgement instead: confirm the key is there, and the
+secretKeyRef below (no `optional`) makes the pod fail loudly if it is not.
+*/ -}}
+{{- if and .Values.purl.existingSecret (not .Values.purl.existingSecretHasClickHousePassword) }}
+{{- fail (printf "purl.existingSecret=%q is set together with clickhouse.enabled=true, but the chart cannot verify that your Secret contains PURL_CLICKHOUSE_PASSWORD. That key is MANDATORY with the built-in ClickHouse — without it ClickHouse starts with an empty password while still accepting connections from clickhouse.allowedNetworks (default ::/0), i.e. any pod in the cluster can read and write the log database. Either: (1) add PURL_CLICKHOUSE_PASSWORD to Secret %q and set purl.existingSecretHasClickHousePassword=true, or (2) set clickhouse.enabled=false and point clickhouse.host at an external ClickHouse." .Values.purl.existingSecret .Values.purl.existingSecret) }}
+{{- end }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -70,25 +87,24 @@ spec:
             # that reaches the default user into a superuser factory.
             - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
               value: {{ ternary "1" "0" .Values.clickhouse.defaultAccessManagement | quote }}
+            # NEVER optional. `optional: true` (previously set whenever
+            # purl.existingSecret was in play) turns a missing key into an
+            # empty password instead of a startup failure, which is how a
+            # passwordless ClickHouse open to ::/0 got created silently.
+            # Without it a missing key is a loud CreateContainerConfigError.
             - name: CLICKHOUSE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "purl.secretName" . }}
                   key: PURL_CLICKHOUSE_PASSWORD
-                  {{- if .Values.purl.existingSecret }}
-                  optional: true
-                  {{- end }}
             {{- if ne .Values.clickhouse.user "default" }}
-            # Consumed via from_env in users.d/app-user.xml (see
+            # Consumed via from_env in users.d/zz-purl-users.xml (see
             # clickhouse-users-config.yaml) to create the app user.
             - name: PURL_APP_USER_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "purl.secretName" . }}
                   key: PURL_CLICKHOUSE_PASSWORD
-                  {{- if .Values.purl.existingSecret }}
-                  optional: true
-                  {{- end }}
             {{- end }}
             {{- if and .Values.backup.enabled (not .Values.backup.s3.credentialsInQuery) }}
             # Read by config.d/backup-s3.xml via from_env, so the BACKUP
@@ -149,9 +165,15 @@ spec:
             {{- end }}
             {{- end }}
             {{- if ne .Values.clickhouse.user "default" }}
+            # Filename MUST sort after the image entrypoint's
+            # users.d/default-user.xml. ClickHouse merges users.d/* in sorted
+            # filename order, and that file re-creates the `default` user with
+            # <ip>::/0</ip>. As "app-user.xml" this fragment lost the merge,
+            # which made clickhouse.restrictDefaultUser a no-op that silently
+            # advertised a restriction it never applied. "zz-" keeps it last.
             - name: users-config
-              mountPath: /etc/clickhouse-server/users.d/app-user.xml
-              subPath: app-user.xml
+              mountPath: /etc/clickhouse-server/users.d/zz-purl-users.xml
+              subPath: zz-purl-users.xml
             {{- end }}
             {{- if and .Values.backup.enabled (not .Values.backup.s3.credentialsInQuery) }}
             - name: backup-s3-config
@@ -184,10 +206,14 @@ spec:
                 </keeper_server>
               </clickhouse>
               EOF
-          {{- with .Values.clickhouse.securityContext }}
+          # readOnlyRootFilesystem forced true: clickhouse.securityContext
+          # keeps it false for the server (the entrypoint rewrites
+          # /etc/clickhouse-server), but this container's only write is
+          # /keeper-id, which is an emptyDir mount.
+          # `default dict`: see the note on the same expression in
+          # deployment.yaml — a null securityContext panics deepCopy.
           securityContext:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- toYaml (mergeOverwrite (deepCopy (default dict .Values.clickhouse.securityContext)) (dict "readOnlyRootFilesystem" true)) | nindent 12 }}
           volumeMounts:
             - name: keeper-id
               mountPath: /keeper-id
