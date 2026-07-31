@@ -22,6 +22,21 @@ test.describe('Settings persistence', () => {
   const settingItem = (page, label) =>
     page.locator('.setting-item', { has: page.locator('.setting-label', { hasText: label }) });
 
+  /**
+   * Locate a notification channel card.
+   *
+   * NOT `.notification-card`. NotificationSettings.svelte renders
+   * `<Card class="notification-card">`, but Card.svelte declares no `class`
+   * prop, so Svelte drops the attribute and the rendered element never carries
+   * that class — a selector built on it can never match, which made both tests
+   * below unfailable-by-construction (they only ever failed). The card is
+   * matched through markup it genuinely renders instead.
+   */
+  const notificationCard = (page, channel) =>
+    page.locator('.card', {
+      has: page.locator('.notification-header h4', { hasText: channel }),
+    });
+
   test('a Display setting survives a reload (client-side persistence)', async ({ page }) => {
     await openSettingsSection(page, 'Display');
 
@@ -72,53 +87,76 @@ test.describe('Settings persistence', () => {
     await page.getByRole('switch', { name: 'Compact Mode' }).click();
   });
 
-  test('the retention period is persisted server-side', async ({ page }) => {
+  /*
+   * Retention is pinned by PURL_RETENTION_DAYS on the managed e2e stack
+   * (web/e2e/stack/e2e.env), so the server OWNS `retention.days` and answers
+   * 409 to any attempt to change it.
+   *
+   * The previous version of this test typed a new value and asserted the save
+   * succeeded. Against this stack that can never pass — the response is
+   * `409 {"error":"Cannot modify ENV-configured values: days"}` — so what it
+   * really documented was a UI that offers an edit the server will always
+   * reject. That is the bug, not the test, and this is the regression test for
+   * it: every other ENV-pinned field in Settings (backup retention, the
+   * Telegram chat id, the LDAP/SSO/AI/Redis fields) is rendered disabled and
+   * badged, and this one must behave the same way.
+   */
+  test('the ENV-pinned retention period is disabled rather than offered and rejected', async ({
+    page,
+  }) => {
+    // Precondition, asserted rather than assumed: if a target ever stops
+    // pinning this key the test must say so loudly instead of quietly
+    // testing nothing.
+    const settings = await page.request.get('/api/settings');
+    expect(settings.ok()).toBe(true);
+    expect(
+      (await settings.json()).retention?.days?.from_env,
+      'this spec targets a stack that pins PURL_RETENTION_DAYS (see web/e2e/stack/e2e.env)'
+    ).toBeTruthy();
+
     await openSettingsSection(page, 'Database');
 
     const input = page.locator('.retention-control input.input-field');
     await expect(input).toBeVisible();
 
-    const original = await input.inputValue();
-    const changed = original === '45' ? '60' : '45';
+    await expect(
+      input,
+      'a retention period owned by PURL_RETENTION_DAYS must not be editable — the server 409s the save'
+    ).toBeDisabled();
 
-    await input.fill(changed);
+    // Disabled without a reason is its own defect: the user has to be told why
+    // the field is frozen, the same way every other ENV-pinned field explains
+    // itself via <EnvBadge>.
+    await expect(
+      page.locator('.retention-control [data-env-locked="true"]'),
+      'an ENV-pinned retention field must carry the ENV badge explaining why'
+    ).toBeVisible();
 
-    const savePromise = page.waitForResponse(
-      (res) =>
-        new URL(res.url()).pathname === '/api/settings/retention' && res.request().method() === 'PUT'
-    );
-    await page.locator('.retention-control button.btn-success').click();
-
-    const saved = await savePromise;
-    expect(saved.status(), `PUT /api/settings/retention failed: ${await saved.text()}`).toBeLessThan(300);
-
-    // The server is the source of truth here, so ask it directly as well as
-    // re-rendering the page.
-    const fromApi = await page.request.get('/api/config/retention');
-    expect(fromApi.ok()).toBe(true);
-    expect(String((await fromApi.json()).days)).toBe(changed);
-
-    await page.reload();
-    await openSettingsSection(page, 'Database');
-    await expect(page.locator('.retention-control input.input-field')).toHaveValue(changed);
-
-    // Restore the original retention so a later run starts from a known state.
-    const restore = page.locator('.retention-control input.input-field');
-    await restore.fill(original);
-    await page.locator('.retention-control button.btn-success').click();
-    await expect(page.locator('.retention-control input.input-field')).toHaveValue(original);
+    // The Apply button must not offer an action that cannot succeed.
+    await expect(
+      page.locator('.retention-control button.btn-success'),
+      'Apply must be disabled when the value it would send is ENV-owned'
+    ).toBeDisabled();
   });
 
   test('a notification channel config is persisted server-side', async ({ page }) => {
     await openSettingsSection(page, 'Notifications');
 
-    const card = page.locator('.notification-card', { has: page.locator('h4', { hasText: 'Webhook' }) });
+    const card = notificationCard(page, 'Webhook');
     await expect(card).toBeVisible();
 
+    /*
+     * The checkbox itself is styled away (`.toggle input { opacity:0; width:0;
+     * height:0 }`), so it is never actionable and `.check()` times out. Drive
+     * it the way a user does — by clicking the visible slider — and assert on
+     * the input's state. `isChecked()` needs no visibility, so reading it is
+     * still fine.
+     */
     const enable = card.locator('.notification-toggle input[type="checkbox"]');
     if (!(await enable.isChecked())) {
-      await enable.check();
+      await card.locator('.notification-toggle .toggle-slider').click();
     }
+    await expect(enable).toBeChecked();
     await expect(card.locator('.notification-form')).toBeVisible();
 
     // Scope to .notification-form so the enable checkbox (which lives in
@@ -140,12 +178,29 @@ test.describe('Settings persistence', () => {
       `PUT /api/settings/notifications/webhook failed: ${await saved.text()}`
     ).toBeLessThan(300);
 
+    /*
+     * Persistence is asserted against the SERVER, not by reading the input
+     * back.
+     *
+     * GET /api/settings deliberately never echoes a configured webhook URL or
+     * token — it reports `url_set: 1` and nothing else, so the secret does not
+     * travel back to every dashboard that loads the page. The form is
+     * therefore blank after a reload BY DESIGN, and the previous assertion
+     * (`toHaveValue(value)`) was asserting a contract the product does not
+     * have and never could satisfy.
+     */
+    const stored = await page.request.get('/api/settings');
+    expect(stored.ok()).toBe(true);
+    const webhook = (await stored.json()).notifications.webhook;
+    expect(webhook.url_set, 'the saved webhook URL must be recorded server-side').toBe(1);
+    expect(webhook.enabled, 'the channel must stay enabled across the save').toBeTruthy();
+
+    // The reloaded UI must still show the channel as enabled and expanded,
+    // even though the URL itself is intentionally not returned.
     await page.reload();
     await openSettingsSection(page, 'Notifications');
-    const reloadedCard = page.locator('.notification-card', {
-      has: page.locator('h4', { hasText: 'Webhook' }),
-    });
+    const reloadedCard = notificationCard(page, 'Webhook');
     await expect(reloadedCard.locator('.notification-form')).toBeVisible();
-    await expect(reloadedCard.locator('.notification-form input').first()).toHaveValue(value);
+    await expect(reloadedCard.locator('.notification-toggle input[type="checkbox"]')).toBeChecked();
   });
 });

@@ -123,6 +123,27 @@ export async function ingestLogs(request, entries) {
   return res;
 }
 
+/**
+ * Headers for a session-authenticated mutation.
+ *
+ * `$protected` rejects a cookie-authenticated POST/PUT/DELETE that arrives
+ * without a valid `X-CSRF-Token` (see csrf-mutation.spec.js). `page.request`
+ * shares the browser's cookie jar, so pairing it with this header is the way a
+ * spec drives an admin-only endpoint directly instead of clicking through the
+ * UI.
+ *
+ * Note the role trap: `X-API-Key` auth is CSRF-exempt but sets NO session role,
+ * and `require_role` defaults to 'viewer' — so an API-key request 403s on every
+ * admin-gated route. Anything mutating must go through the session.
+ */
+export async function csrfHeaders(page) {
+  const res = await page.request.get('/api/csrf-token');
+  expect(res.ok(), `GET /api/csrf-token failed: ${res.status()}`).toBe(true);
+  const { csrf_token: token } = await res.json();
+  expect(token, 'server returned no csrf_token').toBeTruthy();
+  return { 'X-CSRF-Token': token, 'Content-Type': 'application/json' };
+}
+
 /** Build a log entry pinned to "now" so it lands inside short time ranges. */
 export function logEntry(overrides = {}) {
   return {
