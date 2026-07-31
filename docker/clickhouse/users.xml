@@ -57,20 +57,31 @@
     </profiles>
 
     <users>
-        <!-- Default user (admin) - Password set via environment -->
-        <default>
-            <password>CHANGE_ME_GENERATE_SECURE_PASSWORD</password>
-            <networks>
-                <!-- Restrict to internal Docker network only -->
-                <ip>172.16.0.0/12</ip>
-                <ip>127.0.0.1</ip>
-            </networks>
-            <profile>default</profile>
-            <quota>default</quota>
-            <access_management>1</access_management>
-        </default>
+        <!-- The `default` user is deliberately NOT declared here.
+             The clickhouse-server image entrypoint owns it: because
+             docker-compose.yml sets CLICKHOUSE_USER/CLICKHOUSE_PASSWORD/
+             CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT, the entrypoint writes
+             users.d/default-user.xml containing
 
-        <!-- Purl application user -->
+               <default remove="remove"/>
+               <default>...<password><![CDATA[$CLICKHOUSE_PASSWORD]]></password>...</default>
+
+             That file sorts AFTER this one (custom.xml), so a <default> block
+             here is deleted by remove="remove" and never took effect — the
+             password install.sh substitutes below was silently ignored for
+             this user, leaving `default` on whatever CLICKHOUSE_PASSWORD held
+             (EMPTY before that variable was added to docker-compose.yml).
+
+             Re-adding <default> in a users.d file that sorts after
+             default-user.xml is worse, not better: ClickHouse appends text to
+             the entrypoint's CDATA password node instead of replacing it, so
+             the effective password silently becomes the value twice. See the
+             long note in web/e2e/stack/users-e2e.xml (issue #70).
+
+             To change `default`'s password, set PURL_CLICKHOUSE_PASSWORD in
+             .env — docker-compose.yml passes it through as CLICKHOUSE_PASSWORD.
+
+             Purl application user -->
         <purl>
             <password>CHANGE_ME_GENERATE_SECURE_PASSWORD</password>
             <networks>

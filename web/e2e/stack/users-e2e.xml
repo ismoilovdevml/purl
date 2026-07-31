@@ -15,12 +15,29 @@
   the e2e run keeps exercising the real configuration.
 
   __CH_PASSWORD__ is substituted by web/e2e/stack/up.sh from e2e.env.
+
+  ===========================================================================
+  Do NOT add a <default> user here (issue #70).
+
+  The image entrypoint owns `default`: it writes users.d/default-user.xml with
+      <password><![CDATA[$CLICKHOUSE_PASSWORD]]></password>
+  and "default-user.xml" sorts BEFORE "users-e2e.xml", so anything we declare
+  for <default> merges on top of that CDATA node. ClickHouse's config merge
+  only REPLACES an existing text child when it is a TEXT node; a CDATA_SECTION
+  node is a different node type, so the incoming text is APPENDED instead and
+  the effective password becomes the value twice over:
+      <password><![CDATA[secret]]>secret</password>   ->  "secretsecret"
+  The entrypoint's own init client then authenticates with "secret", gets
+  Code: 516 AUTHENTICATION_FAILED, and the container dies mid-`CREATE DATABASE`
+  on FIRST boot only. `restart: unless-stopped` brings it back, boot two skips
+  init because the data dir now exists, and it goes healthy — which is why this
+  looked like a slow/flaky cold start rather than a crash.
+
+  `purl` is safe to declare: the entrypoint never touches it, so this merges
+  TEXT-onto-TEXT into the placeholder in docker/clickhouse/users.xml.
 -->
 <clickhouse>
     <users>
-        <default>
-            <password>__CH_PASSWORD__</password>
-        </default>
         <purl>
             <password>__CH_PASSWORD__</password>
         </purl>

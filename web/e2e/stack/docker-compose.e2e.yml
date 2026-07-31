@@ -30,12 +30,15 @@ services:
   clickhouse:
     container_name: purl-clickhouse-e2e
     environment:
-      # The image entrypoint runs its own clickhouse-client health probe as
-      # CLICKHOUSE_USER. The shipped compose sets CLICKHOUSE_USER=default but no
-      # password, so once the users.d overlay below gives `default` a password
-      # the entrypoint's probe fails with AUTHENTICATION_FAILED and the
-      # container reports unhealthy — which is a first-boot-only failure that
-      # looks exactly like a broken config. Hand it the same password.
+      # Redundant with the shipped compose (which now defaults this to
+      # ${PURL_CLICKHOUSE_PASSWORD}), kept explicit so the e2e stack fails loudly
+      # on an unset value instead of silently falling back to purl_password.
+      #
+      # This variable is what gives the `default` user its password: the image
+      # entrypoint generates users.d/default-user.xml from it and runs its own
+      # init client as that user. The users.d overlay below must NOT also
+      # declare <default> — doing so doubles the password and breaks first boot.
+      # See the note in users-e2e.xml (issue #70).
       - CLICKHOUSE_PASSWORD=${PURL_CLICKHOUSE_PASSWORD:?PURL_CLICKHOUSE_PASSWORD must be set}
     volumes:
       - ${PURL_E2E_USERS_XML:?PURL_E2E_USERS_XML must be set by up.sh}:/etc/clickhouse-server/users.d/users-e2e.xml:ro

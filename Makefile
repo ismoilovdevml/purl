@@ -108,13 +108,15 @@ helm-lint:
 	@helm template purl chart/ $(AUTOGEN) > /dev/null
 	@echo "Rendering dev values..."
 	@helm template purl chart/ -f chart/values-dev.yaml $(AUTOGEN) > /dev/null
-	@echo "Rendering multi-replica + autoscaling (needs an RWX config volume)..."
+	@echo "Rendering multi-replica + autoscaling (needs an RWX config volume + Redis)..."
 	@helm template purl chart/ $(AUTOGEN) \
 		--set autoscaling.enabled=true \
 		--set podDisruptionBudget.enabled=true \
 		--set networkPolicy.enabled=true \
 		--set vector.enabled=true \
 		--set 'config.volume.accessModes[0]=ReadWriteMany' \
+		--set purl.redis.enabled=true \
+		--set purl.redis.url=redis://redis:6379 \
 		> /dev/null
 	@echo "Rendering NetworkPolicy with real peers..."
 	@helm template purl chart/ $(AUTOGEN) \
@@ -172,6 +174,75 @@ helm-lint:
 		|| { echo "  FAIL: users.d fragment must sort after default-user.xml."; exit 1; }; \
 	helm template purl chart/ $(AUTOGEN) | grep -q '"helm.sh/resource-policy": keep' \
 		|| { echo "  FAIL: config PVC is not retained on uninstall."; exit 1; }
+	@echo "Asserting live-tail transport wiring..."
+	@set -e; \
+	RWX="--set 'config.volume.accessModes[0]=ReadWriteMany'"; \
+	REDIS="--set purl.redis.enabled=true --set purl.redis.url=redis://redis:6379"; \
+	ERR=$$(eval helm template purl chart/ $(AUTOGEN) $$RWX --set replicaCount=3 2>&1 >/dev/null) && { \
+		echo "  FAIL: replicaCount=3 without Redis rendered. Live tail would be"; \
+		echo "        served by one pod's spool file and silently drop the other"; \
+		echo "        pods' logs."; exit 1; \
+	} || true; \
+	printf '%s\n' "$$ERR" | grep -q 'without Redis: live tail would silently break' || { \
+		echo "  FAIL: replicaCount=3 failed for a DIFFERENT reason than the live-tail"; \
+		echo "        guard (RWX is set precisely so the config-volume guard cannot"; \
+		echo "        fire and make this pass for the wrong reason). Got:"; \
+		printf '%s\n' "$$ERR" | head -3; exit 1; \
+	}; \
+	ERR=$$(eval helm template purl chart/ $(AUTOGEN) $$RWX --set autoscaling.enabled=true --set autoscaling.minReplicas=1 --set autoscaling.maxReplicas=4 2>&1 >/dev/null) && { \
+		echo "  FAIL: an HPA that can reach 4 pods rendered without Redis. Tail"; \
+		echo "        breaks at the first scale-up, when nobody is watching."; exit 1; \
+	} || true; \
+	printf '%s\n' "$$ERR" | grep -q 'without Redis: live tail would silently break' || { \
+		echo "  FAIL: the autoscaling case did not hit the live-tail guard. Got:"; \
+		printf '%s\n' "$$ERR" | head -3; exit 1; \
+	}; \
+	eval helm template purl chart/ $(AUTOGEN) $$RWX $$REDIS --set replicaCount=3 >/dev/null || { \
+		echo "  FAIL: replicaCount=3 WITH Redis must render. A guard with no escape"; \
+		echo "        hatch is a broken chart, not a safe one."; exit 1; \
+	}; \
+	SPOOL=$$(helm template purl chart/ $(AUTOGEN) --set purl.broadcastSpool.emptyDir=true); \
+	printf '%s\n' "$$SPOOL" | grep -q 'PURL_BROADCAST_SPOOL: "/app/spool/live-tail.spool"' || { \
+		echo "  FAIL: broadcastSpool.emptyDir=true did not set PURL_BROADCAST_SPOOL."; exit 1; \
+	}; \
+	printf '%s\n' "$$SPOOL" | grep -q 'mountPath: /app/spool' || { \
+		echo "  FAIL: PURL_BROADCAST_SPOOL points at /app/spool but nothing is"; \
+		echo "        mounted there — the app would fall back to worker-local tail."; exit 1; \
+	}; \
+	printf '%s\n' "$$SPOOL" | grep -q 'sizeLimit: 64Mi' || { \
+		echo "  FAIL: the spool emptyDir has no sizeLimit; a stuck reader could"; \
+		echo "        fill the node's ephemeral storage."; exit 1; \
+	}; \
+	helm template purl chart/ $(AUTOGEN) | grep -q 'PURL_BROADCAST_SPOOL' && { \
+		echo "  FAIL: PURL_BROADCAST_SPOOL is set by default. Empty means 'use the"; \
+		echo "        app default next to settings.json' and must stay unset."; exit 1; \
+	} || true
+	@echo "Asserting PURL_TELEGRAM_THREAD_ID lands in the ConfigMap, not the Secret..."
+	@set -e; \
+	TG=$$(helm template purl chart/ $(AUTOGEN) --set purl.telegram.threadId=42 \
+		--set purl.telegram.botToken=tok --set purl.telegram.chatId=-100123); \
+	printf '%s\n' "$$TG" | awk '/^kind: ConfigMap$$/,/^---$$/' | grep -q 'PURL_TELEGRAM_THREAD_ID: "42"' || { \
+		echo "  FAIL: purl.telegram.threadId did not reach the ConfigMap."; exit 1; \
+	}; \
+	printf '%s\n' "$$TG" | awk '/^kind: Secret$$/,/^---$$/' | grep -q 'PURL_TELEGRAM_THREAD_ID' && { \
+		echo "  FAIL: a forum topic id is not a credential and must not be"; \
+		echo "        templated into the Secret."; exit 1; \
+	} || true; \
+	printf '%s\n' "$$TG" | awk '/^kind: Secret$$/,/^---$$/' | grep -q 'PURL_TELEGRAM_BOT_TOKEN' || { \
+		echo "  FAIL: the bot token left the Secret. This assertion only proves"; \
+		echo "        thread_id is absent if the Secret really rendered telegram"; \
+		echo "        keys at all."; exit 1; \
+	}; \
+	helm template purl chart/ $(AUTOGEN) --set purl.existingSecret=s \
+		--set purl.existingSecretHasClickHousePassword=true --set purl.telegram.threadId=7 \
+		| grep -q 'PURL_TELEGRAM_THREAD_ID: "7"' || { \
+		echo "  FAIL: threadId must still apply with purl.existingSecret set —"; \
+		echo "        that is the whole reason it lives in the ConfigMap."; exit 1; \
+	}; \
+	helm template purl chart/ $(AUTOGEN) | grep -q 'PURL_TELEGRAM_THREAD_ID' && { \
+		echo "  FAIL: PURL_TELEGRAM_THREAD_ID rendered with threadId empty; an"; \
+		echo "        empty message_thread_id is rejected by Telegram."; exit 1; \
+	} || true
 	@echo "Asserting generated secrets cannot drift under GitOps (issue #22)..."
 	@set -e; \
 	PIN="--set clickhouse.password=pw --set purl.sessionSecret=ss --set purl.apiKeys=ak"; \
@@ -223,7 +294,7 @@ helm-lint:
 		"--set networkPolicy.enabled=true --set metrics.serviceMonitor.enabled=true" \
 		"--set networkPolicy.enabled=true --set metrics.serviceMonitor.enabled=true --set metrics.serviceMonitor.namespace=monitoring" \
 		"--set vector.buffer.maxSizeBytes=1024" \
-		"--set replicaCount=3" ; do \
+		"--set replicaCount=3 --set purl.redis.enabled=true --set purl.redis.url=redis://r:6379" ; do \
 		ERR=$$(helm template purl chart/ $(AUTOGEN) $$guard 2>&1 >/dev/null) && { \
 			echo "  FAIL: guard did not fire for: $$guard"; exit 1; \
 		} || true; \

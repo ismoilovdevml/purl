@@ -65,6 +65,16 @@ services:
     environment:
       - CLICKHOUSE_DB=purl
       - CLICKHOUSE_USER=default
+      # MANDATORY, not optional hardening. The image entrypoint replaces the
+      # `default` user wholesale (users.d/default-user.xml, remove="remove")
+      # with one built from these variables, so the password in
+      # docker/clickhouse/users.xml never applied to it. Left unset, that
+      # generated user gets an EMPTY password plus <ip>::/0</ip> and
+      # access_management=1 — and the ports below are published on the host,
+      # so anyone who can reach 8123/9000 is a ClickHouse superuser.
+      # Verified against clickhouse-server 25.11: `curl
+      # 'http://HOST:8123/?user=default&password=' -d 'SELECT 1'` succeeded.
+      - CLICKHOUSE_PASSWORD=${PURL_CLICKHOUSE_PASSWORD:-purl_password}
       - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
     volumes:
       - clickhouse_data:/var/lib/clickhouse

@@ -1,4 +1,26 @@
 {{- /*
+Guard: live tail across POD boundaries needs Redis.
+
+Without purl.redis, the broadcast backend is Purl::Broadcast::Prefork, which
+carries messages between the prefork workers of one container through an
+append-only spool FILE. A file reaches only the workers that share a
+filesystem, so with a second pod the WebSocket lands on one pod and sees just
+that pod's slice of the ingest. Nothing errors, nothing reconnects, no metric
+moves — the user simply gets a fraction of their logs. Fail the render instead
+of shipping a silently half-working feature.
+
+autoscaling.maxReplicas counts: an HPA that CAN reach 2 pods breaks tail the
+moment it does, and that scale-up is exactly when nobody is watching.
+*/ -}}
+{{- $tailReplicas := int (include "purl.replicaCount" .) }}
+{{- if .Values.autoscaling.enabled }}
+{{- $tailReplicas = max $tailReplicas (int .Values.autoscaling.maxReplicas) }}
+{{- end }}
+{{- if and (gt $tailReplicas 1) (not (and .Values.purl.redis.enabled .Values.purl.redis.url)) }}
+{{- fail (printf "%d Purl replicas without Redis: live tail would silently break. The single-pod broadcast backend is a spool FILE on the config volume, so a tail session only receives what the pod holding the WebSocket ingested — the other pods' logs never arrive and nothing reports an error. Either set purl.redis.enabled=true with purl.redis.url (also makes the Prometheus counters fleet-wide), or keep replicaCount=1 with autoscaling.enabled=false. PURL_WORKERS inside one pod is unaffected — the spool covers those." $tailReplicas) }}
+{{- end }}
+
+{{- /*
 Guard: a ReadWriteOnce config PVC can only be attached to one node, so a
 second Purl pod either lands on the same node by luck or hangs forever with
 "Multi-Attach error for volume". Fail at render time rather than at 3am.
@@ -174,11 +196,23 @@ spec:
             - name: config
               mountPath: /app/config
             {{- end }}
+            {{- if .Values.purl.broadcastSpool.emptyDir }}
+            # Live-tail spool only. Pod-local on purpose: the spool is a
+            # transport, not state, and keeping it off the config PVC keeps
+            # per-batch appends away from a volume sized for a few JSON files.
+            - name: broadcast-spool
+              mountPath: /app/spool
+            {{- end }}
       volumes:
         {{- if .Values.config.volume.enabled }}
         - name: config
           persistentVolumeClaim:
             claimName: {{ include "purl.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.purl.broadcastSpool.emptyDir }}
+        - name: broadcast-spool
+          emptyDir:
+            sizeLimit: {{ .Values.purl.broadcastSpool.sizeLimit }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

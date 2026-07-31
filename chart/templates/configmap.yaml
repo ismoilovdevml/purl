@@ -34,6 +34,28 @@ data:
   {{- if and .Values.purl.redis.enabled .Values.purl.redis.url }}
   PURL_REDIS_URL: {{ .Values.purl.redis.url | quote }}
   {{- end }}
+  {{- /*
+    Where Purl::Broadcast::Prefork keeps the cross-worker live-tail spool when
+    Redis is not configured. Only emitted when the operator moved it off the
+    config volume — otherwise the app default (<config dir>/live-tail.spool)
+    applies and there is nothing to pin here.
+  */}}
+  {{- $spoolPath := .Values.purl.broadcastSpool.path }}
+  {{- if and (not $spoolPath) .Values.purl.broadcastSpool.emptyDir }}
+  {{- $spoolPath = "/app/spool/live-tail.spool" }}
+  {{- end }}
+  {{- with $spoolPath }}
+  PURL_BROADCAST_SPOOL: {{ . | quote }}
+  {{- end }}
+  {{- /*
+    Telegram forum topic id (message_thread_id). Deliberately NOT in the
+    Secret: it is a routing hint, not a credential, and keeping it here means
+    it survives purl.existingSecret installs where the chart templates no
+    telegram values at all.
+  */}}
+  {{- with .Values.purl.telegram.threadId }}
+  PURL_TELEGRAM_THREAD_ID: {{ . | quote }}
+  {{- end }}
   {{- with .Values.purl.backupQueryTimeout }}
   PURL_BACKUP_QUERY_TIMEOUT: {{ . | quote }}
   {{- end }}

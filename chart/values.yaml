@@ -1,4 +1,12 @@
-# -- Number of Purl replicas
+# -- Number of Purl replicas.
+#
+# MORE THAN ONE REQUIRES REDIS. Live tail is delivered between prefork workers
+# through an append-only spool FILE on the config volume
+# (Purl::Broadcast::Prefork), and a file only reaches workers that share a
+# filesystem. With a second pod a tail session is served by whichever pod the
+# WebSocket happened to land on and shows only that pod's slice of the ingest —
+# no error, no reconnect, just missing lines. Set purl.redis.enabled=true and
+# purl.redis.url; templates/deployment.yaml refuses to render otherwise.
 replicaCount: 1
 
 image:
@@ -56,6 +64,14 @@ securityContext:
   runAsGroup: 1000
   # Purl writes settings.json / users / license under /app/config and
   # scratch files under /app/data, so the root filesystem stays writable.
+  #
+  # Do NOT set this to true unless /app/config is a writable VOLUME
+  # (config.volume.enabled=true, or purl.broadcastSpool.emptyDir=true for the
+  # spool alone). /app/config also holds the live-tail spool file: when it is
+  # not writable Purl does not fail, it logs ONE
+  # "Broadcast::Prefork: spool disabled, live tail is worker-local" warning and
+  # from then on a tail session only shows logs that happened to be ingested by
+  # the same prefork worker.
   readOnlyRootFilesystem: false
   allowPrivilegeEscalation: false
   capabilities:
@@ -146,6 +162,10 @@ purl:
   # Optional, as applicable: PURL_LICENSE_KEY, PURL_TELEGRAM_BOT_TOKEN,
   # PURL_TELEGRAM_CHAT_ID, PURL_SLACK_WEBHOOK_URL, PURL_SLACK_CHANNEL,
   # PURL_ALERT_WEBHOOK_URL, PURL_ALERT_WEBHOOK_TOKEN.
+  # NOT here: PURL_TELEGRAM_THREAD_ID. A forum topic id is not a credential,
+  # so purl.telegram.threadId goes to the ConfigMap and keeps working with
+  # existingSecret set. (Putting it in the Secret anyway also works — envFrom
+  # lists the Secret after the ConfigMap, so it wins.)
   existingSecret: ""
 
   # -- Confirm that the Secret named by purl.existingSecret really contains
@@ -163,6 +183,12 @@ purl:
     botToken: ""
     # -- Telegram chat ID for alerts
     chatId: ""
+    # -- Forum topic (message_thread_id) to post alerts into, for chats with
+    # Topics enabled. Empty = the group's General topic. A positive integer.
+    #
+    # NOT a credential: it is rendered into the ConfigMap, not the Secret, so
+    # unlike botToken/chatId it still applies when purl.existingSecret is set.
+    threadId: ""
 
   # -- Slack alerting
   slack:
@@ -191,9 +217,35 @@ purl:
     # -- Enable Redis Pub/Sub for multi-replica WebSocket support and
     # cross-worker metric counters. Requires redis.url — the chart does not
     # deploy Redis.
+    #
+    # MANDATORY once there is more than one Purl pod (replicaCount > 1,
+    # autoscaling.minReplicas > 1, or an HPA that can scale to
+    # autoscaling.maxReplicas > 1). Without it the fallback backend is a spool
+    # FILE shared only between the prefork workers of ONE container, so live
+    # tail degrades to "whatever this pod ingested" with no visible error.
+    # templates/deployment.yaml fails the render rather than ship that.
     enabled: false
     # -- External Redis URL (e.g., redis://redis:6379)
     url: ""
+
+  # -- Live-tail spool (single-pod fallback backend, Purl::Broadcast::Prefork).
+  # Ignored when purl.redis is configured — Redis replaces the spool entirely.
+  broadcastSpool:
+    # -- Put the spool on a pod-local emptyDir mounted at /app/spool instead of
+    # leaving it next to settings.json on the config volume. On a high-ingest
+    # deployment every tailed batch is an append, and that write amplification
+    # lands on the config PVC (which exists for a handful of small JSON files)
+    # for no durability benefit — the spool is worthless across a restart.
+    emptyDir: false
+    # -- Size cap for that emptyDir. The spool is truncated as it drains, so
+    # this only has to absorb a burst; it exists so a stuck reader cannot fill
+    # the node's ephemeral storage.
+    sizeLimit: 64Mi
+    # -- Explicit PURL_BROADCAST_SPOOL path. Empty = the app default
+    # (<config dir>/live-tail.spool), or /app/spool/live-tail.spool when
+    # emptyDir=true above. Set this only to point at a volume you mounted
+    # yourself; the directory must exist and be writable by uid 1000.
+    path: ""
 
   # -- max_execution_time (seconds) for backup export/import queries.
   # The default 1h is not enough for a large table on slow storage; a backup

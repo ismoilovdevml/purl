@@ -105,6 +105,18 @@ covers ClickHouse only. After a restore you would have the logs back and no
 way to log in.
 {{- end }}
 
+{{- if and (dig "readOnlyRootFilesystem" false (default dict .Values.securityContext)) (not .Values.config.volume.enabled) (not (and .Values.purl.redis.enabled .Values.purl.redis.url)) }}
+
+WARNING: securityContext.readOnlyRootFilesystem=true with
+config.volume.enabled=false leaves /app/config UNWRITABLE. Besides losing
+dashboard logins, the live-tail spool cannot be created: Purl logs one
+  Broadcast::Prefork: spool disabled, live tail is worker-local
+and from then on a tail session shows only the logs that this pod's own prefork
+worker happened to ingest — roughly 1/PURL_WORKERS of them, with no error in
+the UI. Give it a writable path: config.volume.enabled=true, or
+purl.broadcastSpool.emptyDir=true for the spool alone.
+{{- end }}
+
 {{- if and .Values.metrics.serviceMonitor.enabled (not (and .Values.purl.redis.enabled .Values.purl.redis.url)) }}
 
 NOTE: Prometheus scraping is on but purl.redis.url is not set, so the request
