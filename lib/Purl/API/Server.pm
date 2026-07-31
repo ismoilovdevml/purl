@@ -387,6 +387,18 @@ sub setup_routes {
 
     $settings //= Purl::Config->new();
 
+    # One-time cleanup (#52) of the ENV values older builds copied into
+    # settings.json. Here, in the manager before any worker forks, so it runs
+    # exactly once per start and every worker inherits the pruned file. It is
+    # idempotent — after the first start it finds nothing and does not write.
+    #
+    # eval'd because a read-only config volume must not stop the server from
+    # booting: failing to tidy a duplicate is not worth an outage.
+    eval { $settings->prune_env_duplicates() };
+    if ($@) {
+        app->log->warn("Config: env-duplicate cleanup skipped: $@");
+    }
+
     # Fold the fully-resolved config (ENV > file > defaults) for the
     # `pipeline` and `server` sections into the plain $config hashref that
     # is handed to controllers below (%c_args). In production the server is

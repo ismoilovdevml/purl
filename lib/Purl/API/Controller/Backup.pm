@@ -278,11 +278,24 @@ sub update_s3_config {
 
         my $body = eval { decode_json($c->req->body) } // {};
 
+        # s3_access_key/s3_secret_key are write-only: get_s3_config reports a
+        # single has_credentials flag and never the values, so the inputs post
+        # back empty and empty means "untouched". Rotating a key therefore needs
+        # an explicit clear_s3_access_key / clear_s3_secret_key — see
+        # take_clear_requests. Runs before the ENV guard so the instructions are
+        # never weighed as proposed values.
+        my $clear = $self->take_clear_requests($c, 'backup', $body) or return;
+
         # Same story as update_schedule: PURL_BACKUP_S3_ENABLED was the only
         # thing checked, so an edit to a bucket/region/prefix/endpoint pinned by
         # its own env var — or to credentials pinned by AWS_ACCESS_KEY_ID /
         # AWS_SECRET_ACCESS_KEY — reported success and changed nothing.
         return if $self->reject_env_managed($c, 'backup', $body);
+
+        # Erase before the ordinary writes: set() already treats a blank
+        # write-only value as "not filled in" and skips it, so once the stored
+        # credential is gone nothing puts it back.
+        $self->settings->clear_secrets('backup', @$clear);
 
         for my $key (qw(s3_enabled s3_bucket s3_region s3_prefix s3_endpoint s3_access_key s3_secret_key)) {
             if (defined $body->{$key}) {
@@ -293,6 +306,7 @@ sub update_s3_config {
         $c->render(json => {
             status  => 'ok',
             message => 'S3 backup settings saved',
+            cleared => $clear,
         });
     });
 }

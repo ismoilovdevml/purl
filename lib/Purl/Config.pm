@@ -633,6 +633,22 @@ sub _write_only {
     return $WRITE_ONLY{"$section.$key"} ? 1 : 0;
 }
 
+# Public face of %WRITE_ONLY, for the endpoints that have to answer "may this
+# key be erased on request?" (see clear_secrets). The list is lexical on
+# purpose — one source of truth — so callers ask instead of keeping a copy.
+sub is_clearable {
+    my ($self, $section, $key) = @_;
+    return _write_only($section, $key);
+}
+
+# Public face of _is_blank. What counts as "the admin did not fill this in" is
+# the whole basis of the write-only rule, so the endpoints that need the same
+# question answered must not re-spell it.
+sub value_is_blank {
+    my ($self, $value) = @_;
+    return _is_blank($value);
+}
+
 # Does %ENV_MAP manage anything BELOW this key? True only for the nested
 # notification channels, and it is what keeps the recursive walk in
 # _writable_values off unrelated nested structures (auth.users, auth.roles).
@@ -930,6 +946,164 @@ sub _same_scalar {
     }
 
     return "$current" eq "$proposed";
+}
+
+# ============================================
+# Erasing and de-duplicating stored values
+# ============================================
+
+# Locate the FILE's own copy of "section" + a possibly dotted key: the hash
+# that holds the leaf, plus the leaf name. Returns the empty list when the file
+# does not carry it — which is the common case and must never autovivify, or a
+# lookup would create the very key it was asking about.
+#
+# Both the eraser and the de-duplicator below walk the same dotted names
+# %ENV_MAP uses, so they walk them through one function.
+sub _file_slot {
+    my ($self, $section, $key) = @_;
+
+    my $node = $self->_config->{$section};
+    my @path = split /\./, $key;
+    my $leaf = pop @path;
+
+    for my $step (@path) {
+        return () unless ref $node eq 'HASH' && exists $node->{$step};
+        $node = $node->{$step};
+    }
+    return () unless ref $node eq 'HASH' && exists $node->{$leaf};
+
+    return ($node, $leaf);
+}
+
+# Delete stored %WRITE_ONLY secrets, on an EXPLICIT request (#62).
+#
+# A blank submission cannot mean this. Those keys are never disclosed — their
+# GET reports a 0/1 "is it set" flag — so the input is empty on every page load
+# and empty has to mean "I did not retype it", or an unrelated save would wipe
+# a token nobody touched (#56). That left no way to say "delete it", and
+# offboarding needs one: turning a channel off (enabled => 0) leaves the token
+# on the config PVC, which is annotated resource-policy: keep and outlives even
+# `helm uninstall`.
+#
+# So deletion gets its own word — a `clear_<field>` flag on the request, mapped
+# here to the dotted key. Never a sentinel value: every string an admin could
+# type is a string some secret could legitimately be.
+#
+# Two refusals, both silent (the endpoint has already answered for them):
+#
+#   * keys that are not write-only. The MASKED secrets (ldap.bind_password,
+#     saml.sp_key, ai.api_key) come back as '********', so their UI can already
+#     distinguish "unchanged" from "clear it" and empty must keep clearing
+#     them. Giving them a second spelling would be two ways to say one thing.
+#   * keys the environment owns. The value in effect comes from ENV on every
+#     read, so removing the file's copy would delete the fallback and change
+#     nothing that is actually in force.
+#
+# Callers run this BEFORE their ordinary save. That ordering is what makes the
+# result stick without touching the write path: with the file's copy already
+# gone, _writable_values sees no value to restore for the blank field and drops
+# it, instead of putting the secret back.
+#
+# Returns the keys actually removed (empty when there was nothing to remove —
+# clearing twice is a no-op, not an error), or undef if the save failed.
+sub clear_secrets {
+    my ($self, $section, @keys) = @_;
+
+    my @targets = grep { _write_only($section, $_) && !$self->is_from_env($section, $_) }
+                  @keys;
+    return [] unless @targets;
+
+    my @cleared;
+    my $ok = $self->_with_lock(sub {
+        for my $key (@targets) {
+            my ($node, $leaf) = $self->_file_slot($section, $key) or next;
+            delete $node->{$leaf};
+            push @cleared, $key;
+        }
+        return 1 unless @cleared;
+        return $self->save();
+    });
+
+    return $ok ? \@cleared : undef;
+}
+
+# Which file values are a verbatim copy of what the environment supplies right
+# now. Scanned twice — once cheaply outside the lock, once for real inside it —
+# so the scan is one function.
+sub _env_duplicate_keys {
+    my ($self) = @_;
+
+    my @dupes;
+    for my $full_key (sort keys %ENV_MAP) {
+        my ($section, $key) = split /\./, $full_key, 2;
+        next unless $self->is_from_env($section, $key);
+
+        my ($node, $leaf) = $self->_file_slot($section, $key) or next;
+        my $stored = $node->{$leaf};
+
+        # A structure can never equal an ENV string, and anything that merely
+        # LOOKS equal ('true' vs 1) is not what the old write path produced —
+        # it copied the environment's own string. Exact match keeps this
+        # narrow, which is the point.
+        next unless defined $stored && !ref $stored;
+        next unless "$stored" eq $ENV{ $ENV_MAP{$full_key} };
+
+        push @dupes, $full_key;
+    }
+
+    return \@dupes;
+}
+
+# One-time cleanup of the ENV values older builds baked into settings.json (#52).
+#
+# Until #45/#59 a section write persisted the MERGED section, so any edit
+# copied the environment's values for the other keys onto disk. That path is
+# closed; what it already wrote is not. The damage is ongoing:
+#
+#   a. the Kubernetes Secret sits in plaintext on the config PVC, and that PVC
+#      is annotated resource-policy: keep — `helm uninstall` leaves it behind;
+#   b. ENV wins on read, so an edit to such a key reports success and does
+#      nothing, and the stale copy silently takes over the day the variable is
+#      removed.
+#
+# Deliberately narrow: a file value is removed ONLY when it is byte-identical
+# to what the environment supplies. A DIFFERENT value is the operator's own
+# fallback — the one that applies once the variable comes off — and deleting it
+# is how "unset PURL_TELEGRAM_CHAT_ID" becomes alerts that stop without a word.
+# That fallback is exactly what _writable_values exists to protect.
+#
+# Idempotent: the second run finds nothing and does not rewrite the file. The
+# log names the KEYS and never the values — writing a secret to stdout to
+# announce that it was removed from disk would defeat the whole exercise.
+sub prune_env_duplicates {
+    my ($self) = @_;
+
+    # Cheap pre-check outside the lock. On every startup after the first there
+    # is nothing to do, and taking the lock creates the sidecar file for a
+    # guaranteed no-op.
+    return [] unless @{ $self->_env_duplicate_keys };
+
+    my @removed;
+    my $ok = $self->_with_lock(sub {
+        # Re-scan under the lock: the file we are about to edit is whatever
+        # _with_lock just reloaded, not the copy the pre-check saw.
+        for my $full_key (@{ $self->_env_duplicate_keys }) {
+            my ($section, $key) = split /\./, $full_key, 2;
+            my ($node, $leaf) = $self->_file_slot($section, $key) or next;
+            delete $node->{$leaf};
+            push @removed, $full_key;
+        }
+        return 1 unless @removed;
+        return $self->save();
+    });
+
+    if (@removed) {
+        warn sprintf(
+            "Purl::Config: removed %d environment-duplicated value(s) from %s: %s\n",
+            scalar @removed, $self->config_file, join(', ', @removed));
+    }
+
+    return $ok ? \@removed : undef;
 }
 
 # ============================================

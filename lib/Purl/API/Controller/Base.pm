@@ -260,6 +260,97 @@ sub reject_env_managed {
     return 1;
 }
 
+# Take the explicit "erase this stored secret" instructions off a request body
+# (#62), and answer for them if they are not honourable.
+#
+# A %WRITE_ONLY secret is never disclosed by its GET, so its input renders
+# empty on every page load and an empty submission has to mean "I did not
+# retype it" — otherwise an unrelated save wipes a token nobody touched (#56).
+# The cost was that nothing meant "delete it", and offboarding needs that:
+# revoking a Telegram bot or rotating an S3 key has to remove the value, not
+# merely stop using it.
+#
+# The instruction is therefore a separate FIELD, never a sentinel value:
+#
+#     { "bot_token": "", "clear_bot_token": true }
+#
+# Any string an admin could type is a string some secret could legitimately be,
+# so a magic value ("", null, "-") would be indistinguishable from a real one.
+#
+# $prefix addresses the nested notification channels by the dotted name
+# %ENV_MAP and %WRITE_ONLY use ('telegram.' + 'bot_token'). The clear_* fields
+# are REMOVED from $body, so they can never be written to settings.json as
+# config keys of their own.
+#
+# Returns an arrayref of section-relative keys to erase — possibly empty, which
+# is true, so `... or return` is the correct caller idiom. Returns undef after
+# rendering, and then the caller MUST stop:
+#
+#   400  the field is not a write-only secret. The MASKED secrets
+#        (ldap.bind_password, saml.sp_key, ai.api_key) come back as '********',
+#        so empty already clears them and a second spelling would be a second
+#        way to say one thing. A typo lands here too, instead of silently
+#        doing nothing.
+#   400  a clear flag AND a retyped value for the same field. Contradictory
+#        instructions get an answer, not a guess about which one wins.
+#   409  the environment owns the key — same shape reject_env_managed renders,
+#        so the UI handles both identically. ENV wins on every read, so erasing
+#        the file's copy would delete the fallback and change nothing in force.
+sub take_clear_requests {
+    my ($self, $c, $section, $body, %opt) = @_;
+
+    my $settings = $self->settings;
+    return [] unless $settings && ref $body eq 'HASH';
+
+    my $prefix = $opt{prefix} // '';
+
+    my (@clear, @not_clearable, @from_env, @conflicting);
+    for my $field (sort keys %$body) {
+        next unless $field =~ /\Aclear_(.+)\z/;
+        my $target = $1;
+
+        # Off the body first and unconditionally: even a refused request must
+        # not leave the instruction behind to be persisted as a config key.
+        my $wanted = delete $body->{$field};
+
+        my $key = "$prefix$target";
+        next unless $wanted;
+
+        if (!$settings->is_clearable($section, $key)) {
+            push @not_clearable, $key;
+        }
+        elsif (exists $body->{$target} && !$settings->value_is_blank($body->{$target})) {
+            push @conflicting, $target;
+        }
+        elsif ($settings->is_from_env($section, $key)) {
+            push @from_env, $key;
+        }
+        else {
+            push @clear, $key;
+        }
+    }
+
+    if (@not_clearable) {
+        $self->render_error($c,
+            'Not a clearable secret: ' . join(', ', @not_clearable), 400);
+        return undef;
+    }
+    if (@conflicting) {
+        $self->render_error($c,
+            'Cannot clear and set the same field: ' . join(', ', @conflicting), 400);
+        return undef;
+    }
+    if (@from_env) {
+        $c->render(json => {
+            error    => 'Cannot modify ENV-configured values: ' . join(', ', @from_env),
+            from_env => \@from_env,
+        }, status => 409);
+        return undef;
+    }
+
+    return \@clear;
+}
+
 # The read-side counterpart: { key => 0|1 } for every key of $section that
 # %ENV_MAP can manage, so the UI can disable exactly the fields it cannot
 # change.

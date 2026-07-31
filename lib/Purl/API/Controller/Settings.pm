@@ -103,6 +103,12 @@ sub get_all {
                 webhook => {
                     enabled  => $self->settings->get_nested('notifications', 'webhook', 'enabled') // 0,
                     url_set  => $self->settings->get_nested('notifications', 'webhook', 'url') ? 1 : 0,
+                    # auth_token is write-only like the rest, but it was the one
+                    # such key with no is-set flag — so the UI could not tell
+                    # "no token" from "token it may not see", and could not
+                    # honestly offer to remove it even though the endpoint
+                    # accepts clear_auth_token.
+                    auth_token_set => $self->settings->get_nested('notifications', 'webhook', 'auth_token') ? 1 : 0,
                     from_env => $ENV{PURL_ALERT_WEBHOOK_URL} ? 1 : 0,
                 },
                 # Per-key truth, keyed by the dotted name (telegram.chat_id,
@@ -130,7 +136,17 @@ sub update_clickhouse {
             return;
         }
 
+        # Before the ENV guard, because it strips the clear_* fields off $body:
+        # they are instructions, not proposed values, and must not be weighed as
+        # edits or written to settings.json as config keys.
+        my $clear = $self->take_clear_requests($c, 'clickhouse', $body) or return;
+
         return if $self->reject_env_managed($c, 'clickhouse', $body);
+
+        # Erase first, then save. With the stored value already gone,
+        # _writable_values has nothing to restore for the blank password field
+        # and drops it — so the ordinary write path needs no special case.
+        $self->settings->clear_secrets('clickhouse', @$clear);
 
         # Update settings
         my $current = $self->settings->get_section('clickhouse');
@@ -145,6 +161,7 @@ sub update_clickhouse {
             $c->render(json => {
                 status  => 'ok',
                 message => 'ClickHouse settings updated. Restart may be required for full effect.',
+                cleared => $clear,
             });
         } else {
             $self->render_error($c, 'Failed to save settings', 500);
@@ -177,6 +194,13 @@ sub update_notifications {
             return;
         }
 
+        # Channel fields are nested one level deeper, so a clear instruction is
+        # addressed by the same dotted name (`clear_bot_token` -> the key
+        # 'telegram.bot_token'). Runs first so the clear_* fields never reach
+        # the guard as proposed values, nor the file as config keys.
+        my $clear = $self->take_clear_requests($c, 'notifications', $body,
+            prefix => "$type.") or return;
+
         # Notification keys are nested one level deeper, so they are addressed
         # by their dotted name — the same form %ENV_MAP uses. The hardcoded
         # check this replaces only knew about the bot_token / webhook_url of
@@ -195,6 +219,12 @@ sub update_notifications {
         #
         # update_section (not set_section) because it re-reads under the lock:
         # a concurrent save to another channel is no longer lost.
+        #
+        # Erase first — see update_clickhouse. Once the stored secret is gone
+        # there is nothing for _writable_values to restore behind the blank
+        # field the UI always posts.
+        $self->settings->clear_secrets('notifications', @$clear);
+
         my $saved = $self->settings->update_section('notifications', sub {
             my ($current) = @_;
             $current->{$type} = { %$body };
@@ -208,6 +238,7 @@ sub update_notifications {
             $c->render(json => {
                 status  => 'ok',
                 message => ucfirst($type) . ' notification settings updated.',
+                cleared => $clear,
             });
         } else {
             $self->render_error($c, 'Failed to save settings', 500);
