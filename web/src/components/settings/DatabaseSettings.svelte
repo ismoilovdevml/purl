@@ -12,9 +12,12 @@
   import Card from '../ui/Card.svelte';
   import Badge from '../ui/Badge.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
+  import ClearSecretToggle from '../ui/ClearSecretToggle.svelte';
+  import ClearSecretConfirm from '../ui/ClearSecretConfirm.svelte';
   import { formatBytes, formatNumber, formatRelativeTime } from '../../utils/format.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
+  import { clearFlags, describeCleared } from '../../utils/clearSecret.js';
   import Icon from '../ui/Icon.svelte';
   import { check, xCircle } from '../ui/icons.js';
 
@@ -34,6 +37,17 @@
   let dbMessage = null;
   let testingDb = false;
   let dbTestResult = null;
+
+  /*
+   * The password is write-only: GET /settings reports password_set, never the
+   * value, so posting an empty field means "keep it". Erasing the stored one
+   * needs the explicit clear_password instruction — see utils/clearSecret.js.
+   */
+  let clearPassword = false;
+  let clearRequest = null;
+
+  $: passwordStored = !!serverSettings?.clickhouse?.password_set?.value;
+  $: passwordFromEnv = !!serverSettings?.clickhouse?.password_set?.from_env;
 
   // Retention
   let retentionDays = 30;
@@ -56,6 +70,7 @@
       dbForm.database = serverSettings.clickhouse?.database?.value || 'purl';
       dbForm.user = serverSettings.clickhouse?.user?.value || 'default';
       dbForm.password = '';
+      clearPassword = false;
 
       retentionDays = serverSettings.retention?.days?.value || 30;
     } catch {
@@ -73,16 +88,40 @@
     }
   }
 
+  /** Save, but let the user confirm first when it would erase the password. */
+  function requestSaveDb() {
+    if (clearPassword) {
+      clearRequest = { keys: ['password'], run: saveDbSettings };
+      return;
+    }
+    saveDbSettings();
+  }
+
   async function saveDbSettings() {
     savingDb = true;
     dbMessage = null;
 
+    // Snapshot: fetchServerSettings() below disarms the checkbox, and the
+    // success text must still describe what this request did.
+    const clearing = clearPassword;
+
     try {
-      const data = await api.put('/settings/clickhouse', dbForm);
-      dbMessage = { success: true, text: data.message };
-      toastSuccess('Database settings saved');
+      // Blank alongside the flag on purpose — clear_password with a non-blank
+      // password is a 400 ("Cannot clear and set the same field"). The input
+      // is disabled while armed, so this only restates what the UI enforces.
+      const payload = { ...dbForm, ...clearFlags({ password: clearing }) };
+      if (clearing) payload.password = '';
+
+      const data = await api.put('/settings/clickhouse', payload);
+      const cleared = describeCleared(data.cleared);
+
+      dbMessage = { success: true, text: cleared ? `${data.message} — ${cleared}` : data.message };
+      toastSuccess(cleared || 'Database settings saved');
       fetchServerSettings();
     } catch (err) {
+      // Covers the clear-specific 400s ("Not a clearable secret", "Cannot
+      // clear and set the same field") and the 409 env guard: api.js lifts the
+      // server's `error` into err.message, so none of them are swallowed.
       dbMessage = { success: false, text: err.message };
       toastError('Failed to save database settings: ' + err.message);
     } finally {
@@ -176,9 +215,17 @@
             label="Password"
             type="password"
             bind:value={dbForm.password}
-            placeholder={serverSettings?.clickhouse?.password_set?.value ? '********' : 'Enter password'}
-            helper={serverSettings?.clickhouse?.password_set?.value && !dbForm.password ? 'Password is already set. Leave empty to keep current.' : ''}
+            placeholder={clearPassword ? 'Will be removed on save' : (passwordStored ? '********' : 'Enter password')}
+            helper={passwordStored && !dbForm.password && !clearPassword ? 'Password is already set. Leave empty to keep current.' : ''}
+            envLocked={passwordFromEnv}
+            disabled={clearPassword}
             fullWidth
+          />
+          <ClearSecretToggle
+            secret="password"
+            stored={passwordStored}
+            envLocked={passwordFromEnv}
+            bind:armed={clearPassword}
           />
         </div>
       </div>
@@ -187,7 +234,7 @@
         <Button variant="default" on:click={testDbConnection} loading={testingDb}>
           {testingDb ? 'Testing...' : 'Test Connection'}
         </Button>
-        <Button variant="success" on:click={saveDbSettings} loading={savingDb}>
+        <Button variant="success" on:click={requestSaveDb} loading={savingDb}>
           {savingDb ? 'Saving...' : 'Save Settings'}
         </Button>
       </div>
@@ -270,6 +317,8 @@
   {/if}
 </section>
 
+<ClearSecretConfirm bind:request={clearRequest} />
+
 <style>
   .settings-section {
     max-width: 800px;
@@ -318,6 +367,9 @@
 
   .full-width {
     grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
   }
 
   .form-actions {

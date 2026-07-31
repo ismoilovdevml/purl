@@ -13,9 +13,12 @@
   import Badge from '../ui/Badge.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import EnvBadge from '../ui/EnvBadge.svelte';
+  import ClearSecretToggle from '../ui/ClearSecretToggle.svelte';
+  import ClearSecretConfirm from '../ui/ClearSecretConfirm.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import { isEnvLocked } from '../../utils/envLock.js';
+  import { clearFlags, describeCleared } from '../../utils/clearSecret.js';
   import Icon from '../ui/Icon.svelte';
   import { telegram, slack, link } from '../ui/icons.js';
 
@@ -39,6 +42,41 @@
    */
   $: envKeys = serverSettings?.notifications?.from_env_keys;
 
+  /*
+   * The write-only secrets of each channel, and how GET /settings reports that
+   * one is STORED. The flag names do not follow the field names (the server
+   * answers `bot_token: 0|1` for telegram but `webhook_set` for slack), and a
+   * secret nobody saved has nothing to remove — so the removal control is
+   * driven by this lookup, not by the field list.
+   *
+   * webhook.auth_token is deliberately here with no flag: the endpoint accepts
+   * clear_auth_token, but GET reports no auth_token_set, so its control stays
+   * hidden until the backend ships one. Wrong-but-visible would mean offering
+   * to delete a secret that may not exist.
+   */
+  const CHANNEL_SECRETS = {
+    telegram: ['bot_token', 'chat_id'],
+    slack: ['webhook_url'],
+    webhook: ['url', 'auth_token'],
+  };
+
+  function storedSecretsFrom(settings) {
+    const n = settings?.notifications;
+    return {
+      'telegram.bot_token': !!n?.telegram?.bot_token,
+      'telegram.chat_id': !!n?.telegram?.chat_id,
+      'slack.webhook_url': !!n?.slack?.webhook_set,
+      'webhook.url': !!n?.webhook?.url_set,
+      'webhook.auth_token': !!n?.webhook?.auth_token_set,
+    };
+  }
+
+  $: storedSecrets = storedSecretsFrom(serverSettings);
+
+  /** Armed removals, keyed the same way: { 'telegram.bot_token': true }. */
+  let clearing = {};
+  let clearRequest = null;
+
   let savingNotification = null;
   let notificationMessage = {};
   let testingNotification = null;
@@ -48,8 +86,13 @@
     fetchServerSettings();
   });
 
-  async function fetchServerSettings() {
-    loadingSettings = true;
+  /**
+   * @param {boolean} showSpinner false for the refetch after a save: the
+   *   panel is already on screen and replacing it with a spinner collapses the
+   *   open channel the user is working in.
+   */
+  async function fetchServerSettings(showSpinner = true) {
+    if (showSpinner) loadingSettings = true;
     try {
       serverSettings = await api.get('/settings');
     } catch {
@@ -74,18 +117,57 @@
       if (isEnvLocked(envKeys, `${type}.${key}`)) continue;
       out[key] = value;
     }
-    return out;
+
+    // Blank every field being erased: clear_x together with a non-blank x is a
+    // 400. The inputs are disabled while armed, so this only restates the rule.
+    const armed = pendingClears(type);
+    for (const key of armed) out[key.split('.').pop()] = '';
+
+    return { ...out, ...clearFlags(armed) };
+  }
+
+  /** Secrets of this channel the user armed for removal. */
+  function pendingClears(type) {
+    return CHANNEL_SECRETS[type]
+      .map((field) => `${type}.${field}`)
+      .filter((key) => clearing[key]);
+  }
+
+  /** Save, but let the user confirm first when it would erase a secret. */
+  function requestSaveNotification(type) {
+    const armed = pendingClears(type);
+    if (armed.length) {
+      clearRequest = { keys: armed, run: () => saveNotification(type) };
+      return;
+    }
+    saveNotification(type);
   }
 
   async function saveNotification(type) {
     savingNotification = type;
     notificationMessage[type] = null;
 
+    const label = type.charAt(0).toUpperCase() + type.slice(1);
+
     try {
       const data = await api.put(`/settings/notifications/${type}`, payloadFor(type));
-      notificationMessage[type] = { success: true, text: data.message };
-      toastSuccess(`${type.charAt(0).toUpperCase() + type.slice(1)} settings saved`);
+      const cleared = describeCleared(data.cleared);
+
+      notificationMessage[type] = {
+        success: true,
+        text: cleared ? `${data.message} — ${cleared}` : data.message,
+      };
+      toastSuccess(cleared || `${label} settings saved`);
+
+      // Disarm and forget the typed values, then re-read: the *_set flags the
+      // removal control depends on only change server-side.
+      for (const key of pendingClears(type)) clearing[key] = false;
+      for (const field of CHANNEL_SECRETS[type]) notifications[type][field] = '';
+      await fetchServerSettings(false);
     } catch (err) {
+      // Includes the clear-specific 400s ("Not a clearable secret", "Cannot
+      // clear and set the same field") and the 409 env guard — api.js lifts the
+      // server's `error` into err.message, so nothing is swallowed silently.
       notificationMessage[type] = { success: false, text: err.message };
       toastError(`Failed to save ${type} settings: ${err.message}`);
     } finally {
@@ -153,10 +235,19 @@
         <Input
           type="password"
           bind:value={notifications.telegram.bot_token}
-          placeholder="123456:ABC-DEF..."
-          disabled={serverSettings?.notifications?.telegram?.from_env || isEnvLocked(envKeys, 'telegram.bot_token')}
+          placeholder={clearing['telegram.bot_token'] ? 'Will be removed on save' : '123456:ABC-DEF...'}
+          disabled={serverSettings?.notifications?.telegram?.from_env || isEnvLocked(envKeys, 'telegram.bot_token') || clearing['telegram.bot_token']}
           fullWidth
         />
+        <div class="clear-slot">
+          <ClearSecretToggle
+            secret="telegram.bot_token"
+            stored={storedSecrets['telegram.bot_token']}
+            envLocked={isEnvLocked(envKeys, 'telegram.bot_token')}
+            disabled={serverSettings?.notifications?.telegram?.from_env}
+            bind:armed={clearing['telegram.bot_token']}
+          />
+        </div>
       </div>
       <div class="form-row">
         <span class="form-label">
@@ -165,10 +256,19 @@
         </span>
         <Input
           bind:value={notifications.telegram.chat_id}
-          placeholder="-1001234567890"
-          disabled={serverSettings?.notifications?.telegram?.from_env || isEnvLocked(envKeys, 'telegram.chat_id')}
+          placeholder={clearing['telegram.chat_id'] ? 'Will be removed on save' : '-1001234567890'}
+          disabled={serverSettings?.notifications?.telegram?.from_env || isEnvLocked(envKeys, 'telegram.chat_id') || clearing['telegram.chat_id']}
           fullWidth
         />
+        <div class="clear-slot">
+          <ClearSecretToggle
+            secret="telegram.chat_id"
+            stored={storedSecrets['telegram.chat_id']}
+            envLocked={isEnvLocked(envKeys, 'telegram.chat_id')}
+            disabled={serverSettings?.notifications?.telegram?.from_env}
+            bind:armed={clearing['telegram.chat_id']}
+          />
+        </div>
       </div>
       <div class="form-row">
         <span class="form-label">Thread ID</span>
@@ -184,7 +284,7 @@
         <Button variant="default" on:click={() => testNotification('telegram')} loading={testingNotification === 'telegram'}>
           {testingNotification === 'telegram' ? 'Testing...' : 'Test'}
         </Button>
-        <Button variant="success" on:click={() => saveNotification('telegram')} loading={savingNotification === 'telegram'} disabled={serverSettings?.notifications?.telegram?.from_env}>
+        <Button variant="success" on:click={() => requestSaveNotification('telegram')} loading={savingNotification === 'telegram'} disabled={serverSettings?.notifications?.telegram?.from_env}>
           {savingNotification === 'telegram' ? 'Saving...' : 'Save'}
         </Button>
       </div>
@@ -233,10 +333,19 @@
         <Input
           type="password"
           bind:value={notifications.slack.webhook_url}
-          placeholder="https://hooks.slack.com/services/..."
-          disabled={serverSettings?.notifications?.slack?.from_env || isEnvLocked(envKeys, 'slack.webhook_url')}
+          placeholder={clearing['slack.webhook_url'] ? 'Will be removed on save' : 'https://hooks.slack.com/services/...'}
+          disabled={serverSettings?.notifications?.slack?.from_env || isEnvLocked(envKeys, 'slack.webhook_url') || clearing['slack.webhook_url']}
           fullWidth
         />
+        <div class="clear-slot">
+          <ClearSecretToggle
+            secret="slack.webhook_url"
+            stored={storedSecrets['slack.webhook_url']}
+            envLocked={isEnvLocked(envKeys, 'slack.webhook_url')}
+            disabled={serverSettings?.notifications?.slack?.from_env}
+            bind:armed={clearing['slack.webhook_url']}
+          />
+        </div>
       </div>
       <div class="form-row">
         <span class="form-label">
@@ -254,7 +363,7 @@
         <Button variant="default" on:click={() => testNotification('slack')} loading={testingNotification === 'slack'}>
           {testingNotification === 'slack' ? 'Testing...' : 'Test'}
         </Button>
-        <Button variant="success" on:click={() => saveNotification('slack')} loading={savingNotification === 'slack'} disabled={serverSettings?.notifications?.slack?.from_env}>
+        <Button variant="success" on:click={() => requestSaveNotification('slack')} loading={savingNotification === 'slack'} disabled={serverSettings?.notifications?.slack?.from_env}>
           {savingNotification === 'slack' ? 'Saving...' : 'Save'}
         </Button>
       </div>
@@ -302,10 +411,19 @@
         </span>
         <Input
           bind:value={notifications.webhook.url}
-          placeholder="https://your-server.com/webhook"
-          disabled={serverSettings?.notifications?.webhook?.from_env || isEnvLocked(envKeys, 'webhook.url')}
+          placeholder={clearing['webhook.url'] ? 'Will be removed on save' : 'https://your-server.com/webhook'}
+          disabled={serverSettings?.notifications?.webhook?.from_env || isEnvLocked(envKeys, 'webhook.url') || clearing['webhook.url']}
           fullWidth
         />
+        <div class="clear-slot">
+          <ClearSecretToggle
+            secret="webhook.url"
+            stored={storedSecrets['webhook.url']}
+            envLocked={isEnvLocked(envKeys, 'webhook.url')}
+            disabled={serverSettings?.notifications?.webhook?.from_env}
+            bind:armed={clearing['webhook.url']}
+          />
+        </div>
       </div>
       <div class="form-row">
         <span class="form-label">
@@ -315,16 +433,26 @@
         <Input
           type="password"
           bind:value={notifications.webhook.auth_token}
-          placeholder="Bearer token"
-          disabled={serverSettings?.notifications?.webhook?.from_env || isEnvLocked(envKeys, 'webhook.auth_token')}
+          placeholder={clearing['webhook.auth_token'] ? 'Will be removed on save' : 'Bearer token'}
+          disabled={serverSettings?.notifications?.webhook?.from_env || isEnvLocked(envKeys, 'webhook.auth_token') || clearing['webhook.auth_token']}
           fullWidth
         />
+        <div class="clear-slot">
+          <!-- Hidden until GET /settings reports webhook.auth_token_set. -->
+          <ClearSecretToggle
+            secret="webhook.auth_token"
+            stored={storedSecrets['webhook.auth_token']}
+            envLocked={isEnvLocked(envKeys, 'webhook.auth_token')}
+            disabled={serverSettings?.notifications?.webhook?.from_env}
+            bind:armed={clearing['webhook.auth_token']}
+          />
+        </div>
       </div>
       <div class="form-actions">
         <Button variant="default" on:click={() => testNotification('webhook')} loading={testingNotification === 'webhook'}>
           {testingNotification === 'webhook' ? 'Testing...' : 'Test'}
         </Button>
-        <Button variant="success" on:click={() => saveNotification('webhook')} loading={savingNotification === 'webhook'} disabled={serverSettings?.notifications?.webhook?.from_env}>
+        <Button variant="success" on:click={() => requestSaveNotification('webhook')} loading={savingNotification === 'webhook'} disabled={serverSettings?.notifications?.webhook?.from_env}>
           {savingNotification === 'webhook' ? 'Saving...' : 'Save'}
         </Button>
       </div>
@@ -349,6 +477,8 @@
   </Card>
   {/if}
 </section>
+
+<ClearSecretConfirm bind:request={clearRequest} />
 
 <style>
   .settings-section {
@@ -526,6 +656,18 @@
     font-size: 0.6875rem;
     color: var(--text-muted);
     margin-left: 8px;
+  }
+
+  /* Own line under the input it belongs to (.form-row wraps), aligned with the
+     input rather than with the 140px label column. */
+  .clear-slot {
+    flex-basis: 100%;
+    padding-left: 152px;
+  }
+
+  /* No stored secret => the toggle renders nothing => no blank row. */
+  .clear-slot:empty {
+    display: none;
   }
 
   .form-row {

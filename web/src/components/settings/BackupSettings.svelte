@@ -14,9 +14,12 @@
   import Toggle from '../ui/Toggle.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import EnvBadge from '../ui/EnvBadge.svelte';
+  import ClearSecretToggle from '../ui/ClearSecretToggle.svelte';
+  import ClearSecretConfirm from '../ui/ClearSecretConfirm.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import { isEnvLocked } from '../../utils/envLock.js';
+  import { clearFlags, describeCleared } from '../../utils/clearSecret.js';
 
   const API_BASE = '/api';
 
@@ -68,6 +71,19 @@
   let savingS3 = false;
   let s3AccessKey = '';
   let s3SecretKey = '';
+
+  /*
+   * Both credentials are write-only — GET /backup/s3 answers a single
+   * has_credentials flag and never the values — so an empty input means "keep
+   * what is stored". Removing one needs the explicit clear_s3_access_key /
+   * clear_s3_secret_key instruction (see utils/clearSecret.js).
+   *
+   * has_credentials gates BOTH controls because it is the only "is anything
+   * stored" signal the endpoint offers; a per-key flag would let the secret
+   * key's control appear on its own.
+   */
+  let clearingS3 = { s3_access_key: false, s3_secret_key: false };
+  let clearRequest = null;
 
   onMount(() => {
     fetchBackups();
@@ -206,6 +222,21 @@
     loadingS3 = false;
   }
 
+  /** Credentials the user armed for removal. */
+  function pendingS3Clears() {
+    return Object.keys(clearingS3).filter((key) => clearingS3[key]);
+  }
+
+  /** Save, but let the user confirm first when it would erase a credential. */
+  function requestSaveS3() {
+    const armed = pendingS3Clears();
+    if (armed.length) {
+      clearRequest = { keys: armed, run: saveS3Config };
+      return;
+    }
+    saveS3Config();
+  }
+
   async function saveS3Config() {
     savingS3 = true;
     try {
@@ -215,16 +246,27 @@
         s3_region: s3Config.region,
         s3_prefix: s3Config.prefix,
         s3_endpoint: s3Config.endpoint,
+        // Only the armed ones; a disarmed clear_* is a no-op the request has
+        // no business carrying.
+        ...clearFlags(clearingS3),
       };
-      if (s3AccessKey) payload.s3_access_key = s3AccessKey;
-      if (s3SecretKey) payload.s3_secret_key = s3SecretKey;
+      // Guarded by the inputs being disabled while armed, but restated here:
+      // clear_x with a non-blank x is a 400, not a removal.
+      if (s3AccessKey && !clearingS3.s3_access_key) payload.s3_access_key = s3AccessKey;
+      if (s3SecretKey && !clearingS3.s3_secret_key) payload.s3_secret_key = s3SecretKey;
 
-      await api.put('/backup/s3', payload);
-      toastSuccess('S3 settings saved');
+      const data = await api.put('/backup/s3', payload);
+      const cleared = describeCleared(data?.cleared);
+
+      toastSuccess(cleared || 'S3 settings saved');
       s3AccessKey = '';
       s3SecretKey = '';
+      clearingS3 = { s3_access_key: false, s3_secret_key: false };
       await fetchS3Config();
     } catch (err) {
+      // Includes the clear-specific 400s ("Not a clearable secret", "Cannot
+      // clear and set the same field") and the 409 env guard — api.js lifts the
+      // server's `error` into err.message, so nothing is swallowed silently.
       toastError('Failed to save S3 settings: ' + (err.message || 'Unknown error'));
     }
     savingS3 = false;
@@ -453,8 +495,17 @@
                 type="text"
                 class="field-input"
                 bind:value={s3AccessKey}
-                placeholder={s3Config.has_credentials ? '••••••••' : 'AKIA...'}
-                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_access_key')}
+                placeholder={clearingS3.s3_access_key ? 'Removed on save' : (s3Config.has_credentials ? '••••••••' : 'AKIA...')}
+                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_access_key') || clearingS3.s3_access_key}
+              />
+            </div>
+            <div class="field-row clear-row">
+              <ClearSecretToggle
+                secret="s3_access_key"
+                stored={s3Config.has_credentials}
+                envLocked={isEnvLocked(s3Env, 's3_access_key')}
+                disabled={s3Config.from_env}
+                bind:armed={clearingS3.s3_access_key}
               />
             </div>
             <div class="field-row">
@@ -467,8 +518,17 @@
                 type="password"
                 class="field-input field-input-wide"
                 bind:value={s3SecretKey}
-                placeholder={s3Config.has_credentials ? '••••••••' : 'Secret key'}
-                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_secret_key')}
+                placeholder={clearingS3.s3_secret_key ? 'Removed on save' : (s3Config.has_credentials ? '••••••••' : 'Secret key')}
+                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_secret_key') || clearingS3.s3_secret_key}
+              />
+            </div>
+            <div class="field-row clear-row">
+              <ClearSecretToggle
+                secret="s3_secret_key"
+                stored={s3Config.has_credentials}
+                envLocked={isEnvLocked(s3Env, 's3_secret_key')}
+                disabled={s3Config.from_env}
+                bind:armed={clearingS3.s3_secret_key}
               />
             </div>
           </div>
@@ -480,7 +540,7 @@
             size="sm"
             loading={savingS3}
             disabled={s3Config.from_env}
-            on:click={saveS3Config}
+            on:click={requestSaveS3}
           >
             Save S3 Settings
           </Button>
@@ -598,6 +658,9 @@
   </Modal>
 {/if}
 
+<!-- Second step of the guard around erasing a stored S3 credential -->
+<ClearSecretConfirm bind:request={clearRequest} />
+
 <style>
   .settings-section {
     max-width: 900px;
@@ -680,6 +743,17 @@
     color: var(--text-secondary);
     min-width: 260px;
     flex-shrink: 0;
+  }
+
+  /* Sits under the credential input it belongs to, aligned with the input
+     column rather than the 260px label column. */
+  .clear-row {
+    padding-left: 272px;
+  }
+
+  /* Nothing stored => the toggle renders nothing => no blank row. */
+  .clear-row:empty {
+    display: none;
   }
 
   .field-input {
