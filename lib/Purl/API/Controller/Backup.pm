@@ -155,6 +155,12 @@ sub get_schedule {
             interval_hours => $s ? $s->get('backup', 'schedule_interval_hours') // 24 : 24,
             retention_days => $s ? $s->get('backup', 'retention_days') // 30 : 30,
             from_env       => $ENV{PURL_BACKUP_SCHEDULE_ENABLED} ? 1 : 0,
+            # Per-key truth. The scalar `from_env` above is a single flag for
+            # the whole panel and stays for the current UI, but it only tracks
+            # PURL_BACKUP_SCHEDULE_ENABLED — so a field pinned by
+            # PURL_BACKUP_RETENTION_DAYS still renders editable and now 409s on
+            # save. This map says exactly which inputs to disable.
+            from_env_keys  => $self->env_flags('backup'),
         };
 
         $c->render(json => { schedule => $schedule });
@@ -168,12 +174,24 @@ sub update_schedule {
         return unless $self->require_feature($c, 'backup');
         return unless $self->require_role($c, 'admin');
 
-        if ($ENV{PURL_BACKUP_SCHEDULE_ENABLED}) {
-            $self->render_error($c, 'Cannot modify - configured via environment variable', 400);
-            return;
-        }
-
         my $body = eval { decode_json($c->req->body) } // {};
+
+        # The wire names differ from the config keys, so the mapping is spelled
+        # out — but WHICH of them the environment owns is not: that comes from
+        # is_from_env via %ENV_MAP. The old single check on
+        # PURL_BACKUP_SCHEDULE_ENABLED let an interval or retention edit through
+        # while PURL_BACKUP_SCHEDULE_INTERVAL_HOURS / PURL_BACKUP_RETENTION_DAYS
+        # kept winning on read — a saved value that never applied.
+        my %changes;
+        my %wire_to_key = (
+            enabled        => 'schedule_enabled',
+            interval_hours => 'schedule_interval_hours',
+            retention_days => 'retention_days',
+        );
+        for my $wire (keys %wire_to_key) {
+            $changes{ $wire_to_key{$wire} } = $body->{$wire} if defined $body->{$wire};
+        }
+        return if $self->reject_env_managed($c, 'backup', \%changes);
 
         if (defined $body->{enabled}) {
             $self->settings->set('backup', 'schedule_enabled', $body->{enabled} ? 1 : 0);
@@ -244,6 +262,7 @@ sub get_s3_config {
             endpoint        => $s ? $s->get('backup', 's3_endpoint') // '' : '',
             has_credentials => ($ENV{AWS_ACCESS_KEY_ID} || ($s && $s->get('backup', 's3_access_key'))) ? 1 : 0,
             from_env        => $ENV{PURL_BACKUP_S3_ENABLED} ? 1 : 0,
+            from_env_keys   => $self->env_flags('backup'),   # see get_schedule
         };
 
         $c->render(json => { s3 => $s3 });
@@ -257,12 +276,13 @@ sub update_s3_config {
         return unless $self->require_feature($c, 'backup');
         return unless $self->require_role($c, 'admin');
 
-        if ($ENV{PURL_BACKUP_S3_ENABLED}) {
-            $self->render_error($c, 'Cannot modify - configured via environment variable', 400);
-            return;
-        }
-
         my $body = eval { decode_json($c->req->body) } // {};
+
+        # Same story as update_schedule: PURL_BACKUP_S3_ENABLED was the only
+        # thing checked, so an edit to a bucket/region/prefix/endpoint pinned by
+        # its own env var — or to credentials pinned by AWS_ACCESS_KEY_ID /
+        # AWS_SECRET_ACCESS_KEY — reported success and changed nothing.
+        return if $self->reject_env_managed($c, 'backup', $body);
 
         for my $key (qw(s3_enabled s3_bucket s3_region s3_prefix s3_endpoint s3_access_key s3_secret_key)) {
             if (defined $body->{$key}) {

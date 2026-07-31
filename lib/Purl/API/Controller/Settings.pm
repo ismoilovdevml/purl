@@ -105,6 +105,12 @@ sub get_all {
                     url_set  => $self->settings->get_nested('notifications', 'webhook', 'url') ? 1 : 0,
                     from_env => $ENV{PURL_ALERT_WEBHOOK_URL} ? 1 : 0,
                 },
+                # Per-key truth, keyed by the dotted name (telegram.chat_id,
+                # slack.channel, webhook.auth_token, ...). The three scalar
+                # flags above only track each channel's bot_token/webhook_url,
+                # so a chat_id or channel pinned by its own env var rendered as
+                # editable. Additive: the existing flags are untouched.
+                from_env_keys => $self->env_flags('notifications'),
             },
         };
 
@@ -124,21 +130,7 @@ sub update_clickhouse {
             return;
         }
 
-        # Check which fields are from ENV (cannot modify)
-        my @from_env;
-        for my $key (qw(host port database user password)) {
-            if ($self->settings->is_from_env('clickhouse', $key) && exists $body->{$key}) {
-                push @from_env, $key;
-            }
-        }
-
-        if (@from_env) {
-            $c->render(json => {
-                error    => "Cannot modify ENV-configured values: " . join(', ', @from_env),
-                from_env => \@from_env,
-            }, status => 400);
-            return;
-        }
+        return if $self->reject_env_managed($c, 'clickhouse', $body);
 
         # Update settings
         my $current = $self->settings->get_section('clickhouse');
@@ -185,24 +177,25 @@ sub update_notifications {
             return;
         }
 
-        # Check ENV override
-        my %env_check = (
-            telegram => 'PURL_TELEGRAM_BOT_TOKEN',
-            slack    => 'PURL_SLACK_WEBHOOK_URL',
-            webhook  => 'PURL_ALERT_WEBHOOK_URL',
-        );
+        # Notification keys are nested one level deeper, so they are addressed
+        # by their dotted name — the same form %ENV_MAP uses. The hardcoded
+        # check this replaces only knew about the bot_token / webhook_url of
+        # each channel, so PURL_TELEGRAM_CHAT_ID, PURL_SLACK_CHANNEL and
+        # PURL_ALERT_WEBHOOK_TOKEN edits were reported as saved and were not.
+        my %changes = map { ("$type.$_" => $body->{$_}) } keys %$body;
+        return if $self->reject_env_managed($c, 'notifications', \%changes);
 
-        if ($ENV{$env_check{$type}}) {
-            $c->render(json => {
-                error    => "Cannot modify - configured via environment variable",
-                from_env => 1,
-            }, status => 400);
-            return;
+        # Nothing ENV owns goes to disk: set_section's stripping does not reach
+        # nested keys, so an accepted no-op edit would otherwise copy the
+        # environment's secret into settings.json in plaintext.
+        my %clean = %$body;
+        for my $key (keys %clean) {
+            delete $clean{$key} if $self->settings->is_from_env('notifications', "$type.$key");
         }
 
         # Get current notifications config
         my $notifications = $self->settings->_config->{notifications} // {};
-        $notifications->{$type} = $body;
+        $notifications->{$type} = \%clean;
 
         if ($self->settings->set_section('notifications', $notifications)) {
             # Rebuild notifiers
@@ -270,13 +263,7 @@ sub update_retention {
             return;
         }
 
-        if ($self->settings->is_from_env('retention', 'days')) {
-            $c->render(json => {
-                error    => 'Cannot modify - configured via PURL_RETENTION_DAYS',
-                from_env => 1,
-            }, status => 400);
-            return;
-        }
+        return if $self->reject_env_managed($c, 'retention', { days => $body->{days} });
 
         my $days = int($body->{days});
         if ($days < 1 || $days > 365) {
@@ -318,13 +305,7 @@ sub update_license {
             return;
         }
 
-        if ($ENV{PURL_LICENSE_KEY}) {
-            $c->render(json => {
-                error    => 'Cannot modify - configured via PURL_LICENSE_KEY',
-                from_env => 1,
-            }, status => 400);
-            return;
-        }
+        return if $self->reject_env_managed($c, 'license', { key => $body->{key} });
 
         my $key = $body->{key};
 
@@ -747,11 +728,7 @@ sub get_ldap {
 
         $c->render(json => {
             config   => $safe,
-            from_env => {
-                server        => $self->settings->is_from_env('ldap', 'server') ? 1 : 0,
-                bind_dn       => $self->settings->is_from_env('ldap', 'bind_dn') ? 1 : 0,
-                bind_password => $self->settings->is_from_env('ldap', 'bind_password') ? 1 : 0,
-            },
+            from_env => $self->env_flags('ldap'),
         });
     });
 }
@@ -768,6 +745,16 @@ sub update_ldap {
             $self->render_error($c, 'Invalid JSON', 400);
             return;
         }
+
+        # BEFORE field validation, deliberately: "this value is not yours to
+        # change" outranks "this value is malformed". Validating first tells an
+        # admin to fix a field that the environment owns and they cannot edit
+        # at all.
+        #
+        # '********' is what get_ldap hands the UI for bind_password; sending it
+        # back means "unchanged", not an attempted edit.
+        return if $self->reject_env_managed($c, 'ldap', $body,
+            unchanged_marker => '********');
 
         # Validate required fields when enabling
         if ($body->{enabled}) {
@@ -864,14 +851,9 @@ sub get_sso {
         my $safe = { %$saml };
         $safe->{sp_key} = $safe->{sp_key} ? '********' : '';
 
-        my %from_env;
-        for my $key (qw(enabled entity_id idp_entity_id idp_sso_url idp_cert acs_url sp_cert sp_key)) {
-            $from_env{$key} = $self->settings->is_from_env('saml', $key) ? 1 : 0;
-        }
-
         $c->render(json => {
             config   => $safe,
-            from_env => \%from_env,
+            from_env => $self->env_flags('saml'),
         });
     });
 }
@@ -888,6 +870,11 @@ sub update_sso {
             $self->render_error($c, 'Invalid JSON', 400);
             return;
         }
+
+        # Guard before validation — see update_ldap.
+        # '********' is what get_sso hands the UI for sp_key.
+        return if $self->reject_env_managed($c, 'saml', $body,
+            unchanged_marker => '********');
 
         # Validate required fields when enabling
         if ($body->{enabled}) {
@@ -991,12 +978,7 @@ sub get_ai {
 
         $c->render(json => {
             config   => $safe,
-            from_env => {
-                provider => $self->settings->is_from_env('ai', 'provider') ? 1 : 0,
-                api_key  => $self->settings->is_from_env('ai', 'api_key')  ? 1 : 0,
-                model    => $self->settings->is_from_env('ai', 'model')    ? 1 : 0,
-                base_url => $self->settings->is_from_env('ai', 'base_url') ? 1 : 0,
-            },
+            from_env => $self->env_flags('ai'),
         });
     });
 }
@@ -1013,6 +995,13 @@ sub update_ai {
             return;
         }
 
+        # Silently skipping ENV-owned keys and answering 200 is the twin-site
+        # bug from #53: the caller is told the value changed and it did not.
+        # Guard before validation — see update_ldap.
+        # '********' is get_ai's mask for api_key and means "unchanged".
+        return if $self->reject_env_managed($c, 'ai', $body,
+            unchanged_marker => '********');
+
         my %allowed_providers = map { $_ => 1 } qw(openai anthropic gemini ollama);
         if (exists $body->{provider} && !$allowed_providers{$body->{provider}}) {
             $self->render_error($c, "Invalid provider. Allowed: openai, anthropic, gemini, ollama", 400);
@@ -1023,15 +1012,12 @@ sub update_ai {
 
         for my $key (qw(provider model base_url enabled max_log_context cache_ttl)) {
             next unless exists $body->{$key};
-            next if $self->settings->is_from_env('ai', $key);
             $current->{$key} = $body->{$key};
         }
 
         # Only update api_key if not masked
         if (exists $body->{api_key} && $body->{api_key} ne '********') {
-            unless ($self->settings->is_from_env('ai', 'api_key')) {
-                $current->{api_key} = $body->{api_key};
-            }
+            $current->{api_key} = $body->{api_key};
         }
 
         if ($self->settings->set_section('ai', $current)) {
@@ -1100,10 +1086,7 @@ sub get_redis {
 
         $c->render(json => {
             config   => $redis,
-            from_env => {
-                url  => $self->settings->is_from_env('redis', 'url')  ? 1 : 0,
-                mode => $self->settings->is_from_env('redis', 'mode') ? 1 : 0,
-            },
+            from_env => $self->env_flags('redis'),
         });
     });
 }
@@ -1120,6 +1103,11 @@ sub update_redis {
             return;
         }
 
+        # See update_ai: skipping an ENV-owned key and still reporting 'ok' is
+        # exactly the lie #53 is about. Guard before validation — see
+        # update_ldap.
+        return if $self->reject_env_managed($c, 'redis', $body);
+
         my %valid_modes = map { $_ => 1 } qw(auto local redis);
         if (exists $body->{mode} && !$valid_modes{ $body->{mode} }) {
             $self->render_error($c, 'Invalid mode. Allowed: auto, local, redis', 400);
@@ -1130,7 +1118,6 @@ sub update_redis {
 
         for my $key (qw(url mode)) {
             next unless exists $body->{$key};
-            next if $self->settings->is_from_env('redis', $key);
             $current->{$key} = $body->{$key};
         }
 

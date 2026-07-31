@@ -208,6 +208,80 @@ sub require_role {
 }
 
 # ============================================
+# ENV-owned settings guard
+# ============================================
+
+# Purl::Config, for the controllers that manage settings (Settings, Backup, AI,
+# Auth). Declared here — not only in those four — because reject_env_managed
+# below is the single implementation of the guard and needs it. Subclasses that
+# require it re-declare it with required => 1.
+has 'settings' => (
+    is      => 'ro',
+    default => sub { undef },
+);
+
+# Refuse an edit that the environment owns, instead of answering 200 to a write
+# that cannot take effect.
+#
+# 409, not 400: the request is well formed, the RESOURCE belongs to the
+# environment (this is the shape generate_api_key/revoke_api_key already used).
+# Returns 1 when it rendered — the caller MUST stop. Returns 0 to continue.
+#
+# WHICH keys are ENV-owned is decided by Purl::Config::env_shadowed_keys off
+# %ENV_MAP, never by a list written out here: the twin-site bug this guards
+# against has shipped five times precisely because per-endpoint lists get
+# extended in one place and not the others.
+#
+#   unchanged_marker => '********'
+#       Value the UI sends back for a secret it did not retype. It means "leave
+#       this alone", so it is not an attempted change and must not 409.
+sub reject_env_managed {
+    my ($self, $c, $section, $changes, %opt) = @_;
+
+    my $settings = $self->settings or return 0;
+    return 0 unless ref $changes eq 'HASH';
+
+    my $marker = $opt{unchanged_marker};
+    my %proposed;
+    for my $key (keys %$changes) {
+        my $value = $changes->{$key};
+        next if defined $marker && defined $value && !ref $value && $value eq $marker;
+        $proposed{$key} = $value;
+    }
+
+    my @blocked = $settings->env_shadowed_keys($section, \%proposed);
+    return 0 unless @blocked;
+
+    $c->render(json => {
+        error    => 'Cannot modify ENV-configured values: ' . join(', ', @blocked),
+        from_env => \@blocked,
+    }, status => 409);
+
+    return 1;
+}
+
+# The read-side counterpart: { key => 0|1 } for every key of $section that
+# %ENV_MAP can manage, so the UI can disable exactly the fields it cannot
+# change.
+#
+# Also derived from the map, for the same reason. The hand-written lists this
+# replaces were incomplete — get_ldap flagged 3 of 14 mappable keys and get_sso
+# 8 of 15 — which left fields editable that the environment owned, i.e. the
+# read-side half of the same lie.
+sub env_flags {
+    my ($self, $section) = @_;
+
+    my $settings = $self->settings or return {};
+
+    my %flags;
+    for my $key ($settings->env_managed_keys($section)) {
+        $flags{$key} = $settings->is_from_env($section, $key) ? 1 : 0;
+    }
+
+    return \%flags;
+}
+
+# ============================================
 # Ingest-path pipeline processing
 #
 # Shared by all three ingest controllers (Logs, OTLP, Syslog) so the

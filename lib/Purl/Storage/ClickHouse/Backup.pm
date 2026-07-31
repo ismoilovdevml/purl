@@ -8,6 +8,7 @@ use File::Path qw(make_path remove_tree);
 use File::Spec;
 use File::Temp qw(tempdir);
 use POSIX qw(strftime);
+use Purl::Util::TarStream qw(write_tar_gz extract_tar_gz);
 
 my @BACKUP_TABLES = qw(logs alerts saved_searches audit_logs log_patterns);
 
@@ -253,24 +254,20 @@ sub _materialize_backup_dir {
         dest_path => $archive,
     );
 
-    require Archive::Tar;
-    my $tar = Archive::Tar->new();
-    $tar->read($archive) or die "Cannot read downloaded archive: " . Archive::Tar->error;
-
     my $extract_dir = File::Spec->catdir($tmp, 'extracted');
     make_path($extract_dir);
-    for my $file ($tar->get_files) {
-        next unless $file->is_file;
+
+    # Streams each member through a fixed buffer. The old loop asked
+    # Archive::Tar for get_content, i.e. the whole of logs.csv in one scalar —
+    # a multi-GB backup OOM-killed the worker on restore.
+    extract_tar_gz($archive, $extract_dir, accept => sub {
+        my ($name) = @_;
         # Flatten: archives are created from a flat directory, and refusing
         # nested paths keeps a crafted archive from writing outside $tmp.
-        my $name = $file->name;
         $name =~ s{^.*/}{};
-        next unless $name =~ /^[\w\-]+\.csv$/;
-        my $out = File::Spec->catfile($extract_dir, $name);
-        open my $fh, '>:raw', $out or die "Cannot write $out: $!";
-        print {$fh} $file->get_content;
-        close $fh;
-    }
+        return undef unless $name =~ /^[\w\-]+\.csv$/;
+        return $name;
+    });
 
     unlink $archive;
     return ($extract_dir, $tmp);
@@ -357,8 +354,6 @@ sub create_backup_archive {
     my $path = $backup->{local_path} || $backup->{target_path};
     die "Backup directory not found: $path" unless $path && -d $path;
 
-    require Archive::Tar;
-
     my $archive_path = "${path}.tar.gz";
 
     # Reuse recent archive if it exists (less than 15 min old)
@@ -366,23 +361,24 @@ sub create_backup_archive {
         return $archive_path;
     }
 
-    my $tar = Archive::Tar->new();
-
+    my @entries;
     opendir(my $dh, $path) or die "Cannot open $path: $!";
     while (my $file = readdir($dh)) {
         next if $file =~ /^\./;
         my $full = File::Spec->catfile($path, $file);
         next unless -f $full;
-        # Read file and add with relative name
-        open my $fh, '<:raw', $full or die "Cannot read $full: $!";
-        local $/;
-        my $content = <$fh>;
-        close $fh;
-        $tar->add_data($file, $content);
+        push @entries, { name => $file, path => $full };
     }
     closedir($dh);
 
-    $tar->write($archive_path, Archive::Tar::COMPRESS_GZIP());
+    # Sorted so an archive is byte-identical for identical inputs; readdir
+    # order is not.
+    @entries = sort { $a->{name} cmp $b->{name} } @entries;
+
+    # write_tar_gz streams every member through a 64 KiB buffer. The old code
+    # slurped each CSV into a scalar and handed it to Archive::Tar::add_data,
+    # which is why downloading a large backup could OOM-kill the worker.
+    write_tar_gz($archive_path, \@entries);
 
     return $archive_path;
 }
@@ -558,10 +554,18 @@ a temporary directory first.
 
 =head1 MEMORY
 
-Export streams the ClickHouse response directly to disk and restore streams
-the CSV file directly into the HTTP request body; neither is bounded by RAM.
-C<create_backup_archive> is the remaining exception — Archive::Tar buffers
-file contents in memory when writing.
+Nothing here is bounded by archive or table size.
+
+Export streams the ClickHouse response directly to disk; restore streams the
+CSV file directly into the HTTP request body; C<create_backup_archive> and the
+extraction inside C<_materialize_backup_dir> stream through
+L<Purl::Util::TarStream>, which holds at most 64 KiB of member data at a time.
+
+Archive::Tar used to be the exception: writing needed the whole of each CSV in
+a scalar (C<add_data>) and reading needed the same (C<get_content>), so a
+multi-GB C<logs.csv> OOM-killed the worker on download and on restore. It is no
+longer used. Archives stay POSIX ustar, so previously written archives still
+extract and ordinary C<tar> still reads ours.
 
 =head1 RESTORE MODES
 

@@ -9,6 +9,7 @@ use lib "$Bin/../../lib";
 use Mojo::JSON qw(encode_json);
 
 use Purl::API::Controller::Settings;
+use Purl::Config;
 
 # ============================================
 # Mock objects
@@ -95,7 +96,15 @@ use Purl::API::Controller::Settings;
         my ($self, $section, $key) = @_;
         return $self->{from_env}{"$section.$key"} // 0;
     }
-    sub get { return undef }
+    sub get {
+        my ($self, $section, $key) = @_;
+        return $section eq 'redis' ? $self->{redis}{$key} : undef;
+    }
+    # Borrow the REAL decision procedure rather than reimplementing it here —
+    # a mock that reimplements it can (and did, before #53) disagree with
+    # production about which keys the environment owns.
+    sub env_shadowed_keys { return Purl::Config::env_shadowed_keys(@_) }
+    sub env_managed_keys  { return Purl::Config::env_managed_keys(@_) }
 }
 
 # ============================================
@@ -190,7 +199,16 @@ subtest 'update_redis rejects invalid JSON' => sub {
     is $r->{status}, 400, 'HTTP 400 for bad JSON';
 };
 
-subtest 'update_redis skips env-locked fields' => sub {
+# ============================================
+# REGRESSION (#53): an edit the environment owns must be REFUSED, not
+# silently skipped and answered 'ok'.
+#
+# This subtest used to assert the opposite ("skips env-locked fields"): it
+# accepted a 200 for a request that changed nothing, so the UI reported a save
+# that never happened. PURL_REDIS_URL wins on every read, so the only honest
+# answer is 409.
+# ============================================
+subtest 'update_redis refuses an env-owned url with 409' => sub {
     my $settings = MockSettings->new(
         redis    => { url => 'redis://env:6379', mode => 'redis' },
         from_env => { 'redis.url' => 1 },
@@ -202,9 +220,45 @@ subtest 'update_redis skips env-locked fields' => sub {
     $ctrl->update_redis($c);
     my $r = $c->rendered;
 
-    is $r->{json}{status}, 'ok', 'status ok';
-    is $settings->{saved}{data}{url},  'redis://env:6379', 'env url not overwritten';
-    is $settings->{saved}{data}{mode}, 'local',            'non-env mode updated';
+    is $r->{status}, 409, 'conflict — PURL_REDIS_URL owns this value';
+    is_deeply $r->{json}{from_env}, ['url'], 'names the key that is not ours to change';
+    is $settings->{saved}, undef, 'and nothing was written';
+};
+
+subtest 'update_redis still saves the keys the environment does NOT own' => sub {
+    my $settings = MockSettings->new(
+        redis    => { url => 'redis://env:6379', mode => 'redis' },
+        from_env => { 'redis.url' => 1 },
+    );
+    my $ctrl = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $c    = MockCtrl->new;
+    # No `url` in the body: nothing env-owned is being changed.
+    $c->req->{body} = encode_json({ mode => 'local' });
+
+    $ctrl->update_redis($c);
+    my $r = $c->rendered;
+
+    is $r->{json}{status}, 'ok', 'a request that touches no env-owned key succeeds';
+    is $settings->{saved}{data}{mode}, 'local', 'mode updated';
+};
+
+subtest 'resubmitting the env value unchanged is not an error' => sub {
+    my $settings = MockSettings->new(
+        redis    => { url => 'redis://env:6379', mode => 'redis' },
+        from_env => { 'redis.url' => 1 },
+    );
+    my $ctrl = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $c    = MockCtrl->new;
+    # This is what "load the form, change one field, save" sends: the env-owned
+    # field comes back with the value the GET handed out. Nothing changes, so
+    # 200 is the truth — 409 here would make the settings page unsaveable.
+    $c->req->{body} = encode_json({ url => 'redis://env:6379', mode => 'local' });
+
+    $ctrl->update_redis($c);
+    my $r = $c->rendered;
+
+    is $r->{json}{status}, 'ok', 'no-op on the env key is accepted';
+    is $settings->{saved}{data}{mode}, 'local', 'the real change went through';
 };
 
 subtest 'update_redis returns 500 on save failure' => sub {

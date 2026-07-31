@@ -717,6 +717,74 @@ sub is_from_env {
     return 0;
 }
 
+# Every key of $section that %ENV_MAP can manage, whether or not the variable
+# is currently set.
+#
+# The read side had the same twin-site defect as the write side: get_ldap
+# reported from_env for three of its fourteen mappable keys, get_sso for eight
+# of fifteen, so the UI happily left a field editable that the environment
+# owned. Building those responses from this list instead of a hand-kept qw()
+# means a new entry in %ENV_MAP shows up in the UI the day it is added.
+sub env_managed_keys {
+    my ($self, $section) = @_;
+
+    my $prefix = "$section.";
+    # Sorted into a list first: `return sort ...` is undefined in scalar
+    # context, so a caller writing `my $n = env_managed_keys(...)` would get
+    # something arbitrary rather than a count or an error.
+    my @keys = sort map { substr($_, length $prefix) }
+               grep { index($_, $prefix) == 0 } keys %ENV_MAP;
+    return @keys;
+}
+
+# Which of a caller's proposed changes does the environment own?
+#
+# ENV wins on every read, so a key with a live ENV value cannot be changed
+# through the API: set_section strips it before writing, and set() writes a
+# value that get() will never return. Either way the edit does nothing — and
+# answering such a request with 200 is the bug this exists to stop. It has now
+# been shipped five times over (backups, alert filters, auth middleware, the
+# CronJob, and the API-key pair), every time because a fix was applied to the
+# endpoint in the report and not to its siblings.
+#
+# So the decision is made HERE, from %ENV_MAP, for any section and any key. A
+# new ENV-managed key is covered by every caller the moment it is added to the
+# map; there is no per-endpoint list to forget.
+#
+# A submitted value EQUAL to the effective one is not a change and is not
+# reported: a UI that GETs a config and PUTs the whole form back must keep
+# working, and reporting success for a no-op is honest.
+#
+# $changes is the caller's proposed values keyed by config key (nested keys use
+# the dotted form %ENV_MAP uses, e.g. 'telegram.bot_token'). Returns the
+# blocked keys, sorted.
+sub env_shadowed_keys {
+    my ($self, $section, $changes) = @_;
+    return () unless ref $changes eq 'HASH';
+
+    my @shadowed;
+    for my $key (sort keys %$changes) {
+        next unless $self->is_from_env($section, $key);
+        next if _same_scalar($self->get($section, $key), $changes->{$key});
+        push @shadowed, $key;
+    }
+
+    return @shadowed;
+}
+
+# ENV values are always strings, so the comparison is a string comparison.
+# Blessed scalars (Mojo::JSON booleans) stringify to 1/0, which is what an ENV
+# flag holds. Containers can never equal an ENV string.
+sub _same_scalar {
+    my ($current, $proposed) = @_;
+
+    return 1 if !defined $current && !defined $proposed;
+    return 0 if !defined $current || !defined $proposed;
+    return 0 if ref $proposed eq 'HASH' || ref $proposed eq 'ARRAY' || ref $proposed eq 'CODE';
+
+    return "$current" eq "$proposed";
+}
+
 # ============================================
 # User role management (RBAC)
 # ============================================
