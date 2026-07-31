@@ -628,8 +628,30 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # A dead cluster is not a failed build. When the control plane is
+      # unreachable — as it was for days after the nodes lost their private
+      # NIC — every push went red at `helm upgrade` while lint, tests, scans
+      # and the image build had all passed. A pipeline that is red for reasons
+      # the commit cannot fix teaches people to stop reading it, and the next
+      # genuine failure gets waved through.
+      #
+      # So: probe first. Unreachable => warn loudly, skip the deploy, leave the
+      # job green. Reachable => every step below runs and a real deploy failure
+      # still fails the build, which is the signal we actually want to keep.
+      - name: Check cluster reachability
+        id: cluster
+        continue-on-error: true
+        run: |
+          if timeout 25 bash -c '</dev/tcp/5.189.148.112/6443' 2>/dev/null; then
+            echo "reachable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Dev deploy skipped::Kubernetes API at 5.189.148.112:6443 is unreachable. The image was built and pushed; only the deploy was skipped. See issue #42."
+          fi
+
       # Remove the previous chart copy so deleted templates don't linger.
       - name: Clean previous chart copy on master-01
+        if: steps.cluster.outputs.reachable == 'true'
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: 5.189.148.112
@@ -638,6 +660,7 @@ jobs:
           script: rm -rf /opt/purl-dev/chart && mkdir -p /opt/purl-dev
 
       - name: Copy Helm chart to master-01
+        if: steps.cluster.outputs.reachable == 'true'
         uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1
         with:
           host: 5.189.148.112
@@ -647,6 +670,7 @@ jobs:
           target: /opt/purl-dev/
 
       - name: Helm upgrade purl-dev
+        if: steps.cluster.outputs.reachable == 'true'
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: 5.189.148.112
