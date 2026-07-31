@@ -69,7 +69,7 @@ sub list_backups {
     my ($self) = @_;
     my $db = $self->database;
 
-    return $self->_query_json(qq{
+    return $self->_crud_read(qq{
         SELECT
             id, name, target_type, target_path, local_path, status, tables_backed_up,
             size_bytes, rows_total, error,
@@ -79,7 +79,7 @@ sub list_backups {
         FROM ${db}.backups
         ORDER BY created_at DESC
         LIMIT 100
-    }, no_cache => 1);
+    });
 }
 
 sub get_backup {
@@ -90,7 +90,7 @@ sub get_backup {
     my $db = $self->database;
     my $safe_id = $self->_quote_string($id);
 
-    my $result = $self->_query_json(qq{
+    my $result = $self->_crud_read(qq{
         SELECT
             id, name, target_type, target_path, local_path, status, tables_backed_up,
             size_bytes, rows_total, error,
@@ -100,7 +100,7 @@ sub get_backup {
         FROM ${db}.backups
         WHERE id = $safe_id
         LIMIT 1
-    }, no_cache => 1);
+    });
 
     return $result->[0];
 }
@@ -122,7 +122,7 @@ sub create_backup {
     my $safe_name = $self->_quote_string($name);
     my $safe_path = $self->_quote_string($target_path);
 
-    $self->_query(qq{
+    $self->_crud_write(qq{
         INSERT INTO ${db}.backups (id, name, target_type, target_path, local_path, status)
         VALUES ($safe_id, $safe_name, 'local', $safe_path, $safe_path, 'running')
     });
@@ -180,7 +180,7 @@ sub create_backup {
         }
 
         my $tables_str = $self->_quote_string(join(',', @backed_up));
-        $self->_query(qq{
+        $self->_crud_write(qq{
             ALTER TABLE ${db}.backups UPDATE
                 status = 'completed',
                 tables_backed_up = $tables_str,
@@ -195,7 +195,7 @@ sub create_backup {
         my $err = "$@";
         my $safe_err = $self->_quote_string($err);
         eval {
-            $self->_query(qq{
+            $self->_crud_write(qq{
                 ALTER TABLE ${db}.backups UPDATE
                     status = 'failed', error = $safe_err
                 WHERE id = $safe_id
@@ -457,13 +457,13 @@ sub cleanup_old_backups {
     my $cutoff = strftime('%Y-%m-%d %H:%M:%S', localtime(time() - $retention_days * 86400));
     my $safe_cutoff = $self->_quote_string($cutoff);
 
-    my $old_backups = $self->_query_json(qq{
+    my $old_backups = $self->_crud_read(qq{
         SELECT id, target_path, local_path
         FROM ${db}.backups
         WHERE status = 'completed'
           AND created_at < parseDateTimeBestEffort($safe_cutoff)
         ORDER BY created_at ASC
-    }, no_cache => 1);
+    });
 
     my $deleted = 0;
     for my $backup (@$old_backups) {
@@ -471,7 +471,7 @@ sub cleanup_old_backups {
             $self->_purge_backup_artifacts($backup, $opts{s3_config});
 
             my $safe_id = $self->_quote_string($backup->{id});
-            $self->_query("ALTER TABLE ${db}.backups DELETE WHERE id = $safe_id");
+            $self->_crud_write("ALTER TABLE ${db}.backups DELETE WHERE id = $safe_id");
             $deleted++;
         };
         warn "Failed to clean backup $backup->{id}: $@" if $@;
@@ -503,7 +503,7 @@ sub upload_backup_to_s3 {
     my $safe_id    = $self->_quote_string($id);
     my $safe_path  = $self->_quote_string($s3_uri);
     my $safe_local = $self->_quote_string($local_path);
-    $self->_query(qq{
+    $self->_crud_write(qq{
         ALTER TABLE ${db}.backups UPDATE
             target_type = 's3',
             target_path = $safe_path,
@@ -529,7 +529,7 @@ sub delete_backup {
 
     my $db = $self->database;
     my $safe_id = $self->_quote_string($id);
-    $self->_query("ALTER TABLE ${db}.backups DELETE WHERE id = $safe_id");
+    $self->_crud_write("ALTER TABLE ${db}.backups DELETE WHERE id = $safe_id");
 
     return { status => 'deleted', id => $id };
 }

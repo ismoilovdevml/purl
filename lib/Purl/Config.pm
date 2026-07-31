@@ -6,6 +6,7 @@ use 5.024;
 use Moo;
 use namespace::clean;
 use JSON::XS ();
+use Fcntl qw(:flock);
 use File::Spec;
 use Time::HiRes ();
 
@@ -212,6 +213,177 @@ around '_config' => sub {
     $self->_reload_if_changed unless @args;
     return $self->$orig(@args);
 };
+
+# ============================================
+# Cross-process mutual exclusion
+# ============================================
+#
+# The atomic write-then-rename in save() closes TORN READS. It does nothing
+# about LOST UPDATES, which is the failure operators actually hit:
+#
+#   worker A: get_section('auth')  -> {users => {admin}}
+#   worker B: get_section('auth')  -> {users => {admin}}
+#   worker B: adds bob,   save()   -> {admin, bob}
+#   worker A: adds alice, save()   -> {admin, alice}   # bob is gone
+#
+# Both workers believed they held current state — since every read re-checks
+# the file, both were RIGHT at the moment they read. The read and the write
+# have to be one critical section, which needs a real lock.
+#
+# The lock is an flock(2) on a sidecar file next to settings.json. It is never
+# taken around a plain read: readers are already safe against a partial file
+# because writers rename into place.
+sub _lock_path {
+    my ($self) = @_;
+    return $self->config_file . '.lock';
+}
+
+# How long _acquire_lock keeps trying, and how long it sleeps between tries.
+# The critical sections are a stat, a decode and a rename, so a contended lock
+# clears in milliseconds; anything still blocked after a second is not
+# contention, it is a wedged holder.
+our $LOCK_TIMEOUT  = 1.0;
+our $LOCK_RETRY_MS = 10;
+
+# Take the exclusive lock WITHOUT blocking the process indefinitely.
+#
+# A plain flock(LOCK_EX) parks the whole Mojolicious worker: it is a single
+# event loop, so every other in-flight request on that worker — including
+# ingest — stops until the lock is released. Nothing bounds that wait.
+#
+# LOCK_NB plus a bounded retry keeps the failure mode small and known: after
+# $LOCK_TIMEOUT we give up and the caller degrades to the SAME unlocked path it
+# already takes when the lock file cannot be opened at all.
+sub _acquire_lock {
+    my ($self, $fh, $path) = @_;
+
+    my $deadline = Time::HiRes::time() + $LOCK_TIMEOUT;
+    while (1) {
+        return 1 if flock($fh, LOCK_EX | LOCK_NB);
+
+        # Only "somebody else holds it" is worth retrying. A real error
+        # (no flock support on this filesystem) will never clear.
+        unless ($!{EWOULDBLOCK} || $!{EAGAIN}) {
+            warn "Cannot lock $path: $!";
+            return 0;
+        }
+
+        if (Time::HiRes::time() >= $deadline) {
+            warn "Timed out waiting for config lock $path after ${LOCK_TIMEOUT}s; "
+                . 'proceeding without it';
+            return 0;
+        }
+        Time::HiRes::sleep($LOCK_RETRY_MS / 1000);
+    }
+}
+
+# Run $cb holding an exclusive lock, with the in-memory copy refreshed from
+# disk FIRST so the callback modifies the newest revision and not our snapshot.
+#
+# Re-entrant: flock on a second descriptor would block against our own lock, so
+# a nested call runs inline instead of deadlocking.
+#
+# If the lock cannot be taken (read-only directory, exotic filesystem) the
+# callback still runs. Degrading to today's behaviour beats refusing to save.
+sub _with_lock {
+    my ($self, $cb) = @_;
+
+    return $cb->() if $self->{_in_lock};
+
+    my $path = $self->_lock_path;
+    my $dir  = File::Spec->catpath((File::Spec->splitpath($path))[0, 1], '');
+    if ($dir && !-d $dir) {
+        require File::Path;
+        eval { File::Path::make_path($dir) };
+    }
+
+    my $fh;
+    unless (open $fh, '>>', $path) {
+        warn "Cannot open config lock $path: $!";
+        return $cb->();
+    }
+    unless ($self->_acquire_lock($fh, $path)) {
+        close $fh;
+        return $cb->();
+    }
+
+    local $self->{_in_lock} = 1;
+
+    # Adopt whatever is on disk right now. Anything another worker committed
+    # while we waited for the lock is part of the base we are about to modify.
+    $self->_reload_if_changed;
+
+    my @result = eval { $cb->() };
+    my $err = $@;
+
+    flock($fh, LOCK_UN);
+    close $fh;
+
+    die $err if $err;
+    return wantarray ? @result : $result[0];
+}
+
+# Strip every ENV-provided value out of a section about to be written to disk.
+#
+# get_section() resolves ENV over file, so the hash a caller just edited also
+# carries whatever the environment supplied — including secrets. Writing it
+# back does two bad things:
+#
+#   1. it copies the Kubernetes Secret onto the config PVC in plaintext
+#      (PURL_CLICKHOUSE_PASSWORD, PURL_API_KEYS, PURL_LDAP_BIND_PASSWORD,
+#      PURL_AI_API_KEY), and that PVC is annotated resource-policy: keep;
+#   2. it freezes the env value into the file where ENV still wins on READ, so
+#      an edit to that key looks saved and has no effect. That is how revoking
+#      an API key could report success while the key kept authenticating.
+#
+# An ENV-managed key is not ours to write, so it keeps whatever the FILE held
+# (nothing, usually) and the caller's copy of the env value is dropped.
+sub _without_env_values {
+    my ($self, $section, $data) = @_;
+    return $data unless ref $data eq 'HASH';
+
+    my $file_section = $self->_config->{$section};
+    my %clean = %$data;
+
+    for my $key (keys %clean) {
+        next unless $self->is_from_env($section, $key);
+        if (ref $file_section eq 'HASH' && exists $file_section->{$key}) {
+            $clean{$key} = $file_section->{$key};
+        }
+        else {
+            delete $clean{$key};
+        }
+    }
+
+    return \%clean;
+}
+
+# Read-modify-write a whole section atomically.
+#
+# $cb receives the CURRENT section (already merged with defaults, already
+# reloaded under the lock) and mutates it in place. This is the only safe way
+# to edit a section that other workers also edit — the get_section/mutate/
+# set_section sequence spelled out by hand has a lost-update window between the
+# two calls, which is how a freshly created user could vanish.
+#
+# $cb also receives a cancel callback: calling it aborts the write entirely and
+# update_section returns false. For a read-modify-write that discovers under the
+# lock that there is nothing to change (revoking a key that is not there), that
+# is the difference between a no-op and rewriting the file for nothing.
+sub update_section {
+    my ($self, $section, $cb) = @_;
+
+    return $self->_with_lock(sub {
+        my $data = $self->get_section($section);
+
+        my $cancelled = 0;
+        $cb->($data, sub { $cancelled = 1 });
+        return 0 if $cancelled;
+
+        $self->_config->{$section} = $self->_without_env_values($section, $data);
+        return $self->save();
+    });
+}
 
 # Load config from file
 sub load {
@@ -440,27 +612,34 @@ sub get_nested {
 sub set {
     my ($self, $section, $key, $value) = @_;
 
-    $self->_config->{$section} //= {};
-    $self->_config->{$section}{$key} = $value;
+    # Locked so the reload-mutate-save sequence is one step: without it a
+    # concurrent worker's save between our read and our write is discarded.
+    return $self->_with_lock(sub {
+        $self->_config->{$section} //= {};
+        $self->_config->{$section}{$key} = $value;
 
-    return $self->save();
+        return $self->save();
+    });
 }
 
 # Set nested config value
 sub set_nested {
     my ($self, $value, @path) = @_;
 
-    my $config = $self->_config;
-    my $last_key = pop @path;
+    return $self->_with_lock(sub {
+        my $config = $self->_config;
+        my @keys = @path;
+        my $last_key = pop @keys;
 
-    for my $key (@path) {
-        $config->{$key} //= {};
-        $config = $config->{$key};
-    }
+        for my $key (@keys) {
+            $config->{$key} //= {};
+            $config = $config->{$key};
+        }
 
-    $config->{$last_key} = $value;
+        $config->{$last_key} = $value;
 
-    return $self->save();
+        return $self->save();
+    });
 }
 
 # Get entire section
@@ -484,12 +663,21 @@ sub get_section {
     return $result;
 }
 
-# Update entire section
+# Update entire section.
+#
+# Wholesale replacement, so it can only ever protect OTHER sections from a
+# concurrent writer. When two workers edit the SAME section — adding users is
+# the case that bites — use update_section, which re-reads inside the lock.
+#
+# Every caller builds $data by editing a get_section() result, so it carries the
+# same ENV values update_section has to strip — see _without_env_values.
 sub set_section {
     my ($self, $section, $data) = @_;
 
-    $self->_config->{$section} = $data;
-    return $self->save();
+    return $self->_with_lock(sub {
+        $self->_config->{$section} = $self->_without_env_values($section, $data);
+        return $self->save();
+    });
 }
 
 # Get all config (merged)
@@ -503,6 +691,18 @@ sub get_all {
     }
 
     return $result;
+}
+
+# Is authentication required on this instance?
+#
+# ENV > file > default, resolved in ONE place. The auth gate
+# (Middleware::Auth::check_auth), the startup weak-password warning and the
+# `auth_required` flag /auth/me hands the login UI all read this, and they must
+# never disagree — a UI that guesses instead ends up showing a login form on an
+# instance that has no credentials to give.
+sub auth_enabled {
+    my ($self) = @_;
+    return $self->get('auth', 'enabled') ? 1 : 0;
 }
 
 # Check if value is from env (read-only)
@@ -534,30 +734,34 @@ sub set_user_role {
     my ($self, $username, $role) = @_;
     $role //= 'viewer';
     $role = 'viewer' unless exists $VALID_ROLES{$role};
-    $self->_config->{auth} //= {};
-    $self->_config->{auth}{roles} //= {};
-    $self->_config->{auth}{roles}{$username} = $role;
-    return $self->save();
+    return $self->_with_lock(sub {
+        $self->_config->{auth} //= {};
+        $self->_config->{auth}{roles} //= {};
+        $self->_config->{auth}{roles}{$username} = $role;
+        return $self->save();
+    });
 }
 
 sub ensure_user_roles {
     my ($self) = @_;
-    my $users = $self->_config->{auth}{users} // {};
-    my $roles = $self->_config->{auth}{roles} // {};
-    my $changed = 0;
-    my @usernames = sort keys %$users;
-    for my $i (0 .. $#usernames) {
-        my $u = $usernames[$i];
-        unless (exists $roles->{$u}) {
-            $roles->{$u} = ($i == 0 || $u eq 'admin') ? 'admin' : 'viewer';
-            $changed = 1;
+    return $self->_with_lock(sub {
+        my $users = $self->_config->{auth}{users} // {};
+        my $roles = $self->_config->{auth}{roles} // {};
+        my $changed = 0;
+        my @usernames = sort keys %$users;
+        for my $i (0 .. $#usernames) {
+            my $u = $usernames[$i];
+            unless (exists $roles->{$u}) {
+                $roles->{$u} = ($i == 0 || $u eq 'admin') ? 'admin' : 'viewer';
+                $changed = 1;
+            }
         }
-    }
-    if ($changed) {
-        $self->_config->{auth}{roles} = $roles;
-        $self->save();
-    }
-    return $roles;
+        if ($changed) {
+            $self->_config->{auth}{roles} = $roles;
+            $self->save();
+        }
+        return $roles;
+    });
 }
 
 1;

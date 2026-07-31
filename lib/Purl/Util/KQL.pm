@@ -4,7 +4,23 @@ use warnings;
 use 5.024;
 
 use Exporter 'import';
-our @EXPORT_OK = qw(parse_kql);
+our @EXPORT_OK = qw(parse_kql %FIELD_KIND);
+
+# The field names the language knows, and how a backend is expected to match
+# them. SINGLE SOURCE OF TRUTH: Purl::Storage::ClickHouse::KQL builds its
+# column maps from this, and Purl::Util::SearchQuery uses it to decide whether
+# a raw search string is a KQL expression at all. Three copies of this list
+# would drift; one cannot.
+our %FIELD_KIND = (
+    level      => 'exact',
+    service    => 'exact',
+    host       => 'exact',
+    trace_id   => 'exact',
+    request_id => 'exact',
+    span_id    => 'exact',
+    message    => 'text',
+    raw        => 'text',
+);
 
 # ============================================
 # KQL (Kibana-style Query Language) parser

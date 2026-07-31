@@ -5,6 +5,8 @@ use 5.024;
 
 use Moo::Role;
 
+use Purl::Util::KQL qw(%FIELD_KIND);
+
 # ============================================
 # KQL AST -> ClickHouse WHERE fragment
 # ============================================
@@ -16,13 +18,11 @@ use Moo::Role;
 # Kept out of Purl::Storage::ClickHouse::Query on purpose: Query owns the
 # flat "filter params" builder, this owns the boolean expression compiler.
 
-# Columns compared for equality.
-my %EXACT_COLUMN = map { $_ => 1 } qw(
-    level service host trace_id request_id span_id
-);
-
-# Columns searched as substrings.
-my %TEXT_COLUMN = map { $_ => 1 } qw(message raw);
+# Columns compared for equality / searched as substrings. Derived from the
+# language's field registry so the parser, the intent detector and this
+# compiler can never disagree about which names are fields.
+my %EXACT_COLUMN = map { $_ => 1 } grep { $FIELD_KIND{$_} eq 'exact' } keys %FIELD_KIND;
+my %TEXT_COLUMN  = map { $_ => 1 } grep { $FIELD_KIND{$_} eq 'text' }  keys %FIELD_KIND;
 
 # ClickHouse LIKE metacharacters. A user searching for `svc_a` must not get
 # `svc-a` back, so escape them before splicing in the wildcards.

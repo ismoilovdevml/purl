@@ -87,6 +87,8 @@ use Purl::API::Controller::Auth;
         return $pass eq 'correctpassword' ? (1, undef) : (0, undef);
     }
     sub hash_password { '$2b$12$' . ('a' x 53) }
+    # Mirrors the real middleware: one resolver for "is auth on".
+    sub auth_enabled { $_[0]->{auth_enabled} ? 1 : 0 }
     # Per-username lockout stubs mirroring the real middleware contract:
     # 5 failures per window, reset clears, undef/empty are no-ops.
     sub check_username_rate_limit {
@@ -111,6 +113,16 @@ use Purl::API::Controller::Auth;
     sub new { bless { sections => $_[1] // {} }, $_[0] }
     sub get_section { $_[0]->{sections}{$_[1]} // {} }
     sub set_section { $_[0]->{sections}{$_[1]} = $_[2] }
+    # Locked read-modify-write; the real one re-reads settings.json inside the
+    # lock so a concurrent worker's change is not lost.
+    sub update_section {
+        my ($self, $section, $cb) = @_;
+        my $data = $self->get_section($section);
+        $cb->($data);
+        $self->{sections}{$section} = $data;
+        return 1;
+    }
+    sub auth_enabled { $_[0]->{sections}{auth}{enabled} ? 1 : 0 }
 
     package MockStorage;
     sub new { bless {}, $_[0] }
@@ -256,6 +268,65 @@ subtest 'me when not logged in' => sub {
 
     $ctrl->me($c);
     ok !$c->rendered->{json}{authenticated}, 'not authenticated';
+};
+
+# --- REGRESSION (#33): /auth/me must state whether a login is required ------
+# web/src/stores/auth.js reads data.auth_required from this endpoint, but the
+# backend never sent it — the name existed in exactly one file in the tree, the
+# frontend one. So the login gate fell through to a license-plan heuristic, and
+# a transient /api/license failure on an instance with PURL_AUTH_ENABLED=0 and
+# no users popped up a login form for credentials that do not exist.
+subtest 'me reports auth_required in both branches' => sub {
+    for my $enabled (0, 1) {
+        my $settings = MockSettings->new({ auth => { enabled => $enabled, users => {} } });
+        my $mw   = MockAuthMiddleware->new;
+        $mw->{auth_enabled} = $enabled;
+        my $ctrl = Purl::API::Controller::Auth->new(
+            storage         => MockStorage->new,
+            settings        => $settings,
+            auth_middleware => $mw,
+        );
+
+        my $anon = MockAuthCtrl->new;
+        $ctrl->me($anon);
+        is ref($anon->rendered->{json}{auth_required}), 'SCALAR',
+            "enabled=$enabled: anonymous branch sends a JSON boolean, not a string";
+        is ${ $anon->rendered->{json}{auth_required} }, $enabled,
+            "enabled=$enabled: anonymous branch reports the right value";
+
+        my $signed_in = MockAuthCtrl->new(session => {
+            username => 'admin', logged_in => 1, auth_method => 'local',
+        });
+        $ctrl->me($signed_in);
+        is ${ $signed_in->rendered->{json}{auth_required} }, $enabled,
+            "enabled=$enabled: authenticated branch reports it too";
+    }
+};
+
+subtest 'auth_required survives JSON encoding as a real boolean' => sub {
+    my $mw = MockAuthMiddleware->new;
+    $mw->{auth_enabled} = 0;
+    my $ctrl = Purl::API::Controller::Auth->new(
+        storage         => MockStorage->new,
+        settings        => MockSettings->new({ auth => { enabled => 0 } }),
+        auth_middleware => $mw,
+    );
+    my $c = MockAuthCtrl->new;
+    $ctrl->me($c);
+
+    my $json = encode_json($c->rendered->{json});
+    like $json, qr/"auth_required"\s*:\s*false/,
+        'encodes as JSON false — "0" would be truthy in JavaScript';
+};
+
+subtest 'me falls back to settings when no middleware is wired' => sub {
+    my $ctrl = Purl::API::Controller::Auth->new(
+        storage  => MockStorage->new,
+        settings => MockSettings->new({ auth => { enabled => 1 } }),
+    );
+    my $c = MockAuthCtrl->new;
+    $ctrl->me($c);
+    is ${ $c->rendered->{json}{auth_required} }, 1, 'read straight from settings';
 };
 
 # ============================================

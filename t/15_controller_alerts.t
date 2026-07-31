@@ -125,6 +125,48 @@ subtest 'create alert without name returns 400' => sub {
     is $c->rendered->{status}, 400, 'missing name returns 400';
 };
 
+# REGRESSION (#43): a filter that cannot be parsed is rejected at create time.
+# Accepting it stores an alert whose WHERE clause is `0` — it never fires, and
+# the only trace anywhere is a warn from the scheduler. SavedSearches::create
+# has had this gate since #34; the endpoint where a wrong filter means a MISSED
+# page is the one that needed it most.
+subtest 'create rejects a filter that cannot be parsed' => sub {
+    my $storage = MockAlertStorage->new([]);
+    my $ctrl = Purl::API::Controller::Alerts->new(storage => $storage);
+    my $body = encode_json({ name => 'Broken', query => 'level:error AND (service:api' });
+    my $c = MockAlertCtrl->new($body);
+
+    $ctrl->create($c);
+    is $c->rendered->{status}, 400, 'unparsable filter returns 400';
+    like $c->rendered->{json}{error}, qr/Invalid query syntax/, 'says why';
+    ok !$storage->{created}, 'and nothing was stored';
+};
+
+subtest 'create accepts plain log text as a filter' => sub {
+    # The other half: `at Foo::bar()` is a perfectly good literal filter and
+    # must NOT be rejected — search accepts it, so alerts have to as well.
+    for my $q ('at Foo::bar()', 'connection refused', '404 NOT FOUND', 'timeout)') {
+        my $storage = MockAlertStorage->new([]);
+        my $ctrl = Purl::API::Controller::Alerts->new(storage => $storage);
+        my $c = MockAlertCtrl->new(encode_json({ name => 'Plain', query => $q }));
+
+        $ctrl->create($c);
+        is $c->rendered->{json}{status}, 'ok', "'$q' accepted";
+        is $storage->{created}{query}, $q, "'$q' stored verbatim";
+    }
+};
+
+subtest 'update rejects a filter that cannot be parsed' => sub {
+    my $storage = MockAlertStorage->new([]);
+    my $ctrl = Purl::API::Controller::Alerts->new(storage => $storage);
+    my $body = encode_json({ query => 'service:api OR)' });
+    my $c = MockAlertCtrl->new($body, { id => 'alert-uuid' });
+
+    $ctrl->update($c);
+    is $c->rendered->{status}, 400, 'unparsable filter returns 400';
+    ok !$storage->{updated_id}, 'and the alert was not modified';
+};
+
 subtest 'create alert enforces limit' => sub {
     my $existing = [
         { id => '1', name => 'A1', enabled => 1 },

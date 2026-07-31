@@ -5,7 +5,7 @@ use 5.024;
 
 use Moo::Role;
 
-use Purl::Util::KQL qw(parse_kql);
+use Purl::Util::SearchQuery qw(plan_search_query);
 
 # ============================================
 # Re-notify suppression
@@ -169,22 +169,36 @@ sub check_alerts {
             my $query_filter = $alert->{query};
             my $alert_id_quoted = $self->_quote_string($alert->{id});
 
-            # Alert filters are the SAME language as the search bar. They used
-            # to be matched by two hard-coded regexes, so anything with a
-            # boolean ("service:a AND level:error") fell through to a literal
-            # message substring search and the alert could never fire.
+            # Alert filters are the SAME language as the search bar, so they go
+            # through the SAME intent detection (Purl::Util::SearchQuery) the
+            # search endpoints use. Calling parse_kql unconditionally here made
+            # the two disagree the moment search learned about plain text:
+            #   `at Foo::bar()`      -> parse error -> matched nothing, so the
+            #                           alert could never fire, with only a warn
+            #   `connection refused` -> `connection AND refused`, two independent
+            #                           terms, while search matched the phrase
+            # "test it in search, save it as an alert" has to mean one thing.
             my $filter_condition = '1=1';
             if (defined $query_filter && $query_filter =~ /\S/) {
-                my ($ast, $err) = parse_kql($query_filter);
+                my ($plan, $err) = plan_search_query($query_filter);
                 if ($err) {
                     # Never widen to 1=1 on a bad filter: that would notify on
-                    # every log line. Match nothing and leave a trace.
+                    # every log line. Match nothing and leave a trace. Only
+                    # reachable for a filter that declared itself as KQL and
+                    # failed to parse — Controller::Alerts rejects those at
+                    # create time, so this covers rows written before that gate.
                     warn "Alert $alert->{id} has an unparsable query: $err";
                     $filter_condition = '0';
                 }
-                elsif ($ast) {
+                elsif ($plan->{kql}) {
                     $filter_condition =
-                        $self->_kql_to_sql($ast, \%bind, \$seq) // '0';
+                        $self->_kql_to_sql($plan->{kql}, \%bind, \$seq) // '0';
+                }
+                elsif (defined $plan->{query} && length $plan->{query}) {
+                    # Literal phrase — the same bound position() the search path
+                    # emits (Query::_build_where_clause), never interpolated.
+                    my $ph = $self->_kql_bind(\%bind, \$seq, $plan->{query});
+                    $filter_condition = "position(message, $ph) > 0";
                 }
             }
 

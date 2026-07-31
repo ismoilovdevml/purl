@@ -91,6 +91,18 @@ use Purl::Storage::S3;
         return [];
     }
 
+    # The backups table is CRUD metadata: every statement goes through the
+    # read-after-write wrappers, exactly as the other metadata tables do.
+    sub _crud_write {
+        my ($self, $sql, %opts) = @_;
+        return $self->_query($sql, %opts, sync => 1);
+    }
+
+    sub _crud_read {
+        my ($self, $sql, %opts) = @_;
+        return $self->_query_json($sql, %opts, no_cache => 1);
+    }
+
     sub _query_to_file {
         my ($self, $sql, $file, %opts) = @_;
         push @{ $self->exports }, { sql => $sql, file => $file, opts => \%opts };

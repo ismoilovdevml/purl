@@ -284,12 +284,42 @@ sub reset_failed_login {
 # Authentication Check
 # ============================================
 
+# The auth section, read through the LIVE Purl::Config whenever one is wired.
+#
+# `config` is a plain hashref assembled before fork() from get_section(), and
+# get_section returns a COPY — so a worker that only ever reads that hashref
+# keeps the pre-fork snapshot forever, and an API key or user added through the
+# UI is rejected by every worker except the one that wrote it. Purl::Config
+# re-reads settings.json whenever its stat stamp moves, which is what actually
+# carries the reload into this gate. Controller::Auth already reads this way.
+sub _auth_config {
+    my ($self) = @_;
+
+    if (my $settings = $self->settings) {
+        my $section = eval { $settings->get_section('auth') };
+        return $section if ref $section eq 'HASH';
+    }
+
+    return $self->config->{auth} // {};
+}
+
+# Is authentication required on this instance? One resolver, so the gate below
+# and the auth_required flag /auth/me reports cannot disagree.
+sub auth_enabled {
+    my ($self) = @_;
+
+    return $self->settings->auth_enabled if $self->settings;
+
+    my $section = $self->config->{auth} // {};
+    return ($ENV{PURL_AUTH_ENABLED} // $section->{enabled} // 0) ? 1 : 0;
+}
+
 sub check_auth {
     my ($self, $c) = @_;
-    my $auth_config = $self->config->{auth} // {};
+    my $auth_config = $self->_auth_config;
 
     # Check if auth is enabled
-    my $auth_enabled = $ENV{PURL_AUTH_ENABLED} // $auth_config->{enabled} // 0;
+    my $auth_enabled = $self->auth_enabled;
 
     # API Key auth always works (programmatic access)
     if ($self->_check_api_key($c, $auth_config)) {
@@ -337,8 +367,13 @@ sub _check_api_key {
         return 1 if grep { $_ eq $api_key } @keys;
     }
 
-    # Check config API keys (supports both plain strings and hash entries)
+    # Check config API keys (supports both plain strings and hash entries).
+    # The list may also arrive as the raw comma-separated PURL_API_KEYS string:
+    # get_section() resolves ENV over file, so reading through Purl::Config
+    # hands back whatever the env var contains. Treating that string as an
+    # arrayref is a 500 on every authenticated request.
     my $valid_keys = $auth_config->{api_keys} // [];
+    $valid_keys = [ split /,/, $valid_keys ] unless ref $valid_keys eq 'ARRAY';
     for my $entry (@$valid_keys) {
         my $stored = ref $entry eq 'HASH' ? ($entry->{key} // '') : $entry;
         return 1 if $stored eq $api_key;

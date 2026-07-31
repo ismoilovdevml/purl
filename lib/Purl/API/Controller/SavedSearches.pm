@@ -31,6 +31,13 @@ sub create {
             return;
         }
 
+        # Validate the query with the SAME rule the search endpoints use, so a
+        # search can never be saved that 400s the moment someone runs it.
+        # _apply_query lives in Controller::Base precisely so this is a reuse
+        # and not a second, drifting copy of the rule.
+        my %probe;
+        return unless $self->_apply_query($c, \%probe, $body->{query});
+
         # Quota, not feature gate: every plan may save searches, plans differ
         # only in how many. -1 (all current plans) means unlimited.
         my $existing = $self->storage->get_saved_searches() // [];

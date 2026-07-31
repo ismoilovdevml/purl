@@ -53,6 +53,14 @@ sub create {
             return;
         }
 
+        # Validate the filter with the SAME rule the search endpoints use, so an
+        # alert can never be saved with a filter that fails to parse — which
+        # does not 400 anything, it just matches nothing and the alert never
+        # fires. This is the gate SavedSearches::create already has; the place
+        # where a wrong filter means a MISSED page needs it more.
+        my %probe;
+        return unless $self->_apply_query($c, \%probe, $body->{query});
+
         # Enforce alert type feature gating
         my $notify_type = $body->{notify_type} // 'browser';
         if ($notify_type eq 'telegram') {
@@ -92,6 +100,13 @@ sub update {
         unless ($body) {
             $self->render_error($c, 'Invalid JSON payload', 400);
             return;
+        }
+
+        # Same filter gate as create — editing an alert is the other door to
+        # the same broken state.
+        if (exists $body->{query}) {
+            my %probe;
+            return unless $self->_apply_query($c, \%probe, $body->{query});
         }
 
         # Enforce alert type feature gating on update

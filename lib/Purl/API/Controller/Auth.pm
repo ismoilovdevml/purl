@@ -171,9 +171,13 @@ sub login {
 
         # Migrate legacy hash to bcrypt on successful login
         if ($new_hash && $self->settings) {
-            my $section = $self->settings->get_section('auth') // {};
-            $section->{users}{$username} = { password => $new_hash, role => $user_role };
-            $self->settings->set_section('auth', $section);
+            # update_section, not get_section/set_section: the hand-written
+            # sequence re-reads outside any lock, so a user created by another
+            # worker in between is silently dropped by this save.
+            $self->settings->update_section('auth', sub {
+                my ($section) = @_;
+                $section->{users}{$username} = { password => $new_hash, role => $user_role };
+            });
             $c->app->log->info("Password hash migrated to bcrypt for user: $username");
         }
 
@@ -217,6 +221,20 @@ sub logout {
     });
 }
 
+# Does this instance require a login at all?
+#
+# The dashboard asks /auth/me this question. It used to have to GUESS from the
+# license plan, so a transient /api/license failure on an open instance popped
+# up a login form for credentials that do not exist. The middleware owns the
+# ENV > file > default precedence; settings is the fallback when no middleware
+# is wired (tests, embedded use).
+sub _auth_required {
+    my ($self) = @_;
+
+    return $self->auth_middleware->auth_enabled ? 1 : 0 if $self->auth_middleware;
+    return $self->settings && $self->settings->auth_enabled ? 1 : 0;
+}
+
 sub me {
     my ($self, $c) = @_;
 
@@ -224,9 +242,14 @@ sub me {
         my $username = $c->session->{username};
         my $logged_in = $c->session->{logged_in};
 
+        # JSON boolean, not 0/1: the frontend tests `data.auth_required`
+        # directly and a stringified "0" would be truthy in JS.
+        my $auth_required = $self->_auth_required ? \1 : \0;
+
         if ($logged_in && $username) {
             my $response = {
                 authenticated => 1,
+                auth_required => $auth_required,
                 username      => $username,
                 auth_method   => $c->session->{auth_method} // 'local',
                 role          => $c->session->{role} // 'viewer',
@@ -236,7 +259,10 @@ sub me {
             $response->{must_change_password} = \1 if $c->session->{must_change_password};
             $c->render(json => $response);
         } else {
-            $c->render(json => { authenticated => 0 });
+            $c->render(json => {
+                authenticated => 0,
+                auth_required => $auth_required,
+            });
         }
     });
 }
@@ -303,9 +329,10 @@ sub change_password {
 
         # Hash and store new password
         my $new_hash = $self->auth_middleware->hash_password($new_password);
-        my $section = $self->settings->get_section('auth') // {};
-        $section->{users}{$username} = { password => $new_hash, role => $role };
-        $self->settings->set_section('auth', $section);
+        $self->settings->update_section('auth', sub {
+            my ($section) = @_;
+            $section->{users}{$username} = { password => $new_hash, role => $role };
+        });
 
         # Clear the forced password change flag
         $c->session->{must_change_password} = 0;

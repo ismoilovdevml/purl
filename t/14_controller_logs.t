@@ -194,6 +194,48 @@ subtest 'search with boolean AND is order-independent' => sub {
     is_deeply $asts[0], $asts[1], 'both operand orders yield the same operand set';
 };
 
+# --- REGRESSION (#36): plain text must reach storage, not a 400 --------------
+# Every one of these strings returned HTTP 400 (or silently changed meaning)
+# once the search box started parsing everything as KQL.
+subtest 'search accepts real log text and searches it literally' => sub {
+    my %expected = (
+        'at Foo::bar()'         => 'at Foo::bar()',
+        'timeout)'              => 'timeout)',
+        'connection refused'    => 'connection refused',
+        'ERROR: disk full'      => 'ERROR: disk full',
+        'panic: runtime error'  => 'panic: runtime error',
+    );
+
+    for my $q (sort keys %expected) {
+        my $storage = MockStorage->new;
+        $storage->{search_result} = [];
+        $storage->{count_result}  = 0;
+
+        my $ctrl = Purl::API::Controller::Logs->new(storage => $storage);
+        my $c = MockCtrl->new(undef, { q => $q });
+        $ctrl->search($c);
+
+        isnt $c->rendered->{status}, 400, "'$q' is not rejected";
+        is $storage->{calls}{search}{query}, $expected{$q},
+            "'$q' reached storage as a literal substring search";
+        ok !exists $storage->{calls}{search}{kql},
+            "'$q' was not turned into a boolean expression";
+    }
+};
+
+subtest 'POST /logs/query accepts a pasted stack-trace fragment' => sub {
+    my $storage = MockStorage->new;
+    $storage->{search_result} = [{ message => 'boom at Foo::bar()' }];
+
+    my $ctrl = Purl::API::Controller::Logs->new(storage => $storage);
+    my $c = MockCtrl->new(encode_json({ query => 'at Foo::bar()', limit => 10 }));
+
+    $ctrl->query($c);
+    isnt $c->rendered->{status}, 400, 'no 400 from the JSON query endpoint';
+    is $storage->{calls}{search}{query}, 'at Foo::bar()', 'searched literally';
+    is $c->rendered->{json}{total}, 1, 'and returned the hit';
+};
+
 subtest 'search rejects malformed query instead of silently widening' => sub {
     my $storage = MockStorage->new;
     my $ctrl = Purl::API::Controller::Logs->new(storage => $storage);

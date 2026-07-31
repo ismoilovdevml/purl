@@ -46,6 +46,18 @@ sub log_audit_event {
 
     $status = 'success' unless $status =~ /^(success|failure)$/;
 
+    # DELIBERATELY not _crud_write, unlike every other metadata table.
+    #
+    # _crud_write forces sync => 1 so a create is visible to the SELECT that
+    # follows it. Audit rows are the one metadata write with no read-after-write
+    # requirement — nothing renders an audit entry it just made — and they are
+    # the one with real volume: every mutating request appends one. Paying a
+    # synchronous round-trip per request to make an append-only log a few
+    # milliseconds fresher would slow down every write path in the product.
+    #
+    # The trade is that an audit row may lag the action by an async_insert
+    # flush. get_audit_logs is a human-facing history, so that is acceptable —
+    # but it IS a trade, not an oversight left over from the conversion.
     eval {
         $self->_query(qq{
             INSERT INTO ${db}.audit_logs

@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use 5.024;
 
-our $VERSION = '1.2.0';
+our $VERSION = '1.3.0';
 
 use Mojolicious::Lite -signatures;
 use Mojo::Server::Prefork ();
@@ -492,10 +492,24 @@ sub setup_routes {
                 $generated  = 1;
             }
             my $default_hash = $auth_middleware->hash_password($admin_pass);
-            $auth_section->{users} = { admin => $default_hash };
-            $auth_section->{enabled} = 1;
-            $settings->set_section('auth', $auth_section);
-            if ($generated) {
+
+            # Re-check under the lock. Two processes booting against the same
+            # config directory must not each mint an admin and overwrite the
+            # other's password — whoever gets the lock second finds a user and
+            # leaves it alone.
+            my $created = 0;
+            $settings->update_section('auth', sub {
+                my ($section) = @_;
+                return if keys %{ $section->{users} // {} };
+                $section->{users}   = { admin => $default_hash };
+                $section->{enabled} = 1;
+                $created = 1;
+                return;
+            });
+
+            if (!$created) {
+                app->log->info('Admin user already present; leaving the existing credentials alone.');
+            } elsif ($generated) {
                 _persist_initial_admin_password($settings, $admin_pass);
                 app->log->warn('=' x 60);
                 app->log->warn('INITIAL ADMIN CREDENTIALS (generated once, shown only now):');
@@ -511,8 +525,7 @@ sub setup_routes {
     }
 
     # Warn about default/weak passwords on startup
-    my $auth_enabled = $ENV{PURL_AUTH_ENABLED}
-        // ($settings ? $settings->get('auth', 'enabled') : 0) // 0;
+    my $auth_enabled = $settings ? $settings->auth_enabled : 0;
     if ($auth_enabled) {
         my $auth_section = $settings->get_section('auth') // {};
         my $users = $auth_section->{users} // {};

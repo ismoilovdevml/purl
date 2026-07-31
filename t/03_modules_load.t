@@ -9,7 +9,6 @@ use lib "$Bin/../lib";
 my @modules = qw(
     Purl::Config
     Purl::Util::Time
-    Purl::API::Middleware
     Purl::API::Middleware::Auth
     Purl::API::Middleware::License
     Purl::API::Controller::Base
@@ -39,5 +38,18 @@ my @modules = qw(
 for my $module (@modules) {
     use_ok($module);
 }
+
+# There is exactly ONE auth gate.
+#
+# Purl::API::Middleware was a second, unrouted copy of it — its own
+# `$ENV{PURL_AUTH_ENABLED} // $auth_config->{enabled}` resolution (the pattern
+# Purl::Config::auth_enabled replaced) and a plain-text password comparison.
+# Nothing routed to it, so it could not be wrong in production, but it could be
+# read as the rule and copied back in. It is deleted; this keeps it deleted.
+subtest 'no second auth middleware exists' => sub {
+    my ($dead) = grep { -e "$_/Purl/API/Middleware.pm" } "$Bin/../lib";
+    ok !$dead, 'lib/Purl/API/Middleware.pm is gone';
+    ok -e "$Bin/../lib/Purl/API/Middleware/Auth.pm", 'the real one is still there';
+};
 
 done_testing();

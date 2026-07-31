@@ -4,6 +4,11 @@ use warnings;
 use 5.024;
 
 use Moo;
+
+# Imported BEFORE namespace::clean — anything imported after it is not cleaned,
+# and plan_search_query would leak into every controller subclass as a method.
+use Purl::Util::SearchQuery qw(plan_search_query);
+
 use namespace::clean;
 
 has 'storage' => (
@@ -70,6 +75,37 @@ sub safe_execute {
     if ($@) {
         $self->render_error($c, "Internal Server Error: $@", 500);
     }
+}
+
+# ============================================
+# Search query handling
+# ============================================
+
+# Translate a user query string into storage filter params.
+#
+# Plain text stays plain text (see Purl::Util::SearchQuery): the search box is
+# mostly used to paste log fragments, and running those through the KQL grammar
+# made `at Foo::bar()` a 400. Only a string carrying an explicit KQL marker is
+# parsed, and then a syntax error IS an error — silently dropping an
+# unparsable filter is how `level:error AND service:x` came to return more rows
+# than `level:error`.
+#
+# Returns 1 on success, having merged the resulting params into $params.
+# On failure it renders 400 and returns 0 — the caller MUST stop.
+#
+# Lives here, not in Controller::Logs, because SavedSearches validates a query
+# at save time with exactly this rule and two copies would drift apart.
+sub _apply_query {
+    my ($self, $c, $params, $query) = @_;
+
+    my ($fragment, $err) = plan_search_query($query);
+    if ($err) {
+        $self->render_error($c, "Invalid query syntax: $err", 400);
+        return 0;
+    }
+
+    @{$params}{ keys %$fragment } = values %$fragment;
+    return 1;
 }
 
 # ============================================

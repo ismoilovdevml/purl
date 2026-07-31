@@ -171,6 +171,53 @@ subtest 'create validates body before spending a storage read' => sub {
     is $c->rendered->{status}, 400, 'invalid body still 400';
 };
 
+# --- REGRESSION (#36): a saved search must be runnable ----------------------
+# create stored `query` raw with no parse check, so a user could save a search
+# that returns HTTP 400 the moment anyone runs it. Validation uses the SAME
+# code path as the search endpoints (Controller::Base::_apply_query), so the
+# two rules cannot drift apart.
+subtest 'create rejects a query that would 400 when executed' => sub {
+    for my $bad ('level:error AND', 'level:error AND (service:api', 'service:api OR)') {
+        my $storage = MockSSStorage->new;
+        my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
+        my $c = MockSSCtrl->new(encode_json({ name => 'Broken', query => $bad }), {}, {
+            license_info => { plan => 'free', limits => { saved_searches => -1 } },
+        });
+
+        $ctrl->create($c);
+        is $c->rendered->{status}, 400, "'$bad' is refused at save time";
+        like $c->rendered->{json}{error}, qr/Invalid query syntax/,
+            "'$bad' says why";
+        ok !$storage->{created}, "'$bad' was never written to storage";
+    }
+};
+
+subtest 'create accepts plain log text as a saved search' => sub {
+    for my $good ('at Foo::bar()', 'timeout)', 'connection refused') {
+        my $storage = MockSSStorage->new;
+        my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
+        my $c = MockSSCtrl->new(encode_json({ name => 'Text', query => $good }), {}, {
+            license_info => { plan => 'free', limits => { saved_searches => -1 } },
+        });
+
+        $ctrl->create($c);
+        is $c->rendered->{json}{status}, 'ok', "'$good' saved";
+        is $storage->{created}[1], $good, "'$good' stored verbatim";
+    }
+};
+
+subtest 'create validates the query before spending the quota read' => sub {
+    my $storage = MockSSStorage->new([{ id => '1' }, { id => '2' }]);
+    my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
+    my $c = MockSSCtrl->new(encode_json({ name => 'Broken', query => 'level:error AND' }), {}, {
+        license_info => { plan => 'legacy', limits => { saved_searches => 2 } },
+    });
+
+    $ctrl->create($c);
+    is $c->rendered->{status}, 400,
+        'a syntax error is reported as such, not masked by the quota 403';
+};
+
 # ============================================
 # remove
 # ============================================

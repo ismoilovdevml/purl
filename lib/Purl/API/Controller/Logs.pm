@@ -11,7 +11,6 @@ use Time::HiRes qw(time);
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 
 use Purl::Util::Time qw(parse_time_range epoch_to_iso);
-use Purl::Util::KQL qw(parse_kql);
 
 extends 'Purl::API::Controller::Base';
 
@@ -109,25 +108,6 @@ sub _filter_logs {
     return @matches;
 }
 
-# Parse a user query string into the storage filter params.
-#
-# Returns 1 on success. On a syntax error it renders 400 and returns 0 — the
-# caller MUST stop. Dropping an unparsable filter silently is precisely how
-# `level:error AND service:x` came to return more rows than `level:error`.
-sub _apply_query {
-    my ($self, $c, $params, $query) = @_;
-
-    return 1 unless defined $query && $query =~ /\S/;
-
-    my ($ast, $err) = parse_kql($query);
-    if ($err) {
-        $self->render_error($c, "Invalid query syntax: $err", 400);
-        return 0;
-    }
-    $params->{kql} = $ast if $ast;
-    return 1;
-}
-
 sub query {
     my ($self, $c) = @_;
 
@@ -188,7 +168,7 @@ sub search {
         $params{service} = $service if $service;
         $params{host}    = $host if $host;
 
-        # Parse KQL: booleans, grouping, negation, quoted phrases, meta.* fields
+        # KQL when the string declares itself as KQL, literal text otherwise.
         return unless $self->_apply_query($c, \%params, $query);
 
         # Check cache. The AST is keyed by its SOURCE string: hash key order in

@@ -313,4 +313,15 @@ subtest 'check_limit with no defined limit passes' => sub {
     ok $ctrl->check_limit($c, 'alerts', 999), 'no limit defined = pass';
 };
 
+subtest 'imported functions do not become controller methods' => sub {
+    # `use Purl::Util::SearchQuery` sat AFTER `use namespace::clean`, so
+    # plan_search_query was never cleaned and every controller subclass
+    # inherited it as a method — a second, unintended way to call it that no
+    # caller would find in Base.pm's API.
+    ok !Purl::API::Controller::Base->can('plan_search_query'),
+        'plan_search_query is not part of the controller API';
+    ok +(Purl::API::Controller::Base->can('_apply_query')),
+        'the wrapper that IS the API is';
+};
+
 done_testing;
