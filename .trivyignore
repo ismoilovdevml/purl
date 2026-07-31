@@ -1,7 +1,12 @@
-# Trivy ignore file for Purl
+# Trivy ignore file for Purl — VULNERABILITIES and SECRETS only.
 #
-# WIRED INTO CI: .github/workflows/ci.yml passes this file to every
-# aquasecurity/trivy-action step (`trivyignores: .trivyignore`).
+# IaC misconfiguration suppressions live in /.trivyignore.yaml instead: that
+# scan needs PATH-SCOPED entries (a bare ID here disables the rule repo-wide),
+# which only the YAML ignore format supports.
+#
+# WIRED INTO CI: .github/workflows/ci.yml passes this file to the filesystem
+# and image trivy-action steps (`trivyignores: .trivyignore`); the config
+# scan step passes .trivyignore.yaml.
 #
 # The following scans FAIL the build on HIGH/CRITICAL:
 #   - security-fs job    : filesystem scan (vuln + secret)

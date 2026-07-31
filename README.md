@@ -117,52 +117,59 @@ GET /api/logs?q=level:ERROR&range=1h&limit=100
 
 ## Kubernetes
 
-### Quick Install
+The Helm chart is the supported way to run Purl on Kubernetes. It is the only
+path that receives the security defaults — generated ClickHouse password,
+config persistence, PSS-restricted security contexts, NetworkPolicy allow-list
+and the render-time guards that refuse a misconfiguration instead of starting
+up quietly wrong.
+
+### Install
 
 ```bash
-# One-line install (auto-generates secrets)
-curl -fsSL https://purlogs.com/k8s-install.sh | bash
+helm repo add purl https://charts.purlogs.com
+helm repo update
+helm install purl purl/purl -n purl --create-namespace
 ```
 
-Or clone and run locally:
+Everything not supplied is generated into the release Secret and kept stable
+across upgrades. To pin your own values:
 
 ```bash
-git clone https://github.com/ismoilovdevml/purl.git
-cd purl/deploy/kubernetes
-./install.sh
+helm install purl purl/purl -n purl --create-namespace \
+  --set purl.apiKeys=<your-ingest-key> \
+  --set clickhouse.password=<your-password>
 ```
 
-The installer will:
-- Create `purl` namespace
-- Generate secure passwords automatically
-- Deploy ClickHouse, Purl, and Vector
-- Show your API key
+For an operator-managed Secret instead (nothing sensitive in
+`helm get values` or the release history), see `purl.existingSecret` in
+[`chart/values.yaml`](chart/values.yaml) — note it must carry
+`PURL_CLICKHOUSE_PASSWORD` when the built-in ClickHouse is enabled.
 
-### Access Dashboard
+### Access the dashboard
 
 ```bash
-kubectl port-forward -n purl svc/purl 3000:80
-# Open http://localhost:3000
+kubectl port-forward -n purl svc/purl 3000:3000
+# http://localhost:3000 — the initial admin password is written to
+# /app/config/initial_admin_password.txt inside the pod and logged once at startup
 ```
 
-### Uninstall
+### Upgrade and uninstall
 
 ```bash
-./deploy/kubernetes/uninstall.sh
+helm upgrade purl purl/purl -n purl
+helm uninstall purl -n purl
 ```
 
-### Manual Install (Advanced)
+The config PVC carries `helm.sh/resource-policy: keep`, so dashboard users and
+the license key survive an uninstall. Delete it explicitly when you mean to.
 
-If you prefer manual control:
+### Raw manifests (unmaintained)
 
-```bash
-kubectl create namespace purl
-
-# Edit secrets first
-vim deploy/kubernetes/secret.yaml  # Change CHANGE_ME values
-
-kubectl apply -k deploy/kubernetes/
-```
+`deploy/kubernetes/` predates the chart and no longer receives security or
+correctness fixes — its `install.sh` now refuses to run without
+`PURL_ACCEPT_UNMAINTAINED=1`. See
+[`deploy/kubernetes/README.md`](deploy/kubernetes/README.md) for the gap list
+and migration steps. Use the chart.
 
 ### Architecture (Kubernetes)
 

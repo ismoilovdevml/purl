@@ -148,9 +148,13 @@ log "Metrics endpoint OK."
 log "Pod status summary:"
 kubectl get pods -n "$NAMESPACE" -o wide
 
+# `|| true` is load-bearing: `set -o pipefail` propagates grep's exit status 1
+# when no pod reports a restart count, which under `set -e` kills the script
+# right here — on the happy path, and before the checks below ever run. The
+# empty-string case is handled by the guard on the next line.
 RESTARTS=$(kubectl get pods -n "$NAMESPACE" \
     -o jsonpath='{range .items[*]}{.status.containerStatuses[*].restartCount}{"\n"}{end}' \
-    | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -rn | head -1)
+    | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -rn | head -1 || true)
 [[ -z "$RESTARTS" || "$RESTARTS" -eq 0 ]] \
     || fail "A container restarted ${RESTARTS} time(s) during the smoke test"
 
