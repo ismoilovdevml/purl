@@ -8,7 +8,9 @@ use File::Temp qw(tempdir);
 use File::Spec;
 use Mojo::JSON qw(encode_json decode_json);
 use FindBin qw($Bin);
-use lib "$Bin/../lib";
+use lib "$Bin/../lib", "$Bin/lib";
+
+use PurlTest::Mock qw(mock_ctx mock_storage);
 
 use Purl::Config;
 use Purl::API::Controller::Settings;
@@ -36,33 +38,6 @@ use Purl::API::Controller::Backup;
 my $dir  = tempdir(CLEANUP => 1);
 my $file = File::Spec->catfile($dir, 'settings.json');
 
-{
-    package MockCtx;
-    sub new {
-        my ($class, %args) = @_;
-        return bless {
-            body     => $args{body} // '{}',
-            params   => $args{params} // {},
-            rendered => undef,
-        }, $class;
-    }
-    sub req  { $_[0] }
-    sub body { $_[0]->{body} }
-    sub app  { $_[0] }
-    sub log  { $_[0] }
-    sub error { }
-    sub warn  { }
-    sub param { $_[0]->{params}{$_[1]} }
-    sub render { my ($s, %a) = @_; $s->{rendered} = \%a }
-    sub rendered { $_[0]->{rendered} }
-    sub stash { return undef }    # no license context => every feature allowed
-    sub session { my ($s, $k) = @_; my %h = (role => 'admin'); return defined $k ? $h{$k} : \%h }
-
-    package MockStorage;
-    sub new { bless {}, $_[0] }
-    sub update_retention { return 1 }
-}
-
 sub fresh_settings {
     unlink $file;
     local $ENV{PURL_CONFIG_FILE} = $file;
@@ -72,7 +47,7 @@ sub fresh_settings {
 sub settings_ctrl {
     my ($settings) = @_;
     return Purl::API::Controller::Settings->new(
-        storage  => MockStorage->new,
+        storage  => mock_storage(),
         settings => $settings,
     );
 }
@@ -80,7 +55,7 @@ sub settings_ctrl {
 sub backup_ctrl {
     my ($settings) = @_;
     return Purl::API::Controller::Backup->new(
-        storage  => MockStorage->new,
+        storage  => mock_storage(),
         settings => $settings,
     );
 }
@@ -152,7 +127,7 @@ for my $case (@CASES) {
 
         my $settings = fresh_settings();
         my $ctrl     = settings_ctrl($settings);
-        my $c        = MockCtx->new(body => encode_json($case->{body}));
+        my $c        = mock_ctx(body => encode_json($case->{body}));
 
         $case->{call}->($ctrl, $c);
         my $r = $c->rendered;
@@ -169,12 +144,16 @@ for my $case (@CASES) {
 subtest 'update_notifications refuses PURL_TELEGRAM_CHAT_ID' => sub {
     # The check this replaces only looked at PURL_TELEGRAM_BOT_TOKEN, so an
     # edit to a chat_id pinned by the environment reported 'ok' forever.
+    #
+    # '-100111' is a value the admin TYPED. The empty string the form posts for
+    # a chat_id it was never shown is a different thing entirely and must NOT
+    # 409 — see the subtest right below, and t/settings_env_write_paths.t.
     local $ENV{PURL_TELEGRAM_CHAT_ID} = '-100999';
     delete local $ENV{PURL_TELEGRAM_BOT_TOKEN};
 
     my $settings = fresh_settings();
     my $ctrl     = settings_ctrl($settings);
-    my $c = MockCtx->new(
+    my $c = mock_ctx(
         body   => encode_json({ enabled => 1, chat_id => '-100111' }),
         params => { type => 'telegram' },
     );
@@ -186,6 +165,28 @@ subtest 'update_notifications refuses PURL_TELEGRAM_CHAT_ID' => sub {
     is_deeply $r->{json}{from_env}, ['telegram.chat_id'], 'named by its nested key';
 };
 
+subtest 'update_notifications accepts the body the real UI sends' => sub {
+    # What the browser actually posts: get_all reports bot_token/chat_id as 0/1
+    # "is it set" flags and never the value, so NotificationSettings keeps both
+    # inputs at '' until the admin types. Pinning only the typed value above is
+    # how this endpoint shipped 409ing every save an operator could make.
+    local $ENV{PURL_TELEGRAM_CHAT_ID} = '-100999';
+    delete local $ENV{PURL_TELEGRAM_BOT_TOKEN};
+
+    my $settings = fresh_settings();
+    my $ctrl     = settings_ctrl($settings);
+    my $c = mock_ctx(
+        body   => encode_json({ enabled => 1, bot_token => '', chat_id => '' }),
+        params => { type => 'telegram' },
+    );
+
+    $ctrl->update_notifications($c);
+    my $r = $c->rendered;
+
+    is $r->{json}{status}, 'ok', 'the untouched-secret body saves'
+        or diag explain $r;
+};
+
 subtest 'update_schedule refuses PURL_BACKUP_RETENTION_DAYS' => sub {
     # The old guard was a single check on PURL_BACKUP_SCHEDULE_ENABLED, so
     # every other backup key was writable-and-ignored.
@@ -194,7 +195,7 @@ subtest 'update_schedule refuses PURL_BACKUP_RETENTION_DAYS' => sub {
 
     my $settings = fresh_settings();
     my $ctrl     = backup_ctrl($settings);
-    my $c        = MockCtx->new(body => encode_json({ retention_days => 7 }));
+    my $c        = mock_ctx(body => encode_json({ retention_days => 7 }));
 
     $ctrl->update_schedule($c);
     my $r = $c->rendered;
@@ -210,7 +211,7 @@ subtest 'update_s3_config refuses PURL_BACKUP_S3_REGION' => sub {
 
     my $settings = fresh_settings();
     my $ctrl     = backup_ctrl($settings);
-    my $c        = MockCtx->new(body => encode_json({ s3_region => 'us-east-1' }));
+    my $c        = mock_ctx(body => encode_json({ s3_region => 'us-east-1' }));
 
     $ctrl->update_s3_config($c);
     my $r = $c->rendered;
@@ -250,7 +251,7 @@ subtest 'EVERY mappable key of a section is refused, not a curated subset' => su
 
             # 'different-value' is never equal to the env value, so this is a
             # real attempted change for every key, whatever its type.
-            my $c = MockCtx->new(body => encode_json({ $key => 'different-value' }));
+            my $c = mock_ctx(body => encode_json({ $key => 'different-value' }));
             $endpoint{$section}->($ctrl, $c);
 
             my $r = $c->rendered;
@@ -298,7 +299,7 @@ subtest 'a no-op resubmit of the env value is accepted, not 409' => sub {
 
     my $settings = fresh_settings();
     my $ctrl     = settings_ctrl($settings);
-    my $c = MockCtx->new(body => encode_json({
+    my $c = mock_ctx(body => encode_json({
         search_filter => '(uid=%s)',      # unchanged
         search_base   => 'dc=purl,dc=io', # the actual edit
     }));
@@ -318,7 +319,7 @@ subtest 'a masked secret sent back unchanged is not an attempted edit' => sub {
 
     my $settings = fresh_settings();
     my $ctrl     = settings_ctrl($settings);
-    my $c = MockCtx->new(body => encode_json({
+    my $c = mock_ctx(body => encode_json({
         bind_password => '********',
         search_base   => 'dc=purl,dc=io',
     }));
@@ -338,7 +339,7 @@ subtest 'retyping the masked secret to something else IS refused' => sub {
 
     my $settings = fresh_settings();
     my $ctrl     = settings_ctrl($settings);
-    my $c = MockCtx->new(body => encode_json({ bind_password => 'admin-typed-this' }));
+    my $c = mock_ctx(body => encode_json({ bind_password => 'admin-typed-this' }));
 
     $ctrl->update_ldap($c);
     my $r = $c->rendered;
@@ -362,7 +363,7 @@ subtest 'get_ldap / get_sso report every mappable key, not a subset' => sub {
     );
 
     for my $section (sort keys %check) {
-        my $c = MockCtx->new;
+        my $c = mock_ctx();
         $check{$section}->($ctrl, $c);
 
         my @reported = sort keys %{ $c->rendered->{json}{from_env} };
@@ -383,7 +384,7 @@ subtest 'backup GETs expose per-key locks the scalar flag cannot' => sub {
     my $settings = fresh_settings();
     my $ctrl     = backup_ctrl($settings);
 
-    my $c = MockCtx->new;
+    my $c = mock_ctx();
     $ctrl->get_schedule($c);
     my $schedule = $c->rendered->{json}{schedule};
 
@@ -398,7 +399,7 @@ subtest 'notification GET exposes per-key locks by dotted name' => sub {
 
     my $settings = fresh_settings();
     my $ctrl     = settings_ctrl($settings);
-    my $c        = MockCtx->new;
+    my $c        = mock_ctx();
 
     $ctrl->get_all($c);
     my $n = $c->rendered->{json}{notifications};
@@ -413,7 +414,7 @@ subtest 'get_ldap marks the key the environment actually owns' => sub {
 
     my $settings = fresh_settings();
     my $ctrl     = settings_ctrl($settings);
-    my $c        = MockCtx->new;
+    my $c        = mock_ctx();
 
     $ctrl->get_ldap($c);
     my $flags = $c->rendered->{json}{from_env};

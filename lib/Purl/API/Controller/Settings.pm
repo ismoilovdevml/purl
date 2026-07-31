@@ -185,19 +185,23 @@ sub update_notifications {
         my %changes = map { ("$type.$_" => $body->{$_}) } keys %$body;
         return if $self->reject_env_managed($c, 'notifications', \%changes);
 
-        # Nothing ENV owns goes to disk: set_section's stripping does not reach
-        # nested keys, so an accepted no-op edit would otherwise copy the
-        # environment's secret into settings.json in plaintext.
-        my %clean = %$body;
-        for my $key (keys %clean) {
-            delete $clean{$key} if $self->settings->is_from_env('notifications', "$type.$key");
-        }
+        # What may actually go to disk is Purl::Config's decision, not ours:
+        # update_section runs the section through _writable_values, which walks
+        # nested keys by their dotted name and — crucially — RESTORES the file's
+        # value for an ENV-owned key instead of dropping it. The hand-written
+        # delete loop that used to live here dropped it, so one save under
+        # PURL_TELEGRAM_CHAT_ID erased the chat_id settings.json held and the
+        # day the variable came off, Telegram alerts stopped silently.
+        #
+        # update_section (not set_section) because it re-reads under the lock:
+        # a concurrent save to another channel is no longer lost.
+        my $saved = $self->settings->update_section('notifications', sub {
+            my ($current) = @_;
+            $current->{$type} = { %$body };
+            return;
+        });
 
-        # Get current notifications config
-        my $notifications = $self->settings->_config->{notifications} // {};
-        $notifications->{$type} = \%clean;
-
-        if ($self->settings->set_section('notifications', $notifications)) {
+        if ($saved) {
             # Rebuild notifiers
             $self->rebuild_notifiers->();
 

@@ -259,8 +259,22 @@ sub _verify_checksum {
     my $sum = 0;
     $sum += $_ for unpack 'C*', $blanked;
 
-    die "Corrupt archive: header checksum mismatch\n" if $sum != oct($stored);
+    die "Corrupt archive: header checksum mismatch\n" if $sum != _oct($stored);
     return 1;
+}
+
+# oct() is not usable here: it warns "Octal number > 037777777777 non-portable"
+# for anything above 2**32. The value it returns is correct on a 64-bit perl,
+# but this module exists FOR members that large — so every multi-gigabyte
+# restore sprayed that line into the worker log while decoding a size it had
+# got right. $digits is already trimmed to octal digits by both callers, so
+# folding them by hand is exact and silent.
+sub _oct {
+    my ($digits) = @_;
+
+    my $value = 0;
+    $value = $value * 8 + ($_ - ord('0')) for unpack 'C*', $digits;
+    return $value;
 }
 
 sub _decode_size {
@@ -270,7 +284,7 @@ sub _decode_size {
 
     $field =~ s/\A\s+//;
     $field =~ s/[^0-7].*\z//s;
-    return length($field) ? oct($field) : 0;
+    return length($field) ? _oct($field) : 0;
 }
 
 sub _decode_base256 {

@@ -323,35 +323,79 @@ sub _with_lock {
     return wantarray ? @result : $result[0];
 }
 
-# Strip every ENV-provided value out of a section about to be written to disk.
+# What a section may actually put on disk.
 #
-# get_section() resolves ENV over file, so the hash a caller just edited also
-# carries whatever the environment supplied — including secrets. Writing it
-# back does two bad things:
+# Two values in a caller's hash are not theirs to write, and both resolve the
+# same way: the FILE keeps whatever it already held.
 #
-#   1. it copies the Kubernetes Secret onto the config PVC in plaintext
-#      (PURL_CLICKHOUSE_PASSWORD, PURL_API_KEYS, PURL_LDAP_BIND_PASSWORD,
-#      PURL_AI_API_KEY), and that PVC is annotated resource-policy: keep;
-#   2. it freezes the env value into the file where ENV still wins on READ, so
-#      an edit to that key looks saved and has no effect. That is how revoking
-#      an API key could report success while the key kept authenticating.
+# 1. ENV-PROVIDED VALUES. get_section() resolves ENV over file, so the hash a
+#    caller just edited also carries whatever the environment supplied —
+#    including secrets. Writing it back does two bad things:
 #
-# An ENV-managed key is not ours to write, so it keeps whatever the FILE held
-# (nothing, usually) and the caller's copy of the env value is dropped.
-sub _without_env_values {
-    my ($self, $section, $data) = @_;
+#      a. it copies the Kubernetes Secret onto the config PVC in plaintext
+#         (PURL_CLICKHOUSE_PASSWORD, PURL_API_KEYS, PURL_LDAP_BIND_PASSWORD,
+#         PURL_AI_API_KEY), and that PVC is annotated resource-policy: keep;
+#      b. it freezes the env value into the file where ENV still wins on READ,
+#         so an edit to that key looks saved and has no effect. That is how
+#         revoking an API key could report success while the key kept
+#         authenticating.
+#
+#    Keeping the file's value (rather than dropping the key) is the half that
+#    matters the day the variable is removed: ENV is what is IN EFFECT, the
+#    file is what the instance falls back to. Deleting it turns "unset
+#    PURL_TELEGRAM_CHAT_ID" into alerts that silently stop.
+#
+# 2. BLANK VALUES FOR KEYS THE API NEVER DISCLOSES (%WRITE_ONLY). Their GET
+#    reports a 0/1 "is it set" flag, so the input renders empty on every load
+#    and comes back empty unless the admin retyped it. Empty means "I did not
+#    retype it" — writing it would delete a secret nobody asked to delete.
+#
+# Nested sections (notifications.telegram.*) are walked with the same rules:
+# their keys are addressed by the dotted name %ENV_MAP uses, and the file's
+# copy of the same subtree is what they fall back to. Doing that walk by hand
+# in a controller is what dropped a file-held chat_id on the first save.
+sub _writable_values {
+    my ($self, $section, $data, $prefix, $file_node) = @_;
     return $data unless ref $data eq 'HASH';
 
-    my $file_section = $self->_config->{$section};
+    $prefix //= '';
+    $file_node = $self->_config->{$section} if @_ < 5;
+
     my %clean = %$data;
 
     for my $key (keys %clean) {
-        next unless $self->is_from_env($section, $key);
-        if (ref $file_section eq 'HASH' && exists $file_section->{$key}) {
-            $clean{$key} = $file_section->{$key};
+        my $path      = "$prefix$key";
+        my $file_has  = ref $file_node eq 'HASH' && exists $file_node->{$key};
+        my $file_value = $file_has ? $file_node->{$key} : undef;
+
+        if (ref $clean{$key} eq 'HASH' && _manages_below($section, $path)) {
+            $clean{$key} = $self->_writable_values(
+                $section, $clean{$key}, "$path.", $file_value);
+            next;
+        }
+
+        next unless $self->is_from_env($section, $path)
+                 || (_write_only($section, $path) && _is_blank($clean{$key}));
+
+        if ($file_has) {
+            $clean{$key} = $file_value;
         }
         else {
             delete $clean{$key};
+        }
+    }
+
+    # OMITTING a key is not an instruction to delete it either, when the key is
+    # not the caller's to write. The notification form posts only the fields it
+    # has, so a chat_id the environment owns never appears in the body at all —
+    # and a whole-section write would drop it from the file on the way past.
+    if (ref $file_node eq 'HASH') {
+        for my $key (keys %$file_node) {
+            next if exists $clean{$key};
+            my $path = "$prefix$key";
+            next unless $self->is_from_env($section, $path)
+                     || _write_only($section, $path);
+            $clean{$key} = $file_node->{$key};
         }
     }
 
@@ -380,7 +424,7 @@ sub update_section {
         $cb->($data, sub { $cancelled = 1 });
         return 0 if $cancelled;
 
-        $self->_config->{$section} = $self->_without_env_values($section, $data);
+        $self->_config->{$section} = $self->_writable_values($section, $data);
         return $self->save();
     });
 }
@@ -552,6 +596,60 @@ my %ENV_MAP = (
     'alerts.check_interval_seconds' => 'PURL_ALERT_CHECK_INTERVAL',
 );
 
+# Keys the API NEVER hands back. Their GET reports a 0/1 "is it set" flag
+# (password_set, bot_token, has_credentials) and nothing else, so the input is
+# empty on every page load and comes back empty unless the admin retyped it.
+#
+# An empty submission for one of these therefore means "I did not retype it",
+# not "clear it" — the admin was never shown a value to preserve, so there is
+# no way for them to express "keep it" other than by leaving it alone.
+#
+# Deliberately NOT the masked keys (ldap.bind_password, saml.sp_key,
+# ai.api_key): their GET returns '********', so that UI CAN distinguish
+# "unchanged" (send the mask back, handled by reject_env_managed's
+# unchanged_marker) from "clear it" (send empty), and empty must keep clearing
+# them.
+#
+# One list, consulted by every guard and every writer: the four call sites that
+# needed this — notifications, clickhouse and both backup endpoints — is exactly
+# the shape that gets fixed at one site and forgotten at the other three.
+my %WRITE_ONLY = map { $_ => 1 } qw(
+    clickhouse.password
+    notifications.telegram.bot_token
+    notifications.telegram.chat_id
+    notifications.slack.webhook_url
+    notifications.webhook.url
+    notifications.webhook.auth_token
+    backup.s3_access_key
+    backup.s3_secret_key
+);
+
+# A plain sub, not a method: env_shadowed_keys is deliberately borrowable by a
+# test double (t/controller/redis_settings.t calls it as a function on its own
+# mock, so the mock cannot disagree with production about which keys ENV owns).
+# Reaching this through $self would break that the moment it is used.
+sub _write_only {
+    my ($section, $key) = @_;
+    return $WRITE_ONLY{"$section.$key"} ? 1 : 0;
+}
+
+# Does %ENV_MAP manage anything BELOW this key? True only for the nested
+# notification channels, and it is what keeps the recursive walk in
+# _writable_values off unrelated nested structures (auth.users, auth.roles).
+sub _manages_below {
+    my ($section, $path) = @_;
+    my $prefix = "$section.$path.";
+    return scalar grep { index($_, $prefix) == 0 } keys %ENV_MAP;
+}
+
+# "Not filled in": undef or the empty string. A 0 is a value.
+sub _is_blank {
+    my ($value) = @_;
+    return 1 unless defined $value;
+    return 0 if ref $value;
+    return $value eq '' ? 1 : 0;
+}
+
 # Get a config value with priority: ENV > file > default
 sub get {
     my ($self, $section, $key) = @_;
@@ -612,6 +710,19 @@ sub get_nested {
 sub set {
     my ($self, $section, $key, $value) = @_;
 
+    # The same two values set_section refuses to write (see _writable_values),
+    # refused here too. set() is the sibling that was missed: it writes straight
+    # into the section, so a no-op resubmit of an ENV-owned key froze the
+    # environment's value into settings.json — invisible while the variable is
+    # set, a stale ghost the day it is removed. Both backup endpoints write
+    # through this path.
+    #
+    # Reporting success is honest: the caller's guard (reject_env_managed) has
+    # already refused any REAL change, so what reaches here either matches what
+    # is in effect or was never filled in. Nothing to do is not a failure.
+    return 1 if $self->is_from_env($section, $key);
+    return 1 if _write_only($section, $key) && _is_blank($value);
+
     # Locked so the reload-mutate-save sequence is one step: without it a
     # concurrent worker's save between our read and our write is discarded.
     return $self->_with_lock(sub {
@@ -670,12 +781,12 @@ sub get_section {
 # the case that bites — use update_section, which re-reads inside the lock.
 #
 # Every caller builds $data by editing a get_section() result, so it carries the
-# same ENV values update_section has to strip — see _without_env_values.
+# same ENV values update_section has to strip — see _writable_values.
 sub set_section {
     my ($self, $section, $data) = @_;
 
     return $self->_with_lock(sub {
-        $self->_config->{$section} = $self->_without_env_values($section, $data);
+        $self->_config->{$section} = $self->_writable_values($section, $data);
         return $self->save();
     });
 }
@@ -765,6 +876,14 @@ sub env_shadowed_keys {
     my @shadowed;
     for my $key (sort keys %$changes) {
         next unless $self->is_from_env($section, $key);
+
+        # A key the API never discloses comes back EMPTY from a UI that was only
+        # told whether it is set (see %WRITE_ONLY). That is "I did not retype
+        # it", so it is not an attempted edit — refusing it made every save of
+        # such a panel a 409 the admin could not clear, because the field they
+        # would have had to correct was never populated in the first place.
+        next if _write_only($section, $key) && _is_blank($changes->{$key});
+
         next if _same_scalar($self->get($section, $key), $changes->{$key});
         push @shadowed, $key;
     }
@@ -775,12 +894,40 @@ sub env_shadowed_keys {
 # ENV values are always strings, so the comparison is a string comparison.
 # Blessed scalars (Mojo::JSON booleans) stringify to 1/0, which is what an ENV
 # flag holds. Containers can never equal an ENV string.
+#
+# EXCEPT for booleans, which the two sides spell differently and always have:
+# the environment carries PURL_BACKUP_SCHEDULE_ENABLED=true while a JSON body
+# carries 1 (Mojo::JSON::true stringifies to 1) and the API hands out 0/1. Read
+# as strings, "true" ne "1", so a GET->PUT round-trip that changed NOTHING was
+# reported as an attempted edit and 409'd — for backup.schedule_enabled,
+# ldap.tls_enabled and saml.sign_requests alike. Normalise both sides first;
+# only when BOTH read as booleans, so 'auto' vs 'local' is untouched.
+my %BOOL_TEXT = (
+    '1' => 1, 'true'  => 1, 'yes' => 1, 'on'  => 1,
+    '0' => 0, 'false' => 0, 'no'  => 0, 'off' => 0,
+);
+
+sub _bool_text {
+    my ($value) = @_;
+    return undef unless defined $value;
+    my $text = lc "$value";
+    $text =~ s/\A\s+//;
+    $text =~ s/\s+\z//;
+    return $BOOL_TEXT{$text};
+}
+
 sub _same_scalar {
     my ($current, $proposed) = @_;
 
     return 1 if !defined $current && !defined $proposed;
     return 0 if !defined $current || !defined $proposed;
     return 0 if ref $proposed eq 'HASH' || ref $proposed eq 'ARRAY' || ref $proposed eq 'CODE';
+
+    my $current_bool  = _bool_text($current);
+    my $proposed_bool = _bool_text($proposed);
+    if (defined $current_bool && defined $proposed_bool) {
+        return $current_bool == $proposed_bool ? 1 : 0;
+    }
 
     return "$current" eq "$proposed";
 }

@@ -377,6 +377,31 @@ subtest 'process RSS does not track archive size' => sub {
         "peak RSS grew ${growth} KiB across ${BIG_MB} MiB written+extracted twice (limit ${limit} KiB)";
 };
 
+subtest 'a size field over 4 GiB decodes silently' => sub {
+    # oct() warns "Octal number > 037777777777 non-portable" for anything above
+    # 2**32, and this module exists precisely for multi-gigabyte members — so
+    # every large restore sprayed that line into the worker log while decoding
+    # a size it had actually got right. The value must be correct AND quiet.
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, $_[0] };
+
+    my %expect = (
+        4294967295 => '4 GiB - 1 (the last value oct() is quiet about)',
+        4294967296 => '4 GiB',
+        5000000000 => '5 GB',
+        8589934591 => '2**33 - 1 (largest the octal field holds)',
+    );
+
+    for my $size (sort { $a <=> $b } keys %expect) {
+        my $field = sprintf '%011o ', $size;
+        is Purl::Util::TarStream::_decode_size($field), $size,
+            "decodes $expect{$size}";
+    }
+
+    is_deeply \@warnings, [], 'and warned about nothing'
+        or diag "warnings: @warnings";
+};
+
 sub _rss_kb {
     my $out = `ps -o rss= -p $$ 2>/dev/null`;
     return undef unless defined $out;
