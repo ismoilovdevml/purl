@@ -19,11 +19,13 @@
   import ConfirmDialog from './ConfirmDialog.svelte';
   import { clearConfirmTitle, clearConfirmMessage } from '../../utils/clearSecret.js';
 
-  /**
-   * Pending destructive save, or null.
-   * @type {{ keys: string[], run: () => void } | null}
-   */
-  export let request = null;
+  let {
+    /**
+     * Pending destructive save, or null.
+     * @type {{ keys: string[], run: () => void } | null}
+     */
+    request = $bindable(null),
+  } = $props();
 
   function handleConfirm() {
     const run = request?.run;

@@ -38,6 +38,16 @@
   // handed over as-is and the store is the one authority on what is valid. A
   // corrected value flows straight back into `localSettings`, so the field
   // visibly snaps to the clamped number.
+  //
+  // Every handler below reads `e.detail.value`. <Input>/<Select> are Svelte
+  // components, not DOM nodes: they re-dispatch `change` through
+  // createEventDispatcher with `{ value }` as the detail. That CustomEvent is
+  // handed straight to the callbacks and never dispatched on an element, so
+  // `e.target` is null — the two number fields read `e.target.value` and blew
+  // up before the store was ever touched, which is why maxResults and
+  // refreshInterval never persisted. The two selects had the mirror-image bug:
+  // `e.detail || e.target.value` short-circuits on the truthy detail OBJECT and
+  // stored `{"value":"5m"}` in localStorage, matching no <option> on reload.
   function updateSetting(key, value) {
     settings.setSetting(key, value);
     toastSuccess('Settings saved');
@@ -59,7 +69,7 @@
       <Select
         value={localSettings.defaultTimeRange}
         options={timeRangeOptions}
-        on:change={(e) => updateSetting('defaultTimeRange', e.detail || e.target.value)}
+        on:change={(e) => updateSetting('defaultTimeRange', e.detail.value)}
       />
     </div>
 
@@ -73,7 +83,7 @@
         min={0}
         max={300}
         value={localSettings.refreshInterval}
-        on:change={(e) => updateSetting('refreshInterval', e.target.value)}
+        on:change={(e) => updateSetting('refreshInterval', e.detail.value)}
       />
     </div>
 
@@ -87,7 +97,7 @@
         min={50}
         max={5000}
         value={localSettings.maxResults}
-        on:change={(e) => updateSetting('maxResults', e.target.value)}
+        on:change={(e) => updateSetting('maxResults', e.detail.value)}
       />
     </div>
 
@@ -166,7 +176,7 @@
       <Select
         value={localSettings.timestampFormat}
         options={timestampOptions}
-        on:change={(e) => updateSetting('timestampFormat', e.detail || e.target.value)}
+        on:change={(e) => updateSetting('timestampFormat', e.detail.value)}
       />
     </div>
   </Card>

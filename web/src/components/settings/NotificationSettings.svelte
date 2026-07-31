@@ -73,6 +73,37 @@
 
   $: storedSecrets = storedSecretsFrom(serverSettings);
 
+  /**
+   * Fill the form from what the server actually holds.
+   *
+   * Without this the panel rendered its defaults forever: every channel showed
+   * as DISABLED even when GET /settings reported `enabled: 1, url_set: 1`. That
+   * is not cosmetic — PUT /settings/notifications/:type replaces the channel
+   * wholesale (`$current->{$type} = { %$body }` in Settings.pm), so saving any
+   * unrelated field from that stale form posted `enabled: false` and switched a
+   * live alert channel off.
+   *
+   * Only the three `enabled` flags and `slack.channel` are hydrated, because
+   * they are the only values GET returns outright. The secrets come back as
+   * mere is-set booleans (`bot_token: 0|1`, `webhook_set`, `url_set`), so their
+   * inputs must stay blank — `storedSecrets` above is what tells the user one
+   * is already stored, and the backend restores a blank write-only field rather
+   * than erasing it (_writable_values in Config.pm).
+   *
+   * Deliberately does NOT touch the secret inputs: this also runs on the
+   * refetch after a save, and blanking them there would discard a token the
+   * user had typed into a different channel.
+   */
+  function hydrate(settings) {
+    const n = settings?.notifications;
+    if (!n) return;
+
+    notifications.telegram.enabled = !!n.telegram?.enabled;
+    notifications.slack.enabled = !!n.slack?.enabled;
+    notifications.slack.channel = n.slack?.channel ?? '';
+    notifications.webhook.enabled = !!n.webhook?.enabled;
+  }
+
   /** Armed removals, keyed the same way: { 'telegram.bot_token': true }. */
   let clearing = {};
   let clearRequest = null;
@@ -95,6 +126,7 @@
     if (showSpinner) loadingSettings = true;
     try {
       serverSettings = await api.get('/settings');
+      hydrate(serverSettings);
     } catch {
       // Ignore
     } finally {

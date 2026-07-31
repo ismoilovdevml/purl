@@ -11,14 +11,14 @@
 <script>
   import { ENV_LOCK_REASON } from '../../utils/envLock.js';
 
-  /** Whether the field is pinned by an environment variable */
-  export let locked = false;
-
-  /** Badge text */
-  export let label = 'ENV';
-
-  /** Tooltip explaining WHY the field is disabled */
-  export let reason = ENV_LOCK_REASON;
+  let {
+    /** Whether the field is pinned by an environment variable */
+    locked = false,
+    /** Badge text */
+    label = 'ENV',
+    /** Tooltip explaining WHY the field is disabled */
+    reason = ENV_LOCK_REASON,
+  } = $props();
 </script>
 
 {#if locked}

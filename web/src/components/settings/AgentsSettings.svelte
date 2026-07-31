@@ -279,14 +279,23 @@
   </Card>
 </section>
 
+<!--
+  Every prop here used to be wrong at once, so "Remove Agent" did nothing at
+  all: `show` was never passed (it defaults to false, and ConfirmDialog renders
+  nothing without it), `confirmLabel` is not a prop (`confirmText` is), and
+  ConfirmDialog has no createEventDispatcher, so `on:confirm`/`on:cancel` bound
+  to events that are never emitted — it takes onConfirm/onCancel callbacks.
+  Clicking the trash icon opened nothing and reported nothing.
+-->
 {#if showDeleteConfirm}
   <ConfirmDialog
+    bind:show={showDeleteConfirm}
     title="Remove Agent"
     message={`Are you sure you want to remove agent "${deletingAgent?.hostname}"? The agent will need to re-register to appear again.`}
-    confirmLabel="Remove"
+    confirmText="Remove"
     variant="danger"
-    on:confirm={handleDelete}
-    on:cancel={() => { showDeleteConfirm = false; deletingAgent = null; }}
+    onConfirm={handleDelete}
+    onCancel={() => { deletingAgent = null; }}
   />
 {/if}
 

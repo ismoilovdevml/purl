@@ -47,7 +47,25 @@
   let clearRequest = null;
 
   $: passwordStored = !!serverSettings?.clickhouse?.password_set?.value;
-  $: passwordFromEnv = !!serverSettings?.clickhouse?.password_set?.from_env;
+
+  /*
+   * GET /settings reports env ownership per field — { value, from_env } on each
+   * of clickhouse.{host,port,database,user,password_set} and retention.days —
+   * NOT as the `from_env_keys` map the newer endpoints use. Both PUTs run
+   * reject_env_managed(), so editing a pinned field only ever earns a 409
+   * ("Cannot modify ENV-configured values: ..."). Every one of these fields has
+   * to be locked before the user types, not after the server refuses.
+   *
+   * `ck` is read as a whole so the markup below stays reactive to a re-fetch.
+   */
+  $: ck = serverSettings?.clickhouse;
+  $: passwordFromEnv = !!ck?.password_set?.from_env;
+  $: dbEnvFields = ['host', 'port', 'database', 'user', 'password_set'];
+  $: dbAnyFromEnv = !!ck && dbEnvFields.some((k) => ck[k]?.from_env);
+  // Nothing left to submit — Save could only produce a 409.
+  $: dbAllFromEnv = !!ck && dbEnvFields.every((k) => ck[k]?.from_env);
+
+  $: retentionFromEnv = !!serverSettings?.retention?.days?.from_env;
 
   // Retention
   let retentionDays = 30;
@@ -179,7 +197,7 @@
     <Card padding="none">
       <div class="group-header">
         <span class="group-title">ClickHouse Connection</span>
-        {#if serverSettings?.clickhouse?.host?.from_env}
+        {#if dbAnyFromEnv}
           <Badge variant="warning" size="sm">From Environment</Badge>
         {/if}
       </div>
@@ -189,6 +207,7 @@
           label="Host"
           bind:value={dbForm.host}
           placeholder="localhost"
+          envLocked={!!ck?.host?.from_env}
         />
 
         <Input
@@ -196,18 +215,21 @@
           type="number"
           bind:value={dbForm.port}
           placeholder="8123"
+          envLocked={!!ck?.port?.from_env}
         />
 
         <Input
           label="Database"
           bind:value={dbForm.database}
           placeholder="purl"
+          envLocked={!!ck?.database?.from_env}
         />
 
         <Input
           label="User"
           bind:value={dbForm.user}
           placeholder="default"
+          envLocked={!!ck?.user?.from_env}
         />
 
         <div class="full-width">
@@ -234,7 +256,7 @@
         <Button variant="default" on:click={testDbConnection} loading={testingDb}>
           {testingDb ? 'Testing...' : 'Test Connection'}
         </Button>
-        <Button variant="success" on:click={requestSaveDb} loading={savingDb}>
+        <Button variant="success" on:click={requestSaveDb} loading={savingDb} disabled={dbAllFromEnv}>
           {savingDb ? 'Saving...' : 'Save Settings'}
         </Button>
       </div>
@@ -262,7 +284,7 @@
     <Card padding="none" class="retention-card">
       <div class="group-header">
         <span class="group-title">Data Retention</span>
-        {#if serverSettings?.retention?.days?.from_env}
+        {#if retentionFromEnv}
           <Badge variant="warning" size="sm">From Environment</Badge>
         {/if}
       </div>
@@ -279,9 +301,16 @@
             max={365}
             bind:value={retentionDays}
             size="sm"
+            envLocked={retentionFromEnv}
           />
           <span class="unit">days</span>
-          <Button variant="success" size="sm" on:click={saveRetention} loading={savingRetention}>
+          <Button
+            variant="success"
+            size="sm"
+            on:click={saveRetention}
+            loading={savingRetention}
+            disabled={retentionFromEnv}
+          >
             {savingRetention ? 'Saving...' : 'Apply'}
           </Button>
         </div>

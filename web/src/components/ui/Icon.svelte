@@ -33,28 +33,32 @@
   data can never become markup.
 -->
 <script>
-  /** Glyph imported from ./icons.js. */
-  export let icon;
-  /** Rendered width/height in px. */
-  export let size = 16;
-  /** Accessible name. When omitted the icon is hidden from assistive tech. */
-  export let label = null;
-  /** Override the icon's stroke width (raise it below ~16px to keep weight). */
-  export let strokeWidth = null;
-  /** Apply the shared spin animation. */
-  export let spin = false;
-  /** Override the inherited colour (accepts any CSS colour). */
-  export let color = null;
+  let {
+    /** Glyph imported from ./icons.js. */
+    icon,
+    /** Rendered width/height in px. */
+    size = 16,
+    /** Accessible name. When omitted the icon is hidden from assistive tech. */
+    label = null,
+    /** Override the icon's stroke width (raise it below ~16px to keep weight). */
+    strokeWidth = null,
+    /** Apply the shared spin animation. */
+    spin = false,
+    /** Override the inherited colour (accepts any CSS colour). */
+    color = null,
+    class: className = '',
+  } = $props();
 
-  let className = '';
-  export { className as class };
+  const def = $derived(Array.isArray(icon) ? { shapes: icon } : (icon ?? null));
+  const shapes = $derived(
+    (def?.shapes ?? []).map((s) => (typeof s === 'string' ? ['path', { d: s }] : s))
+  );
 
-  $: def = Array.isArray(icon) ? { shapes: icon } : (icon ?? null);
-  $: shapes = (def?.shapes ?? []).map((s) => (typeof s === 'string' ? ['path', { d: s }] : s));
-
-  $: if (import.meta.env.DEV && !def) {
-    console.warn('[Icon] missing or unknown `icon` prop — did you import the glyph from icons.js?');
-  }
+  $effect(() => {
+    if (import.meta.env.DEV && !def) {
+      console.warn('[Icon] missing or unknown `icon` prop — did you import the glyph from icons.js?');
+    }
+  });
 </script>
 
 {#if def}

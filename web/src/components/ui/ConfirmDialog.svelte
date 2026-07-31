@@ -17,33 +17,42 @@
   import { fade, scale } from 'svelte/transition';
   import { trapFocus, lockScroll, unlockScroll } from '../../utils/dom.js';
   import Icon from './Icon.svelte';
+  // Glyphs, not name strings: Icon takes the imported glyph so icons.js stays
+  // tree-shakeable. This file was passing `name="x-circle"`, which Icon has no
+  // prop for — `icon` came through undefined and the whole {#if def} block
+  // rendered nothing, so the coloured circle at the top of EVERY confirm
+  // dialog has been empty since the icon migration.
+  import { xCircle, alertTriangle, info } from './icons.js';
 
-  /** Whether dialog is visible */
-  export let show = false;
+  const VARIANT_ICON = { danger: xCircle, warning: alertTriangle, info };
 
-  /** Dialog title */
-  export let title = 'Confirm';
+  let {
+    /** Whether dialog is visible */
+    show = $bindable(false),
+    /** Dialog title */
+    title = 'Confirm',
+    /** Dialog message */
+    message = 'Are you sure?',
+    /** Confirm button text */
+    confirmText = 'Confirm',
+    /** Cancel button text */
+    cancelText = 'Cancel',
+    /** @type {'danger' | 'warning' | 'info'} */
+    variant = 'danger',
+    /** Callback when confirmed */
+    onConfirm = () => {},
+    /** Callback when cancelled */
+    onCancel = () => {},
+  } = $props();
 
-  /** Dialog message */
-  export let message = 'Are you sure?';
+  let dialogElement = $state(null);
+  let confirmButton = $state(null);
 
-  /** Confirm button text */
-  export let confirmText = 'Confirm';
-
-  /** Cancel button text */
-  export let cancelText = 'Cancel';
-
-  /** @type {'danger' | 'warning' | 'info'} */
-  export let variant = 'danger';
-
-  /** Callback when confirmed */
-  export let onConfirm = () => {};
-
-  /** Callback when cancelled */
-  export let onCancel = () => {};
-
-  let dialogElement;
-  let confirmButton;
+  /*
+   * Deliberately plain `let`, not $state: these are written from inside the
+   * focus/scroll effect below, and making them reactive would feed that
+   * effect its own writes and trip effect_update_depth_exceeded.
+   */
   let previousActiveElement;
   let cleanupTrapFocus;
   let isScrollLocked = false;
@@ -73,24 +82,28 @@
     }
   }
 
-  $: if (show) {
-    previousActiveElement = document.activeElement;
-    if (!isScrollLocked) { lockScroll(); isScrollLocked = true; }
+  // $effect.pre (not $effect) keeps the old `$:` ordering: the scroll lock and
+  // the saved focus target are settled before the dialog markup is committed.
+  $effect.pre(() => {
+    if (show) {
+      previousActiveElement = document.activeElement;
+      if (!isScrollLocked) { lockScroll(); isScrollLocked = true; }
 
-    setTimeout(() => {
-      if (dialogElement) {
-        cleanupTrapFocus = trapFocus(dialogElement);
-        // Don't steal focus if already inside dialog
-        if (!dialogElement.contains(document.activeElement)) {
-          confirmButton?.focus();
+      setTimeout(() => {
+        if (dialogElement) {
+          cleanupTrapFocus = trapFocus(dialogElement);
+          // Don't steal focus if already inside dialog
+          if (!dialogElement.contains(document.activeElement)) {
+            confirmButton?.focus();
+          }
         }
-      }
-    }, 0);
-  } else {
-    if (isScrollLocked) { unlockScroll(); isScrollLocked = false; }
-    cleanupTrapFocus?.();
-    previousActiveElement?.focus();
-  }
+      }, 0);
+    } else {
+      if (isScrollLocked) { unlockScroll(); isScrollLocked = false; }
+      cleanupTrapFocus?.();
+      previousActiveElement?.focus();
+    }
+  });
 
   onDestroy(() => {
     if (isScrollLocked) unlockScroll();
@@ -98,14 +111,28 @@
   });
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 {#if show}
-  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+  <!--
+    The overlay is a dimming/positioning layer only, so role="presentation"
+    is the honest description: it keeps the backdrop out of the a11y tree
+    while the inner role="alertdialog" element stays the exposed dialog.
+    That also makes the click handler legitimate without a svelte-ignore —
+    no keyboard equivalent is owed here because Escape is handled on
+    <svelte:window> above and Cancel is a real focusable button.
+
+    Do NOT go back to a `svelte-ignore` listing two codes separated by a
+    space: in runes mode (this component) Svelte 5.45 applies only the FIRST
+    code and silently drops the rest, which is how the
+    a11y_no_static_element_interactions warning got in here. A comma is
+    required if a multi-code ignore is ever needed again.
+  -->
   <div
     class="confirm-overlay"
+    role="presentation"
     transition:fade={{ duration: 150 }}
-    on:click={handleOverlayClick}
+    onclick={handleOverlayClick}
   >
     <div
       class="confirm-dialog"
@@ -118,23 +145,20 @@
       transition:scale={{ duration: 150, start: 0.95 }}
     >
       <div class="confirm-icon variant-{variant}">
-        <Icon
-          name={variant === 'danger' ? 'x-circle' : variant === 'warning' ? 'alert-triangle' : 'info'}
-          size={24}
-        />
+        <Icon icon={VARIANT_ICON[variant] ?? info} size={24} />
       </div>
 
       <h3 id="confirm-title" class="confirm-title">{title}</h3>
       <p id="confirm-message" class="confirm-message">{message}</p>
 
       <div class="confirm-actions">
-        <button class="btn-cancel" on:click={handleCancel}>
+        <button class="btn-cancel" onclick={handleCancel}>
           {cancelText}
         </button>
         <button
           class="btn-confirm variant-{variant}"
           bind:this={confirmButton}
-          on:click={handleConfirm}
+          onclick={handleConfirm}
         >
           {confirmText}
         </button>

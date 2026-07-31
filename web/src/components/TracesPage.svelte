@@ -3,10 +3,23 @@
   Trace exploration page with search, timeline visualization, and logs table.
   Supports searching by trace_id or request_id.
 
-  API endpoints:
-  - GET /api/traces/:trace_id — returns { logs, trace_id, total }
-  - GET /api/traces/:trace_id/timeline — returns { timeline: { services, spans, duration_ms } }
-  - GET /api/requests/:request_id — returns { logs, request_id, total }
+  API endpoints (shapes verified against lib/Purl/API/Controller/Traces.pm):
+  - GET /api/traces/:trace_id
+      { trace_id, total, hits: [{ id, timestamp, level, service, host, message,
+                                  raw, meta, trace_id, request_id, span_id,
+                                  parent_span_id }] }
+  - GET /api/traces/:trace_id/timeline
+      { trace_id, start_time, end_time,
+        services: [{ service, start_time, end_time, log_count, error_count }] }
+      NOTE: there are no per-operation spans. The server aggregates by service
+      (GROUP BY service), so each service yields exactly ONE window. The bars
+      below are derived from those windows, not from real span data.
+  - GET /api/requests/:request_id
+      { request_id, total, hits: [...same as above...] }
+
+  The log rows arrive under `hits`, NOT `logs`, and the timeline is returned
+  flat, NOT wrapped in a `timeline` key. Reading `logs`/`timeline` is what made
+  a populated trace render as "No logs found" with no timeline at all.
 -->
 <script>
   import { onMount } from 'svelte';
@@ -65,6 +78,51 @@
     const fromServer = err?.body?.error;
     if (fromServer) return new Error(fromServer);
     return new Error(err?.status ? `${label} (${err.status})` : (err?.message || label));
+  }
+
+  /**
+   * Turn the timeline endpoint's flat per-service windows into bars.
+   *
+   * The server aggregates GROUP BY service, so each entry is one service's
+   * first..last log window as an ISO-8601 string (ClickHouse DateTime64(3), so
+   * milliseconds survive). Offsets are measured from the earliest service start
+   * — the endpoint's own `start_time` is the same value, but deriving it here
+   * keeps the bars consistent even if a future server omits it.
+   *
+   * Returns null when there is nothing renderable, so the markup can simply
+   * test `timelineRows.length`.
+   */
+  function buildTimeline(data) {
+    const services = Array.isArray(data?.services) ? data.services : [];
+    if (services.length === 0) return null;
+
+    const windows = services
+      .map(s => ({
+        service: s.service || 'unknown',
+        startMs: Date.parse(s.start_time),
+        endMs: Date.parse(s.end_time),
+        logCount: s.log_count ?? 0,
+        errorCount: s.error_count ?? 0,
+      }))
+      .filter(w => Number.isFinite(w.startMs) && Number.isFinite(w.endMs));
+
+    if (windows.length === 0) return null;
+
+    const traceStart = Math.min(...windows.map(w => w.startMs));
+    const traceEnd = Math.max(...windows.map(w => w.endMs));
+
+    return {
+      durationMs: Math.max(traceEnd - traceStart, 0),
+      spans: windows.map(w => ({
+        service: w.service,
+        startMs: w.startMs - traceStart,
+        // A service that logged once has start == end. Clamp at 0 so the
+        // width math below can still give it a visible minimum-width bar.
+        durationMs: Math.max(w.endMs - w.startMs, 0),
+        logCount: w.logCount,
+        errorCount: w.errorCount,
+      })),
+    };
   }
 
   async function fetchRecentTraces() {
@@ -134,7 +192,7 @@
         } catch (err) {
           throw traceLookupError(err, 'Request not found');
         }
-        logs = data.logs || [];
+        logs = data.hits || [];
         requestId = data.request_id || query;
         total = data.total || logs.length;
         searchType = 'request';
@@ -151,13 +209,13 @@
         }
 
         const logsData = logsResult.value;
-        logs = logsData.logs || [];
+        logs = logsData.hits || [];
         traceId = logsData.trace_id || query;
         total = logsData.total || logs.length;
         searchType = 'trace';
 
         if (timelineResult.status === 'fulfilled') {
-          timeline = timelineResult.value?.timeline || null;
+          timeline = buildTimeline(timelineResult.value);
         }
       }
 
@@ -203,7 +261,7 @@
 
   // Compute stats from logs
   $: uniqueServices = [...new Set(logs.map(l => l.service).filter(Boolean))];
-  $: totalDuration = timeline?.duration_ms || 0;
+  $: totalDuration = timeline?.durationMs || 0;
   $: levelCounts = logs.reduce((acc, l) => {
     const level = (l.level || 'unknown').toLowerCase();
     acc[level] = (acc[level] || 0) + 1;
@@ -211,34 +269,25 @@
   }, {});
   $: hasErrors = (levelCounts['error'] || 0) + (levelCounts['fatal'] || 0) + (levelCounts['critical'] || 0) > 0;
 
-  // Compute timeline span positions
-  $: timelineSpans = (() => {
-    if (!timeline?.spans || !timeline?.duration_ms) return [];
-    const dur = timeline.duration_ms;
-    if (dur === 0) return [];
-    return timeline.spans.map(span => ({
-      ...span,
-      leftPct: ((span.start_ms || 0) / dur) * 100,
-      widthPct: Math.max(((span.duration_ms || 0) / dur) * 100, 0.5),
-      color: getServiceColor(span.service),
-    }));
-  })();
-
-  // Group spans by service for timeline rows
+  /**
+   * One row per service, each holding the single bar the API gives us.
+   *
+   * A whole-trace duration of 0 (every service logged inside the same
+   * millisecond) is a real case, not an error: the bars then span the full
+   * track rather than the section disappearing.
+   */
   $: timelineRows = (() => {
-    if (!timelineSpans.length) return [];
-    const serviceMap = new Map();
-    for (const span of timelineSpans) {
-      const svc = span.service || 'unknown';
-      if (!serviceMap.has(svc)) {
-        serviceMap.set(svc, []);
-      }
-      serviceMap.get(svc).push(span);
-    }
-    return Array.from(serviceMap.entries()).map(([service, spans]) => ({
-      service,
-      spans,
-      color: getServiceColor(service),
+    if (!timeline?.spans?.length) return [];
+    const dur = timeline.durationMs;
+    return timeline.spans.map(span => ({
+      service: span.service,
+      color: getServiceColor(span.service),
+      logCount: span.logCount,
+      errorCount: span.errorCount,
+      durationMs: span.durationMs,
+      startMs: span.startMs,
+      leftPct: dur > 0 ? (span.startMs / dur) * 100 : 0,
+      widthPct: dur > 0 ? Math.max((span.durationMs / dur) * 100, 0.5) : 100,
     }));
   })();
 </script>
@@ -436,17 +485,15 @@
                   <div class="grid-line" style="left: 50%"></div>
                   <div class="grid-line" style="left: 75%"></div>
 
-                  {#each row.spans as span}
-                    <div
-                      class="timeline-span"
-                      style="left: {span.leftPct}%; width: {span.widthPct}%; background: {span.color};"
-                      title="{span.operation || span.service}: {formatDuration(span.duration_ms)} ({formatDuration(span.start_ms)} - {formatDuration((span.start_ms || 0) + (span.duration_ms || 0))})"
-                    >
-                      {#if span.widthPct > 8}
-                        <span class="span-label">{span.operation || ''}</span>
-                      {/if}
-                    </div>
-                  {/each}
+                  <div
+                    class="timeline-span"
+                    style="left: {row.leftPct}%; width: {row.widthPct}%; background: {row.color};"
+                    title="{row.service}: {formatDuration(row.durationMs)} ({formatDuration(row.startMs)} - {formatDuration(row.startMs + row.durationMs)}), {row.logCount} log{row.logCount !== 1 ? 's' : ''}{row.errorCount > 0 ? `, ${row.errorCount} error${row.errorCount !== 1 ? 's' : ''}` : ''}"
+                  >
+                    {#if row.widthPct > 8}
+                      <span class="span-label">{row.logCount} log{row.logCount !== 1 ? 's' : ''}</span>
+                    {/if}
+                  </div>
                 </div>
               </div>
             {/each}

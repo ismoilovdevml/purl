@@ -8,7 +8,7 @@
   Usage:
   <LazyRoute loader={() => import('../AnalyticsPage.svelte')} name="Analytics" />
 -->
-<script context="module">
+<script module>
   // Module-level cache: loader fn -> import promise.
   // Without this, every re-render would call loader() again and produce a
   // fresh promise identity, sending {#await} back into its pending branch.
@@ -33,13 +33,16 @@
   import Icon from './Icon.svelte';
   import { alertCircle } from './icons.js';
 
-  /** Function returning a dynamic import() promise for the page component */
-  export let loader;
+  let {
+    /** Function returning a dynamic import() promise for the page component */
+    loader,
+    /** Human-readable route name, used in loading/error copy */
+    name = 'page',
+  } = $props();
 
-  /** Human-readable route name, used in loading/error copy */
-  export let name = 'page';
-
-  $: promise = load(loader);
+  // Reassignable $derived: recomputes when `loader` changes, but retry() can
+  // override it in place — the same contract the old `$: promise = ...` had.
+  let promise = $derived(load(loader));
 
   function retry() {
     promise = reload(loader);
@@ -51,12 +54,13 @@
     <LoadingSpinner size="lg" variant="primary" centered label="Loading {name}..." />
   </div>
 {:then module}
-  <svelte:component this={module.default} />
+  {@const Page = module.default}
+  <Page />
 {:catch}
   <div class="lazy-route lazy-route-error" role="alert">
     <Icon icon={alertCircle} size={20} />
     <span>Failed to load the {name} page. Check your connection and try again.</span>
-    <button class="retry-btn" on:click={retry}>Retry</button>
+    <button class="retry-btn" onclick={retry}>Retry</button>
   </div>
 {/await}
 

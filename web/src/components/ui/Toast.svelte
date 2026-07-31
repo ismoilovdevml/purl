@@ -20,7 +20,7 @@
   const TOAST_ICON = { success: checkCircle, error: xCircle, warning: alertTriangle };
 
   // Limit visible toasts to 5
-  $: visibleToasts = $toasts.slice(-5);
+  const visibleToasts = $derived($toasts.slice(-5));
 </script>
 
 {#if visibleToasts.length > 0}
@@ -38,7 +38,7 @@
         <span class="toast-message">{toast.message}</span>
         <button
           class="toast-close"
-          on:click={() => removeToast(toast.id)}
+          onclick={() => removeToast(toast.id)}
           aria-label="Dismiss notification"
         >
           <Icon icon={close} size={14} strokeWidth={2.5} />

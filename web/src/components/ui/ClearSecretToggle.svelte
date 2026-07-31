@@ -20,35 +20,39 @@
   import EnvBadge from './EnvBadge.svelte';
   import { secretLabel } from '../../utils/clearSecret.js';
 
-  /** Section-relative key of the secret, e.g. 'telegram.bot_token'. */
-  export let secret = '';
+  let {
+    /** Section-relative key of the secret, e.g. 'telegram.bot_token'. */
+    secret = '',
+    /** Is a value actually stored? From the API's *_set / has_credentials flag. */
+    stored = false,
+    /**
+     * The environment owns this key. The server answers 409 to any attempt to
+     * change OR clear it, so the control is disabled and carries an <EnvBadge>
+     * saying why — never disabled without a reason.
+     */
+    envLocked = false,
+    /** Panel-level lock (coarse from_env flag, save in flight, ...). */
+    disabled = false,
+    /** Bound: the user armed the removal. The panel's Save performs it. */
+    armed = $bindable(false),
+  } = $props();
 
-  /** Is a value actually stored? From the API's *_set / has_credentials flag. */
-  export let stored = false;
-
-  /**
-   * The environment owns this key. The server answers 409 to any attempt to
-   * change OR clear it, so the control is disabled and carries an <EnvBadge>
-   * saying why — never disabled without a reason.
-   */
-  export let envLocked = false;
-
-  /** Panel-level lock (coarse from_env flag, save in flight, ...). */
-  export let disabled = false;
-
-  /** Bound: the user armed the removal. The panel's Save performs it. */
-  export let armed = false;
-
-  $: label = secretLabel(secret);
-  $: locked = disabled || envLocked;
+  const label = $derived(secretLabel(secret));
+  const locked = $derived(disabled || envLocked);
 
   /*
    * A control the user can no longer see or reach must not leave a live
    * instruction behind: a field that becomes env-locked, or whose stored value
    * disappeared under us on a refetch, would otherwise smuggle a clear_* into
    * the next save of an unrelated field.
+   *
+   * $effect.pre (not $effect) so the reset lands in the same flush as the
+   * change that caused it, the way the old `$:` statement did — a plain
+   * $effect would let one frame render with the stale armed state.
    */
-  $: if (locked || !stored) armed = false;
+  $effect.pre(() => {
+    if (locked || !stored) armed = false;
+  });
 </script>
 
 {#if stored}

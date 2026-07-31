@@ -11,20 +11,18 @@
   import Icon from './Icon.svelte';
   import { spinner } from './icons.js';
 
-  /** Size */
-  export let size = 'md'; // xs, sm, md, lg, xl
-
-  /** Loading text */
-  export let label = '';
-
-  /** Center in parent */
-  export let centered = false;
-
-  /** Overlay mode */
-  export let overlay = false;
-
-  /** Color variant */
-  export let variant = 'default'; // default, primary
+  let {
+    /** Size: xs, sm, md, lg, xl */
+    size = 'md',
+    /** Loading text */
+    label = '',
+    /** Center in parent */
+    centered = false,
+    /** Overlay mode */
+    overlay = false,
+    /** Color variant: default, primary */
+    variant = 'default',
+  } = $props();
 </script>
 
 {#if overlay}
