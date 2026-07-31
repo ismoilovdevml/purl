@@ -10,6 +10,7 @@ use MIME::Base64 qw(decode_base64 encode_base64);
 use Time::HiRes qw(time);
 use Crypt::Eksblowfish::Bcrypt qw(bcrypt_hash en_base64 de_base64);
 use Purl::Util::ClientIP qw(resolve_client_ip);
+use Purl::Util::IngestRoutes qw(is_ingest_request);
 use Purl::Store::Counter;
 
 has 'config' => (
@@ -326,6 +327,12 @@ sub check_auth {
         return 1;
     }
 
+    # Same key material over `Authorization: Bearer`, on ingest routes only —
+    # for clients that cannot set a custom header (kube-apiserver audit webhook).
+    if ($self->_check_bearer_token($c, $auth_config)) {
+        return 1;
+    }
+
     # Basic auth always works
     if ($self->_check_basic_auth($c, $auth_config)) {
         $c->stash(current_user => 'api');
@@ -361,22 +368,66 @@ sub _check_api_key {
     my $api_key = $c->req->headers->header('X-API-Key');
     return 0 unless $api_key;
 
-    # Check ENV API keys (comma-separated)
+    return $self->_api_key_is_valid($api_key, $auth_config);
+}
+
+# Accept an ingest API key presented as `Authorization: Bearer <key>`.
+#
+# WHY: the kube-apiserver audit webhook (deploy/k8s-audit/) is configured with a
+# kubeconfig, and a kubeconfig can present a bearer token or a client
+# certificate — it cannot set an arbitrary header. Same key material, same
+# validation as X-API-Key; only the transport differs.
+#
+# SCOPE: ingest routes only (see Purl::Util::IngestRoutes). The dashboard is
+# session-cookie authenticated and must not gain a second credential transport.
+#
+# PRECEDENCE: X-API-Key wins outright. If that header is present it alone
+# decides, so a client sending both never gets a surprising "the other one let
+# me in" result, and a revoked X-API-Key cannot be rescued by a bearer token.
+sub _check_bearer_token {
+    my ($self, $c, $auth_config) = @_;
+
+    return 0 if defined $c->req->headers->header('X-API-Key');
+
+    my $header = $c->req->headers->authorization;
+    return 0 unless defined $header;
+
+    # RFC 7235: the auth-scheme token is case-insensitive; the credential that
+    # follows is not. Exactly one SP separates them and an API key contains no
+    # whitespace, so "Bearer  k" (two spaces) and "Bearer k extra" are
+    # malformed rather than keys with odd characters.
+    return 0 unless $header =~ /\ABearer (\S+)\z/i;
+    my $key = $1;
+
+    return 0 unless is_ingest_request($c->req->method, $c->req->url->path->to_string);
+
+    return $self->_api_key_is_valid($key, $auth_config);
+}
+
+# Validate raw key material against the configured ingest keys, whatever header
+# carried it. Supports both plain strings and hash entries.
+#
+# The list may also arrive as the raw comma-separated PURL_API_KEYS string:
+# get_section() resolves ENV over file, so reading through Purl::Config hands
+# back whatever the env var contains. Treating that string as an arrayref is a
+# 500 on every authenticated request.
+sub _api_key_is_valid {
+    my ($self, $key, $auth_config) = @_;
+
+    return 0 unless defined $key && length $key;
+
+    # ENV API keys (comma-separated)
     if (my $env_keys = $ENV{PURL_API_KEYS}) {
         my @keys = split /,/, $env_keys;
-        return 1 if grep { $_ eq $api_key } @keys;
+        return 1 if grep { $_ eq $key } @keys;
     }
 
-    # Check config API keys (supports both plain strings and hash entries).
-    # The list may also arrive as the raw comma-separated PURL_API_KEYS string:
-    # get_section() resolves ENV over file, so reading through Purl::Config
-    # hands back whatever the env var contains. Treating that string as an
-    # arrayref is a 500 on every authenticated request.
     my $valid_keys = $auth_config->{api_keys} // [];
     $valid_keys = [ split /,/, $valid_keys ] unless ref $valid_keys eq 'ARRAY';
     for my $entry (@$valid_keys) {
         my $stored = ref $entry eq 'HASH' ? ($entry->{key} // '') : $entry;
-        return 1 if $stored eq $api_key;
+        next unless defined $stored;
+        return 1 if $stored eq $key;
     }
 
     return 0;
@@ -540,7 +591,11 @@ Purl::API::Middleware::Auth - Authentication, CSRF, and Rate Limiting
 
 =over 4
 
-=item * check_auth($c) - Check if request is authenticated
+=item * check_auth($c) - Check if request is authenticated. Credentials, in the
+order they are consulted: C<X-API-Key>; C<Authorization: Bearer E<lt>api keyE<gt>>
+(ingest routes only — see L<Purl::Util::IngestRoutes>); C<Authorization: Basic>;
+session cookie. C<X-API-Key> takes precedence: when that header is present the
+bearer token is ignored entirely.
 
 =item * hash_password($password, $salt) - Hash a password
 

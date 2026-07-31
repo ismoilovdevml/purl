@@ -8,6 +8,7 @@ use File::Temp qw(tempdir);
 use File::Spec;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
+use lib "$Bin/lib";
 
 # ============================================
 # REGRESSION (#37): the prefork config reload must reach the auth gate.
@@ -39,29 +40,11 @@ BEGIN {
 
 use Purl::Config;
 use Purl::API::Middleware::Auth;
+use PurlTest::Mock qw(mock_auth_ctx);
 
-# Minimal controller stand-in: headers, session, stash.
-{
-    package MockHeaders;
-    sub new { bless { h => $_[1] // {} }, $_[0] }
-    sub header { $_[0]->{h}{ $_[1] } }
-    sub authorization { $_[0]->{h}{Authorization} }
-
-    package MockReq;
-    sub new { bless { headers => MockHeaders->new($_[1]) }, $_[0] }
-    sub headers { $_[0]->{headers} }
-
-    package MockCtrl;
-    sub new { bless { req => MockReq->new($_[1]), stash => {}, session => {} }, $_[0] }
-    sub req { $_[0]->{req} }
-    sub session { $_[0]->{session} }
-    sub stash {
-        my ($self, $k, $v) = @_;
-        return $self->{stash} unless defined $k;
-        $self->{stash}{$k} = $v if defined $v;
-        return $self->{stash}{$k};
-    }
-}
+# Controller stand-in lives in t/lib/PurlTest/Mock.pm (mock_auth_ctx) — three
+# test files had grown their own near-identical copy.
+sub ctx { return mock_auth_ctx(headers => $_[0] // {}) }
 
 my $dir  = tempdir(CLEANUP => 1);
 my $file = File::Spec->catfile($dir, 'settings.json');
@@ -86,7 +69,7 @@ sub worker_middleware {
 
 sub check_key {
     my ($mw, $key) = @_;
-    return $mw->check_auth(MockCtrl->new({ 'X-API-Key' => $key })) ? 1 : 0;
+    return $mw->check_auth(ctx({ 'X-API-Key' => $key })) ? 1 : 0;
 }
 
 # ============================================
@@ -94,7 +77,7 @@ sub check_key {
 subtest 'auth is enabled and anonymous access is refused' => sub {
     my $mw = worker_middleware();
     is $mw->auth_enabled, 1, 'auth enabled comes from settings.json';
-    is $mw->check_auth(MockCtrl->new({})) ? 1 : 0, 0, 'no credentials => refused';
+    is $mw->check_auth(ctx({})) ? 1 : 0, 0, 'no credentials => refused';
 };
 
 subtest 'the pre-fork key still works' => sub {
@@ -136,14 +119,14 @@ subtest 'a user added by another worker can use basic auth here' => sub {
     require MIME::Base64;
     my $header = 'Basic ' . MIME::Base64::encode_base64('newbie:S3cretPassw0rd', '');
 
-    is $mw->check_auth(MockCtrl->new({ Authorization => $header })) ? 1 : 0, 0,
+    is $mw->check_auth(ctx({ Authorization => $header })) ? 1 : 0, 0,
         'unknown user refused';
 
     Purl::Config->new(config_file => $file)->update_section('auth', sub {
         $_[0]{users}{newbie} = { password => $hash, role => 'viewer' };
     });
 
-    is $mw->check_auth(MockCtrl->new({ Authorization => $header })) ? 1 : 0, 1,
+    is $mw->check_auth(ctx({ Authorization => $header })) ? 1 : 0, 1,
         'the freshly created user authenticates on this worker too';
 };
 
@@ -156,7 +139,7 @@ subtest 'disabling auth elsewhere opens this worker' => sub {
     });
 
     is $mw->auth_enabled, 0, 'the flag is re-read, not frozen at fork time';
-    is $mw->check_auth(MockCtrl->new({})) ? 1 : 0, 1, 'and the gate opens';
+    is $mw->check_auth(ctx({})) ? 1 : 0, 1, 'and the gate opens';
 };
 
 subtest 'without a settings object the pre-fork snapshot is still honoured' => sub {

@@ -17,22 +17,57 @@ endpoint (`lib/Purl/API/Controller/K8sAudit.pm`), which is what backs the
 | `audit-policy.yaml` | `--audit-policy-file=/etc/kubernetes/audit-policy.yaml` |
 | `audit-webhook.yaml` | `--audit-webhook-config-file=/etc/kubernetes/audit-webhook.yaml` |
 
-## KNOWN GAP — the webhook cannot authenticate today
+## Authentication — use a bearer token
 
-`POST /api/v1/k8s-audit` sits behind the ingest auth middleware, and
-`Purl::API::Middleware::Auth::_check_api_key` reads the key from the
-**`X-API-Key`** header only. An apiserver audit webhook is configured with a
-kubeconfig, which can present a bearer token or a client certificate — it has
-no way to set an arbitrary header. So with `purl.authEnabled=true` (the
-default) every audit event is rejected with 401.
+`POST /api/v1/k8s-audit` sits behind the ingest auth middleware. An apiserver
+audit webhook is configured with a kubeconfig, which can present a bearer token
+or a client certificate but has **no way to set an arbitrary header** — so the
+`X-API-Key` header every other Purl client uses is not an option here.
 
-`audit-webhook.yaml` therefore ships with no `users:` block: adding a `token:`
-would not help until the app accepts `Authorization: Bearer`. Until then this
-path only works against an install with ingest auth disabled, which is not a
-configuration to run on a real cluster.
+Purl therefore accepts a Purl **ingest API key** as
+`Authorization: Bearer <key>` on the ingest routes (`POST /api/logs`,
+`/api/v1/otlp/logs`, `/api/v1/syslog`, `/api/v1/k8s-audit`, `/api/_bulk`).
+Same key material and same validation as `X-API-Key`; only the transport
+differs. It is **not** accepted on the dashboard routes, which are
+session-cookie authenticated.
 
-Tracked as a backend follow-up: accept `Authorization: Bearer <key>` as an
-alternative to `X-API-Key` on the ingest routes.
+Mint the key in the UI (Settings → API Keys) or set it in `PURL_API_KEYS`, then
+add a `users:` block to `audit-webhook.yaml` and reference it from the context:
+
+```yaml
+apiVersion: v1
+kind: Config
+clusters:
+  - name: purl-audit
+    cluster:
+      server: http://purl.purl.svc.cluster.local:3000/api/v1/k8s-audit
+users:
+  - name: purl-ingest
+    user:
+      # A Purl ingest API key. Sent as: Authorization: Bearer <token>
+      token: "REPLACE_WITH_PURL_INGEST_API_KEY"
+contexts:
+  - name: default
+    context:
+      cluster: purl-audit
+      user: purl-ingest
+current-context: default
+```
+
+Notes:
+
+- The file lands at `/etc/kubernetes/audit-webhook.yaml` on the control-plane
+  node with the API key in cleartext — `chmod 600`, root-owned, and treat it as
+  a secret (it is not in the Helm chart precisely because it is not a
+  cluster-namespaced resource).
+- If a client also sends `X-API-Key`, that header wins and the bearer token is
+  ignored. The apiserver never sends it, so this only matters for hand-rolled
+  clients.
+- The scheme name is case-insensitive (`Bearer` / `bearer`); the key itself is
+  not. A malformed header (`Bearer` with no token, extra whitespace, another
+  scheme) is a plain 401.
+- Rotating the key means editing this file and restarting the apiserver — the
+  kubeconfig is read at startup.
 
 ## Wiring it up (control-plane node, kubeadm layout)
 
