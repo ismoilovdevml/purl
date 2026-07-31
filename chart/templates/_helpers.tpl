@@ -151,6 +151,86 @@ their own (so nothing sensitive has to pass through values / release history).
 {{- end }}
 
 {{/*
+Data of the existing release Secret, normalised to a dict.
+
+A clusterless `lookup` (helm lint / helm template / Argo CD) returns an EMPTY
+MAP on both Helm 3.16 and Helm 4.2 — verified, not nil as an earlier comment
+here claimed. Either way `.data` on it is nil, and Go template `and` evaluates
+every argument (no short-circuit), so `and $s (index $s.data "K")` still runs
+the index and dies with "index of untyped nil". Normalise once, index that.
+*/}}
+{{- define "purl.existingSecretData" -}}
+{{- $existing := (lookup "v1" "Secret" .Release.Namespace (include "purl.fullname" .)) }}
+{{- default dict (default dict $existing).data | toJson }}
+{{- end }}
+
+{{/*
+Refuse to invent a credential that has to stay stable (issue #22).
+
+Generation only converges when `lookup` can read the cluster: a real
+`helm install` writes the random value once, and every later `helm upgrade`
+reads it back out of the release Secret. `helm template` and Argo CD render
+WITHOUT cluster access, so the lookup is always empty and every render mints a
+NEW value. Because deployment.yaml and clickhouse-statefulset.yaml carry
+checksum/secret annotations, each sync also rolls both workloads — so the
+symptom is a permanently OutOfSync app that restart-loops while ClickHouse
+auth fails, all dashboard sessions drop and every agent API key stops working.
+
+Silently unstable is the worst outcome, so this fails the render instead —
+BUT only where the instability is real. Refusing everywhere would break the
+documented quickstart, because a FIRST `helm install` also finds an empty
+lookup (there is no Secret yet), and that install is perfectly stable: the
+value is written once and every later upgrade reads it back.
+
+The two cases are told apart by whether `lookup` can see the cluster at all.
+Measured on Helm v4.2.3 against a real cluster, probing kube-system:
+
+  helm template                 -> cluster NOT visible
+  helm install --dry-run        -> cluster NOT visible
+  helm install --dry-run=server -> cluster visible
+  helm install (real)           -> cluster visible
+  helm upgrade --dry-run=server -> cluster visible
+
+So "cluster not visible" is exactly the re-rendered population (helm template,
+helm lint, Argo CD) and never a real install. A client-side `--dry-run` is
+caught too; that is correct rather than unfortunate, since a client dry-run
+cannot show the real generated value anyway.
+
+If the probe is ever wrong in the permissive direction we are no worse off
+than chart 1.x; wrong in the strict direction and an install fails loudly with
+the message below. Neither failure mode is silent.
+
+Usage:
+  {{- include "purl.assertGeneratedSecretAllowed"
+        (dict "root" . "key" "PURL_CLICKHOUSE_PASSWORD" "setting" "clickhouse.password") }}
+*/}}
+{{- define "purl.clusterVisible" -}}
+{{- if (lookup "v1" "Namespace" "" "kube-system") }}true{{ end }}
+{{- end }}
+
+{{- define "purl.assertGeneratedSecretAllowed" -}}
+{{- if and (not .root.Values.purl.autoGenerateSecrets) (not (include "purl.clusterVisible" .root)) }}
+{{- fail (printf (join "\n" (list
+  ""
+  "purl: refusing to generate %s."
+  ""
+  "%s is empty and the Secret %q in namespace %q does not already contain %s,"
+  "so the chart would have to invent one. A generated value is only stable when"
+  "`lookup` can see the cluster; `helm template` and Argo CD render without it,"
+  "so every render would produce a DIFFERENT %s (issue #22)."
+  ""
+  "Choose one:"
+  "  GitOps / helm template / anything re-rendered:"
+  "    - set purl.existingSecret to a Secret you manage out-of-band, or"
+  "    - set %s explicitly (e.g. from a sealed secret or SOPS)."
+  "  Interactive `helm install` against a live cluster:"
+  "    - --set purl.autoGenerateSecrets=true"
+  ""))
+  .key .setting (include "purl.fullname" .root) .root.Release.Namespace .key .key .setting) }}
+{{- end }}
+{{- end }}
+
+{{/*
 Resolve the ClickHouse application password.
 
 Empty clickhouse.password must NOT mean "no password": that created a
@@ -158,7 +238,8 @@ passwordless user reachable from ::/0. Resolution order:
   1. explicit .Values.clickhouse.password
   2. the value already stored in the release Secret (so upgrades keep it —
      rotating it silently would lock Purl out of its own database)
-  3. a fresh random 32-char password
+  3. a fresh random 32-char password, but ONLY with purl.autoGenerateSecrets;
+     otherwise the render fails — see purl.assertGeneratedSecretAllowed.
 Returns "" when purl.existingSecret is set: the operator supplies
 PURL_CLICKHOUSE_PASSWORD themselves and the chart must not invent one.
 */}}
@@ -168,13 +249,11 @@ PURL_CLICKHOUSE_PASSWORD themselves and the chart must not invent one.
 {{- else if .Values.clickhouse.password }}
 {{- .Values.clickhouse.password }}
 {{- else }}
-{{- /* See secret.yaml: `and` has no short-circuit and Helm 3 returns an empty
-       map from a clusterless lookup, so .data must be normalised before index. */}}
-{{- $existing := (lookup "v1" "Secret" .Release.Namespace (include "purl.fullname" .)) }}
-{{- $existingData := (default dict (default dict $existing).data) }}
+{{- $existingData := (include "purl.existingSecretData" . | fromJson) }}
 {{- if index $existingData "PURL_CLICKHOUSE_PASSWORD" }}
 {{- index $existingData "PURL_CLICKHOUSE_PASSWORD" | b64dec }}
 {{- else }}
+{{- include "purl.assertGeneratedSecretAllowed" (dict "root" . "key" "PURL_CLICKHOUSE_PASSWORD" "setting" "clickhouse.password") }}
 {{- randAlphaNum 32 }}
 {{- end }}
 {{- end }}

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **BREAKING** `deploy/kubernetes/` raw manifests and their `install.sh` /
+  `uninstall.sh` (issue #41). They duplicated the Helm chart without any of its
+  hardening. The chart is the only supported Kubernetes path — see the
+  migration steps in README.md.
+
+### Changed
+
+- **BREAKING** The chart no longer invents `PURL_CLICKHOUSE_PASSWORD`,
+  `PURL_SESSION_SECRET` or `PURL_API_KEYS` by default (issue #22). Generation
+  relied on `lookup`, which is always empty without cluster access, so every
+  `helm template` / Argo CD sync minted a new credential and rolled both
+  workloads. The render now fails instead. Set `purl.autoGenerateSecrets=true`
+  for an interactive `helm install`, or supply `purl.existingSecret` / explicit
+  values under GitOps.
+- kube-apiserver audit policy and webhook config moved from
+  `deploy/kubernetes/` to `deploy/k8s-audit/`. They configure the apiserver,
+  not Purl, so they were never part of the chart.
+
 ## [1.2.0] - 2025-12-15
 
 ### Added

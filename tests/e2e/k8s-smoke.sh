@@ -19,6 +19,8 @@ NAMESPACE="purl-test"
 IMAGE_TAG="e2e-test"
 API_KEY="k8s-e2e-key"
 CH_PASSWORD="k8s-E2E-CH-1234"
+# Throwaway, for this Kind cluster only — never a real deployment value.
+SESSION_SECRET="k8s-E2E-SESSION-1234"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -66,6 +68,12 @@ helm install purl "$PROJECT_ROOT/chart" \
     --set purl.apiKeys="${API_KEY}" \
     --set purl.authEnabled=false \
     --set clickhouse.password="${CH_PASSWORD}" \
+    `# All THREE generated credentials must be pinned. The chart refuses to` \
+    `# invent one when it is neither set nor already in the release Secret` \
+    `# (issue #22), and on a fresh install there is no Secret to read back —` \
+    `# so leaving purl.sessionSecret out fails the render, not just the` \
+    `# rollout. Pinning it also keeps this smoke run reproducible.` \
+    --set purl.sessionSecret="${SESSION_SECRET}" \
     `# Vector tails journald, which a Kind node does not have. Leaving it on` \
     `# means the DaemonSet never goes Ready and --wait fails on an unrelated` \
     `# component. Log collection is covered by the compose test's ingest path.` \

@@ -100,6 +100,20 @@ jobs:
   k8s-validate:
     name: K8s Validate (Helm ${{ matrix.helm }})
     runs-on: ubuntu-latest
+    env:
+      # purl.autoGenerateSecrets is false by default: the chart refuses to
+      # invent PURL_CLICKHOUSE_PASSWORD / PURL_SESSION_SECRET / PURL_API_KEYS
+      # because a clusterless render mints a fresh one every time, so every
+      # Argo CD sync would rotate the ClickHouse password and break auth
+      # (issue #22). A real `helm install` has cluster access and writes the
+      # value once; this flag is what makes a clusterless render equivalent to
+      # that first install. Renders that use purl.existingSecret omit it.
+      #
+      # It is also passed to the guard assertions BELOW, deliberately: without
+      # it those renders would fail on the missing-secret guard instead of the
+      # guard under test, and every one of them would have been passing for the
+      # wrong reason.
+      HELM_AUTOGEN: --set purl.autoGenerateSecrets=true
     strategy:
       fail-fast: false
       matrix:
@@ -125,19 +139,19 @@ jobs:
           version: ${{ matrix.helm }}
 
       - name: Helm Lint
-        run: helm lint chart/
+        run: helm lint chart/ $HELM_AUTOGEN
 
       # Every render below is a shape a real install can take. `make helm-lint`
       # runs the same set locally.
       - name: Helm Template (default values — the public `helm install` path)
-        run: helm template purl chart/ > /dev/null
+        run: helm template purl chart/ $HELM_AUTOGEN > /dev/null
 
       - name: Helm Template (dev values)
-        run: helm template purl chart/ -f chart/values-dev.yaml > /dev/null
+        run: helm template purl chart/ $HELM_AUTOGEN -f chart/values-dev.yaml > /dev/null
 
       - name: Helm Template (multi-replica + autoscaling + PDB)
         run: |
-          helm template purl chart/ \
+          helm template purl chart/ $HELM_AUTOGEN \
             --set autoscaling.enabled=true \
             --set podDisruptionBudget.enabled=true \
             --set networkPolicy.enabled=true \
@@ -147,7 +161,7 @@ jobs:
 
       - name: Helm Template (NetworkPolicy with real peers)
         run: |
-          helm template purl chart/ \
+          helm template purl chart/ $HELM_AUTOGEN \
             --set networkPolicy.enabled=true \
             --set 'networkPolicy.ingress.fromNamespaces[0]=ingress-nginx' \
             --set 'networkPolicy.ingress.fromCIDRs[0]=10.0.0.0/8' \
@@ -158,7 +172,7 @@ jobs:
 
       - name: Helm Template (backup CronJob + ClickHouse cluster)
         run: |
-          helm template purl chart/ \
+          helm template purl chart/ $HELM_AUTOGEN \
             --set backup.enabled=true \
             --set backup.s3.bucket=example-bucket \
             --set backup.s3.existingSecret=example-secret \
@@ -193,7 +207,7 @@ jobs:
           echo "--- ReplicatedMergeTree fetches parts over interserver 9009."
           echo "--- Without it replicas register, entries propagate, every"
           echo "--- fetch is dropped and replication_queue grows unbounded."
-          NP=$(helm template purl chart/ \
+          NP=$(helm template purl chart/ $HELM_AUTOGEN \
                  --set clickhouse.cluster.enabled=true \
                  --set networkPolicy.enabled=true \
                | awk '/kind: NetworkPolicy/,0')
@@ -228,19 +242,72 @@ jobs:
 
           echo "--- users.d fragment must sort after the image entrypoint's"
           echo "--- default-user.xml or restrictDefaultUser silently does nothing."
-          helm template purl chart/ | grep -q 'users.d/zz-purl-users.xml'
+          helm template purl chart/ $HELM_AUTOGEN | grep -q 'users.d/zz-purl-users.xml'
 
           echo "--- ServiceMonitor must not reopen the allow-list cluster-wide."
-          helm template purl chart/ \
+          helm template purl chart/ $HELM_AUTOGEN \
             --set networkPolicy.enabled=true \
             --set metrics.serviceMonitor.enabled=true \
             --set metrics.prometheusNamespace=monitoring \
             | grep -q 'kubernetes.io/metadata.name: "monitoring"'
 
           echo "--- Config PVC must outlive helm uninstall."
-          helm template purl chart/ | grep -q '"helm.sh/resource-policy": keep'
+          helm template purl chart/ $HELM_AUTOGEN | grep -q '"helm.sh/resource-policy": keep'
 
           echo "All rendered-content assertions passed."
+
+      # issue #22: the chart used to generate the ClickHouse password, session
+      # secret and API key from a `lookup` that is ALWAYS empty without cluster
+      # access. Under Argo CD that meant a new credential on every sync, and
+      # because deployment.yaml and clickhouse-statefulset.yaml carry
+      # checksum/secret annotations, a rolling restart of both workloads with
+      # it. Dev never noticed because values-secrets.yaml pins the password.
+      - name: Assert generated secrets cannot drift under GitOps (issue 22)
+        run: |
+          set -euo pipefail
+          PIN="--set clickhouse.password=pw --set purl.sessionSecret=ss --set purl.apiKeys=ak"
+
+          echo "--- A clusterless render with nothing pinned must REFUSE."
+          if err=$(helm template purl chart/ 2>&1 >/dev/null); then
+            echo "::error::default render succeeded; it must refuse to invent credentials"
+            exit 1
+          fi
+          printf '%s\n' "$err" | grep -q 'refusing to generate' || {
+            echo "::error::render failed, but not on the #22 guard"
+            printf '%s\n' "$err" | head -5
+            exit 1
+          }
+
+          echo "--- Each of the three credentials must be guarded on its own."
+          for other in \
+            "--set purl.sessionSecret=ss --set purl.apiKeys=ak" \
+            "--set clickhouse.password=pw --set purl.apiKeys=ak" \
+            "--set clickhouse.password=pw --set purl.sessionSecret=ss" ; do
+            if helm template purl chart/ $other > /dev/null 2>&1; then
+              echo "::error::one credential may still be left to generate: $other"
+              exit 1
+            fi
+          done
+
+          echo "--- The GitOps-safe path (everything pinned) must be byte-stable."
+          # Rendered into variables on their own lines: a render FAILURE inside
+          # a pipeline is indistinguishable from "no match" and would report
+          # PASSED. And the greps below exist so the equality check cannot be
+          # vacuous — two empty renders are equal too.
+          A=$(helm template purl chart/ $PIN)
+          B=$(helm template purl chart/ $PIN)
+          printf '%s\n' "$A" | grep -q 'PURL_CLICKHOUSE_PASSWORD: "pw"'
+          printf '%s\n' "$A" | grep -q 'PURL_SESSION_SECRET: "ss"'
+          printf '%s\n' "$A" | grep -q 'PURL_API_KEYS: "ak"'
+          test "$A" = "$B"
+
+          echo "--- The opt-in escape hatch must still produce a real password."
+          GEN=$(helm template purl chart/ $HELM_AUTOGEN \
+                | grep -c 'PURL_CLICKHOUSE_PASSWORD: "[A-Za-z0-9]\{32\}"' || true)
+          echo "generated 32-char ClickHouse passwords: ${GEN} (expect 1)"
+          test "$GEN" -eq 1
+
+          echo "Issue 22 assertions passed."
 
       # A guard that does not fire is not a guard. Each of these MUST fail to
       # render; a chart change that quietly removes one is caught here.
@@ -249,8 +316,15 @@ jobs:
           set -euo pipefail
           assert_fails() {
             desc="$1"; shift
-            if helm template purl chart/ "$@" > /dev/null 2>&1; then
+            if err=$(helm template purl chart/ $HELM_AUTOGEN "$@" 2>&1 >/dev/null); then
               echo "::error::guard did NOT fire: ${desc}"
+              exit 1
+            fi
+            # A guard that fires for the wrong reason asserts nothing. If
+            # $HELM_AUTOGEN ever goes missing here, every case below starts
+            # failing on the issue #22 secret guard and still reports "ok".
+            if printf '%s\n' "$err" | grep -q 'refusing to generate'; then
+              echo "::error::guard '${desc}' hit the #22 secret guard, not its own"
               exit 1
             fi
             echo "ok (correctly rejected): ${desc}"
@@ -291,7 +365,7 @@ jobs:
       - name: Validate Helm output against K8s schemas
         run: |
           set -euo pipefail
-          helm template purl chart/ \
+          helm template purl chart/ $HELM_AUTOGEN \
             --set podDisruptionBudget.enabled=true \
             --set networkPolicy.enabled=true \
             --set vector.enabled=true \
@@ -299,7 +373,7 @@ jobs:
             --set backup.s3.bucket=example-bucket \
             --set backup.s3.existingSecret=example-secret \
             | ./kubeconform -strict -summary -kubernetes-version 1.29.0
-          helm template purl chart/ \
+          helm template purl chart/ $HELM_AUTOGEN \
             --set autoscaling.enabled=true \
             --set 'config.volume.accessModes[0]=ReadWriteMany' \
             | ./kubeconform -strict -summary -kubernetes-version 1.29.0

@@ -91,15 +91,25 @@ preflight: lint test web-build
 	@echo "All checks green. Safe to push."
 
 # Kubernetes
+#
+# purl.autoGenerateSecrets is false by default: without it the chart refuses to
+# invent PURL_CLICKHOUSE_PASSWORD / PURL_SESSION_SECRET / PURL_API_KEYS, because
+# a clusterless render mints a fresh one every time (issue #22). A real
+# `helm install` has cluster access and writes the value once, so passing this
+# flag is what makes a clusterless render equivalent to that first install.
+# Every render below that produces the chart-managed Secret therefore needs it;
+# renders using purl.existingSecret do not.
+AUTOGEN := --set purl.autoGenerateSecrets=true
+
 helm-lint:
 	@echo "Running Helm lint..."
-	@helm lint chart/
+	@helm lint chart/ $(AUTOGEN)
 	@echo "Rendering default values (the path a public helm install takes)..."
-	@helm template purl chart/ > /dev/null
+	@helm template purl chart/ $(AUTOGEN) > /dev/null
 	@echo "Rendering dev values..."
-	@helm template purl chart/ -f chart/values-dev.yaml > /dev/null
+	@helm template purl chart/ -f chart/values-dev.yaml $(AUTOGEN) > /dev/null
 	@echo "Rendering multi-replica + autoscaling (needs an RWX config volume)..."
-	@helm template purl chart/ \
+	@helm template purl chart/ $(AUTOGEN) \
 		--set autoscaling.enabled=true \
 		--set podDisruptionBudget.enabled=true \
 		--set networkPolicy.enabled=true \
@@ -107,7 +117,7 @@ helm-lint:
 		--set 'config.volume.accessModes[0]=ReadWriteMany' \
 		> /dev/null
 	@echo "Rendering NetworkPolicy with real peers..."
-	@helm template purl chart/ \
+	@helm template purl chart/ $(AUTOGEN) \
 		--set networkPolicy.enabled=true \
 		--set 'networkPolicy.ingress.fromNamespaces[0]=ingress-nginx' \
 		--set 'networkPolicy.ingress.fromCIDRs[0]=10.0.0.0/8' \
@@ -116,7 +126,7 @@ helm-lint:
 		--set metrics.prometheusNamespace=monitoring \
 		> /dev/null
 	@echo "Rendering backup CronJob + ClickHouse cluster mode..."
-	@helm template purl chart/ \
+	@helm template purl chart/ $(AUTOGEN) \
 		--set backup.enabled=true \
 		--set backup.s3.bucket=example-bucket \
 		--set backup.s3.existingSecret=example-secret \
@@ -136,7 +146,7 @@ helm-lint:
 		> /dev/null
 	@echo "Asserting rendered content (not just that it renders)..."
 	@set -e; \
-	NP=$$(helm template purl chart/ --set clickhouse.cluster.enabled=true --set networkPolicy.enabled=true | awk '/kind: NetworkPolicy/,0'); \
+	NP=$$(helm template purl chart/ $(AUTOGEN) --set clickhouse.cluster.enabled=true --set networkPolicy.enabled=true | awk '/kind: NetworkPolicy/,0'); \
 	COUNT=$$(printf '%s\n' "$$NP" | grep -c 'port: 9009' || true); \
 	if [ "$$COUNT" -ne 2 ]; then \
 		echo "  FAIL: interserver port 9009 rules = $$COUNT, expected 2 (ingress+egress)."; \
@@ -158,10 +168,54 @@ helm-lint:
 		echo "        A missing key must be CreateContainerConfigError, not an"; \
 		echo "        empty password."; exit 1; \
 	fi; \
-	helm template purl chart/ | grep -q 'users.d/zz-purl-users.xml' \
+	helm template purl chart/ $(AUTOGEN) | grep -q 'users.d/zz-purl-users.xml' \
 		|| { echo "  FAIL: users.d fragment must sort after default-user.xml."; exit 1; }; \
-	helm template purl chart/ | grep -q '"helm.sh/resource-policy": keep' \
+	helm template purl chart/ $(AUTOGEN) | grep -q '"helm.sh/resource-policy": keep' \
 		|| { echo "  FAIL: config PVC is not retained on uninstall."; exit 1; }
+	@echo "Asserting generated secrets cannot drift under GitOps (issue #22)..."
+	@set -e; \
+	PIN="--set clickhouse.password=pw --set purl.sessionSecret=ss --set purl.apiKeys=ak"; \
+	ERR=$$(helm template purl chart/ 2>&1 >/dev/null) && { \
+		echo "  FAIL: a clusterless default render succeeded. It must refuse to"; \
+		echo "        invent credentials — every render would mint a new one and"; \
+		echo "        each Argo CD sync would break ClickHouse auth (#22)."; exit 1; \
+	} || true; \
+	printf '%s\n' "$$ERR" | grep -q 'refusing to generate' || { \
+		echo "  FAIL: default render failed, but not with the #22 guard. Got:"; \
+		printf '%s\n' "$$ERR" | head -5; exit 1; \
+	}; \
+	for cred in clickhouse.password purl.sessionSecret purl.apiKeys; do \
+		case $$cred in \
+			clickhouse.password) OTHER="--set purl.sessionSecret=ss --set purl.apiKeys=ak";; \
+			purl.sessionSecret)  OTHER="--set clickhouse.password=pw --set purl.apiKeys=ak";; \
+			purl.apiKeys)        OTHER="--set clickhouse.password=pw --set purl.sessionSecret=ss";; \
+		esac; \
+		if helm template purl chart/ $$OTHER >/dev/null 2>&1; then \
+			echo "  FAIL: $$cred alone may be left to generate. Each of the three"; \
+			echo "        must be guarded independently."; exit 1; \
+		fi; \
+	done; \
+	A=$$(helm template purl chart/ $$PIN); \
+	B=$$(helm template purl chart/ $$PIN); \
+	printf '%s\n' "$$A" | grep -q 'PURL_CLICKHOUSE_PASSWORD: "pw"' || { \
+		echo "  FAIL: the pinned render does not contain the pinned password, so"; \
+		echo "        the stability check below would compare nothing. (An"; \
+		echo "        assertion cannot protect a path it does not render.)"; exit 1; \
+	}; \
+	printf '%s\n' "$$A" | grep -q 'PURL_SESSION_SECRET: "ss"' \
+		|| { echo "  FAIL: pinned purl.sessionSecret did not reach the Secret."; exit 1; }; \
+	printf '%s\n' "$$A" | grep -q 'PURL_API_KEYS: "ak"' \
+		|| { echo "  FAIL: pinned purl.apiKeys did not reach the Secret."; exit 1; }; \
+	[ "$$A" = "$$B" ] || { \
+		echo "  FAIL: two renders with every credential pinned differ. This is the"; \
+		echo "        GitOps-safe path and it MUST be byte-stable."; exit 1; \
+	}; \
+	GEN=$$(helm template purl chart/ $(AUTOGEN) | grep -c 'PURL_CLICKHOUSE_PASSWORD: "[A-Za-z0-9]\{32\}"' || true); \
+	if [ "$$GEN" -ne 1 ]; then \
+		echo "  FAIL: with $(AUTOGEN) the chart rendered $$GEN generated 32-char"; \
+		echo "        ClickHouse passwords, expected exactly 1. The opt-in escape"; \
+		echo "        hatch for a real helm install is broken."; exit 1; \
+	fi
 	@echo "Asserting render-time guards fire..."
 	@set -e; \
 	for guard in \
@@ -170,9 +224,14 @@ helm-lint:
 		"--set networkPolicy.enabled=true --set metrics.serviceMonitor.enabled=true --set metrics.serviceMonitor.namespace=monitoring" \
 		"--set vector.buffer.maxSizeBytes=1024" \
 		"--set replicaCount=3" ; do \
-		if helm template purl chart/ $$guard > /dev/null 2>&1; then \
+		ERR=$$(helm template purl chart/ $(AUTOGEN) $$guard 2>&1 >/dev/null) && { \
 			echo "  FAIL: guard did not fire for: $$guard"; exit 1; \
-		fi; \
+		} || true; \
+		printf '%s\n' "$$ERR" | grep -q 'refusing to generate' && { \
+			echo "  FAIL: guard for '$$guard' fired the #22 secret guard instead of"; \
+			echo "        its own. $(AUTOGEN) is missing, so this case was passing"; \
+			echo "        for the wrong reason and asserted nothing."; exit 1; \
+		} || true; \
 	done
 	@echo "Helm validation passed."
 

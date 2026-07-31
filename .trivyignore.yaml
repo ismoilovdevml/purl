@@ -63,32 +63,7 @@ misconfigurations:
       owner: devops, added: 2026-07-31
     expired_at: 2027-01-31
 
-  # --------------------------------------------------------------------
-  # deploy/kubernetes/ — UNMAINTAINED, see deploy/kubernetes/README.md and
-  # issue #41. These findings are REAL and are precisely why that path is
-  # deprecated: no securityContext anywhere, root by default. They are not
-  # fixed because fixing them means maintaining a second copy of the chart.
-  # install.sh there refuses to run without PURL_ACCEPT_UNMAINTAINED=1.
-  # Remove these entries when the directory is deleted.
-  # --------------------------------------------------------------------
-  - id: KSV-0014
-    paths:
-      - "deploy/kubernetes/purl.yaml"
-      - "deploy/kubernetes/clickhouse.yaml"
-      - "deploy/kubernetes/vector-daemonset.yaml"
-    statement: >-
-      Unmaintained legacy manifests superseded by chart/ (issue #41).
-      owner: devops, added: 2026-07-31
-    expired_at: 2027-01-31
-
-  - id: KSV-0118
-    paths:
-      - "deploy/kubernetes/purl.yaml"
-      - "deploy/kubernetes/clickhouse.yaml"
-      - "deploy/kubernetes/vector-daemonset.yaml"
-    statement: >-
-      Unmaintained legacy manifests superseded by chart/ (issue #41). The
-      chart sets Pod Security Standards restricted contexts on every
-      workload; these manifests never received them.
-      owner: devops, added: 2026-07-31
-    expired_at: 2027-01-31
+  # deploy/kubernetes/ was deleted in issue #41 — the 9 HIGH IaC findings
+  # (KSV-0014, KSV-0118) that were path-scoped here went with it. The chart is
+  # now the only Kubernetes deploy path and it is scanned, not ignored. Do not
+  # reintroduce path-scoped ignores for a second copy of the manifests.

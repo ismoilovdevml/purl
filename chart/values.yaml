@@ -104,8 +104,29 @@ purl:
   authEnabled: true
   # -- Log retention in days
   retentionDays: 30
-  # -- Session secret for signed cookies (empty = auto-generate, NOT safe for multi-replica)
+  # -- Session secret for signed cookies. Empty means "let the chart generate
+  # one", which requires purl.autoGenerateSecrets=true — see below.
   sessionSecret: ""
+
+  # -- Allow the chart to INVENT PURL_CLICKHOUSE_PASSWORD, PURL_SESSION_SECRET
+  # and PURL_API_KEYS when they are neither set here nor already present in the
+  # release Secret.
+  #
+  # Off by default, and it must stay off under GitOps. Generation depends on
+  # `lookup`, which can only read the cluster during a real `helm install` /
+  # `helm upgrade`: the value is written once and read back from the Secret
+  # forever after. `helm template` and Argo CD render WITHOUT cluster access,
+  # so the lookup is always empty and every render mints a NEW credential.
+  # deployment.yaml and clickhouse-statefulset.yaml carry checksum/secret
+  # annotations, so each sync also rolls both workloads — the result is an app
+  # that is permanently OutOfSync and restart-loops while ClickHouse auth
+  # fails, every dashboard session is invalidated and every agent API key
+  # stops working. See issue #22.
+  #
+  # With this false the chart FAILS THE RENDER rather than generating silently.
+  # For GitOps set purl.existingSecret, or pin clickhouse.password /
+  # purl.sessionSecret / purl.apiKeys explicitly.
+  autoGenerateSecrets: false
 
   # -- Name of an EXISTING Secret holding the Purl runtime secrets. When set,
   # the chart does NOT create a Secret and none of purl.apiKeys /
@@ -219,12 +240,14 @@ clickhouse:
   # -- ClickHouse user for Purl
   user: purl
   # -- ClickHouse password for the Purl user.
-  # Empty is NOT "no password": the chart generates a random 32-char password
-  # into the release Secret and keeps it stable across upgrades (same
-  # mechanism as purl.sessionSecret). An empty password used to create a
-  # passwordless user reachable from ::/0 — any pod in the cluster could
-  # read and write the log database. Set this explicitly only if you need a
-  # known value (e.g. to point an external tool at ClickHouse).
+  # Empty is NOT "no password": an empty password used to create a passwordless
+  # user reachable from ::/0, so any pod in the cluster could read and write the
+  # log database. Empty now means "resolve it elsewhere", in this order:
+  #   1. the value already in the release Secret (so upgrades keep it), else
+  #   2. a random 32-char password — but ONLY with purl.autoGenerateSecrets=true;
+  #      otherwise the render fails rather than mint an unstable credential.
+  # Set this explicitly for GitOps, or when you need a known value (e.g. to
+  # point an external tool at ClickHouse).
   password: ""
 
   # -- Networks the ClickHouse application user may connect from, as
