@@ -6,6 +6,7 @@ use 5.024;
 use Moo;
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
+use Purl::Alert::Telegram ();   # valid_thread_id — see update_notifications
 
 extends 'Purl::API::Controller::Base';
 
@@ -92,6 +93,13 @@ sub get_all {
                     enabled   => $self->settings->get_nested('notifications', 'telegram', 'enabled') // 0,
                     bot_token => $self->settings->get_nested('notifications', 'telegram', 'bot_token') ? 1 : 0,
                     chat_id   => $self->settings->get_nested('notifications', 'telegram', 'chat_id') ? 1 : 0,
+                    # The VALUE, not an is-set flag: a forum topic id is routing
+                    # config, not a secret (so it is deliberately not in
+                    # %WRITE_ONLY). Without it the panel rendered the input
+                    # empty and the next save posted thread_id: "" over the
+                    # stored topic — #68's silent rewrite, on a field that was
+                    # not read by anything either (#71).
+                    thread_id => $self->settings->get_nested('notifications', 'telegram', 'thread_id') // '',
                     from_env  => $ENV{PURL_TELEGRAM_BOT_TOKEN} ? 1 : 0,
                 },
                 slack => {
@@ -117,6 +125,18 @@ sub get_all {
                 # so a chat_id or channel pinned by its own env var rendered as
                 # editable. Additive: the existing flags are untouched.
                 from_env_keys => $self->env_flags('notifications'),
+            },
+            # The license panel's env state, and ONLY that: the stored key is
+            # never handed back. update_license already refuses an env-owned
+            # key with 409, but no GET said so, so the input rendered editable
+            # and the admin met the lock by pasting a key and being refused
+            # (#72 — the same read/write asymmetry as #66).
+            #
+            # Reported as the per-key map, not the `{ value, from_env }`
+            # spelling used by the clickhouse/retention/auth blocks above: that
+            # older shape is precisely why a grep for from_env_keys missed #66.
+            license => {
+                from_env_keys => $self->env_flags('license'),
             },
         };
 
@@ -191,6 +211,20 @@ sub update_notifications {
 
         unless ($type =~ /^(telegram|slack|webhook)$/) {
             $self->render_error($c, 'Invalid notification type', 400);
+            return;
+        }
+
+        # A topic id the Bot API would reject is refused HERE rather than
+        # stored. thread_id spent its whole life being written and never read
+        # (#71); accepting a value the channel drops on every send is the same
+        # lie in a smaller box. Blank stays legal — it means "the General
+        # topic". The predicate lives on the channel so the boundary and the
+        # sender cannot drift apart.
+        if ($type eq 'telegram'
+            && !$self->settings->value_is_blank($body->{thread_id})
+            && !Purl::Alert::Telegram::valid_thread_id($body->{thread_id})) {
+            $self->render_error($c,
+                'thread_id must be a positive integer (Telegram forum topic id)', 400);
             return;
         }
 

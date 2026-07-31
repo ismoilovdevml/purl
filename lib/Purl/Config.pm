@@ -149,6 +149,8 @@ my $DEFAULTS = {
             enabled   => 0,
             bot_token => '',
             chat_id   => '',
+            # Forum topic id. Empty = the group's General topic.
+            thread_id => '',
         },
         slack => {
             enabled     => 0,
@@ -535,6 +537,7 @@ my %ENV_MAP = (
     'license.cache_ttl'         => 'PURL_LICENSE_CACHE_TTL',
     'notifications.telegram.bot_token' => 'PURL_TELEGRAM_BOT_TOKEN',
     'notifications.telegram.chat_id'   => 'PURL_TELEGRAM_CHAT_ID',
+    'notifications.telegram.thread_id' => 'PURL_TELEGRAM_THREAD_ID',
     'notifications.slack.webhook_url'  => 'PURL_SLACK_WEBHOOK_URL',
     'notifications.slack.channel'      => 'PURL_SLACK_CHANNEL',
     'notifications.webhook.url'        => 'PURL_ALERT_WEBHOOK_URL',

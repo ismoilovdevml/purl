@@ -304,11 +304,18 @@ sub _build_notifiers {
     my $tg_chat = $ENV{PURL_TELEGRAM_CHAT_ID}
         // ($settings ? $settings->get_nested('notifications', 'telegram', 'chat_id') : undef);
 
+    # Optional forum topic. Same ENV > file precedence as the pair above; the
+    # channel drops it if it is not a valid topic id, so a bad value cannot
+    # take the alert down with it.
+    my $tg_thread = $ENV{PURL_TELEGRAM_THREAD_ID}
+        // ($settings ? $settings->get_nested('notifications', 'telegram', 'thread_id') : undef);
+
     if ($tg_token && $tg_chat) {
         $notifiers{telegram} = Purl::Alert::Telegram->new(
             name      => 'telegram',
             bot_token => $tg_token,
             chat_id   => $tg_chat,
+            thread_id => $tg_thread // '',
         );
     }
 

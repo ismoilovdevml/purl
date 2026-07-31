@@ -26,6 +26,13 @@ has 'parse_mode' => (
     default => 'HTML',
 );
 
+# Forum topic to post into (Telegram "supergroup with topics"). Optional: empty
+# means the group's General topic, which is what every non-forum chat has.
+has 'thread_id' => (
+    is      => 'ro',
+    default => '',
+);
+
 has '_http' => (
     is      => 'ro',
     lazy    => 1,
@@ -52,14 +59,22 @@ sub deliver {
         $self->bot_token
     );
 
-    my $payload = $self->_json->encode({
+    my %payload = (
         chat_id    => $self->chat_id,
         text       => $text,
         parse_mode => $self->parse_mode,
-    });
+    );
+
+    # Forum routing rides on sendMessage or it does not happen at all — there
+    # is no other way to reach a topic. Omitted unless well formed: Telegram
+    # rejects the WHOLE request on a bad message_thread_id, so a stray value
+    # must cost us the topic, never the alert. `0 +` because the Bot API wants
+    # a JSON number and settings.json holds it as a string.
+    $payload{message_thread_id} = 0 + $self->thread_id
+        if valid_thread_id($self->thread_id);
 
     my $response = $self->_http->post($url, {
-        content => $payload,
+        content => $self->_json->encode(\%payload),
         headers => { 'Content-Type' => 'application/json' },
     });
 
@@ -69,6 +84,23 @@ sub deliver {
     }
 
     return 1;
+}
+
+# Would Telegram accept this as a forum topic id?
+#
+# ONE definition, because two callers must agree: the settings endpoint refuses
+# a bad value at the boundary, and deliver() also sees values that arrive by
+# PURL_TELEGRAM_THREAD_ID and never pass through that endpoint. If the two ever
+# disagreed we would be back to #71 — a value the API accepts and the channel
+# silently drops.
+#
+# A plain sub, not a method: the controller asks about a PROPOSED value, before
+# any channel object exists to carry it. Topic ids are positive integers, so 0
+# and negatives are rejected rather than quietly meaning "General".
+sub valid_thread_id {
+    my ($value) = @_;
+    return 0 if !defined $value || ref $value;
+    return $value =~ /\A[1-9][0-9]{0,18}\z/ ? 1 : 0;
 }
 
 sub _html_escape {
