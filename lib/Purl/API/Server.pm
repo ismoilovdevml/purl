@@ -8,13 +8,14 @@ our $VERSION = '1.3.0';
 use Mojolicious::Lite -signatures;
 use Mojo::Server::Prefork ();
 use Mojo::IOLoop ();
-use Mojo::JSON qw(encode_json decode_json);
+use Mojo::JSON qw(decode_json);
 use Time::HiRes qw(time);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec ();
 use Fcntl qw(:flock);
 use Purl::Util::ClientIP ();
+use Purl::Util::IngestRoutes qw(is_ingest_request);
 
 use Purl::Storage::ClickHouse;
 use Purl::Alert::Telegram;
@@ -26,7 +27,8 @@ use Purl::API::Middleware::License;
 use Purl::API::Middleware::LDAP;
 use Purl::API::Middleware::SAML;
 use Purl::API::Middleware::NamespaceScope;
-use Purl::Broadcast::Local;
+use Purl::Broadcast::Prefork;
+use Purl::API::LiveTail qw(send_connected send_logs handle_client_message);
 
 # Controllers
 use Purl::API::Controller::Logs;
@@ -347,10 +349,12 @@ sub _build_broadcaster {
     my $mode = $ENV{PURL_BROADCAST_MODE}
         // ($settings ? $settings->get('redis', 'mode') : 'auto');
 
-    # Explicit local mode
+    # Explicit local mode: no Redis, one container. Still Prefork rather than
+    # Broadcast::Local — "local" means "this container", and this container is
+    # 4 forked workers, not one process (#64).
     if ($mode eq 'local') {
-        app->log->info("Broadcast: local mode (in-memory only)");
-        return Purl::Broadcast::Local->new();
+        app->log->info("Broadcast: local mode (cross-worker spool, no Redis)");
+        return Purl::Broadcast::Prefork->new();
     }
 
     # Try Redis if URL is configured and mode is auto or redis
@@ -377,9 +381,10 @@ sub _build_broadcaster {
         }
     }
 
-    # Default: local broadcast
-    app->log->info("Broadcast: local mode (no Redis configured)");
-    return Purl::Broadcast::Local->new();
+    # Default: cross-worker spool. Reaches every prefork worker in THIS
+    # container; multi-replica deployments need PURL_REDIS_URL.
+    app->log->info("Broadcast: local mode (cross-worker spool, no Redis configured)");
+    return Purl::Broadcast::Prefork->new();
 }
 
 sub setup_routes {
@@ -916,7 +921,7 @@ sub setup_routes {
             # Ingest volume, measured on the endpoints that actually accept
             # logs — total bytes_in would be dominated by dashboard traffic.
             $metrics_counters->record_ingest_bytes($req_size)
-                if $method eq 'POST' && $path =~ m{^/api/(?:logs|v1/(?:otlp/logs|syslog|k8s-audit)|_bulk|[^/]+/_bulk)$};
+                if is_ingest_request($method, $path);
         }
     });
 
@@ -1267,21 +1272,16 @@ sub setup_routes {
                     eval {
                         my $logs = ref $json_msg ? $json_msg : decode_json($json_msg);
                         $logs = [$logs] unless ref $logs eq 'ARRAY';
-                        my @matches = $logs_c->_filter_logs($ws->{filter} // {}, $logs);
-                        if (@matches) {
-                            $ws->send({json => \@matches});
-                        }
+                        # One typed {"type":"log","data":{...}} frame per log —
+                        # see Purl::API::LiveTail for why the shape matters.
+                        send_logs($ws, $logs);
+                        1;
                     };
                 },
             );
         }
 
-        $c->on(message => sub ($c, $msg) {
-            my $data = eval { decode_json($msg) };
-            if ($data && $data->{type} eq 'subscribe') {
-                $ws->{filter} = $data->{filter} // {};
-            }
-        });
+        $c->on(message => sub ($c, $msg) { handle_client_message($ws, $msg) });
 
         $c->on(finish => sub ($c, $code, $reason) {
             # Unsubscribe from broadcast channel
@@ -1297,12 +1297,13 @@ sub setup_routes {
             }
         });
 
-        my $mode = $broadcaster ? (ref($broadcaster) =~ /Redis/ ? 'redis' : 'local') : 'direct';
-        $c->send(encode_json({
-            type    => 'connected',
-            message => 'Connected to log stream',
-            broadcast_mode => $mode,
-        }));
+        my $mode = 'direct';
+        if ($broadcaster) {
+            $mode = ref($broadcaster) =~ /Redis/  ? 'redis'
+                  : ref($broadcaster) =~ /Prefork/ ? 'prefork'
+                  :                                  'local';
+        }
+        send_connected($ws, $mode);
     });
 
     # SPA fallback

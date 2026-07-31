@@ -11,6 +11,7 @@ use Time::HiRes qw(time);
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError);
 
 use Purl::Util::Time qw(parse_time_range epoch_to_iso);
+use Purl::API::LiveTail qw(send_logs);
 
 extends 'Purl::API::Controller::Base';
 
@@ -43,7 +44,12 @@ sub _broadcast_logs {
     }
 }
 
-# Apply per-connection filters and send matching logs to WebSocket clients
+# Apply per-connection filters and send matching logs to WebSocket clients.
+#
+# Fallback path only — used when no broadcaster is configured at all. The
+# frame shape and the filter semantics come from Purl::API::LiveTail, the same
+# module the broadcast path in Server.pm uses, so the two cannot drift into
+# sending different things to the same client (#64).
 sub _deliver_to_websockets {
     my ($self, $logs) = @_;
     return unless @$logs;
@@ -52,60 +58,8 @@ sub _deliver_to_websockets {
 
     for my $ws (@$conns) {
         next unless $ws;
-        eval {
-            my @matches = $self->_filter_logs($ws->{filter} // {}, $logs);
-            if (@matches) {
-                $ws->send({json => \@matches});
-            }
-        };
+        eval { send_logs($ws, $logs); 1 };
     }
-}
-
-# Filter logs against a subscriber filter — returns matching logs
-sub _filter_logs {
-    my ($self, $filter, $logs) = @_;
-    my @matches;
-
-    for my $log (@$logs) {
-        # Level filter (exact match or array)
-        if ($filter->{level}) {
-            if (ref $filter->{level} eq 'ARRAY') {
-                my %allowed = map { uc($_) => 1 } @{$filter->{level}};
-                next unless $allowed{uc($log->{level} // '')};
-            } else {
-                next if uc($log->{level} // '') ne uc($filter->{level});
-            }
-        }
-
-        # Service filter (exact match or wildcard)
-        if ($filter->{service}) {
-            my $service = $log->{service} // '';
-            my $pattern = $filter->{service};
-            if ($pattern =~ /\*/) {
-                # Convert wildcard to regex
-                $pattern =~ s/\./\\./g;
-                $pattern =~ s/\*/.*/g;
-                next unless $service =~ /^$pattern$/i;
-            } else {
-                next if lc($service) ne lc($pattern);
-            }
-        }
-
-        # Host filter
-        if ($filter->{host}) {
-            next if lc($log->{host} // '') ne lc($filter->{host});
-        }
-
-        # Message contains filter (case-insensitive)
-        if ($filter->{query}) {
-            my $message = $log->{message} // '';
-            next unless index(lc($message), lc($filter->{query})) >= 0;
-        }
-
-        push @matches, $log;
-    }
-
-    return @matches;
 }
 
 sub query {
