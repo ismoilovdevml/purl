@@ -157,6 +157,8 @@ jobs:
             --set networkPolicy.enabled=true \
             --set vector.enabled=true \
             --set 'config.volume.accessModes[0]=ReadWriteMany' \
+            --set purl.redis.enabled=true \
+            --set purl.redis.url=redis://redis:6379 \
             > /dev/null
 
       - name: Helm Template (NetworkPolicy with real peers)
