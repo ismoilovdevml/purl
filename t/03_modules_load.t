@@ -8,6 +8,12 @@ use lib "$Bin/../lib";
 
 my @modules = qw(
     Purl::Config
+    Purl::Config::Defaults
+    Purl::Config::EnvMap
+    Purl::Config::Store
+    Purl::Config::EnvOwnership
+    Purl::Config::Writable
+    Purl::Config::UserRoles
     Purl::Util::Time
     Purl::API::Middleware::Auth
     Purl::API::Middleware::Auth::Password
@@ -50,6 +56,8 @@ my @modules = qw(
     Purl::Storage::ClickHouse::Ingest
     Purl::Storage::ClickHouse::Search
     Purl::Storage::ClickHouse::Traces
+    Purl::Storage::ClickHouse::Backup
+    Purl::Storage::ClickHouse::BackupArtifacts
     Purl::API::Server::Builders
     Purl::API::Server::Bootstrap
     Purl::API::Server::Cron
