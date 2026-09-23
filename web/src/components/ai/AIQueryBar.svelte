@@ -2,7 +2,7 @@
   import { aiLoading, aiError, aiQueryResult, aiQuerySQL, queryAI, aiSuggestions, fetchSuggestions, aiProvider } from '../../stores/ai.js';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import Icon from '../ui/Icon.svelte';
-  import { clock, check, send, alertCircleSolid } from '../ui/icons.js';
+  import { sparkles, check, send, alertCircleSolid } from '../ui/icons.js';
 
   let {
     /** ({ sql, results }) when the user applies the generated SQL as a search */
@@ -51,7 +51,7 @@
 <div class="ai-query-bar">
   <div class="ai-header">
     <span class="ai-badge">
-      <Icon icon={clock} size={14} strokeWidth={2.5} />
+      <Icon icon={sparkles} size={14} strokeWidth={2.5} />
       Ask AI
     </span>
     <span class="provider-label">{$aiProvider}</span>

@@ -78,16 +78,19 @@ export function formatShortDateTime(ts) {
 }
 
 /**
- * Format large numbers with K/M/B suffixes
- * @param {number} num - Number to format
- * @returns {string} Formatted number
+ * Compact a count with a K/M/B suffix and always one decimal:
+ * 999 -> '999', 1000 -> '1.0K', 1234 -> '1.2K', 2500000 -> '2.5M'.
+ * The one compact-count format of the UI (histogram, patterns, fields,
+ * sources, dashboard widgets).
+ * @param {number | null | undefined} num - Count
+ * @returns {string} Compact count ('0' when unknown)
  */
 export function formatCount(num) {
   if (num === null || num === undefined) return '0';
-  if (num < 1000) return num.toString();
-  if (num < 1000000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
-  if (num < 1000000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-  return (num / 1000000000).toFixed(1).replace(/\.0$/, '') + 'B';
+  if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return num.toString();
 }
 
 /**

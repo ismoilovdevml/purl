@@ -7,6 +7,7 @@
 <script>
   import Icon from '../ui/Icon.svelte';
   import { close } from '../ui/icons.js';
+  import { formatCount } from '../../utils/format.js';
 
   let {
     /** { id, type, title, query } */
@@ -16,13 +17,6 @@
     /** () => void — remove this widget from the dashboard */
     onremove,
   } = $props();
-
-  function formatNumber(n) {
-    if (n === undefined || n === null) return '0';
-    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-    return n.toLocaleString();
-  }
 </script>
 
 <div class="widget-card">
@@ -42,7 +36,7 @@
     {:else if result.error}
       <div class="widget-error">{result.error}</div>
     {:else if widget.type === 'counter'}
-      <div class="counter-value">{formatNumber(result.value)}</div>
+      <div class="counter-value">{formatCount(result.value)}</div>
     {:else if widget.type === 'chart'}
       <div class="chart-placeholder">
         {#each (result.data || []).slice(-20) as point}
@@ -55,7 +49,7 @@
           {#each (result.data || []).slice(0, 10) as row}
             <tr>
               <td>{row.value}</td>
-              <td class="count">{formatNumber(row.count)}</td>
+              <td class="count">{formatCount(row.count)}</td>
             </tr>
           {/each}
         </tbody>

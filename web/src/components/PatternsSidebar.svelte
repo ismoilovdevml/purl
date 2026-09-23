@@ -7,9 +7,9 @@
   import PatternItem from './patterns/PatternItem.svelte';
   import { caretRight, refresh, layers } from './ui/icons.js';
   import { api } from '../utils/api.js';
+  import { formatCount } from '../utils/format.js';
 
   let selectedPattern = $state(null);
-  let patternLogs = null;
   let patternLogsLoading = $state(false);
   let expanded = $state(true);
 
@@ -43,14 +43,12 @@
       fetchPatterns();
       fetchPatternStats();
       selectedPattern = null;
-      patternLogs = null;
     });
   });
 
   async function selectPattern(pattern) {
     if (selectedPattern?.pattern_hash === pattern.pattern_hash) {
       selectedPattern = null;
-      patternLogs = null;
       return;
     }
 
@@ -61,24 +59,16 @@
     patternLogsLoading = false;
 
     if (result && result.hits) {
-      patternLogs = result.hits;
       // Clear query and update main logs view with pattern logs
       query.set(`pattern:${pattern.pattern_hash}`);
       // Create new array to trigger reactivity
-      const logsWithIds = patternLogs.map((log, index) => ({
+      const logsWithIds = result.hits.map((log, index) => ({
         ...log,
         id: log.id || `${log.timestamp}-${index}`
       }));
       logs.set(logsWithIds);
       total.set(result.total || logsWithIds.length);
     }
-  }
-
-  function formatCount(count) {
-    if (count == null) return '0';
-    if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
-    if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
-    return String(count);
   }
 
   function toggleExpand() {

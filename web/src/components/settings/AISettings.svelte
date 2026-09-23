@@ -5,7 +5,7 @@
   import { api } from '../../utils/api.js';
   import EnvBadge from '../ui/EnvBadge.svelte';
   import AIProviderStatus from './ai/AIProviderStatus.svelte';
-  import AIFormActions from './ai/AIFormActions.svelte';
+  import ConnectionTestFooter from '../ui/ConnectionTestFooter.svelte';
 
   let config = $state({
     provider: 'openai',
@@ -108,6 +108,14 @@
       testing = false;
     }
   }
+
+  // POST /settings/ai/test answers { status, message, model? }; the shared
+  // footer takes { ok, message }. Its messages carry their own wording
+  // ("Connection failed: ..."), hence the empty banner prefixes below.
+  const footerTestResult = $derived(testResult && {
+    ok: testResult.status === 'ok',
+    message: testResult.model ? `${testResult.message} (${testResult.model})` : testResult.message,
+  });
 
   function clearModel() {
     config.model = '';
@@ -223,7 +231,16 @@
         <p class="field-hint">Leave empty to use the provider's recommended model.</p>
       </div>
 
-      <AIFormActions {testResult} {testing} {loading} ontest={testConnection} onsave={save} />
+      <ConnectionTestFooter
+        testResult={footerTestResult}
+        {testing}
+        saving={loading}
+        enabled
+        okPrefix=""
+        failPrefix=""
+        ontest={testConnection}
+        onsave={save}
+      />
     </div>
   {/if}
 </div>

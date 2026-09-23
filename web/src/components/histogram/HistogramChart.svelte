@@ -10,7 +10,8 @@
   import { untrack } from 'svelte';
   import { histogram, previousHistogram } from '../../stores/logs.js';
   import HistogramTooltip from './HistogramTooltip.svelte';
-  import { formatHistogramCount as formatNumber, histogramLayout } from '../../utils/histogram.js';
+  import { histogramLayout } from '../../utils/histogram.js';
+  import { formatCount } from '../../utils/format.js';
 
   let {
     /** The .histogram-container element; its width sizes the chart */
@@ -125,7 +126,7 @@
       ctx.fillStyle = AXIS_LABEL_COLOR;
       ctx.font = axisFont();
       ctx.textAlign = 'right';
-      ctx.fillText(formatNumber(value), padding.left - 8, y + 3);
+      ctx.fillText(formatCount(value), padding.left - 8, y + 3);
     }
 
     // Draw previous period comparison line (dotted)

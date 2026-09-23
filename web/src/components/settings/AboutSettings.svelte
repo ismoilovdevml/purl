@@ -13,6 +13,7 @@
   import Icon from '../ui/Icon.svelte';
   import { activity, barChart, database, logo } from '../ui/icons.js';
   import { api } from '../../utils/api.js';
+  import { formatBytes, formatNumber } from '../../utils/format.js';
 
   let systemInfo = $state(null);
   let metricsInfo = $state(null);
@@ -54,21 +55,6 @@
     return parts.join(' ') || '< 1m';
   }
 
-  function formatBytes(bytes) {
-    if (!bytes) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let i = 0;
-    while (bytes >= 1024 && i < units.length - 1) {
-      bytes /= 1024;
-      i++;
-    }
-    return `${bytes.toFixed(1)} ${units[i]}`;
-  }
-
-  function formatNumber(num) {
-    if (!num) return '0';
-    return num.toLocaleString();
-  }
 </script>
 
 <section class="settings-section">

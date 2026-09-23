@@ -7,7 +7,7 @@
 <script>
   import Icon from '../ui/Icon.svelte';
   import { barChartSolid, alertCircleSolid, arrowUp, arrowDown, arrowRight } from '../ui/icons.js';
-  import { formatHistogramCount as formatNumber } from '../../utils/histogram.js';
+  import { formatCount } from '../../utils/format.js';
 
   let {
     /** Current time range label, e.g. '15m' */
@@ -41,7 +41,7 @@
   <div class="header-stats">
     <div class="stat">
       <span class="stat-value">
-        {formatNumber(totalLogs)}
+        {formatCount(totalLogs)}
         {#if totalChangePercent !== null}
           <span class="change-indicator" class:positive={totalChangePercent > 0} class:negative={totalChangePercent < 0}>
             <Icon
@@ -56,20 +56,20 @@
     </div>
     <div class="stat-divider"></div>
     <div class="stat">
-      <span class="stat-value avg">{formatNumber(avgCount)}</span>
+      <span class="stat-value avg">{formatCount(avgCount)}</span>
       <span class="stat-label">Avg/bucket</span>
     </div>
     {#if errorCount > 0}
       <div class="stat-divider"></div>
       <div class="stat error">
-        <span class="stat-value">{formatNumber(errorCount)}</span>
+        <span class="stat-value">{formatCount(errorCount)}</span>
         <span class="stat-label">Errors</span>
       </div>
     {/if}
     {#if warnCount > 0}
       <div class="stat-divider"></div>
       <div class="stat warning">
-        <span class="stat-value">{formatNumber(warnCount)}</span>
+        <span class="stat-value">{formatCount(warnCount)}</span>
         <span class="stat-label">Warnings</span>
       </div>
     {/if}

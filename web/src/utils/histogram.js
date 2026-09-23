@@ -1,20 +1,7 @@
 /**
- * Pure histogram helpers: compact counts (shared by the Histogram header and
- * the canvas y-axis) and the canvas bar geometry.
+ * Pure histogram helpers: the canvas bar geometry. Counts are compacted with
+ * formatCount from format.js.
  */
-
-/**
- * Compact a log count for the histogram: 1234 -> '1.2K', 2500000 -> '2.5M'.
- * Unlike formatCount in format.js this always keeps one decimal ('1.0K'),
- * which is what the histogram has always shown.
- * @param {number} num - Non-negative count
- * @returns {string} Compact count
- */
-export function formatHistogramCount(num) {
-  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-  return num.toString();
-}
 
 /**
  * Canvas geometry for the histogram: fixed height and padding, bars sized to

@@ -14,6 +14,7 @@
   import Icon from '../ui/Icon.svelte';
   import { chevronLeft, chevronRight, fileText } from '../ui/icons.js';
   import { api } from '../../utils/api.js';
+  import { formatNumber } from '../../utils/format.js';
   import AuditStats from './audit/AuditStats.svelte';
   import AuditFilterForm from './audit/AuditFilterForm.svelte';
   import AuditLogTable from './audit/AuditLogTable.svelte';
@@ -142,10 +143,11 @@
     expandedRows = next;
   }
 
-  function formatCount(num) {
-    if (num == null) return '0';
-    return num.toLocaleString('en-US');
-  }
+  // "Showing 1–50 of 1,234" — full numbers with separators, not compact
+  // counts: this is a pagination position.
+  const rangeLabel = $derived(
+    `Showing ${formatNumber(offset + 1)}\u2013${formatNumber(offset + logs.length)} of ${formatNumber(totalCount)}`
+  );
 </script>
 
 <section class="settings-section">
@@ -185,7 +187,7 @@
         Events
         {#if !loading}
           <span class="event-count">
-            Showing {formatCount(offset + 1)}&ndash;{formatCount(offset + logs.length)} of {formatCount(totalCount)}
+            {rangeLabel}
           </span>
         {/if}
       </span>
@@ -212,7 +214,7 @@
           Previous
         </Button>
         <span class="page-info">
-          Showing {formatCount(offset + 1)}&ndash;{formatCount(offset + logs.length)} of {formatCount(totalCount)}
+          {rangeLabel}
         </span>
         <Button variant="ghost" size="sm" disabled={!hasMore} onclick={nextPage}>
           Next

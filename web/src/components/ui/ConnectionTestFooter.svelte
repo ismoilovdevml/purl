@@ -1,6 +1,6 @@
 <!--
   ConnectionTestFooter
-  Bottom of a "test, then save" settings form (SSO, LDAP): the last test
+  Bottom of a "test, then save" settings form (SSO, LDAP, AI): the last test
   result banner, the save success/error line, and the Test / Save buttons.
   The page owns the requests and passes their state down.
 
@@ -35,9 +35,9 @@
     enabled = false,
     /** Test button text */
     testLabel = 'Test Connection',
-    /** Banner prefix for a passed test */
+    /** Banner prefix for a passed test ('' shows the message alone) */
     okPrefix = 'Connected',
-    /** Banner prefix for a failed test */
+    /** Banner prefix for a failed test ('' shows the message alone) */
     failPrefix = 'Connection failed',
     /** () => void */
     ontest,
@@ -51,10 +51,10 @@
   <div class="test-result" class:test-ok={testResult.ok} class:test-fail={!testResult.ok}>
     {#if testResult.ok}
       <Icon icon={check} size={14} strokeWidth={2.5} />
-      {okPrefix} — {testResult.message}
+      {okPrefix ? `${okPrefix} — ` : ''}{testResult.message}
     {:else}
       <Icon icon={close} size={14} strokeWidth={2.5} />
-      {failPrefix}: {testResult.message}
+      {failPrefix ? `${failPrefix}: ` : ''}{testResult.message}
     {/if}
   </div>
 {/if}

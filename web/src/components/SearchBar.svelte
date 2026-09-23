@@ -3,7 +3,7 @@
   import { levelStats, serviceStats, hostStats, connectWebSocket, isLive } from '../stores/logs.js';
   import Button from './ui/Button.svelte';
   import Icon from './ui/Icon.svelte';
-  import { search as searchIcon, close, clock } from './ui/icons.js';
+  import { search as searchIcon, close, sparkles } from './ui/icons.js';
   import { debounce } from '../utils/dom.js';
   import { buildSuggestions, applySuggestionToQuery } from '../utils/searchSuggestions.js';
   import { aiConfigured, aiSuggestions, fetchSuggestions } from '../stores/ai.js';
@@ -256,7 +256,7 @@
       onclick={() => { aiMode = true; }}
       title="Ask AI"
     >
-      <Icon icon={clock} size={14} strokeWidth={2.5} />
+      <Icon icon={sparkles} size={14} strokeWidth={2.5} />
       Ask AI
     </button>
   {/if}

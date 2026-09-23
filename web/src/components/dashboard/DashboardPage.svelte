@@ -208,7 +208,7 @@
   .page-header h2 {
     font-size: 18px;
     font-weight: 600;
-    color: #f0f6fc;
+    color: var(--text-bright);
     flex: 1;
   }
 
@@ -222,16 +222,16 @@
     align-items: center;
     gap: 6px;
     padding: 6px 12px;
-    background: #21262d;
-    border: 1px solid #30363d;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    color: #c9d1d9;
+    color: var(--text-primary);
     cursor: pointer;
     font-size: 13px;
   }
 
   .back-btn:hover {
-    background: #30363d;
+    background: var(--bg-hover);
   }
 
   .dashboard-grid {
@@ -242,30 +242,30 @@
 
   .dashboard-card {
     padding: 20px;
-    background: #161b22;
-    border: 1px solid #30363d;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     cursor: pointer;
     text-align: left;
     transition: all 0.15s;
-    color: #c9d1d9;
+    color: var(--text-primary);
   }
 
   .dashboard-card:hover {
-    border-color: #58a6ff;
-    background: #1c2128;
+    border-color: var(--color-primary);
+    background: var(--bg-row-hover);
   }
 
   .card-title {
     font-size: 15px;
     font-weight: 600;
-    color: #f0f6fc;
+    color: var(--text-bright);
     margin-bottom: 8px;
   }
 
   .card-meta {
     font-size: 12px;
-    color: #8b949e;
+    color: var(--text-secondary);
   }
 
   .card-desc {
@@ -282,13 +282,13 @@
   .empty-state, .empty-widgets {
     text-align: center;
     padding: 40px;
-    color: #8b949e;
+    color: var(--text-secondary);
   }
 
   .loading-state {
     text-align: center;
     padding: 40px;
-    color: #8b949e;
+    color: var(--text-secondary);
   }
 
   .form-group {
@@ -298,22 +298,22 @@
   .form-group label {
     display: block;
     font-size: 13px;
-    color: #c9d1d9;
+    color: var(--text-primary);
     margin-bottom: 6px;
   }
 
   .form-group input {
     width: 100%;
     padding: 8px 12px;
-    background: #0d1117;
-    border: 1px solid #30363d;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
-    color: #c9d1d9;
+    color: var(--text-primary);
     font-size: 14px;
   }
 
   .form-group input:focus {
-    border-color: #58a6ff;
+    border-color: var(--color-primary);
   }
 
   @media (max-width: 768px) {

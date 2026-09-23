@@ -18,7 +18,6 @@
   // Raw: a result set is replaced wholesale, never mutated, and can be large.
   let results = $state.raw(null);
   let showJson = $state(false);
-  let queryTextarea = $state(null);
   let executionTime = $state(null);
 
   // Set default time range: last 24 hours
@@ -118,7 +117,6 @@
     </div>
     <textarea
       id="query-editor"
-      bind:this={queryTextarea}
       bind:value={query}
       class="query-editor"
       placeholder='level:error AND message:"connection timeout"'
