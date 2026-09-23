@@ -25,8 +25,9 @@ sub field_stats {
             ($from, $to) = parse_time_range($range);
         }
 
-        # Validate field (allow standard fields and meta.* K8s fields)
-        unless ($field =~ /^(level|service|host|meta\.(namespace|pod|node|container|cluster|deployment|team))$/) {
+        # Validate field: the columns (namespace/pod/container are the k8s
+        # materialized columns, #104) and the meta.* keys Vector fills.
+        unless ($field =~ /^(level|service|host|namespace|pod|container|meta\.(namespace|pod|node|container|cluster|deployment|team))$/) {
             $self->render_error($c, 'Invalid field', 400);
             return;
         }
@@ -35,7 +36,14 @@ sub field_stats {
         $params{from} = $from if $from;
         $params{to}   = $to if $to;
 
-        my $cache_key = "field_stats:$field:" . md5_hex(encode_json(\%params));
+        # Facets count what the current search shows: the same `q` the log list
+        # was searched with narrows them (#104).
+        my $query = $c->param('q') // '';
+        return unless $self->_apply_query($c, \%params, $query);
+
+        # Keyed by the query SOURCE, not the AST (hash order is not stable).
+        my $cache_key = "field_stats:$field:"
+            . md5_hex(encode_json({ %params, kql => $query }));
         if (my $cached = $self->get_cached($cache_key)) {
             $c->res->headers->header('X-Cache' => 'HIT');
             $c->render(json => $cached);

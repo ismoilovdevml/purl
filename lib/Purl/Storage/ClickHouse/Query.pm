@@ -9,6 +9,7 @@ use Moo::Role;
 my %ALLOWED_FIELDS = map { $_ => 1 } qw(
     level service host timestamp message raw meta
     trace_id request_id span_id parent_span_id
+    namespace pod container
 );
 
 # Allowed meta sub-fields for K8s support
@@ -137,7 +138,8 @@ sub _build_where_clause {
         }
     }
 
-    # Level filter
+    # Level filter. upper(level): rows stored before ingest normalised the case
+    # (#105) still match; `level` is a sort key, so they cannot be rewritten.
     if ($params{level}) {
         if (ref $params{level} eq 'ARRAY') {
             my @valid_levels = grep { defined } map { $self->_validate_level($_) } @{$params{level}};
@@ -151,12 +153,12 @@ sub _build_where_clause {
                     push @level_placeholders, "{${pname}:String}";
                     $bind_params{$pname} = $valid_levels[$i];
                 }
-                push @where, "level IN (" . join(', ', @level_placeholders) . ")";
+                push @where, "upper(level) IN (" . join(', ', @level_placeholders) . ")";
             }
         } else {
             my $valid_level = $self->_validate_level($params{level});
             if ($valid_level) {
-                push @where, "level = {p_level:String}";
+                push @where, "upper(level) = {p_level:String}";
                 $bind_params{p_level} = $valid_level;
             }
         }

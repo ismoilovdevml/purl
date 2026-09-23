@@ -146,7 +146,7 @@ subtest 'the literal branch is a bind value, never interpolated SQL' => sub {
 
 subtest 'a real KQL filter is still compiled as an expression' => sub {
     my ($where, $params) = alert_where('level:error AND service:api');
-    like $where, qr/level = /,   'level compiled to an equality';
+    like $where, qr/upper\(level\) = /, 'level compiled to a case-insensitive equality (#105)';
     like $where, qr/service = /, 'service compiled to an equality';
     is_deeply [sort values %$params], [sort qw(ERROR api)],
         'both operand values bound';

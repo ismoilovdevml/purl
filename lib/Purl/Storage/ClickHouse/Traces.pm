@@ -118,7 +118,7 @@ sub get_recent_traces {
             formatDateTime(min(timestamp), '%Y-%m-%dT%H:%i:%S') || 'Z' as first_seen,
             formatDateTime(max(timestamp), '%Y-%m-%dT%H:%i:%S') || 'Z' as last_seen,
             count() as log_count,
-            countIf(level IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT', 'FATAL')) as error_count,
+            countIf(upper(level) IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT', 'FATAL')) as error_count,
             groupUniqArray(service) as services,
             dateDiff('millisecond', min(timestamp), max(timestamp)) as duration_ms
         FROM $table
@@ -193,7 +193,7 @@ sub get_trace_timeline {
             min(timestamp) as start_time,
             max(timestamp) as end_time,
             count() as log_count,
-            countIf(level IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT', 'FATAL')) as error_count
+            countIf(upper(level) IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT', 'FATAL')) as error_count
         FROM $table
         WHERE trace_id = } . $self->_quote_string($valid_trace) . qq{
         GROUP BY service

@@ -18,6 +18,10 @@ our %FIELD_KIND = (
     trace_id   => 'exact',
     request_id => 'exact',
     span_id    => 'exact',
+    # Kubernetes metadata: materialized columns of the logs table (#104).
+    namespace  => 'exact',
+    pod        => 'exact',
+    container  => 'exact',
     message    => 'text',
     raw        => 'text',
 );

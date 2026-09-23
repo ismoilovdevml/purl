@@ -196,13 +196,13 @@ subtest '_build_where_clause empty' => sub {
 
 subtest '_build_where_clause single level' => sub {
     my ($sql, $params) = $q->_build_where_clause(level => 'ERROR');
-    like $sql, qr/WHERE.*level = \{p_level:String\}/, 'level filter in WHERE';
+    like $sql, qr/WHERE.*upper\(level\) = \{p_level:String\}/, 'level filter in WHERE';
     is $params->{p_level}, 'ERROR', 'level param bound';
 };
 
 subtest '_build_where_clause level array' => sub {
     my ($sql, $params) = $q->_build_where_clause(level => ['ERROR', 'WARNING']);
-    like $sql, qr/level IN/, 'level IN clause';
+    like $sql, qr/upper\(level\) IN/, 'level IN clause (case-insensitive, #105)';
     is $params->{p_level_0}, 'ERROR', 'first level bound';
     is $params->{p_level_1}, 'WARNING', 'second level bound';
 };

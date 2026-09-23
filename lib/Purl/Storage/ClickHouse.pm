@@ -22,6 +22,7 @@ with 'Purl::Storage::ClickHouse::Agents';
 with 'Purl::Storage::ClickHouse::CircuitBreaker';
 with 'Purl::Storage::ClickHouse::Connection';
 with 'Purl::Storage::ClickHouse::Schema';
+with 'Purl::Storage::ClickHouse::K8sColumns';
 with 'Purl::Storage::ClickHouse::Ingest';
 with 'Purl::Storage::ClickHouse::Search';
 with 'Purl::Storage::ClickHouse::Traces';

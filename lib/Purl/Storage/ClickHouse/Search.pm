@@ -72,25 +72,26 @@ sub field_stats {
 
     my ($where_sql, $bind_params) = $self->_build_where_clause(%params);
 
-    # Handle meta.* fields (K8s support) using JSONExtractString
-    # Meta field is double-encoded JSON string, so we need to unescape it first
-    my $select_field;
+    # What to group by, and whether an empty value is "not set" and dropped.
+    my ($select_field, $skip_empty);
     if ($valid_field =~ /^meta\.(\w+)$/) {
-        my $sub_field = $1;
-        # Strip outer quotes and unescape inner quotes before JSON extraction
-        $select_field = "JSONExtractString(replaceAll(substring(meta, 2, length(meta)-2), '\\\\\"', '\"'), '$sub_field')";
+        # The key is whitelisted by _validate_field and still goes in bound.
+        $bind_params->{p_meta_key} = $1;
+        $select_field = $self->meta_key_sql('{p_meta_key:String}');
+        $skip_empty   = 1;
+    } elsif ($valid_field eq 'level') {
+        # One bucket per level whatever case older rows were stored in (#105).
+        $select_field = 'upper(level)';
     } else {
         $select_field = $valid_field;
+        # A log that did not come from Kubernetes has no namespace/pod/container;
+        # an empty bucket would be the biggest one and mean nothing.
+        $skip_empty = $self->is_k8s_column($valid_field);
     }
 
-    # Build proper WHERE clause for meta fields
     my $where_clause = $where_sql;
-    if ($valid_field =~ /^meta\./) {
-        if ($where_clause) {
-            $where_clause .= " AND $select_field != ''";
-        } else {
-            $where_clause = "WHERE $select_field != ''";
-        }
+    if ($skip_empty) {
+        $where_clause .= ($where_clause ? ' AND ' : 'WHERE ') . "$select_field != ''";
     }
 
     my $sql = qq{
@@ -158,7 +159,9 @@ sub histogram {
         $fill_to = "$to_start_func(now())";
     }
 
-    # Query with level breakdown and WITH FILL for empty buckets
+    # Query with level breakdown and WITH FILL for empty buckets. Levels are
+    # compared upper-cased (#105); WARN (Vector, OTLP) and WARNING (syslog) are
+    # both warnings, and FATAL is an error.
     my $sql = qq{
         SELECT
             formatDateTime(time_bucket, '%Y-%m-%dT%H:%i:%S') || 'Z' as time,
@@ -171,10 +174,10 @@ sub histogram {
             SELECT
                 $time_func as time_bucket,
                 count() as count,
-                countIf(level IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT')) as errors,
-                countIf(level = 'WARNING') as warnings,
-                countIf(level IN ('INFO', 'NOTICE')) as info,
-                countIf(level IN ('DEBUG', 'TRACE')) as debug
+                countIf(upper(level) IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT', 'FATAL')) as errors,
+                countIf(upper(level) IN ('WARN', 'WARNING')) as warnings,
+                countIf(upper(level) IN ('INFO', 'NOTICE')) as info,
+                countIf(upper(level) IN ('DEBUG', 'TRACE')) as debug
             FROM $table
             $where_sql
             GROUP BY time_bucket
@@ -199,6 +202,9 @@ sub get_fields {
         { name => 'level', type => 'keyword' },
         { name => 'service', type => 'keyword' },
         { name => 'host', type => 'keyword' },
+        { name => 'namespace', type => 'keyword' },
+        { name => 'pod', type => 'keyword' },
+        { name => 'container', type => 'keyword' },
         { name => 'message', type => 'text' },
         { name => 'raw', type => 'text' },
     ];

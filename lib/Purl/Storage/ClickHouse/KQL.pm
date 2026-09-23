@@ -68,15 +68,21 @@ sub _kql_term_sql {
     }
 
     if ($EXACT_COLUMN{$field}) {
-        # level values are stored upper-case.
-        $value = uc $value if $field eq 'level';
+        my $column = $field;
+        # Levels are case-insensitive (#105). Ingest now stores them upper-case,
+        # but older rows may say `warn`, and `level` is a sort-key column that
+        # ClickHouse will not rewrite — so compare upper(level).
+        if ($field eq 'level') {
+            $value  = uc $value;
+            $column = 'upper(level)';
+        }
 
         # A wildcard is only a wildcard when unquoted; level:"a*b" is literal.
         if (!$node->{quoted} && $value =~ /\*/) {
             my $pattern = $self->_kql_like_pattern($value);
-            return "$field LIKE " . $self->_kql_bind($bind, $seq, $pattern);
+            return "$column LIKE " . $self->_kql_bind($bind, $seq, $pattern);
         }
-        return "$field = " . $self->_kql_bind($bind, $seq, $value);
+        return "$column = " . $self->_kql_bind($bind, $seq, $value);
     }
 
     # Unknown field: fall back to a message substring search on the value,
@@ -129,7 +135,9 @@ Field mapping:
 
 =over 4
 
-=item * C<level>, C<service>, C<host>, C<trace_id>, C<request_id>, C<span_id> — equality (C<LIKE> when the unquoted value contains C<*>)
+=item * C<service>, C<host>, C<namespace>, C<pod>, C<container>, C<trace_id>, C<request_id>, C<span_id> — equality (C<LIKE> when the unquoted value contains C<*>)
+
+=item * C<level> — the same, against C<upper(level)> so every stored case matches
 
 =item * C<message>, C<raw> — substring match via C<position()>
 

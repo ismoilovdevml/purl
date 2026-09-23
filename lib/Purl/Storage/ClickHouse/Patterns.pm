@@ -27,7 +27,7 @@ sub get_patterns {
     if ($params{level}) {
         my $valid_level = $self->_validate_level($params{level});
         if ($valid_level) {
-            push @where, "level = " . $self->_quote_string($valid_level);
+            push @where, "upper(level) = " . $self->_quote_string($valid_level);  # any stored case (#105)
         }
     }
 

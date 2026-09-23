@@ -107,7 +107,7 @@ subtest 'AND is an intersection and is order-independent' => sub {
         'service value keeps its dash; level is upper-cased';
 
     like $sql_a, qr/service\s*=\s*\{p_kql_\d+:String\}/, 'service compiled to equality';
-    like $sql_a, qr/level\s*=\s*\{p_kql_\d+:String\}/,   'level compiled to equality';
+    like $sql_a, qr/upper\(level\)\s*=\s*\{p_kql_\d+:String\}/, 'level compiled to case-insensitive equality (#105)';
 };
 
 subtest 'AND is never wider than either operand' => sub {

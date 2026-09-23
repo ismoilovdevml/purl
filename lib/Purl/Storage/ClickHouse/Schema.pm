@@ -104,6 +104,9 @@ sub _init_schema {
         };
     }
 
+    # Kubernetes namespace/pod/container as materialized columns (#104).
+    $self->_ensure_k8s_columns($table);
+
     # Add trace indexes if they don't exist
     eval {
         $self->_query(qq{

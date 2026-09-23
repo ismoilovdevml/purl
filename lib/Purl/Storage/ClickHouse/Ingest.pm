@@ -72,10 +72,25 @@ sub buffer_full {
     return (scalar(@{$self->_buffer}) + $incoming) > $self->buffer_max;
 }
 
+# One canonical spelling per level (#105): upper case, what the UI colour map
+# and every level filter use. Done here, not in each controller, because this is
+# the one place every ingest path (JSON API, OTLP, syslog, K8s audit, Vector)
+# goes through. The hash is changed IN PLACE on purpose: the same hashref is
+# broadcast to live tail, which must show what was stored.
+sub _normalize_level {
+    my ($log) = @_;
+    return unless ref $log eq 'HASH';
+    my $level = $log->{level} // '';
+    $level =~ s/\A\s+|\s+\z//g;
+    $log->{level} = length $level ? uc $level : 'INFO';
+    return;
+}
+
 # Insert single log
 sub insert {
     my ($self, $log) = @_;
 
+    _normalize_level($log);
     push @{$self->_buffer}, $log;
 
     if (@{$self->_buffer} >= $self->buffer_size) {
@@ -91,6 +106,7 @@ sub insert_batch {
 
     return unless $logs && @$logs;
 
+    _normalize_level($_) for @$logs;
     push @{$self->_buffer}, @$logs;
 
     if (@{$self->_buffer} >= $self->buffer_size) {
