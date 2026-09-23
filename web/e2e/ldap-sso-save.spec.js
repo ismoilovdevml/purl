@@ -129,7 +129,8 @@ test.describe('LDAP and SSO settings save round-trip', () => {
   test('SSO: the PUT body is typed correctly and the saved values reload', async ({ page }) => {
     const original = await readConfig(page, '/api/settings/sso');
     const cert = '-----BEGIN CERTIFICATE-----\nMIIBe2e\n-----END CERTIFICATE-----';
-    const persistent = 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent';
+    // Middleware/SAML.pm maps the short name to its URN (#99).
+    const persistent = 'persistent';
     try {
       await openSettingsSection(page, 'SSO / SAML');
       const section = page.locator('.settings-section', {

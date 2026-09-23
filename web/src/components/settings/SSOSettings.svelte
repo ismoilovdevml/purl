@@ -14,7 +14,7 @@
   import ConnectionTestFooter from '../ui/ConnectionTestFooter.svelte';
   import SsoMetadataCard from './sso/SsoMetadataCard.svelte';
   import { api } from '../../utils/api.js';
-  import { isEnvLocked } from '../../utils/envLock.js';
+  import { isEnvLocked, optionsIncluding } from '../../utils/envLock.js';
   import { runConnectionTest } from '../../utils/connectionTest.js';
   import { formFromConfig } from '../../utils/settingsForm.js';
 
@@ -55,7 +55,7 @@
     idp_cert: '',
     entity_id: '',
     acs_url: '',
-    name_id_format: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+    name_id_format: 'emailAddress',
     sign_requests: false,
     sp_cert: '',
     sp_key: '',
@@ -68,12 +68,36 @@
   let form = $state({ ...DEFAULTS });
 
   // ── Select options ─────────────────────────────────────────────────────────
-  const nameIdFormatOptions = [
-    { value: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress', label: 'Email Address' },
-    { value: 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent', label: 'Persistent' },
-    { value: 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient', label: 'Transient' },
-    { value: 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified', label: 'Unspecified' },
+  /*
+   * The values the backend acts on: Middleware/SAML.pm maps these short names
+   * to their URNs and falls back to emailAddress for anything else, and
+   * 'emailAddress' is the server default (Config/Defaults.pm). This page used
+   * to save the full URNs, which that map does not contain — so every choice
+   * silently became emailAddress — and an unconfigured instance's
+   * 'emailAddress' matched no option.
+   */
+  const NAME_ID_FORMAT_OPTIONS = [
+    { value: 'emailAddress', label: 'Email Address' },
+    { value: 'persistent', label: 'Persistent' },
+    { value: 'transient', label: 'Transient' },
+    { value: 'unspecified', label: 'Unspecified' },
   ];
+
+  /**
+   * Map a stored NameID format onto NAME_ID_FORMAT_OPTIONS the way the
+   * backend reads it: a URN (what this page used to save) by its last
+   * segment, anything unknown as emailAddress.
+   * @param {string | undefined} format - Stored saml.name_id_format
+   * @returns {string}
+   */
+  function normalizeNameIdFormat(format) {
+    const text = String(format ?? '');
+    const short = text.slice(text.lastIndexOf(':') + 1);
+    return NAME_ID_FORMAT_OPTIONS.some((o) => o.value === short) ? short : 'emailAddress';
+  }
+
+  // An ENV-pinned format is kept verbatim (see optionsIncluding).
+  const nameIdFormatOptions = $derived(optionsIncluding(NAME_ID_FORMAT_OPTIONS, form.name_id_format));
 
   // ── On mount: fetch settings ──────────────────────────────────────────────
   $effect(() => {
@@ -85,7 +109,11 @@
     try {
       const data = await api.get('/settings/sso');
       fromEnv = data.from_env ?? {};
-      form = formFromConfig(DEFAULTS, data.config);
+      const loaded = formFromConfig(DEFAULTS, data.config);
+      if (!isEnvLocked(fromEnv, 'name_id_format')) {
+        loaded.name_id_format = normalizeNameIdFormat(loaded.name_id_format);
+      }
+      form = loaded;
     } catch {
       // leave defaults
     } finally {

@@ -14,7 +14,7 @@
   import ConnectionTestFooter from '../ui/ConnectionTestFooter.svelte';
   import LdapServerCard from './ldap/LdapServerCard.svelte';
   import { api } from '../../utils/api.js';
-  import { isEnvLocked } from '../../utils/envLock.js';
+  import { isEnvLocked, optionsIncluding } from '../../utils/envLock.js';
   import { runConnectionTest } from '../../utils/connectionTest.js';
   import { formFromConfig } from '../../utils/settingsForm.js';
 
@@ -82,13 +82,8 @@
     return m === 'ad' || m === 'activedirectory' ? 'ad' : 'ldap';
   }
 
-  // An ENV-pinned mode must be sent back verbatim (any other value is a 409),
-  // so it is shown as-is, with its own option when it is not one of ours.
-  const modeOptions = $derived(
-    MODE_OPTIONS.some((o) => o.value === form.mode)
-      ? MODE_OPTIONS
-      : [...MODE_OPTIONS, { value: form.mode, label: form.mode }]
-  );
+  // An ENV-pinned mode is kept verbatim (see optionsIncluding).
+  const modeOptions = $derived(optionsIncluding(MODE_OPTIONS, form.mode));
 
   // ── Reactive: auto-set TLS when URL scheme changes ─────────────────────────
   $effect(() => {

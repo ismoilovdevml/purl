@@ -41,3 +41,21 @@ export function isEnvLocked(flags, key) {
   if (!flags || typeof flags !== 'object') return false;
   return !!flags[key];
 }
+
+/**
+ * Options for a <Select> whose value may be pinned by the environment.
+ *
+ * An ENV-pinned value must be sent back verbatim (anything else is a 409), so
+ * a page shows it as-is instead of normalising it. When it is not one of the
+ * page's options it gets an option of its own, or the select would render
+ * blank.
+ * @param {Array<{ value: string, label: string }>} options - The page's options
+ * @param {string | undefined} value - Current value
+ * @returns {Array<{ value: string, label: string }>}
+ */
+export function optionsIncluding(options, value) {
+  if (value === undefined || value === null || options.some((o) => o.value === value)) {
+    return options;
+  }
+  return [...options, { value, label: String(value) }];
+}
