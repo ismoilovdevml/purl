@@ -35,12 +35,9 @@ requires 'Digest::MD5';
 requires 'MIME::Base64';
 requires 'Crypt::Eksblowfish::Bcrypt', '0.009';
 
-# LDAP/AD authentication (Enterprise)
+# LDAP/AD authentication
 requires 'Net::LDAP';
 requires 'IO::Socket::SSL', '2.0';
 
-# License verification (JWT RS256)
-requires 'Crypt::JWT', '0.035';
-
-# SAML 2.0 authentication (Enterprise SSO)
+# SAML 2.0 authentication (SSO)
 requires 'Net::SAML2', '0.63';

@@ -24,6 +24,19 @@ has 'settings' => (
     default => sub { undef },
 );
 
+# The LLM-backed endpoints spend a paid provider budget, so they are for
+# signed-in people only: an ingest API key (or basic-auth client) must not be
+# able to reach them. On an open instance (auth disabled) there are no
+# accounts to require, so everyone who can reach the dashboard may use AI.
+# Renders 403 and returns 0 when refused.
+sub _require_session_user {
+    my ($self, $c) = @_;
+    return 1 if $self->settings && !$self->settings->auth_enabled;
+    return 1 if $c->session('logged_in') && $c->session('username');
+    $self->render_error($c, 'AI requires a signed-in user', 403);
+    return 0;
+}
+
 sub _get_ai_config {
     my ($self) = @_;
     if ($self->settings) {
@@ -69,7 +82,7 @@ sub query {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'ai_query');
+        return unless $self->_require_session_user($c);
 
         my $body = eval { decode_json($c->req->body) };
         unless ($body) {
@@ -174,7 +187,7 @@ sub analyze {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'ai_analysis');
+        return unless $self->_require_session_user($c);
 
         unless ($self->_ai_configured()) {
             $self->render_error($c, 'AI not configured. Go to Settings > AI to configure a provider.', 400);
@@ -239,7 +252,7 @@ sub explain {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'ai_analysis');
+        return unless $self->_require_session_user($c);
 
         unless ($self->_ai_configured()) {
             $self->render_error($c, 'AI not configured. Go to Settings > AI to configure a provider.', 400);

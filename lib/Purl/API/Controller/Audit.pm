@@ -19,11 +19,6 @@ sub list {
             return;
         }
 
-        # Feature gate first so an unlicensed plan still gets the
-        # {feature => 'audit_logs'} 403 body the dashboard renders an upsell
-        # from; the role check below then narrows it to admins.
-        return unless $self->require_feature($c, 'audit_logs');
-
         # Audit records every login, source IP and admin action — the exact
         # material an attacker uses for recon, and a privacy exposure for
         # other users. Admin only; a viewer must not see it.
@@ -71,11 +66,6 @@ sub stats {
             $self->render_error($c, 'Unauthorized', 401);
             return;
         }
-
-        # Feature gate first so an unlicensed plan still gets the
-        # {feature => 'audit_logs'} 403 body the dashboard renders an upsell
-        # from; the role check below then narrows it to admins.
-        return unless $self->require_feature($c, 'audit_logs');
 
         # Audit records every login, source IP and admin action — the exact
         # material an attacker uses for recon, and a privacy exposure for

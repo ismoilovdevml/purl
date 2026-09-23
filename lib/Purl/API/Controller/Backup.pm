@@ -27,7 +27,7 @@ sub list {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'backup');
+        return unless $self->require_role($c, 'admin');
 
         my $backups = $self->storage->list_backups();
         $c->render(json => { backups => $backups });
@@ -38,7 +38,6 @@ sub create {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'backup');
         return unless $self->require_role($c, 'admin');
 
         my $body = eval { decode_json($c->req->body) } // {};
@@ -61,7 +60,6 @@ sub restore {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'backup');
         return unless $self->require_role($c, 'admin');
 
         my $body = eval { decode_json($c->req->body) } // {};
@@ -100,7 +98,6 @@ sub remove {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'backup');
         return unless $self->require_role($c, 'admin');
 
         my $id = $c->param('id');
@@ -122,7 +119,7 @@ sub download {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'backup');
+        return unless $self->require_role($c, 'admin');
 
         my $id = $c->param('id');
         unless ($id) {
@@ -147,7 +144,7 @@ sub get_schedule {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'backup');
+        return unless $self->require_role($c, 'admin');
 
         my $s = $self->settings;
         my $schedule = {
@@ -171,7 +168,6 @@ sub update_schedule {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'backup');
         return unless $self->require_role($c, 'admin');
 
         my $body = eval { decode_json($c->req->body) } // {};
@@ -220,7 +216,6 @@ sub upload_to_s3 {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'backup');
         return unless $self->require_role($c, 'admin');
 
         my $body = eval { decode_json($c->req->body) } // {};
@@ -251,7 +246,7 @@ sub get_s3_config {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'backup');
+        return unless $self->require_role($c, 'admin');
 
         my $s = $self->settings;
         my $s3 = {
@@ -273,7 +268,6 @@ sub update_s3_config {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'backup');
         return unless $self->require_role($c, 'admin');
 
         my $body = eval { decode_json($c->req->body) } // {};

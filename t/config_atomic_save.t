@@ -23,7 +23,7 @@ use Purl::Config;
 # guaranteed to read a partial file.
 #
 # Before the fix, load() answered a decode failure by blanking _config to {}.
-# That dropped every user, API key and the license key, and the next save()
+# That dropped every user, API key and saved section, and the next save()
 # persisted the emptiness. Two properties close it:
 #   1. save() writes to a temp file and rename(2)s it into place, so no reader
 #      ever observes a partial file;
@@ -36,7 +36,7 @@ sub new_config {
     return Purl::Config->new(config_file => File::Spec->catfile($dir, 'settings.json'));
 }
 
-subtest 'a partial file never blanks users, api keys or the license' => sub {
+subtest 'a partial file never blanks users, api keys or other sections' => sub {
     my $dir  = tempdir(CLEANUP => 1);
     my $cfg  = new_config($dir);
     my $file = File::Spec->catfile($dir, 'settings.json');
@@ -45,7 +45,7 @@ subtest 'a partial file never blanks users, api keys or the license' => sub {
         users    => { admin => { password => 'hash', role => 'admin' } },
         api_keys => ['key-1'],
     });
-    $cfg->set_section('license', { key => 'LICENSE-JWT' });
+    $cfg->set_section('ldap', { server => 'ldap.example.com' });
     ok $cfg->save, 'saved';
 
     is_deeply [sort keys %{ $cfg->get_section('auth')->{users} }], ['admin'],
@@ -60,8 +60,8 @@ subtest 'a partial file never blanks users, api keys or the license' => sub {
     my $users = $cfg->get_section('auth')->{users} // {};
     is_deeply [sort keys %$users], ['admin'],
         'user SURVIVES a torn read (was wiped to [] before the fix)';
-    is $cfg->get_section('license')->{key}, 'LICENSE-JWT',
-        'license key survives a torn read';
+    is $cfg->get_section('ldap')->{server}, 'ldap.example.com',
+        'other sections survive a torn read';
     is_deeply $cfg->get_section('auth')->{api_keys}, ['key-1'],
         'api keys survive a torn read';
 };

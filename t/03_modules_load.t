@@ -10,10 +10,10 @@ my @modules = qw(
     Purl::Config
     Purl::Util::Time
     Purl::API::Middleware::Auth
-    Purl::API::Middleware::License
     Purl::API::Controller::Base
     Purl::API::Controller::Logs
     Purl::API::Controller::Auth
+    Purl::API::Controller::SSOStatus
     Purl::API::Controller::Alerts
     Purl::API::Controller::Settings
     Purl::API::Controller::Patterns
@@ -50,6 +50,13 @@ subtest 'no second auth middleware exists' => sub {
     my ($dead) = grep { -e "$_/Purl/API/Middleware.pm" } "$Bin/../lib";
     ok !$dead, 'lib/Purl/API/Middleware.pm is gone';
     ok -e "$Bin/../lib/Purl/API/Middleware/Auth.pm", 'the real one is still there';
+};
+
+# Purl is fully open source: there is no licensing layer to load, and none
+# may creep back in under the old module names.
+subtest 'no licensing modules exist' => sub {
+    ok !-e "$Bin/../lib/Purl/API/Middleware/License.pm", 'License middleware is gone';
+    ok !-e "$Bin/../lib/Purl/License/Plans.pm",          'License::Plans is gone';
 };
 
 done_testing();

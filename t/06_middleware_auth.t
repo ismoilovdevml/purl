@@ -250,8 +250,7 @@ subtest 'check_auth with invalid API key' => sub {
     local $ENV{PURL_API_KEYS} = 'validkey';
     my $auth_mw = Purl::API::Middleware::Auth->new;
     my $c = MockController->new({ 'X-API-Key' => 'invalidkey' });
-    # Free plan with no auth enabled = same-origin bypass
-    # Need to test the _check_api_key path specifically
+    # Test the _check_api_key path specifically
     ok !$auth_mw->_check_api_key($c, {}), 'invalid API key rejected by _check_api_key';
 };
 
@@ -275,35 +274,17 @@ subtest 'check_auth with hashed password basic auth' => sub {
     ok $auth_mw->check_auth($c), 'hashed password basic auth accepted';
 };
 
-subtest 'check_auth session (pro plan)' => sub {
-    my $mock_license = bless {}, 'MockLicense';
-    no warnings 'once';
-    *MockLicense::get_license_info = sub { { plan => 'pro' } };
-    my $auth_mw = Purl::API::Middleware::Auth->new(license_middleware => $mock_license);
+subtest 'check_auth accepts a valid session' => sub {
+    my $auth_mw = Purl::API::Middleware::Auth->new;
     my $c = MockController->new({}, { username => 'admin', logged_in => 1 });
-    ok $auth_mw->check_auth($c), 'session auth accepted for pro plan';
+    ok $auth_mw->check_auth($c), 'session auth accepted';
 };
 
-subtest 'check_auth denies without session regardless of plan (free)' => sub {
-    # Session validation must NOT depend on the license plan. On the free plan,
-    # with auth enabled and no session, access must be denied.
-    my $mock_license = bless {}, 'MockLicenseFree';
-    no warnings 'once';
-    *MockLicenseFree::get_license_info = sub { { plan => 'free' } };
-    my $auth_mw = Purl::API::Middleware::Auth->new(license_middleware => $mock_license);
+subtest 'check_auth denies without session when auth is enabled' => sub {
+    my $auth_mw = Purl::API::Middleware::Auth->new;
     local $ENV{PURL_AUTH_ENABLED} = 1;
     my $c = MockController->new({}, {});
-    ok !$auth_mw->check_auth($c), 'free plan, no session, auth enabled = denied';
-};
-
-subtest 'check_auth denies without session regardless of plan (enterprise)' => sub {
-    my $mock_license = bless {}, 'MockLicense2';
-    no warnings 'once';
-    *MockLicense2::get_license_info = sub { { plan => 'enterprise' } };
-    my $auth_mw = Purl::API::Middleware::Auth->new(license_middleware => $mock_license);
-    local $ENV{PURL_AUTH_ENABLED} = 1;
-    my $c = MockController->new({}, {});
-    ok !$auth_mw->check_auth($c), 'no session denied for enterprise plan';
+    ok !$auth_mw->check_auth($c), 'no session, auth enabled = denied';
 };
 
 subtest 'check_auth: forged same-origin headers do NOT bypass auth' => sub {

@@ -34,12 +34,6 @@ has 'rebuild_storage' => (
     default => sub { sub {} },
 );
 
-# Callback to reload license after key change
-has 'reload_license' => (
-    is      => 'ro',
-    default => sub { sub {} },
-);
-
 # Callback to rebuild LDAP middleware after config change
 has 'rebuild_ldap' => (
     is      => 'ro',
@@ -125,18 +119,6 @@ sub get_all {
                 # so a chat_id or channel pinned by its own env var rendered as
                 # editable. Additive: the existing flags are untouched.
                 from_env_keys => $self->env_flags('notifications'),
-            },
-            # The license panel's env state, and ONLY that: the stored key is
-            # never handed back. update_license already refuses an env-owned
-            # key with 409, but no GET said so, so the input rendered editable
-            # and the admin met the lock by pasting a key and being refused
-            # (#72 — the same read/write asymmetry as #66).
-            #
-            # Reported as the per-key map, not the `{ value, from_env }`
-            # spelling used by the clickhouse/retention/auth blocks above: that
-            # older shape is precisely why a grep for from_env_keys missed #66.
-            license => {
-                from_env_keys => $self->env_flags('license'),
             },
         };
 
@@ -359,40 +341,6 @@ sub update_retention {
 }
 
 # ============================================
-# License Key Management
-# ============================================
-
-sub update_license {
-    my ($self, $c) = @_;
-
-    $self->safe_execute($c, sub {
-        return unless $self->require_role($c, 'admin');
-
-        my $body = eval { decode_json($c->req->body) };
-        unless ($body && defined $body->{key}) {
-            $self->render_error($c, 'License key required', 400);
-            return;
-        }
-
-        return if $self->reject_env_managed($c, 'license', { key => $body->{key} });
-
-        my $key = $body->{key};
-
-        if ($self->settings->set('license', 'key', $key)) {
-            # Reload license middleware to pick up new key
-            $self->reload_license->();
-
-            $c->render(json => {
-                status  => 'ok',
-                message => 'License key updated.',
-            });
-        } else {
-            $self->render_error($c, 'Failed to save license key', 500);
-        }
-    });
-}
-
-# ============================================
 # API Key Rotation
 # ============================================
 
@@ -400,6 +348,8 @@ sub list_api_keys {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $auth_config = $self->settings->get_section('auth') // {};
         my $api_keys = $auth_config->{api_keys} // [];
         $api_keys = [split /,/, $api_keys] if !ref $api_keys;
@@ -590,13 +540,15 @@ sub _mask_key {
 }
 
 # ============================================
-# User Management (Pro/Enterprise)
+# User Management
 # ============================================
 
 sub list_users {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        return unless $self->require_role($c, 'admin');
+
         my $users = $self->settings->_config->{auth}{users} // {};
 
         my @user_list = map {
@@ -647,12 +599,6 @@ sub create_user {
             $self->render_error($c, 'User already exists', 409);
             return;
         }
-
-        # Check user limit from license. MUST go through check_limit — the
-        # open-coded `>= $max_users` this replaced treated the "unlimited"
-        # sentinel -1 as a hard zero (0 >= -1), so an unlimited plan could not
-        # create a single user.
-        return unless $self->check_limit($c, 'users', scalar keys %$users);
 
         # Hash password
         my $hashed = $self->auth_middleware->hash_password($password);
@@ -780,14 +726,14 @@ sub delete_user {
 }
 
 # ============================================
-# LDAP/AD Configuration (Enterprise)
+# LDAP/AD Configuration
 # ============================================
 
 sub get_ldap {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'ldap_auth');
+        return unless $self->require_role($c, 'admin');
 
         my $ldap = $self->settings->get_section('ldap') // {};
 
@@ -806,7 +752,6 @@ sub update_ldap {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'ldap_auth');
         return unless $self->require_role($c, 'admin');
 
         my $body = eval { decode_json($c->req->body) };
@@ -876,7 +821,6 @@ sub test_ldap {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'ldap_auth');
         return unless $self->require_role($c, 'admin');
 
         my $ldap_mw = $self->ldap_middleware;
@@ -905,14 +849,14 @@ sub test_ldap {
 }
 
 # ============================================
-# SSO/SAML Settings (Enterprise)
+# SSO/SAML Settings
 # ============================================
 
 sub get_sso {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'sso');
+        return unless $self->require_role($c, 'admin');
 
         my $saml = $self->settings->get_section('saml') // {};
 
@@ -931,7 +875,6 @@ sub update_sso {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'sso');
         return unless $self->require_role($c, 'admin');
 
         my $body = eval { decode_json($c->req->body) };
@@ -993,7 +936,6 @@ sub test_sso {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'sso');
         return unless $self->require_role($c, 'admin');
 
         my $saml_mw = $self->saml_middleware;

@@ -109,92 +109,6 @@ sub _apply_query {
 }
 
 # ============================================
-# License enforcement helpers
-# ============================================
-
-# Feature-name alias map. The license (issued by purl-web) sometimes grants
-# a feature under a DIFFERENT name than the internal gate uses. Rather than
-# rename the many require_feature() call sites, a gate's canonical internal
-# name is satisfied by the canonical name OR any of its known aliases present
-# in the license. Canonical gate name => arrayref of accepted alias names.
-#
-# NOTE: aliasing only bridges pure NAME mismatches where the license DOES
-# grant an equivalent feature under another name. It CANNOT grant a feature
-# the license omits entirely — those require purl-web to add the feature to
-# the plan's feature list and re-issue keys.
-my %FEATURE_ALIASES = (
-    # purl-web issues Dashboards as 'custom_dashboards'; internal gate is
-    # 'dashboards'. Same capability, different name.
-    dashboards => [qw( custom_dashboards )],
-);
-
-# Non-rendering feature check. Returns 1 if the current license grants
-# $feature — OR if no license context is present at all (matching the
-# historical require_feature behaviour of allowing when unlicensed/OSS).
-# Returns 0 otherwise. NEVER renders. Shared by require_feature (renders a
-# 403 on failure) and the ingest pipeline path (stays silent on failure).
-sub has_feature {
-    my ($self, $c, $feature) = @_;
-    my $info = $c->stash('license_info') // return 1;
-    my $plan = $info->{plan} // 'free';
-
-    # Enterprise plan has access to all features
-    return 1 if $plan eq 'enterprise';
-
-    # A gate is satisfied by its canonical name OR any known alias the
-    # license grants instead (name-mismatch bridge — see %FEATURE_ALIASES).
-    my %granted = map { $_ => 1 } @{ $info->{features} // [] };
-    return 1 if $granted{$feature};
-    for my $alias (@{ $FEATURE_ALIASES{$feature} // [] }) {
-        return 1 if $granted{$alias};
-    }
-    return 0;
-}
-
-sub require_feature {
-    my ($self, $c, $feature) = @_;
-    return 1 if $self->has_feature($c, $feature);
-
-    # Only reached when a license context exists but lacks the feature.
-    my $info = $c->stash('license_info') // {};
-    my $plan = $info->{plan} // 'free';
-    $c->render(json => {
-        error   => "This feature requires a Pro or Enterprise license",
-        feature => $feature,
-        plan    => $plan,
-        upgrade => 'https://purlogs.com/pricing',
-    }, status => 403);
-    return 0;
-}
-
-# THE quota gate. Every limit check in the codebase goes through here — there
-# is no second implementation, because the one rule everybody forgets is that
-# a limit of -1 means UNLIMITED, and an open-coded `$count >= $max` turns
-# "unlimited" into "nothing allowed at all" (0 >= -1 is true).
-#
-#   $current_count : how many of the thing already exist
-#   $adding        : how many the caller wants to add (default 1)
-#
-# Renders a 403 and returns 0 when the request would exceed the quota;
-# returns 1 (and renders nothing) otherwise, including when no license context
-# is attached or the plan does not meter this resource at all.
-sub check_limit {
-    my ($self, $c, $limit_name, $current_count, $adding) = @_;
-    $adding //= 1;
-    my $info = $c->stash('license_info') // return 1;
-    my $max = $info->{limits}{$limit_name} // return 1;
-    return 1 if $max < 0;  # -1 means unlimited
-    return 1 if $current_count + $adding <= $max;
-    my $plan = $info->{plan} // 'free';
-    $c->render(json => {
-        error   => "Limit reached: $limit_name (current: $current_count, max: $max)",
-        plan    => $plan,
-        upgrade => 'https://purlogs.com/pricing',
-    }, status => 403);
-    return 0;
-}
-
-# ============================================
 # RBAC helpers
 # ============================================
 
@@ -379,15 +293,13 @@ sub env_flags {
 # "cheaply build the pipeline engine + run each log through it" logic
 # lives in exactly ONE place. Lives on Base (rather than a free module)
 # because it needs storage, config, and the get_cached/set_cached cache
-# — all already on Base — plus $c for the license context; a standalone
-# module would only re-plumb those same four things.
+# — all already on Base; a standalone module would only re-plumb them.
 # ============================================
 
 # Build (and briefly cache) the pipeline engine for the ingest hot path.
 # Returns the engine, or undef when pipelines should be skipped entirely
-# (feature not licensed, storage without pipeline support, or a load
-# error). NEVER dies and NEVER renders — ingest must not break because
-# pipelines are unavailable.
+# (storage without pipeline support, or a load error). NEVER dies and NEVER
+# renders — ingest must not break because pipelines are unavailable.
 
 # Cache key + TTL for the built ingest pipeline engine. Named here (not
 # inlined) so pipeline_engine() and invalidate_pipeline_engine() can never
@@ -405,18 +317,13 @@ our $PIPELINE_ENGINE_CACHE_KEY = 'ingest:pipeline_engine';
 our $PIPELINE_ENGINE_CACHE_TTL = 5;
 
 sub pipeline_engine {
-    my ($self, $c) = @_;
-
-    # Licensed feature — on the ingest path, skip SILENTLY if not granted
-    # (has_feature does not render, unlike require_feature).
-    return undef unless $self->has_feature($c, 'pipelines');
+    my ($self) = @_;
 
     # Storage backend may not support pipelines (alt backends / tests).
     return undef unless $self->storage->can('list_pipelines');
 
     # Avoid a DB round-trip per ingest request: cache the built engine
-    # briefly (same get_cached/set_cached pattern as the ingest
-    # known-services cache in Logs::ingest).
+    # briefly via the controller's get_cached/set_cached.
     if (my $cached = $self->get_cached($PIPELINE_ENGINE_CACHE_KEY)) {
         return $cached;
     }
@@ -490,7 +397,7 @@ sub apply_pipelines {
     my ($self, $c, $logs) = @_;
     return $logs unless ref $logs eq 'ARRAY' && @$logs;
 
-    my $engine = $self->pipeline_engine($c);
+    my $engine = $self->pipeline_engine();
     return $logs unless $engine;
     return $logs unless @{ $engine->pipelines };   # nothing configured
 

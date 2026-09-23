@@ -83,42 +83,16 @@ use Purl::API::Controller::Patterns;
 }
 
 # ============================================
-# list — requires pattern_analysis feature
+# list
 # ============================================
-subtest 'list denied without feature' => sub {
+subtest 'list succeeds' => sub {
     my $ctrl = Purl::API::Controller::Patterns->new(storage => MockPatStorage->new);
-    my $c = MockPatCtrl->new({}, {
-        license_info => {
-            plan     => 'free',
-            features => ['log_search'],
-        },
-    });
-
-    $ctrl->list($c);
-    is $c->rendered->{status}, 403, 'denied without pattern_analysis feature';
-};
-
-subtest 'list succeeds with feature' => sub {
-    my $ctrl = Purl::API::Controller::Patterns->new(storage => MockPatStorage->new);
-    my $c = MockPatCtrl->new({}, {
-        license_info => {
-            plan     => 'pro',
-            features => ['log_search', 'pattern_analysis'],
-        },
-    });
+    my $c = MockPatCtrl->new;
 
     $ctrl->list($c);
     my $r = $c->rendered;
     # The response is raw JSON data, not json => {}
     ok defined($r->{data}) || defined($r->{json}), 'response rendered';
-};
-
-subtest 'list passes without license_info (no gating)' => sub {
-    my $ctrl = Purl::API::Controller::Patterns->new(storage => MockPatStorage->new);
-    my $c = MockPatCtrl->new;
-
-    $ctrl->list($c);
-    ok defined $c->rendered, 'rendered without license check';
 };
 
 # ============================================
@@ -142,16 +116,6 @@ subtest 'logs with invalid hash' => sub {
     is $c->rendered->{status}, 400, 'invalid hash returns 400';
 };
 
-subtest 'logs denied without feature' => sub {
-    my $ctrl = Purl::API::Controller::Patterns->new(storage => MockPatStorage->new);
-    my $c = MockPatCtrl->new({ hash => '123' }, {
-        license_info => { plan => 'free', features => [] },
-    });
-
-    $ctrl->logs($c);
-    is $c->rendered->{status}, 403, 'denied without feature';
-};
-
 # ============================================
 # stats
 # ============================================
@@ -163,16 +127,6 @@ subtest 'stats returns pattern statistics' => sub {
     my $r = $c->rendered;
     ok defined($r->{json}), 'stats rendered';
     is $r->{json}{total_patterns}, 10, 'total patterns count';
-};
-
-subtest 'stats denied without feature' => sub {
-    my $ctrl = Purl::API::Controller::Patterns->new(storage => MockPatStorage->new);
-    my $c = MockPatCtrl->new({}, {
-        license_info => { plan => 'free', features => [] },
-    });
-
-    $ctrl->stats($c);
-    is $c->rendered->{status}, 403, 'stats denied without feature';
 };
 
 # ============================================

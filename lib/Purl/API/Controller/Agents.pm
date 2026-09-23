@@ -16,22 +16,10 @@ sub list {
 
     $self->safe_execute($c, sub {
         my $agents = $self->storage->get_agents() // [];
-        my $total  = scalar @$agents;
-
-        my $info = $c->stash('license_info') // {};
-        # -1 == unlimited (the default for every plan we sell). Never default
-        # this to a finite number: an absent limit means "not metered".
-        my $max  = $info->{limits}{agents} // -1;
-        my $plan = $info->{plan} // 'free';
 
         $c->render(json => {
             agents => $agents,
-            total  => $total,
-            limit  => {
-                current => $total,
-                max     => $max,
-                plan    => $plan,
-            },
+            total  => scalar @$agents,
         });
     });
 }
@@ -47,10 +35,6 @@ sub register {
             $self->render_error($c, 'hostname is required', 400);
             return;
         }
-
-        # Check agent limit
-        my $current_count = $self->storage->count_agents();
-        return unless $self->check_limit($c, 'agents', $current_count);
 
         my $labels = '';
         if (ref $body->{labels} eq 'HASH') {

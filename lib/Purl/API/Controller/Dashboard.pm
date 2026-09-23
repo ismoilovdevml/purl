@@ -17,8 +17,6 @@ sub list {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'dashboards');
-
         my $dashboards = $self->storage->list_dashboards();
         $c->render(json => { dashboards => $dashboards });
     });
@@ -28,8 +26,6 @@ sub get {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'dashboards');
-
         my $id = $c->param('id');
         unless ($id && $id =~ /^[0-9a-f-]+$/i) {
             $self->render_error($c, 'Invalid dashboard ID', 400);
@@ -50,7 +46,6 @@ sub create {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'dashboards');
         return unless $self->require_role($c, 'admin', 'operator');
 
         my $body = eval { decode_json($c->req->body) };
@@ -84,7 +79,6 @@ sub update {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'dashboards');
         return unless $self->require_role($c, 'admin', 'operator');
 
         my $id = $c->param('id');
@@ -113,7 +107,6 @@ sub remove {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'dashboards');
         return unless $self->require_role($c, 'admin');
 
         my $id = $c->param('id');
@@ -179,8 +172,6 @@ sub list_templates {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'dashboards');
-
         my @summaries = map { { id => $_->{id}, name => $_->{name}, description => $_->{description} } } @TEMPLATES;
         $c->render(json => { templates => \@summaries });
     });
@@ -190,7 +181,6 @@ sub create_from_template {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'dashboards');
         return unless $self->require_role($c, 'admin', 'operator');
 
         my $body = eval { decode_json($c->req->body) };
@@ -220,8 +210,6 @@ sub execute_widget {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'dashboards');
-
         my $body = eval { decode_json($c->req->body) };
         unless ($body) {
             $self->render_error($c, 'Invalid JSON payload', 400);

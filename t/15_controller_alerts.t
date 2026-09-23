@@ -167,24 +167,15 @@ subtest 'update rejects a filter that cannot be parsed' => sub {
     ok !$storage->{updated_id}, 'and the alert was not modified';
 };
 
-subtest 'create alert enforces limit' => sub {
-    my $existing = [
-        { id => '1', name => 'A1', enabled => 1 },
-        { id => '2', name => 'A2', enabled => 1 },
-        { id => '3', name => 'A3', enabled => 1 },
-    ];
+subtest 'create alert is not capped by an alert count' => sub {
+    my $existing = [ map { { id => $_, name => "A$_", enabled => 1 } } 1 .. 50 ];
     my $storage = MockAlertStorage->new($existing);
     my $ctrl = Purl::API::Controller::Alerts->new(storage => $storage);
     my $body = encode_json({ name => 'New', query => 'test', threshold => 1 });
-    my $c = MockAlertCtrl->new($body, {}, {
-        license_info => {
-            plan   => 'free',
-            limits => { alerts => 3 },
-        },
-    });
+    my $c = MockAlertCtrl->new($body, {}, {});
 
     $ctrl->create($c);
-    is $c->rendered->{status}, 403, 'limit exceeded returns 403';
+    is $c->rendered->{json}{status}, 'ok', '51st alert created, no plan limit';
 };
 
 # ============================================

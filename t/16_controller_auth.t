@@ -273,9 +273,9 @@ subtest 'me when not logged in' => sub {
 # --- REGRESSION (#33): /auth/me must state whether a login is required ------
 # web/src/stores/auth.js reads data.auth_required from this endpoint, but the
 # backend never sent it — the name existed in exactly one file in the tree, the
-# frontend one. So the login gate fell through to a license-plan heuristic, and
-# a transient /api/license failure on an instance with PURL_AUTH_ENABLED=0 and
-# no users popped up a login form for credentials that do not exist.
+# frontend one. So the login gate fell through to a guess, and on an instance
+# with PURL_AUTH_ENABLED=0 and no users it could pop up a login form for
+# credentials that do not exist.
 subtest 'me reports auth_required in both branches' => sub {
     for my $enabled (0, 1) {
         my $settings = MockSettings->new({ auth => { enabled => $enabled, users => {} } });

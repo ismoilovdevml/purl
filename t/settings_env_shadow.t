@@ -111,13 +111,6 @@ my @CASES = (
         blocked  => ['days'],
         call     => sub { $_[0]->update_retention($_[1]) },
     },
-    {
-        name     => 'update_license',
-        env      => { PURL_LICENSE_KEY => 'env-license-key' },
-        body     => { key => 'pasted-by-admin' },
-        blocked  => ['key'],
-        call     => sub { $_[0]->update_license($_[1]) },
-    },
 );
 
 for my $case (@CASES) {

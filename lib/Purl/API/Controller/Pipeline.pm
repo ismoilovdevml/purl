@@ -36,8 +36,6 @@ sub list {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'pipelines');
-
         my $pipelines = $self->storage->list_pipelines();
         $c->render(json => { pipelines => $pipelines });
     });
@@ -47,8 +45,6 @@ sub get {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'pipelines');
-
         my $id = $c->param('id');
         unless ($id && $id =~ /^[0-9a-f-]+$/i) {
             $self->render_error($c, 'Invalid pipeline ID', 400);
@@ -69,7 +65,6 @@ sub create {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'pipelines');
         return unless $self->require_role($c, 'admin', 'operator');
 
         my $body = eval { decode_json($c->req->body) };
@@ -107,7 +102,6 @@ sub update {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'pipelines');
         return unless $self->require_role($c, 'admin', 'operator');
 
         my $id = $c->param('id');
@@ -137,7 +131,6 @@ sub remove {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'pipelines');
         return unless $self->require_role($c, 'admin');
 
         my $id = $c->param('id');
@@ -156,8 +149,6 @@ sub test {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'pipelines');
-
         my $body = eval { decode_json($c->req->body) };
         unless ($body) {
             $self->render_error($c, 'Invalid JSON payload', 400);

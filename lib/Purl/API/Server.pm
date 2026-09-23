@@ -23,7 +23,6 @@ use Purl::Alert::Slack;
 use Purl::Alert::Webhook;
 use Purl::Config;
 use Purl::API::Middleware::Auth;
-use Purl::API::Middleware::License;
 use Purl::API::Middleware::LDAP;
 use Purl::API::Middleware::SAML;
 use Purl::API::Middleware::NamespaceScope;
@@ -36,6 +35,7 @@ use Purl::API::Controller::Traces;
 use Purl::API::Controller::System;
 use Purl::API::Controller::Analytics;
 use Purl::API::Controller::Auth;
+use Purl::API::Controller::SSOStatus;
 use Purl::API::Controller::Stats;
 use Purl::API::Controller::Patterns;
 use Purl::API::Controller::SavedSearches;
@@ -161,9 +161,6 @@ my $trusted_proxies = [];
 # Auth middleware instance
 my $auth_middleware;
 
-# License middleware instance
-my $license_middleware;
-
 # LDAP middleware instance
 my $ldap_middleware;
 
@@ -180,9 +177,8 @@ my $namespace_scope;
 # forks the workers. Any Mojo::IOLoop->recurring timer registered there is
 # inherited by EVERY worker's event loop (the manager itself never starts its
 # IOLoop -- it runs Mojo::Server::Prefork::_manage, a blocking manage/wait
-# loop). So a host-wide singleton job (license heartbeat, scheduled backup)
-# registered pre-fork would fire once PER WORKER: N heartbeats per interval and
-# N concurrent backups racing on the same dir / S3 prefix.
+# loop). So a host-wide singleton job (e.g. scheduled backup) registered
+# pre-fork would fire once PER WORKER: N concurrent backups racing on the same dir / S3 prefix.
 #
 # We keep registering the timers pre-fork (so they exist in each worker) but
 # gate the actual work behind an exclusive advisory file lock: exactly one
@@ -435,14 +431,6 @@ sub setup_routes {
         rate_limit_max => $config->{rate_limit}{max_requests} // 1000,
     );
 
-    # Initialize license middleware
-    $license_middleware = Purl::API::Middleware::License->new(
-        config   => $config,
-        settings => $settings,
-    );
-
-    # Wire license middleware into auth for plan-aware authentication
-    $auth_middleware->license_middleware($license_middleware);
     $auth_middleware->settings($settings);
 
     # Security posture from config: trusted proxies (for real client IP) + CSRF.
@@ -462,26 +450,6 @@ sub setup_routes {
     $namespace_scope = Purl::API::Middleware::NamespaceScope->new(
         settings => $settings,
     );
-
-    # Activate license on startup
-    my $license_key = $license_middleware->get_license_key();
-    if ($license_key && $license_key ne '') {
-        app->log->info("License key detected, activating...");
-        my $license_info = $license_middleware->activate_with_api();
-        if ($license_info->{valid} && $license_info->{activated}) {
-            app->log->info("License activated: plan=$license_info->{plan}");
-        } elsif ($license_info->{error}) {
-            app->log->warn("License activation warning: $license_info->{error}");
-            app->log->info("Running with plan: $license_info->{plan}");
-        }
-    } else {
-        my $trial_info = $license_middleware->get_license_info();
-        if ($trial_info && $trial_info->{trial}) {
-            app->log->info("No license key — Pro trial active ($trial_info->{trial_days_remaining} days remaining)");
-        } else {
-            app->log->info("No license key configured, running as Free plan");
-        }
-    }
 
     # Session secret for signed cookies — persist across restarts
     my $session_secret = $ENV{PURL_SESSION_SECRET}
@@ -503,7 +471,6 @@ sub setup_routes {
     app->log->info("Session cookies: secure=$secure_cookies, samesite=Strict");
 
     # Create default admin if no users exist
-    my $info = $license_middleware->get_license_info();
     {
         my $auth_section = $settings->get_section('auth') // {};
         my $users = $auth_section->{users} // {};
@@ -594,10 +561,13 @@ sub setup_routes {
     my $auth_c   = Purl::API::Controller::Auth->new(
         %c_args,
         auth_middleware    => $auth_middleware,
-        license_middleware => $license_middleware,
         ldap_middleware    => $ldap_middleware,
         saml_middleware    => $saml_middleware,
         settings           => $settings,
+    );
+    my $sso_status_c = Purl::API::Controller::SSOStatus->new(
+        %c_args,
+        saml_middleware => $saml_middleware,
     );
     my $traces_c = Purl::API::Controller::Traces->new(%c_args);
     my $analytics_c = Purl::API::Controller::Analytics->new(%c_args, notifier_list => \%notifiers);
@@ -613,17 +583,6 @@ sub setup_routes {
         notifiers         => \%notifiers,
         rebuild_notifiers => sub { _build_notifiers() },
         rebuild_storage   => sub { $storage = _build_storage() },
-        reload_license    => sub {
-            $license_middleware->_license_info(undef);
-            $license_middleware->_cache_expires(0);
-            my $key = $license_middleware->get_license_key();
-            if ($key && $key ne '') {
-                my $info = $license_middleware->activate_with_api();
-                app->log->info("License reloaded: plan=$info->{plan}");
-            } else {
-                app->log->info("License key removed, reverting to Free plan");
-            }
-        },
         rebuild_ldap => sub {
             $ldap_middleware = _build_ldap_middleware();
             $settings_c->ldap_middleware($ldap_middleware) if $settings_c;
@@ -633,6 +592,7 @@ sub setup_routes {
             $saml_middleware = _build_saml_middleware();
             $settings_c->saml_middleware($saml_middleware) if $settings_c;
             $auth_c->saml_middleware($saml_middleware)     if $auth_c;
+            $sso_status_c->saml_middleware($saml_middleware);
         },
         auth_middleware    => $auth_middleware,
         ldap_middleware    => $ldap_middleware,
@@ -690,16 +650,6 @@ sub setup_routes {
     Mojo::IOLoop->recurring(30 => sub {
         _acquire_cron_leadership($cron_lock_path);
     });
-
-    # License heartbeat (every 6 hours) -- SINGLETON: leader worker only, so a
-    # replica sends exactly one heartbeat per interval (not one per worker).
-    if ($license_key && $license_key ne '') {
-        Mojo::IOLoop->recurring(21600 => sub {
-            return unless _acquire_cron_leadership($cron_lock_path);
-            eval { $license_middleware->send_heartbeat(); };
-            app->log->debug("License heartbeat sent") unless $@;
-        });
-    }
 
     # Scheduled backup (configurable interval, disabled by default)
     my $backup_schedule_enabled = $ENV{PURL_BACKUP_SCHEDULE_ENABLED}
@@ -989,9 +939,6 @@ sub setup_routes {
             return 0;
         }
 
-        # Attach license info to request stash
-        $license_middleware->check_license($c);
-
         # Block access if password change required (except for the change-password endpoint itself)
         if ($c->session->{must_change_password} && $path !~ m{^/api/auth/(change-password|me|logout)$}) {
             $c->render(json => {
@@ -1029,29 +976,8 @@ sub setup_routes {
     $api->get('/auth/sso/login'     => sub ($c) { $auth_c->sso_login($c) });
     $api->post('/auth/sso/callback' => sub ($c) { $auth_c->sso_callback($c) });
     $api->get('/auth/sso/metadata'  => sub ($c) { $auth_c->sso_metadata($c) });
-
-    # ============================================
-    # License endpoint (public - needed before auth to determine plan)
-    # ============================================
-    $api->get('/license' => sub ($c) {
-        my $info = $license_middleware->get_license_info();
-        $c->render(json => {
-            plan       => $info->{plan} // 'free',
-            features   => $info->{features} // [],
-            limits     => $info->{limits} // {},
-            activated  => $info->{activated} // 0,
-            valid      => $info->{valid} // 0,
-            expires_at => $info->{expires_at} // undef,
-            k8s_mode   => $ENV{KUBERNETES_SERVICE_HOST} ? \1 : \0,
-            ($info->{error} ? (error => $info->{error}) : ()),
-            ($info->{trial} ? (
-                trial                => \1,
-                trial_days_remaining => $info->{trial_days_remaining},
-                trial_expires_at     => $info->{trial_expires_at},
-                trial_started_at     => $info->{trial_started_at},
-            ) : ()),
-        });
-    });
+    # Is SSO on? The login page uses this to show the SSO button.
+    $api->get('/auth/sso/status'    => sub ($c) { $sso_status_c->status($c) });
 
     # ============================================
     # Log endpoints
@@ -1132,25 +1058,24 @@ sub setup_routes {
     $protected->put('/settings/notifications/:type' => sub ($c) { $settings_c->update_notifications($c) });
     $protected->post('/settings/notifications/:type/test' => sub ($c) { $settings_c->test_notification($c) });
     $protected->put('/settings/retention' => sub ($c) { $settings_c->update_retention($c) });
-    $protected->put('/settings/license' => sub ($c) { $settings_c->update_license($c) });
 
     # API key rotation endpoints
     $protected->get('/settings/api-keys' => sub ($c) { $settings_c->list_api_keys($c) });
     $protected->post('/settings/api-keys' => sub ($c) { $settings_c->generate_api_key($c) });
     $protected->delete('/settings/api-keys/:key_id' => sub ($c) { $settings_c->revoke_api_key($c) });
 
-    # User management endpoints (Pro/Enterprise)
+    # User management endpoints
     $protected->get('/settings/users' => sub ($c) { $settings_c->list_users($c) });
     $protected->post('/settings/users' => sub ($c) { $settings_c->create_user($c) });
     $protected->put('/settings/users/:username' => sub ($c) { $settings_c->update_user($c) });
     $protected->delete('/settings/users/:username' => sub ($c) { $settings_c->delete_user($c) });
 
-    # LDAP/AD configuration endpoints (Enterprise)
+    # LDAP/AD configuration endpoints
     $protected->get('/settings/ldap' => sub ($c) { $settings_c->get_ldap($c) });
     $protected->put('/settings/ldap' => sub ($c) { $settings_c->update_ldap($c) });
     $protected->post('/settings/ldap/test' => sub ($c) { $settings_c->test_ldap($c) });
 
-    # SSO/SAML settings (Enterprise)
+    # SSO/SAML settings
     $protected->get('/settings/sso'       => sub ($c) { $settings_c->get_sso($c) });
     $protected->put('/settings/sso'       => sub ($c) { $settings_c->update_sso($c) });
     $protected->post('/settings/sso/test' => sub ($c) { $settings_c->test_sso($c) });
@@ -1187,7 +1112,7 @@ sub setup_routes {
     $protected->delete('/backup/:id' => sub ($c) { $backup_c->remove($c) });
 
     # ============================================
-    # Audit log endpoints (Enterprise)
+    # Audit log endpoints
     # ============================================
     $protected->get('/audit' => sub ($c) { $audit_c->list($c) });
     $protected->get('/audit/stats' => sub ($c) { $audit_c->stats($c) });
@@ -1369,22 +1294,16 @@ sub build_prefork {
     # The container is therefore configured (Dockerfile STOPSIGNAL SIGQUIT,
     # k8s preStop `kill -QUIT 1`) to send SIGQUIT so shutdown DRAINS.
     #
-    # Cleanup is split by scope because state is per-worker after fork:
-    #   * License deactivation frees the single activation slot -> it must
-    #     run ONCE, in the manager. Hook: prefork `finish` (manager only).
-    #   * The ingest buffer and WebSocket list live in EACH worker's memory
-    #     -> flushed/closed per worker when its IOLoop stops gracefully.
-    #     Hook: IOLoop singleton `finish` (fires in the draining worker).
+    # Cleanup is per-worker because state is per-worker after fork: the
+    # ingest buffer and WebSocket list live in EACH worker's memory ->
+    # flushed/closed per worker when its IOLoop stops gracefully.
+    # Hook: IOLoop singleton `finish` (fires in the draining worker). The
+    # manager's prefork `finish` hook only logs the shutdown.
     # ------------------------------------------------------------------
     $prefork->on(finish => sub {
         my ($pf, $graceful) = @_;
         $pf->app->log->info(
             'Manager shutting down (graceful=' . ($graceful ? 1 : 0) . ')');
-        if ($license_middleware) {
-            $pf->app->log->info('Deactivating license...');
-            eval { $license_middleware->deactivate(); 1 }
-                or $pf->app->log->error("License deactivation failed: $@");
-        }
     });
 
     Mojo::IOLoop->singleton->on(finish => sub {

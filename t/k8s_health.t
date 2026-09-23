@@ -86,40 +86,15 @@ use lib "$Bin/../lib";
 use_ok('Purl::API::Controller::K8sHealth');
 
 # ============================================
-# 2. Summary endpoint — feature gating
+# 2. Summary endpoint
 # ============================================
-subtest 'summary - requires k8s_monitoring feature' => sub {
-    my $storage = MockStorage->new;
-    my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
-
-    # Simulate free plan with no features
-    my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'free',
-                features => [],
-            },
-        },
-    );
-    $ctrl->summary($c);
-
-    my $r = $c->rendered;
-    is($r->{status}, 403, 'free plan returns 403');
-    like($r->{json}{error}, qr/Pro or Enterprise/i, 'error mentions upgrade');
-};
-
 subtest 'summary - returns empty when no errors' => sub {
     my $storage = MockStorage->new;
     $storage->{health_summary} = [];
     my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'enterprise',
-                features => ['k8s_monitoring'],
-            },
-        },
+        stash => {},
     );
     $ctrl->summary($c);
 
@@ -139,12 +114,7 @@ subtest 'summary - returns aggregated counts' => sub {
     my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'pro',
-                features => ['k8s_monitoring'],
-            },
-        },
+        stash => {},
     );
     $ctrl->summary($c);
 
@@ -167,12 +137,7 @@ subtest 'summary - zero k8s records signals no_data (not healthy)' => sub {
     my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'enterprise',
-                features => ['k8s_monitoring'],
-            },
-        },
+        stash => {},
     );
     $ctrl->summary($c);
 
@@ -191,12 +156,7 @@ subtest 'summary - pods present but no errors signals healthy (ok)' => sub {
     my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'pro',
-                features => ['k8s_monitoring'],
-            },
-        },
+        stash => {},
     );
     $ctrl->summary($c);
 
@@ -208,38 +168,15 @@ subtest 'summary - pods present but no errors signals healthy (ok)' => sub {
 };
 
 # ============================================
-# 3. Pods endpoint — feature gating
+# 3. Pods endpoint
 # ============================================
-subtest 'pods - requires k8s_monitoring feature' => sub {
-    my $storage = MockStorage->new;
-    my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
-
-    my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'free',
-                features => [],
-            },
-        },
-    );
-    $ctrl->pods($c);
-
-    my $r = $c->rendered;
-    is($r->{status}, 403, 'free plan returns 403 for pods');
-};
-
 subtest 'pods - returns empty list when no errors' => sub {
     my $storage = MockStorage->new;
     $storage->{unhealthy_pods} = [];
     my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'enterprise',
-                features => ['k8s_monitoring'],
-            },
-        },
+        stash => {},
     );
     $ctrl->pods($c);
 
@@ -276,12 +213,7 @@ subtest 'pods - returns pod details' => sub {
     my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'enterprise',
-                features => ['k8s_monitoring'],
-            },
-        },
+        stash => {},
     );
     $ctrl->pods($c);
 
@@ -313,12 +245,7 @@ subtest 'pods - passes hours and limit to storage' => sub {
 
     my $c = MockCtrl->new(
         params => { hours => 6, limit => 50 },
-        stash  => {
-            license_info => {
-                plan     => 'enterprise',
-                features => ['k8s_monitoring'],
-            },
-        },
+        stash  => {},
     );
     $ctrl->pods($c);
 
@@ -334,12 +261,7 @@ subtest 'pods - passes namespace filter to storage' => sub {
 
     my $c = MockCtrl->new(
         params => { namespace => 'production' },
-        stash  => {
-            license_info => {
-                plan     => 'enterprise',
-                features => ['k8s_monitoring'],
-            },
-        },
+        stash  => {},
     );
     $ctrl->pods($c);
 
@@ -356,12 +278,7 @@ subtest 'summary response has expected keys' => sub {
     my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'enterprise',
-                features => ['k8s_monitoring'],
-            },
-        },
+        stash => {},
     );
     $ctrl->summary($c);
 
@@ -377,12 +294,7 @@ subtest 'pods response has expected keys' => sub {
     my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'enterprise',
-                features => ['k8s_monitoring'],
-            },
-        },
+        stash => {},
     );
     $ctrl->pods($c);
 
@@ -409,12 +321,7 @@ subtest 'pods - missing fields default to empty strings' => sub {
     my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'enterprise',
-                features => ['k8s_monitoring'],
-            },
-        },
+        stash => {},
     );
     $ctrl->pods($c);
 
@@ -423,29 +330,6 @@ subtest 'pods - missing fields default to empty strings' => sub {
     is($pod->{container},  '', 'missing container defaults to empty');
     is($pod->{node},       '', 'missing node defaults to empty');
     is($pod->{first_seen}, '', 'missing first_seen defaults to empty');
-};
-
-# ============================================
-# 7. Feature gating with feature present works
-# ============================================
-subtest 'feature gate passes when k8s_monitoring present' => sub {
-    my $storage = MockStorage->new;
-    $storage->{health_summary} = [];
-    my $ctrl = Purl::API::Controller::K8sHealth->new(storage => $storage);
-
-    my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan     => 'pro',
-                features => ['some_feature', 'k8s_monitoring', 'another_feature'],
-            },
-        },
-    );
-    $ctrl->summary($c);
-
-    my $r = $c->rendered;
-    ok(!exists $r->{status} || $r->{status} != 403, 'feature gate passes with k8s_monitoring');
-    ok(exists $r->{json}{summary}, 'summary returned');
 };
 
 done_testing;

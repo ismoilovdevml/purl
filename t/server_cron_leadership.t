@@ -11,7 +11,7 @@ use POSIX ();
 #
 # In prefork, setup_routes() registers the recurring timers in the manager
 # BEFORE fork, so every worker inherits them. Host-wide singleton jobs
-# (license heartbeat, scheduled backup) must run in EXACTLY ONE process. We
+# (scheduled backup, alert evaluation) must run in EXACTLY ONE process. We
 # gate them behind Purl::API::Server::_acquire_cron_leadership(), which lets
 # exactly one process hold an exclusive advisory lock at a time and is
 # self-healing when the holder dies.

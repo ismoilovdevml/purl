@@ -18,8 +18,6 @@ sub search {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'es_compat');
-
         my $body = eval { decode_json($c->req->body) };
         unless ($body) {
             $self->render_error($c, 'Invalid JSON payload', 400);
@@ -95,8 +93,6 @@ sub msearch {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'es_compat');
-
         my $body_text = $c->req->body;
         unless ($body_text) {
             $self->render_error($c, 'Empty request body', 400);

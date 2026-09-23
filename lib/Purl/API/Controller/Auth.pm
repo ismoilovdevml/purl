@@ -15,21 +15,15 @@ has 'auth_middleware' => (
     default => sub { undef },
 );
 
-# LDAP middleware for enterprise LDAP/AD auth
+# LDAP middleware for LDAP/AD auth
 has 'ldap_middleware' => (
     is      => 'ro',
     default => sub { undef },
 );
 
-# SAML/SSO middleware for enterprise SSO auth
+# SAML/SSO middleware for SSO auth
 has 'saml_middleware' => (
     is      => 'rw',
-    default => sub { undef },
-);
-
-# License middleware for plan checks
-has 'license_middleware' => (
-    is      => 'ro',
     default => sub { undef },
 );
 
@@ -53,7 +47,7 @@ sub csrf_token {
 }
 
 # ============================================
-# Session-based Authentication (Pro/Enterprise)
+# Session-based Authentication
 # ============================================
 
 sub login {
@@ -83,7 +77,7 @@ sub login {
             return;
         }
 
-        # ── LDAP/AD authentication path (Enterprise) ──
+        # ── LDAP/AD authentication path ──
         my $ldap_mw = $self->ldap_middleware;
         if ($ldap_mw) {
             my $result = eval { $ldap_mw->authenticate($username, $password) };
@@ -223,11 +217,10 @@ sub logout {
 
 # Does this instance require a login at all?
 #
-# The dashboard asks /auth/me this question. It used to have to GUESS from the
-# license plan, so a transient /api/license failure on an open instance popped
-# up a login form for credentials that do not exist. The middleware owns the
-# ENV > file > default precedence; settings is the fallback when no middleware
-# is wired (tests, embedded use).
+# The dashboard asks /auth/me this question instead of guessing, so an open
+# instance never pops up a login form for credentials that do not exist. The
+# middleware owns the ENV > file > default precedence; settings is the
+# fallback when no middleware is wired (tests, embedded use).
 sub _auth_required {
     my ($self) = @_;
 
@@ -246,10 +239,15 @@ sub me {
         # directly and a stringified "0" would be truthy in JS.
         my $auth_required = $self->_auth_required ? \1 : \0;
 
+        # Running inside Kubernetes? Drives the dashboard's K8s page. Public,
+        # like the rest of this response: it reveals only the deployment kind.
+        my $k8s_mode = $ENV{KUBERNETES_SERVICE_HOST} ? \1 : \0;
+
         if ($logged_in && $username) {
             my $response = {
                 authenticated => 1,
                 auth_required => $auth_required,
+                k8s_mode      => $k8s_mode,
                 username      => $username,
                 auth_method   => $c->session->{auth_method} // 'local',
                 role          => $c->session->{role} // 'viewer',
@@ -262,6 +260,7 @@ sub me {
             $c->render(json => {
                 authenticated => 0,
                 auth_required => $auth_required,
+                k8s_mode      => $k8s_mode,
             });
         }
     });
@@ -459,6 +458,6 @@ Purl::API::Controller::Auth - Authentication controller
 
 =head1 DESCRIPTION
 
-Handles CSRF tokens and session-based authentication for Pro/Enterprise plans.
+Handles CSRF tokens, session-based login/logout, password change and SAML SSO.
 
 =cut

@@ -352,9 +352,9 @@ subtest 'list with many alerts' => sub {
 };
 
 # ============================================
-# Alert limit enforcement with mixed enabled/disabled
+# No plan-driven alert limit
 # ============================================
-subtest 'alert limit counts only enabled alerts' => sub {
+subtest 'alert create is not capped by existing alerts' => sub {
     my $existing = [
         { id => '1', name => 'A1', enabled => 1 },
         { id => '2', name => 'A2', enabled => 0 },  # disabled
@@ -364,36 +364,10 @@ subtest 'alert limit counts only enabled alerts' => sub {
     my $storage = MockAlertStorage->new($existing);
     my $ctrl = Purl::API::Controller::Alerts->new(storage => $storage);
     my $body = encode_json({ name => 'New', query => 'test', threshold => 1 });
-    my $c = MockAlertCtrl->new($body, {}, {
-        license_info => {
-            plan   => 'free',
-            limits => { alerts => 3 },
-        },
-    });
+    my $c = MockAlertCtrl->new($body, {}, {});
 
     $ctrl->create($c);
-    # Only 2 enabled alerts exist, limit is 3, so should succeed
-    is $c->rendered->{json}{status}, 'ok', 'alert created when only 2 of 4 are enabled (limit 3)';
-};
-
-subtest 'alert limit blocks when enabled count equals limit' => sub {
-    my $existing = [
-        { id => '1', name => 'A1', enabled => 1 },
-        { id => '2', name => 'A2', enabled => 1 },
-        { id => '3', name => 'A3', enabled => 1 },
-    ];
-    my $storage = MockAlertStorage->new($existing);
-    my $ctrl = Purl::API::Controller::Alerts->new(storage => $storage);
-    my $body = encode_json({ name => 'New', query => 'test', threshold => 1 });
-    my $c = MockAlertCtrl->new($body, {}, {
-        license_info => {
-            plan   => 'free',
-            limits => { alerts => 3 },
-        },
-    });
-
-    $ctrl->create($c);
-    is $c->rendered->{status}, 403, 'blocked when enabled count equals limit';
+    is $c->rendered->{json}{status}, 'ok', 'alert created regardless of existing count';
 };
 
 done_testing;

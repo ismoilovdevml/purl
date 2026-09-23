@@ -18,8 +18,6 @@ sub summary {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'k8s_monitoring');
-
         my $hours = $c->param('hours') // 1;
 
         # Total pods seen in the window (any health) — used to tell
@@ -57,8 +55,6 @@ sub pods {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        return unless $self->require_feature($c, 'k8s_monitoring');
-
         my $hours     = $c->param('hours')     // 1;
         my $limit     = $c->param('limit')     // 100;
         my $namespace = $c->param('namespace');

@@ -14,8 +14,7 @@ our @EXPORT_OK = qw(mock_ctx mock_storage mock_auth_ctx mock_server_storage);
 # lives here once and both files use it.
 #
 # Deliberately tiny: render() records instead of rendering, stash() returns
-# undef so there is no license context and every feature is allowed, and
-# session('role') is admin so require_role passes.
+# undef, and session('role') is admin so require_role passes.
 # ============================================
 
 {

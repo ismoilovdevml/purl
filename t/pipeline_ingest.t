@@ -17,7 +17,7 @@ use Purl::API::Controller::Syslog;
 # H5 — Pipeline engine wired into the REAL ingest path.
 # Proves: (a) drop rule prevents storage, (b) enrich rule rewrites the
 # stored log, (c) no-match log stored unchanged, (d) a throwing rule is
-# fail-safe (original ingested), plus feature-gating and disabled-pipeline
+# fail-safe (original ingested), plus disabled-pipeline
 # handling — across all three ingest controllers.
 # ============================================
 
@@ -90,8 +90,7 @@ use Purl::API::Controller::Syslog;
     sub flush  { $_[0]->{flushed} = 1 }
 }
 
-# Enterprise license context => pipelines feature granted.
-my $LICENSED = { license_info => { plan => 'enterprise', valid => 1, activated => 1 } };
+my $STASH = {};
 
 # Build a single-rule pipeline (enabled as a JSON bool ref \1, matching
 # what Storage::list_pipelines actually emits).
@@ -118,7 +117,7 @@ subtest 'drop rule prevents storage (Logs)' => sub {
         { message => 'healthcheck ping', service => 'api' },
         { message => 'real error',       service => 'api' },
     ]);
-    $ctrl->ingest(MockCtrl->new($body, $LICENSED));
+    $ctrl->ingest(MockCtrl->new($body, $STASH));
 
     is scalar @{ $storage->{inserted} }, 1, 'only 1 of 2 logs stored';
     is $storage->{inserted}[0]{message}, 'real error', 'the non-matching log survived';
@@ -136,7 +135,7 @@ subtest 'enrich rule rewrites stored log (Logs)' => sub {
     ]);
     my $ctrl = Purl::API::Controller::Logs->new(storage => $storage, config => {});
     my $body = encode_json({ message => 'hello', service => 'api', level => 'INFO' });
-    $ctrl->ingest(MockCtrl->new($body, $LICENSED));
+    $ctrl->ingest(MockCtrl->new($body, $STASH));
 
     is scalar @{ $storage->{inserted} }, 1, 'log stored';
     is $storage->{inserted}[0]{level}, 'DEBUG', 'promoted field rewritten by pipeline';
@@ -158,7 +157,7 @@ subtest 'log matching no pipeline stored unchanged (Logs)' => sub {
     ]);
     my $ctrl = Purl::API::Controller::Logs->new(storage => $storage, config => {});
     my $body = encode_json({ message => 'untouched', service => 'api', level => 'WARN' });
-    $ctrl->ingest(MockCtrl->new($body, $LICENSED));
+    $ctrl->ingest(MockCtrl->new($body, $STASH));
 
     is scalar @{ $storage->{inserted} }, 1, 'log stored';
     is $storage->{inserted}[0]{level}, 'WARN', 'level unchanged (pipeline filtered out by service)';
@@ -179,7 +178,7 @@ subtest 'throwing rule is fail-safe (Logs)' => sub {
     ]);
     my $ctrl = Purl::API::Controller::Logs->new(storage => $storage, config => {});
     my $body = encode_json({ message => 'must survive', service => 'api' });
-    my $c = MockCtrl->new($body, $LICENSED);
+    my $c = MockCtrl->new($body, $STASH);
 
     {
         no warnings 'redefine';
@@ -191,25 +190,6 @@ subtest 'throwing rule is fail-safe (Logs)' => sub {
     is $storage->{inserted}[0]{message}, 'must survive', 'original content preserved';
     is $c->rendered->{json}{status}, 'ok', 'ingest still returns ok (no 500)';
     ok scalar @{ $c->app->log->{errors} }, 'error was logged';
-};
-
-# --------------------------------------------
-# Feature gating: unlicensed => pipelines skipped silently, drop ignored.
-# --------------------------------------------
-subtest 'unlicensed skips pipelines (Logs)' => sub {
-    my $storage = MockStorage->new([
-        pipeline(rules => [
-            { type => 'drop', enabled => 1, field => 'message', pattern => 'healthcheck' },
-        ]),
-    ]);
-    my $ctrl = Purl::API::Controller::Logs->new(storage => $storage, config => {});
-    my $stash = { license_info => { plan => 'free', features => [], valid => 1, activated => 1 } };
-    my $body = encode_json({ message => 'healthcheck ping', service => 'api' });
-    my $c = MockCtrl->new($body, $stash);
-    $ctrl->ingest($c);
-
-    is scalar @{ $storage->{inserted} }, 1, 'log stored — drop NOT applied without license';
-    is $c->rendered->{json}{status}, 'ok', 'ingest still accepted (not rejected)';
 };
 
 # --------------------------------------------
@@ -227,7 +207,7 @@ subtest 'disabled pipeline is skipped (Logs)' => sub {
     ]);
     my $ctrl = Purl::API::Controller::Logs->new(storage => $storage, config => {});
     my $body = encode_json({ message => 'healthcheck ping', service => 'api' });
-    $ctrl->ingest(MockCtrl->new($body, $LICENSED));
+    $ctrl->ingest(MockCtrl->new($body, $STASH));
 
     is scalar @{ $storage->{inserted} }, 1, 'disabled pipeline did not drop the log';
 };
@@ -251,7 +231,7 @@ subtest 'drop rule applies on OTLP ingest' => sub {
             ] }],
         }],
     };
-    $ctrl->ingest(MockCtrl->new(encode_json($otlp), $LICENSED));
+    $ctrl->ingest(MockCtrl->new(encode_json($otlp), $STASH));
 
     is scalar @{ $storage->{inserted} }, 1, 'OTLP: 1 of 2 records stored';
     is $storage->{inserted}[0]{message}, 'keep this', 'OTLP: non-matching record survived';
@@ -269,7 +249,7 @@ subtest 'drop rule applies on Syslog ingest' => sub {
     my $ctrl = Purl::API::Controller::Syslog->new(storage => $storage, config => {});
     my $body = "<34>Oct 11 22:14:15 myhost myapp: healthcheck ok\n"
              . "<34>Oct 11 22:14:16 myhost myapp: genuine failure\n";
-    $ctrl->ingest(MockCtrl->new($body, $LICENSED, { 'Content-Type' => 'text/plain' }));
+    $ctrl->ingest(MockCtrl->new($body, $STASH, { 'Content-Type' => 'text/plain' }));
 
     is scalar @{ $storage->{inserted} }, 1, 'Syslog: 1 of 2 messages stored';
     like $storage->{inserted}[0]{message}, qr/genuine failure/, 'Syslog: non-matching message survived';

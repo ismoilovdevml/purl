@@ -58,40 +58,12 @@ use Purl::API::Controller::SavedSearches;
 # ============================================
 # list
 # ============================================
-# --- REGRESSION: reading saved searches is NEVER gated ----------------------
-# list() used to sit behind require_feature('saved_searches_unlimited'), so a
-# free-plan user could not even see the searches they had already created.
-subtest 'list is never feature-gated' => sub {
-    my $storage = MockSSStorage->new([
-        { id => '1', name => 'Errors', query => 'level:ERROR' },
-    ]);
-    my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
-    my $c = MockSSCtrl->new(undef, {}, {
-        license_info => { plan => 'free', features => [] },
-    });
-
-    $ctrl->list($c);
-    isnt $c->rendered->{status}, 403, 'no 403 for a plan without the feature';
-    is scalar @{$c->rendered->{json}{searches}}, 1, 'searches returned anyway';
-};
-
-subtest 'list works with no license context at all' => sub {
-    my $storage = MockSSStorage->new([{ id => '1', name => 'A', query => 'x' }]);
-    my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
-    my $c = MockSSCtrl->new(undef, {}, {});
-
-    $ctrl->list($c);
-    is scalar @{$c->rendered->{json}{searches}}, 1, 'unlicensed/OSS build can read';
-};
-
 subtest 'list returns searches' => sub {
     my $storage = MockSSStorage->new([
         { id => '1', name => 'Errors', query => 'level:ERROR' },
     ]);
     my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
-    my $c = MockSSCtrl->new(undef, {}, {
-        license_info => { plan => 'pro', features => ['saved_searches_unlimited'] },
-    });
+    my $c = MockSSCtrl->new(undef, {}, {});
 
     $ctrl->list($c);
     is scalar @{$c->rendered->{json}{searches}}, 1, '1 search returned';
@@ -104,9 +76,7 @@ subtest 'create with valid body' => sub {
     my $storage = MockSSStorage->new;
     my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
     my $body = encode_json({ name => 'My Search', query => 'level:ERROR' });
-    my $c = MockSSCtrl->new($body, {}, {
-        license_info => { plan => 'pro', features => ['saved_searches_unlimited'] },
-    });
+    my $c = MockSSCtrl->new($body, {}, {});
 
     $ctrl->create($c);
     is $c->rendered->{json}{status}, 'ok', 'created successfully';
@@ -115,9 +85,7 @@ subtest 'create with valid body' => sub {
 subtest 'create without name returns 400' => sub {
     my $ctrl = Purl::API::Controller::SavedSearches->new(storage => MockSSStorage->new);
     my $body = encode_json({ query => 'level:ERROR' });
-    my $c = MockSSCtrl->new($body, {}, {
-        license_info => { plan => 'pro', features => ['saved_searches_unlimited'] },
-    });
+    my $c = MockSSCtrl->new($body, {}, {});
 
     $ctrl->create($c);
     is $c->rendered->{status}, 400, 'missing name returns 400';
@@ -126,46 +94,26 @@ subtest 'create without name returns 400' => sub {
 subtest 'create without query returns 400' => sub {
     my $ctrl = Purl::API::Controller::SavedSearches->new(storage => MockSSStorage->new);
     my $body = encode_json({ name => 'Test' });
-    my $c = MockSSCtrl->new($body, {}, {
-        license_info => { plan => 'pro', features => ['saved_searches_unlimited'] },
-    });
+    my $c = MockSSCtrl->new($body, {}, {});
 
     $ctrl->create($c);
     is $c->rendered->{status}, 400, 'missing query returns 400';
 };
 
-# --- Quota, not feature gate ------------------------------------------------
-subtest 'create is allowed on free plan (unlimited quota)' => sub {
+subtest 'create is not capped by a saved-search count' => sub {
     my $storage = MockSSStorage->new([map { { id => $_ } } 1 .. 50]);
     my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
     my $body = encode_json({ name => 'My Search', query => 'level:ERROR' });
-    my $c = MockSSCtrl->new($body, {}, {
-        license_info => { plan => 'free', features => [], limits => { saved_searches => -1 } },
-    });
+    my $c = MockSSCtrl->new($body, {}, {});
 
     $ctrl->create($c);
-    is $c->rendered->{json}{status}, 'ok', '-1 quota means unlimited, not zero';
-};
-
-subtest 'create enforces a finite saved_searches quota' => sub {
-    my $storage = MockSSStorage->new([{ id => '1' }, { id => '2' }]);
-    my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
-    my $body = encode_json({ name => 'Third', query => 'level:ERROR' });
-    my $c = MockSSCtrl->new($body, {}, {
-        license_info => { plan => 'legacy', limits => { saved_searches => 2 } },
-    });
-
-    $ctrl->create($c);
-    is $c->rendered->{status}, 403, 'over quota returns 403';
-    ok !$storage->{created}, 'nothing written to storage when over quota';
+    is $c->rendered->{json}{status}, 'ok', '51st search saved, no plan limit';
 };
 
 subtest 'create validates body before spending a storage read' => sub {
     my $storage = MockSSStorage->new;
     my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
-    my $c = MockSSCtrl->new(encode_json({ name => 'no query' }), {}, {
-        license_info => { plan => 'free', limits => { saved_searches => -1 } },
-    });
+    my $c = MockSSCtrl->new(encode_json({ name => 'no query' }), {}, {});
 
     $ctrl->create($c);
     is $c->rendered->{status}, 400, 'invalid body still 400';
@@ -180,9 +128,7 @@ subtest 'create rejects a query that would 400 when executed' => sub {
     for my $bad ('level:error AND', 'level:error AND (service:api', 'service:api OR)') {
         my $storage = MockSSStorage->new;
         my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
-        my $c = MockSSCtrl->new(encode_json({ name => 'Broken', query => $bad }), {}, {
-            license_info => { plan => 'free', limits => { saved_searches => -1 } },
-        });
+        my $c = MockSSCtrl->new(encode_json({ name => 'Broken', query => $bad }), {}, {});
 
         $ctrl->create($c);
         is $c->rendered->{status}, 400, "'$bad' is refused at save time";
@@ -196,26 +142,12 @@ subtest 'create accepts plain log text as a saved search' => sub {
     for my $good ('at Foo::bar()', 'timeout)', 'connection refused') {
         my $storage = MockSSStorage->new;
         my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
-        my $c = MockSSCtrl->new(encode_json({ name => 'Text', query => $good }), {}, {
-            license_info => { plan => 'free', limits => { saved_searches => -1 } },
-        });
+        my $c = MockSSCtrl->new(encode_json({ name => 'Text', query => $good }), {}, {});
 
         $ctrl->create($c);
         is $c->rendered->{json}{status}, 'ok', "'$good' saved";
         is $storage->{created}[1], $good, "'$good' stored verbatim";
     }
-};
-
-subtest 'create validates the query before spending the quota read' => sub {
-    my $storage = MockSSStorage->new([{ id => '1' }, { id => '2' }]);
-    my $ctrl = Purl::API::Controller::SavedSearches->new(storage => $storage);
-    my $c = MockSSCtrl->new(encode_json({ name => 'Broken', query => 'level:error AND' }), {}, {
-        license_info => { plan => 'legacy', limits => { saved_searches => 2 } },
-    });
-
-    $ctrl->create($c);
-    is $c->rendered->{status}, 400,
-        'a syntax error is reported as such, not masked by the quota 403';
 };
 
 # ============================================

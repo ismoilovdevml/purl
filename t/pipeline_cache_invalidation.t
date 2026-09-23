@@ -122,14 +122,14 @@ use Purl::API::Controller::Pipeline;
     }
 }
 
-my $LICENSED = { license_info => { plan => 'enterprise', valid => 1, activated => 1 } };
+my $STASH = {};
 
 # Ingest one log through the Logs controller and report whether it was stored.
 # The pipelines under test drop messages matching 'healthcheck'.
 sub ingest_stored_count {
     my ($logs_c, $storage, $message) = @_;
     my $before = scalar @{ $storage->{inserted} };
-    $logs_c->ingest(MockCtrl->new(encode_json({ message => $message, service => 'api' }), { %$LICENSED }));
+    $logs_c->ingest(MockCtrl->new(encode_json({ message => $message, service => 'api' }), { %$STASH }));
     return scalar(@{ $storage->{inserted} }) - $before;
 }
 
@@ -174,7 +174,7 @@ subtest 'create invalidates the cached ingest engine' => sub {
     is ingest_stored_count($logs_c, $storage, 'healthcheck ping'), 1,
         'before create: healthcheck log is stored';
 
-    my $c = MockCtrl->new(encode_json($DROP_HEALTHCHECK), { %$LICENSED });
+    my $c = MockCtrl->new(encode_json($DROP_HEALTHCHECK), { %$STASH });
     $pipe_c->create($c);
     is $c->rendered->{status}, 201, 'pipeline created';
 
@@ -205,7 +205,7 @@ subtest 'update invalidates the cached ingest engine' => sub {
         encode_json({ rules => [
             { type => 'drop', enabled => 1, field => 'message', pattern => 'debugtrace' },
         ] }),
-        { %$LICENSED },
+        { %$STASH },
         { id => 'ab01' },
     );
     $pipe_c->update($c);
@@ -233,7 +233,7 @@ subtest 'remove invalidates the cached ingest engine' => sub {
     is ingest_stored_count($logs_c, $storage, 'healthcheck ping'), 0,
         'before remove: healthcheck is dropped';
 
-    my $c = MockCtrl->new('', { %$LICENSED }, { id => 'ab01' });
+    my $c = MockCtrl->new('', { %$STASH }, { id => 'ab01' });
     $pipe_c->remove($c);
     is $c->rendered->{json}{deleted}, 1, 'pipeline deleted';
 

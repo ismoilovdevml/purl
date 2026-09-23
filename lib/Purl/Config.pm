@@ -77,13 +77,6 @@ my $DEFAULTS = {
         enabled  => 0,
         api_keys => [],
     },
-    license => {
-        key               => '',
-        public_key        => '',
-        api_url           => 'https://purlogs.com',
-        verify_on_startup => 1,
-        cache_ttl         => 3600,
-    },
     ldap => {
         enabled        => 0,
         server         => '',
@@ -454,7 +447,7 @@ sub load {
             # NEVER blank the in-memory config here. Since workers re-read on
             # every access, a decode failure is far more likely to be a
             # transient torn read than a genuinely corrupt file — and blanking
-            # would drop every user, API key and the license, then persist that
+            # would drop every user and API key, then persist that
             # emptiness the next time anything called save().
             # Clearing the stamp makes the next access retry the read.
             warn "Failed to load config from $file: $@";
@@ -530,11 +523,6 @@ my %ENV_MAP = (
     'auth.api_keys'       => 'PURL_API_KEYS',
     'server.host'         => 'PURL_HOST',
     'server.port'         => 'PURL_PORT',
-    'license.key'               => 'PURL_LICENSE_KEY',
-    'license.public_key'        => 'PURL_LICENSE_PUBLIC_KEY',
-    'license.api_url'           => 'PURL_LICENSE_API_URL',
-    'license.verify_on_startup' => 'PURL_LICENSE_VERIFY',
-    'license.cache_ttl'         => 'PURL_LICENSE_CACHE_TTL',
     'notifications.telegram.bot_token' => 'PURL_TELEGRAM_BOT_TOKEN',
     'notifications.telegram.chat_id'   => 'PURL_TELEGRAM_CHAT_ID',
     'notifications.telegram.thread_id' => 'PURL_TELEGRAM_THREAD_ID',

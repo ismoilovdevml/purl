@@ -81,7 +81,6 @@ my $json = JSON::XS->new->utf8;
     sub new {
         bless {
             agents       => $_[1] // [],
-            agent_count  => $_[2] // 0,
             registered   => [],
             heartbeats   => [],
             deleted      => [],
@@ -90,10 +89,6 @@ my $json = JSON::XS->new->utf8;
     sub get_agents {
         my ($self) = @_;
         return $self->{agents};
-    }
-    sub count_agents {
-        my ($self) = @_;
-        return $self->{agent_count};
     }
     sub register_agent {
         my ($self, $params) = @_;
@@ -122,12 +117,7 @@ subtest 'list - returns empty agents array' => sub {
     my $ctrl = Purl::API::Controller::Agents->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan   => 'free',
-                limits => { agents => 5 },
-            },
-        },
+        stash => {},
     );
     $ctrl->list($c);
 
@@ -136,9 +126,7 @@ subtest 'list - returns empty agents array' => sub {
     is ref $r->{json}{agents}, 'ARRAY', 'agents is an array';
     is scalar @{$r->{json}{agents}}, 0, 'empty agents list';
     is $r->{json}{total}, 0, 'total is 0';
-    is $r->{json}{limit}{current}, 0, 'limit current is 0';
-    is $r->{json}{limit}{max}, 5, 'limit max is 5';
-    is $r->{json}{limit}{plan}, 'free', 'limit plan is free';
+    ok !exists $r->{json}{limit}, 'no plan-driven limit object in response';
 };
 
 subtest 'list - returns agents with data' => sub {
@@ -169,12 +157,7 @@ subtest 'list - returns agents with data' => sub {
     my $ctrl = Purl::API::Controller::Agents->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan   => 'trial',
-                limits => { agents => 10 },
-            },
-        },
+        stash => {},
     );
     $ctrl->list($c);
 
@@ -182,44 +165,6 @@ subtest 'list - returns agents with data' => sub {
     is $r->{json}{total}, 2, 'total is 2';
     is $r->{json}{agents}[0]{hostname}, 'web-01', 'first agent hostname';
     is $r->{json}{agents}[1]{hostname}, 'db-01', 'second agent hostname';
-    is $r->{json}{limit}{current}, 2, 'limit current is 2';
-    is $r->{json}{limit}{max}, 10, 'limit max is 10';
-    is $r->{json}{limit}{plan}, 'trial', 'limit plan is trial';
-};
-
-subtest 'list - enterprise shows unlimited' => sub {
-    my $storage = MockStorage->new([], 0);
-    my $ctrl = Purl::API::Controller::Agents->new(storage => $storage);
-
-    my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan   => 'enterprise',
-                limits => { agents => -1 },
-            },
-        },
-    );
-    $ctrl->list($c);
-
-    my $r = $c->rendered;
-    is $r->{json}{limit}{max}, -1, 'enterprise max is -1 (unlimited)';
-    is $r->{json}{limit}{plan}, 'enterprise', 'plan is enterprise';
-};
-
-subtest 'list - no license_info defaults' => sub {
-    my $storage = MockStorage->new([], 0);
-    my $ctrl = Purl::API::Controller::Agents->new(storage => $storage);
-
-    my $c = MockCtrl->new;
-    $ctrl->list($c);
-
-    my $r = $c->rendered;
-    is $r->{json}{total}, 0, 'total is 0';
-    # An absent agents limit means "not metered", which is -1 (unlimited) —
-    # NOT some invented finite number that would throttle an unlicensed
-    # instance harder than a paid one.
-    is $r->{json}{limit}{max}, -1, 'default max is unlimited';
-    is $r->{json}{limit}{plan}, 'free', 'default plan is free';
 };
 
 # ============================================
@@ -240,12 +185,7 @@ subtest 'register - succeeds with valid body' => sub {
 
     my $c = MockCtrl->new(
         body  => $body,
-        stash => {
-            license_info => {
-                plan   => 'free',
-                limits => { agents => 5 },
-            },
-        },
+        stash => {},
     );
     $ctrl->register($c);
 
@@ -270,12 +210,7 @@ subtest 'register - fails without hostname' => sub {
 
     my $c = MockCtrl->new(
         body  => $body,
-        stash => {
-            license_info => {
-                plan   => 'free',
-                limits => { agents => 5 },
-            },
-        },
+        stash => {},
     );
     $ctrl->register($c);
 
@@ -291,12 +226,7 @@ subtest 'register - fails with empty body' => sub {
 
     my $c = MockCtrl->new(
         body  => '',
-        stash => {
-            license_info => {
-                plan   => 'free',
-                limits => { agents => 5 },
-            },
-        },
+        stash => {},
     );
     $ctrl->register($c);
 
@@ -305,48 +235,20 @@ subtest 'register - fails with empty body' => sub {
     is scalar @{$storage->{registered}}, 0, 'nothing registered';
 };
 
-subtest 'register - fails when agent limit reached' => sub {
-    my $storage = MockStorage->new([], 5);  # count_agents returns 5
-    my $ctrl = Purl::API::Controller::Agents->new(storage => $storage);
-
-    my $body = $json->encode({ hostname => 'new-server' });
-
-    my $c = MockCtrl->new(
-        body  => $body,
-        stash => {
-            license_info => {
-                plan   => 'free',
-                limits => { agents => 5 },
-            },
-        },
-    );
-    $ctrl->register($c);
-
-    my $r = $c->rendered;
-    is $r->{status}, 403, 'limit reached returns 403';
-    like $r->{json}{error}, qr/Limit reached/i, 'limit error message';
-    is scalar @{$storage->{registered}}, 0, 'nothing registered when limit exceeded';
-};
-
-subtest 'register - succeeds with enterprise unlimited' => sub {
-    my $storage = MockStorage->new([], 100);  # 100 agents already
+subtest 'register - not capped by an agent count' => sub {
+    my $storage = MockStorage->new([ map { { id => $_ } } 1 .. 100 ]);  # 100 agents already
     my $ctrl = Purl::API::Controller::Agents->new(storage => $storage);
 
     my $body = $json->encode({ hostname => 'server-101' });
 
     my $c = MockCtrl->new(
         body  => $body,
-        stash => {
-            license_info => {
-                plan   => 'enterprise',
-                limits => { agents => -1 },
-            },
-        },
+        stash => {},
     );
     $ctrl->register($c);
 
     my $r = $c->rendered;
-    is $r->{json}{status}, 'ok', 'enterprise unlimited allows registration';
+    is $r->{json}{status}, 'ok', 'registration allowed with 100 existing agents';
     is scalar @{$storage->{registered}}, 1, 'agent registered despite 100 existing';
 };
 
@@ -358,12 +260,7 @@ subtest 'register - handles optional fields gracefully' => sub {
 
     my $c = MockCtrl->new(
         body  => $body,
-        stash => {
-            license_info => {
-                plan   => 'free',
-                limits => { agents => 5 },
-            },
-        },
+        stash => {},
     );
     $ctrl->register($c);
 
@@ -387,12 +284,7 @@ subtest 'register - labels without hash ignored' => sub {
 
     my $c = MockCtrl->new(
         body  => $body,
-        stash => {
-            license_info => {
-                plan   => 'free',
-                limits => { agents => 5 },
-            },
-        },
+        stash => {},
     );
     $ctrl->register($c);
 
@@ -504,95 +396,21 @@ subtest 'remove - operator gets 403' => sub {
 };
 
 # ============================================
-# 6. License limit edge cases
-# ============================================
-subtest 'register - at limit minus one succeeds' => sub {
-    my $storage = MockStorage->new([], 4);  # 4 of 5
-    my $ctrl = Purl::API::Controller::Agents->new(storage => $storage);
-
-    my $body = $json->encode({ hostname => 'server-5' });
-
-    my $c = MockCtrl->new(
-        body  => $body,
-        stash => {
-            license_info => {
-                plan   => 'free',
-                limits => { agents => 5 },
-            },
-        },
-    );
-    $ctrl->register($c);
-
-    my $r = $c->rendered;
-    is $r->{json}{status}, 'ok', '4 < 5 allows registration';
-};
-
-subtest 'register - trial plan allows up to 10' => sub {
-    my $storage = MockStorage->new([], 9);
-    my $ctrl = Purl::API::Controller::Agents->new(storage => $storage);
-
-    my $body = $json->encode({ hostname => 'server-10' });
-
-    my $c = MockCtrl->new(
-        body  => $body,
-        stash => {
-            license_info => {
-                plan   => 'trial',
-                limits => { agents => 10 },
-            },
-        },
-    );
-    $ctrl->register($c);
-
-    my $r = $c->rendered;
-    is $r->{json}{status}, 'ok', '9 < 10 allows trial registration';
-};
-
-subtest 'register - trial plan at limit denied' => sub {
-    my $storage = MockStorage->new([], 10);
-    my $ctrl = Purl::API::Controller::Agents->new(storage => $storage);
-
-    my $body = $json->encode({ hostname => 'server-11' });
-
-    my $c = MockCtrl->new(
-        body  => $body,
-        stash => {
-            license_info => {
-                plan   => 'trial',
-                limits => { agents => 10 },
-            },
-        },
-    );
-    $ctrl->register($c);
-
-    my $r = $c->rendered;
-    is $r->{status}, 403, '10 >= 10 denies trial registration';
-};
-
-# ============================================
-# 7. Response structure validation
+# 6. Response structure validation
 # ============================================
 subtest 'list response has expected keys' => sub {
     my $storage = MockStorage->new([], 0);
     my $ctrl = Purl::API::Controller::Agents->new(storage => $storage);
 
     my $c = MockCtrl->new(
-        stash => {
-            license_info => {
-                plan   => 'free',
-                limits => { agents => 5 },
-            },
-        },
+        stash => {},
     );
     $ctrl->list($c);
 
     my $r = $c->rendered->{json};
     ok exists $r->{agents}, 'agents key exists';
     ok exists $r->{total}, 'total key exists';
-    ok exists $r->{limit}, 'limit key exists';
-    ok exists $r->{limit}{current}, 'limit.current exists';
-    ok exists $r->{limit}{max}, 'limit.max exists';
-    ok exists $r->{limit}{plan}, 'limit.plan exists';
+    ok !exists $r->{limit}, 'no plan-driven limit key';
 };
 
 subtest 'register response has expected keys' => sub {
@@ -602,12 +420,7 @@ subtest 'register response has expected keys' => sub {
     my $body = $json->encode({ hostname => 'test' });
     my $c = MockCtrl->new(
         body  => $body,
-        stash => {
-            license_info => {
-                plan   => 'free',
-                limits => { agents => 5 },
-            },
-        },
+        stash => {},
     );
     $ctrl->register($c);
 

@@ -9,9 +9,6 @@ use Mojo::JSON qw(decode_json);
 
 extends 'Purl::API::Controller::Base';
 
-# READS ARE NEVER GATED. Saved searches are on the free plan, and even if they
-# were not, locking a user out of data they already created is a support ticket,
-# not a paywall. Only creation is metered.
 sub list {
     my ($self, $c) = @_;
 
@@ -37,11 +34,6 @@ sub create {
         # and not a second, drifting copy of the rule.
         my %probe;
         return unless $self->_apply_query($c, \%probe, $body->{query});
-
-        # Quota, not feature gate: every plan may save searches, plans differ
-        # only in how many. -1 (all current plans) means unlimited.
-        my $existing = $self->storage->get_saved_searches() // [];
-        return unless $self->check_limit($c, 'saved_searches', scalar @$existing);
 
         $self->storage->create_saved_search(
             $body->{name},

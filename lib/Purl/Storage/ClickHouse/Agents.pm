@@ -99,18 +99,6 @@ sub get_agents {
     }, no_cache => 1);
 }
 
-sub count_agents {
-    my ($self) = @_;
-    my $db = $self->database;
-
-    my $result = $self->_crud_read(qq{
-        SELECT count() AS total_count
-        FROM ${db}.agents FINAL
-    }, no_cache => 1);
-
-    return ($result && @$result) ? $result->[0]{total_count} : 0;
-}
-
 sub delete_agent {
     my ($self, $id) = @_;
     my $db = $self->database;

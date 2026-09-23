@@ -193,44 +193,6 @@ sub ingest {
             return;
         }
 
-        # Enforce server limit from license
-        my $server_names = {};
-        for my $log (@$logs) {
-            my $svc = $log->{service} // $log->{host} // 'unknown';
-            $server_names->{$svc} = 1;
-        }
-        my $new_server_count = scalar keys %$server_names;
-
-        my $license_info = $c->stash('license_info');
-        if ($license_info && $license_info->{valid} && $license_info->{activated}
-            && ($license_info->{limits}{servers} // -1) >= 0)
-        {
-            # Only reached when the plan actually meters servers. Guarding here
-            # (instead of inside check_limit) keeps the expensive field_stats
-            # GROUP BY off the ingest hot path for the unlimited plans, which
-            # is every plan we currently sell.
-            #
-            # Current unique server list. field_stats('service') is a GROUP BY
-            # over the whole logs table — far too expensive to run on every
-            # ingest. Cache it briefly so the hot path scans at most once per
-            # window instead of once per request.
-            my $existing_servers = $self->get_cached('ingest:known_services');
-            unless (defined $existing_servers) {
-                $existing_servers = eval {
-                    $self->storage->field_stats('service', limit => 1000);
-                } // [];
-                $self->set_cached('ingest:known_services', $existing_servers, 60);
-            }
-            # Servers this batch would ADD on top of the ones already stored.
-            my %existing_set = map { $_->{value} => 1 } @$existing_servers;
-            my $adding = grep { !$existing_set{$_} } keys %$server_names;
-
-            # Single quota gate for the whole codebase — see Controller::Base.
-            return unless $self->check_limit(
-                $c, 'servers', scalar(@$existing_servers), $adding
-            );
-        }
-
         # Validate all logs before inserting
         for my $log (@$logs) {
             if (defined $log->{level} && length($log->{level}) > 32) {
@@ -240,8 +202,7 @@ sub ingest {
         }
 
         # Run logs through configured pipelines (enrich / rewrite / drop)
-        # BEFORE storage. No-op unless the license includes pipelines and
-        # pipelines are configured. Drops shrink the batch; the count,
+        # BEFORE storage. No-op unless pipelines are configured. Drops shrink the batch; the count,
         # backpressure check, and broadcast below all use the result.
         $logs = $self->apply_pipelines($c, $logs);
 

@@ -115,12 +115,6 @@ has 'rate_limit_max' => (
     default => 1000,
 );
 
-# License middleware reference for plan-aware auth
-has 'license_middleware' => (
-    is      => 'rw',
-    default => sub { undef },
-);
-
 # Settings reference for user lookup
 has 'settings' => (
     is      => 'rw',
@@ -342,7 +336,7 @@ sub check_auth {
     # Auth disabled entirely => open instance (no credentials configured).
     return 1 unless $auth_enabled;
 
-    # Otherwise a valid session cookie is REQUIRED — regardless of license plan.
+    # Otherwise a valid session cookie is REQUIRED.
     # There is deliberately no Origin/Referer "same-origin" bypass: those headers
     # are attacker-controlled and must never grant access.
     return 1 if $self->_check_session($c);

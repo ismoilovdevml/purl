@@ -30,13 +30,6 @@ BEGIN {
 }
 
 make_path($ENV{PURL_CONFIG_DIR});
-# Expired trial => Free plan (proves CSRF is plan-independent)
-{
-    open my $fh, '>', "$ENV{PURL_CONFIG_DIR}/trial.json" or die $!;
-    my $expired = time() - 86400;
-    print $fh "{\"started_at\":@{[ $expired - 14*86400 ]},\"expires_at\":$expired}";
-    close $fh;
-}
 
 # ============================================
 # Minimal in-memory storage mock

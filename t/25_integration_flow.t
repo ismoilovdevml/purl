@@ -10,7 +10,7 @@ use lib "$Bin/../lib";
 # ============================================
 # Environment setup — must be set BEFORE loading the app
 # ============================================
-$ENV{PURL_AUTH_ENABLED}    = '0';       # Free plan, auth disabled for baseline tests
+$ENV{PURL_AUTH_ENABLED}    = '0';       # auth disabled for baseline tests
 $ENV{PURL_API_KEYS}        = 'test-key-123,test-key-456';
 $ENV{PURL_LDAP_ENABLED}    = '0';
 $ENV{PURL_SAML_ENABLED}    = '0';
@@ -18,17 +18,8 @@ $ENV{PURL_SESSION_SECRET}  = 'integration-test-secret-key-1234567890abcdef';
 $ENV{PURL_CONFIG_FILE}     = '/tmp/purl_test_integration_$$.json';
 $ENV{PURL_CONFIG_DIR}      = '/tmp/purl_test_config_$$';
 
-# Create expired trial so tests run on Free plan (not auto-started trial)
 use File::Path qw(make_path remove_tree);
 make_path($ENV{PURL_CONFIG_DIR});
-{
-    open my $fh, '>', "$ENV{PURL_CONFIG_DIR}/trial.json" or die $!;
-    # Trial expired 1 day ago
-    my $expired = time() - 86400;
-    my $started = $expired - 14 * 86400;
-    print $fh "{\"started_at\":$started,\"expires_at\":$expired}";
-    close $fh;
-}
 
 # Ensure no real ClickHouse connection is attempted
 $ENV{PURL_CLICKHOUSE_HOST} = '127.0.0.1';
@@ -165,9 +156,7 @@ $ENV{PURL_CLICKHOUSE_PORT} = '19999';  # Unlikely to be running
 
     # Saved search methods
     sub get_saved_searches { return $_[0]->_saved_searches }
-    # Positional signature, matching Storage::ClickHouse::SavedSearches. The
-    # old mock took a hashref and only ever "worked" because a feature gate
-    # rejected the request before it was reached.
+    # Positional signature, matching Storage::ClickHouse::SavedSearches.
     sub create_saved_search {
         my ($self, $name, $query, $time_range) = @_;
         my $search = {
@@ -297,15 +286,6 @@ subtest 'csrf-token endpoint returns valid token' => sub {
 };
 
 # ============================================
-# 4. License endpoint (public)
-# ============================================
-subtest 'license endpoint returns plan info' => sub {
-    $t->get_ok('/api/license')
-      ->status_is(200)
-      ->json_has('/plan');
-};
-
-# ============================================
 # 5. Security Headers
 # ============================================
 subtest 'security headers are set on all responses' => sub {
@@ -379,7 +359,7 @@ subtest 'ingest NDJSON format' => sub {
 # 8. Invalid API Key Rejected
 # ============================================
 subtest 'ingest with invalid API key is rejected when auth enabled' => sub {
-    # On free plan with PURL_AUTH_ENABLED=0, requests without valid API keys
+    # With PURL_AUTH_ENABLED=0, requests without valid API keys
     # may still pass via same-origin bypass. Enable auth to test rejection.
     local $ENV{PURL_AUTH_ENABLED} = 1;
     $t->post_ok('/api/logs',
@@ -480,23 +460,23 @@ subtest 'GET /api/stats/fields/level returns level stats' => sub {
 };
 
 # ============================================
-# 12. Pattern Endpoints (free tier — see Purl::License::Plans)
+# 12. Pattern Endpoints
 # ============================================
-subtest 'GET /api/patterns is available on the free plan' => sub {
+subtest 'GET /api/patterns is available' => sub {
     $t->get_ok('/api/patterns', { 'X-API-Key' => 'test-key-123' })
       ->status_is(200);
 };
 
 # ============================================
-# 13. Saved Searches Endpoints (free tier, unlimited)
+# 13. Saved Searches Endpoints
 # ============================================
-subtest 'GET /api/saved-searches is never feature-gated' => sub {
+subtest 'GET /api/saved-searches lists searches' => sub {
     $t->get_ok('/api/saved-searches', { 'X-API-Key' => 'test-key-123' })
       ->status_is(200)
       ->json_has('/searches');
 };
 
-subtest 'POST /api/saved-searches works on the free plan' => sub {
+subtest 'POST /api/saved-searches creates a search' => sub {
     $t->post_ok('/api/saved-searches',
         { 'X-API-Key' => 'test-key-123', 'Content-Type' => 'application/json' },
         json => { name => 'Test Search', query => 'level:ERROR', filters => {} })
@@ -682,16 +662,20 @@ subtest 'verify service filter works' => sub {
 # ============================================
 # 26. Audit Endpoints
 # ============================================
-subtest 'GET /api/audit returns 403 on free plan (feature-gated)' => sub {
+# Audit is admin-only by ROLE (an API-key caller has no admin session), not
+# by any plan: the refusal is the role error, never a feature-gate body.
+subtest 'GET /api/audit is admin-only for an API-key caller' => sub {
     $t->get_ok('/api/audit', { 'X-API-Key' => 'test-key-123' })
       ->status_is(403)
-      ->json_has('/feature');
+      ->json_is('/error' => 'Insufficient permissions')
+      ->json_hasnt('/feature');
 };
 
-subtest 'GET /api/audit/stats returns 403 on free plan (feature-gated)' => sub {
+subtest 'GET /api/audit/stats is admin-only for an API-key caller' => sub {
     $t->get_ok('/api/audit/stats', { 'X-API-Key' => 'test-key-123' })
       ->status_is(403)
-      ->json_has('/feature');
+      ->json_is('/error' => 'Insufficient permissions')
+      ->json_hasnt('/feature');
 };
 
 # ============================================

@@ -158,27 +158,17 @@ sub login {
 }
 
 # ============================================
-# Rule out the recently changed user-limit check
+# No plan-driven user cap
 # ============================================
 
-subtest 'check_limit is not what blocks creation' => sub {
+subtest 'user creation is not capped by a user count' => sub {
     my $s = Purl::Config->new(config_file => $file);
-
-    # No license context at all — check_limit must allow.
-    my $r = create_user($s, 'limit_none', 'password123');
-    is $r->{json}{status}, 'ok', 'created with no license_info in the stash';
-
-    # "unlimited" sentinel: -1 must not be read as a hard zero.
-    $r = create_user($s, 'limit_unlimited', 'password123',
-        stash => { license_info => { plan => 'enterprise', limits => { users => -1 } } });
-    is $r->{json}{status}, 'ok', 'created under an unlimited (-1) user limit';
-
-    # A real limit still applies, so the check is genuinely wired up.
-    $r = create_user($s, 'limit_capped', 'password123',
-        stash => { license_info => { plan => 'free', limits => { users => 1 } } });
-    is $r->{status}, 403, 'a genuinely exceeded limit is still refused';
-
-    delete_user($s, $_) for qw(limit_none limit_unlimited);
+    my @names = map { "bulk_user_$_" } 1 .. 12;
+    for my $name (@names) {
+        my $r = create_user($s, $name, 'password123');
+        is $r->{json}{status}, 'ok', "$name created";
+    }
+    delete_user($s, $_) for @names;
 };
 
 # ============================================

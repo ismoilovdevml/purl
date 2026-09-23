@@ -25,8 +25,6 @@ sub _escape_json_string {
 
 sub list {
     my ($self, $c) = @_;
-    return unless $self->require_feature($c, 'pattern_analysis');
-
     $self->safe_execute($c, sub {
         my $limit   = $c->param('limit') // 30;
         my $service = $c->param('service');
@@ -83,8 +81,6 @@ sub list {
 
 sub logs {
     my ($self, $c) = @_;
-    return unless $self->require_feature($c, 'pattern_analysis');
-
     $self->safe_execute($c, sub {
         my $hash  = $c->param('hash');
         my $limit = $c->param('limit') // 100;
@@ -116,8 +112,6 @@ sub logs {
 
 sub stats {
     my ($self, $c) = @_;
-    return unless $self->require_feature($c, 'pattern_analysis');
-
     $self->safe_execute($c, sub {
         my $cache_key = 'pattern_stats';
         if (my $cached = $self->get_cached($cache_key)) {
