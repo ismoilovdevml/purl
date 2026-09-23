@@ -23,14 +23,9 @@ test.describe('Settings persistence', () => {
     page.locator('.setting-item', { has: page.locator('.setting-label', { hasText: label }) });
 
   /**
-   * Locate a notification channel card.
-   *
-   * NOT `.notification-card`. NotificationSettings.svelte renders
-   * `<Card class="notification-card">`, but Card.svelte declares no `class`
-   * prop, so Svelte drops the attribute and the rendered element never carries
-   * that class — a selector built on it can never match, which made both tests
-   * below unfailable-by-construction (they only ever failed). The card is
-   * matched through markup it genuinely renders instead.
+   * Locate a notification channel card by its heading. (Card forwards `class`
+   * since #93, so `.notification-card` also matches now — see
+   * card-class.spec.js — but the heading is what tells the channels apart.)
    */
   const notificationCard = (page, channel) =>
     page.locator('.card', {

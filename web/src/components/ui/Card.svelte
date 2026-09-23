@@ -7,6 +7,8 @@
     Content here
   </Card>
 
+  <Card class="my-card">   (extra classes are added to the root .card)
+
   <Card>
     {#snippet header()}Custom Header{/snippet}
     Content
@@ -29,6 +31,12 @@
     clickable = false,
     /** Bordered style */
     bordered = true,
+    /**
+     * Extra classes for the root element, merged with its own. Style them from
+     * the caller with :global(.name) — the caller's scoped CSS does not reach
+     * an element rendered by this component.
+     */
+    class: className = '',
     /** Click callback (native MouseEvent) */
     onclick,
     /** Snippet replacing the title/subtitle block */
@@ -50,7 +58,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
-  class="card"
+  class="card {className}"
   class:transparent
   class:hoverable
   class:clickable
