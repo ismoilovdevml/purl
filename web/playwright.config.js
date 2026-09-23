@@ -65,9 +65,20 @@ export default defineConfig({
    * or CI job — needs.
    */
   /*
+   * The browser build is whatever revision the installed @playwright/test
+   * pins (node_modules/playwright-core/browsers.json). After bumping the
+   * package, re-run `npm run test:e2e:install` so the cache has that
+   * revision; `npx playwright install --dry-run chromium` shows which one.
+   *
+   * Do not go below @playwright/test 1.63 on Node 26: the zip extractor in
+   * 1.58.x stalls silently on Node 26, leaves a ~428K partial
+   * ms-playwright/chromium-<rev> directory without the
+   * "Chrome for Testing Framework" dylib, and the launch dies with SIGABRT.
+   * `install --force` re-downloads and stalls in the same place (#69).
+   *
    * PLAYWRIGHT_CHANNEL=chrome runs against a locally installed Google Chrome
-   * instead of Playwright's bundled build — useful on a machine where the
-   * 160MB browser download is blocked or unreliable. CI leaves it unset.
+   * instead of Playwright's bundled build. Use it as an escape hatch when the
+   * browser download is blocked or unreliable. CI leaves it unset.
    */
   projects: [
     {
