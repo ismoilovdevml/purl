@@ -1,6 +1,6 @@
 <!--
   LoginPage Component
-  Authentication page for Pro/Enterprise plans
+  Dashboard sign-in page (local/LDAP credentials, optional SSO)
 
   Usage:
   <LoginPage on:login />
@@ -28,14 +28,13 @@
 
   let ssoAvailable = false;
 
-  // Check if SSO is configured.
+  // Check if SSO is configured (public GET /auth/sso/status).
   // Runs before the user is authenticated, so a 401/404/network failure here is
-  // not an error condition — it only means "no license info available", and SSO
-  // simply stays hidden. Never surface it.
+  // not an error condition — SSO simply stays hidden. Never surface it.
   async function checkSso() {
     try {
-      const data = await api.get('/license');
-      ssoAvailable = (data?.features || []).includes('sso');
+      const data = await api.get('/auth/sso/status');
+      ssoAvailable = data?.enabled === true;
     } catch { /* ignore */ }
   }
 

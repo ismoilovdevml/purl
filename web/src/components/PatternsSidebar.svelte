@@ -2,11 +2,10 @@
   import { onMount } from 'svelte';
   import { patterns, patternsLoading, patternsError, fetchPatterns, fetchPatternLogs, highlightPattern, logs, timeRange, query, total } from '../stores/logs.js';
   import { getLevelColor } from '../utils/colors.js';
-  import { isFreePlan } from '../stores/license.js';
   import LoadingSpinner from './ui/LoadingSpinner.svelte';
   import EmptyState from './ui/EmptyState.svelte';
   import Icon from './ui/Icon.svelte';
-  import { caretRight, refresh, lock, layers } from './ui/icons.js';
+  import { caretRight, refresh, layers } from './ui/icons.js';
   import { api } from '../utils/api.js';
 
   let selectedPattern = null;
@@ -106,16 +105,7 @@
 
   {#if expanded}
     <div class="patterns-content">
-      {#if $isFreePlan}
-        <div class="upgrade-cta">
-          <div class="upgrade-icon">
-            <Icon icon={lock} size={28} strokeWidth={1.5} />
-          </div>
-          <h4 class="upgrade-title">Pattern Detection</h4>
-          <p class="upgrade-desc">Automatically detect and group similar log patterns. Upgrade to Pro to unlock.</p>
-          <a href="https://purlogs.com/pricing" target="_blank" rel="noopener" class="upgrade-btn">Upgrade to Pro</a>
-        </div>
-      {:else if $patternsError}
+      {#if $patternsError}
         <div class="error-state">
           <span>{$patternsError}</span>
           <button class="retry-btn" on:click={fetchPatterns}>Retry</button>
@@ -409,59 +399,5 @@
     padding: 12px;
     background: #0d1117;
     border-top: 1px solid #30363d;
-  }
-
-  .upgrade-cta {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    padding: 28px 20px;
-    text-align: center;
-  }
-
-  .upgrade-icon {
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    background: rgba(88, 166, 255, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #58a6ff;
-    margin-bottom: 4px;
-  }
-
-  .upgrade-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: #c9d1d9;
-    margin: 0;
-  }
-
-  .upgrade-desc {
-    font-size: 12px;
-    color: #8b949e;
-    line-height: 1.5;
-    margin: 0;
-  }
-
-  .upgrade-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px 20px;
-    background: #58a6ff;
-    color: #ffffff;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    text-decoration: none;
-    transition: background 0.15s ease;
-    margin-top: 4px;
-  }
-
-  .upgrade-btn:hover {
-    background: #79b8ff;
   }
 </style>

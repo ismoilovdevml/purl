@@ -18,7 +18,7 @@ export async function fetchPodHealth(hours = 1) {
 
     // allSettled, not all: unlike raw fetch, api.get rejects on any non-2xx,
     // so with Promise.all the sibling's rejection is never observed and
-    // surfaces as an unhandled rejection (both endpoints 403 together).
+    // surfaces as an unhandled rejection (both endpoints fail together).
     const [podsResult, summaryResult] = await Promise.allSettled([
       api.get('/k8s/health/pods', { query }),
       api.get('/k8s/health', { query }),
@@ -30,14 +30,6 @@ export async function fetchPodHealth(hours = 1) {
     podHealth.set(podsResult.value);
     healthSummary.set(summaryResult.value);
   } catch (err) {
-    // Both endpoints sit behind the same license feature, so either one
-    // answering 403 means the same thing: the plan does not include K8s.
-    // Surfaced without a toast — it is a state, not a failure.
-    if (err.status === 403) {
-      healthError.set('K8s monitoring requires a Pro or Enterprise license');
-      return;
-    }
-
     // Keep this page's own wording for HTTP failures; a network-level
     // failure (status 0) has nothing better to say than its own message.
     const message = err.status ? 'Failed to fetch pod health data' : (err.message || 'Failed to fetch pod health data');

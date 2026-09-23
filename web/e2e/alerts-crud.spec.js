@@ -21,10 +21,6 @@ import { login, gotoTab, expandSidebarPanel, unique } from './fixtures/purl.js';
  *   - it is the one option that renders NO target field — the bot token and
  *     chat id come from server env vars — so the spec stays about the CRUD
  *     lifecycle instead of about URL validation;
- *   - `telegram_alerts` is a FREE feature (License/Plans.pm @FREE_FEATURES),
- *     whereas `webhook_alerts` is Pro-only. Picking webhook would have made
- *     this spec silently plan-dependent and it would 403 the moment it ran
- *     against a free instance.
  * Creating a telegram alert sends nothing — delivery only happens when the
  * server-side evaluator fires — so no Telegram credentials are needed.
  */

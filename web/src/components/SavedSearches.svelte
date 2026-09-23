@@ -7,8 +7,7 @@
   import ConfirmDialog from './ui/ConfirmDialog.svelte';
   import EmptyState from './ui/EmptyState.svelte';
   import Icon from './ui/Icon.svelte';
-  import { caretRight, plus, lock, close, save } from './ui/icons.js';
-  import { isFreePlan } from '../stores/license.js';
+  import { caretRight, plus, close, save } from './ui/icons.js';
   import { api } from '../utils/api.js';
 
   const dispatch = createEventDispatcher();
@@ -127,13 +126,7 @@
 
   {#if expanded}
     <div class="content">
-      {#if $isFreePlan}
-        <div class="upgrade-cta">
-          <Icon icon={lock} size={16} strokeWidth={2} />
-          <span>Requires Pro</span>
-          <a href="https://purlogs.com/pricing" target="_blank" rel="noopener">Upgrade</a>
-        </div>
-      {:else if loadError}
+      {#if loadError}
         <div class="error-state">
           <span>{loadError}</span>
           <button class="retry-btn" on:click={loadSearches}>Retry</button>
@@ -337,30 +330,5 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-  }
-
-  .upgrade-cta {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 16px 12px;
-    text-align: center;
-    color: #848d97;
-    font-size: 12px;
-  }
-
-  .upgrade-cta :global(svg) {
-    color: #848d97;
-  }
-
-  .upgrade-cta a {
-    color: #58a6ff;
-    text-decoration: none;
-    font-size: 11px;
-  }
-
-  .upgrade-cta a:hover {
-    text-decoration: underline;
   }
 </style>

@@ -1,6 +1,6 @@
 <!--
   UsersSettings Component
-  User management for Pro/Enterprise plans
+  Dashboard user management (local accounts, roles)
 
   Usage:
   <UsersSettings />
@@ -12,7 +12,6 @@
   import Button from '../ui/Button.svelte';
   import Input from '../ui/Input.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
-  import { licenseLimits } from '../../stores/license.js';
   import { currentUser } from '../../stores/auth.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
@@ -54,7 +53,7 @@
       const data = await api.get('/settings/ldap');
       ldapEnabled = !!(data.config?.enabled);
     } catch {
-      // ignore — LDAP may not be available (free/pro plan)
+      // ignore — LDAP status is informational only; the user list still works
     }
   }
 
@@ -168,9 +167,6 @@
       <div class="users-header">
         <span class="user-count">
           {users.length} user{users.length !== 1 ? 's' : ''}
-          {#if $licenseLimits?.users}
-            <span class="limit-info">/ {$licenseLimits.users === -1 || $licenseLimits.users === 999 ? '∞' : $licenseLimits.users} max</span>
-          {/if}
         </span>
         {#if isAdmin}
           <Button variant="primary" size="sm" on:click={() => { showAddForm = !showAddForm; addError = ''; }}>
@@ -331,9 +327,6 @@
     color: var(--text-secondary);
   }
 
-  .limit-info {
-    color: var(--text-muted);
-  }
 
   .add-form {
     display: flex;

@@ -7,13 +7,12 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
-  import { lock, arrowRight, close } from '../ui/icons.js';
+  import { close } from '../ui/icons.js';
 
   let pipelines = [];
   let loading = false;
   let showCreateModal = false;
   let showTestModal = false;
-  let licenseError = null;
 
   // New pipeline form
   let newPipeline = {
@@ -45,10 +44,6 @@
       const data = await api.get('/pipelines');
       pipelines = data.pipelines || [];
     } catch (err) {
-      if (err.status === 403 && err.body?.feature) {
-        licenseError = err.body;
-        return;
-      }
       toastError(err.message);
     } finally {
       loading = false;
@@ -118,70 +113,47 @@
     <p>Configure rules to parse and enrich logs during ingestion</p>
   </div>
 
-  {#if licenseError}
-    <div class="license-banner">
-      <div class="banner-icon">
-        <Icon icon={lock} size={20} />
-      </div>
-      <div class="banner-body">
-        <strong>{licenseError.error || 'This feature requires a Pro or Enterprise license.'}</strong>
-        <p>Upgrade your plan to configure log pipelines for parsing and enriching logs during ingestion.</p>
-      </div>
-      <div class="banner-actions">
-        {#if licenseError.upgrade}
-          <a href={licenseError.upgrade} class="upgrade-link" target="_blank" rel="noopener noreferrer">
-            Upgrade Plan
-            <Icon icon={arrowRight} size={12} strokeWidth={3} />
-          </a>
-        {/if}
-        <a href="https://purlogs.com/docs" class="docs-link" target="_blank" rel="noopener noreferrer">
-          How log pipelines work
-        </a>
-      </div>
-    </div>
-  {:else}
-    <div class="pipeline-actions">
-      <Button on:click={() => showCreateModal = true}>Create Pipeline</Button>
-    </div>
+  <div class="pipeline-actions">
+    <Button on:click={() => showCreateModal = true}>Create Pipeline</Button>
+  </div>
 
-    {#if loading}
-      <p class="loading-text">Loading pipelines...</p>
-    {:else if pipelines.length === 0}
+  {#if loading}
+    <p class="loading-text">Loading pipelines...</p>
+  {:else if pipelines.length === 0}
+    <Card>
+      <EmptyState title="No pipelines configured" size="sm">
+        Create one to start processing logs.
+      </EmptyState>
+    </Card>
+  {:else}
+    {#each pipelines as pipeline}
       <Card>
-        <EmptyState title="No pipelines configured" size="sm">
-          Create one to start processing logs.
-        </EmptyState>
-      </Card>
-    {:else}
-      {#each pipelines as pipeline}
-        <Card>
-          <div class="pipeline-item">
-            <div class="pipeline-info">
-              <div class="pipeline-name">
-                <span class="status-dot" class:enabled={pipeline.enabled}></span>
-                {pipeline.name}
-              </div>
-              {#if pipeline.description}
-                <div class="pipeline-desc">{pipeline.description}</div>
-              {/if}
-              <div class="pipeline-meta">
-                {(pipeline.rules || []).length} rules
-                {#if pipeline.filter_service}
-                  &middot; Service: <code>{pipeline.filter_service}</code>
-                {/if}
-              </div>
+        <div class="pipeline-item">
+          <div class="pipeline-info">
+            <div class="pipeline-name">
+              <span class="status-dot" class:enabled={pipeline.enabled}></span>
+              {pipeline.name}
             </div>
-            <div class="pipeline-actions-row">
-              <button class="btn-sm" on:click={() => toggleEnabled(pipeline)}>
-                {pipeline.enabled ? 'Disable' : 'Enable'}
-              </button>
-              <button class="btn-sm" on:click={() => openTest(pipeline)}>Test</button>
-              <button class="btn-sm btn-danger" on:click={() => deletePipeline(pipeline.id)}>Delete</button>
+            {#if pipeline.description}
+              <div class="pipeline-desc">{pipeline.description}</div>
+            {/if}
+            <div class="pipeline-meta">
+              {(pipeline.rules || []).length} rules
+              {#if pipeline.filter_service}
+                &middot; Service: <code>{pipeline.filter_service}</code>
+              {/if}
             </div>
           </div>
-        </Card>
-      {/each}
-    {/if}
+          <div class="pipeline-actions-row">
+            <button class="btn-sm" on:click={() => toggleEnabled(pipeline)}>
+              {pipeline.enabled ? 'Disable' : 'Enable'}
+            </button>
+            <button class="btn-sm" on:click={() => openTest(pipeline)}>Test</button>
+            <button class="btn-sm btn-danger" on:click={() => deletePipeline(pipeline.id)}>Delete</button>
+          </div>
+        </div>
+      </Card>
+    {/each}
   {/if}
 </section>
 
@@ -370,89 +342,6 @@
     width: 26px;
     height: 26px;
     flex-shrink: 0;
-  }
-
-  .license-banner {
-    display: flex;
-    align-items: flex-start;
-    gap: 16px;
-    padding: 20px;
-    background: rgba(88, 166, 255, 0.06);
-    border: 1px solid rgba(88, 166, 255, 0.2);
-    border-radius: 8px;
-    margin-bottom: 16px;
-  }
-
-  .banner-icon {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    background: rgba(88, 166, 255, 0.1);
-    color: #58a6ff;
-  }
-
-  .banner-body {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .banner-body strong {
-    display: block;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: #f0f6fc;
-    margin-bottom: 4px;
-  }
-
-  .banner-body p {
-    margin: 0;
-    font-size: 0.8125rem;
-    color: #8b949e;
-    line-height: 1.5;
-  }
-
-  .banner-actions {
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
-  }
-
-  .upgrade-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    background: #58a6ff;
-    color: #0d1117;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    border-radius: 6px;
-    text-decoration: none;
-    white-space: nowrap;
-  }
-
-  .upgrade-link:hover {
-    background: #79b8ff;
-  }
-
-  /* Secondary path: help, not checkout. */
-  .docs-link {
-    font-size: 0.75rem;
-    color: #8b949e;
-    text-decoration: none;
-    white-space: nowrap;
-    transition: color 0.15s ease;
-  }
-
-  .docs-link:hover {
-    color: #58a6ff;
-    text-decoration: underline;
   }
 
   .loading-text {

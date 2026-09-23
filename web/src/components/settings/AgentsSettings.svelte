@@ -19,13 +19,11 @@
   import Icon from '../ui/Icon.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
   import { agent as agentIcon, caretDown, caretRight, trash } from '../ui/icons.js';
-  // License limits are returned by the /api/agents endpoint directly
 
   let agents = [];
   let loading = true;
   let error = '';
   let refreshing = false;
-  let agentLimit = { current: 0, max: 5, plan: 'free' };
 
   // Delete confirmation
   let showDeleteConfirm = false;
@@ -39,7 +37,6 @@
   $: onlineAgents = agents.filter(a => a.status === 'online').length;
   $: offlineAgents = agents.filter(a => a.status === 'offline').length;
   $: serverUrl = typeof window !== 'undefined' ? window.location.origin : 'https://your-purl-server';
-  $: limitDisplay = agentLimit.max < 0 ? 'Unlimited' : `${agentLimit.current} / ${agentLimit.max}`;
 
   onMount(() => {
     fetchAgents();
@@ -53,7 +50,6 @@
     try {
       const data = await api.get('/agents');
       agents = data.agents || [];
-      agentLimit = data.limit || agentLimit;
     } catch (err) {
       error = err.message || 'Failed to load agents';
       toastError(error);
@@ -127,10 +123,6 @@
       <div class="stat-card" class:stat-warning={offlineAgents > 0}>
         <span class="stat-value">{offlineAgents}</span>
         <span class="stat-label">Offline</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">{limitDisplay}</span>
-        <span class="stat-label">Agent Limit ({agentLimit.plan})</span>
       </div>
     {/if}
   </div>

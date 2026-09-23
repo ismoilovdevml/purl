@@ -2,7 +2,7 @@
 # Tear the ephemeral Purl stack down, volumes included.
 #
 # `-v` is not optional: the ClickHouse volume holds the logs a previous run
-# ingested, and the config volume holds a half-consumed trial license. Leaving
+# ingested, and the config volume holds the settings and users it wrote. Leaving
 # either behind makes the next run's assertions depend on run order.
 set -euo pipefail
 

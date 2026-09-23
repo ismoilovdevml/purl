@@ -20,8 +20,8 @@ export function unique(prefix) {
 /**
  * Log in and land on the dashboard.
  *
- * A fresh container runs on the 14-day trial (Pro features), so the login page
- * is rendered and the admin user is bootstrapped from PURL_ADMIN_PASSWORD.
+ * The managed stack runs with auth on, so the login page is rendered and the
+ * admin user is bootstrapped from PURL_ADMIN_PASSWORD.
  */
 export async function login(page) {
   if (!stackEnv.ADMIN_PASSWORD) {
@@ -55,7 +55,6 @@ export async function login(page) {
 export async function gotoTab(page, label) {
   const tab = page.locator(`.nav-tabs button:has-text("${label}")`);
   await expect(tab, `nav tab "${label}" must exist`).toBeVisible();
-  await expect(tab, `nav tab "${label}" must not be plan-locked`).not.toHaveClass(/locked/);
   await tab.click();
   await expect(tab).toHaveClass(/active/);
 }
@@ -63,9 +62,9 @@ export async function gotoTab(page, label) {
 /**
  * Open a Settings section, failing loudly when it is locked.
  *
- * The old settings spec wrapped every click in `if (!isLocked)`. On an
- * instance where the license lapsed, all ten tests passed without asserting
- * anything. Locked here is a failure, not a skip.
+ * The old settings spec wrapped every click in `if (!isLocked)`, so an
+ * unreachable section passed without asserting anything. Locked (admin-only
+ * for a non-admin) here is a failure, not a skip.
  */
 export async function openSettingsSection(page, label) {
   await gotoTab(page, 'Settings');
@@ -75,7 +74,7 @@ export async function openSettingsSection(page, label) {
   await expect(item, `settings section "${label}" must be present`).toBeVisible();
   await expect(
     item,
-    `settings section "${label}" is plan/role locked — the e2e stack must run on the trial (Pro) plan as admin`
+    `settings section "${label}" is role locked — the e2e stack must run as admin`
   ).not.toHaveClass(/locked/);
 
   await item.click();

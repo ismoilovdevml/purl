@@ -4,9 +4,8 @@ import { login, gotoTab, ingestLogs, logEntry, unique } from './fixtures/purl.js
 /**
  * Live tail: the WebSocket stream behind the "Live" button on the Logs page.
  *
- * Nothing covered this before. It is a FREE feature available to every plan and
- * every role, and it is the only part of the product that pushes rather than
- * polls — so it fails in ways no request/response spec can see.
+ * Nothing covered this before. It is available to every role, and it is the
+ * only part of the product that pushes rather than polls — so it fails in ways no request/response spec can see.
  *
  * The two assertions are deliberately separate because they fail for different
  * reasons:

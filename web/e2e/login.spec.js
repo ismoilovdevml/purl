@@ -80,3 +80,42 @@ test.describe('Login Flow', () => {
     await expect(page.locator('.nav-tabs')).toHaveCount(0);
   });
 });
+
+/**
+ * The SSO button follows the public GET /api/auth/sso/status. It used to be
+ * derived from the license feature list (GET /api/license), which no longer
+ * exists. The endpoint is stubbed so each case is deterministic regardless of
+ * whether the target instance has SAML configured.
+ */
+test.describe('Login SSO button', () => {
+  const ssoButton = (page) => page.locator('a.sso-button');
+
+  const openLoginWith = async (page, fulfill) => {
+    await page.context().clearCookies();
+    await page.route('**/api/auth/sso/status', fulfill);
+    await page.goto('/');
+    await expect(page.locator('.login-card')).toBeVisible({ timeout: 30_000 });
+  };
+
+  test('is shown when SSO is enabled', async ({ page }) => {
+    await openLoginWith(page, (route) => route.fulfill({ json: { enabled: true } }));
+    await expect(ssoButton(page)).toBeVisible();
+    await expect(ssoButton(page)).toHaveAttribute('href', '/api/auth/sso/login');
+  });
+
+  test('is hidden when SSO is disabled', async ({ page }) => {
+    const answered = page.waitForResponse('**/api/auth/sso/status');
+    await openLoginWith(page, (route) => route.fulfill({ json: { enabled: false } }));
+    await answered;
+    await expect(ssoButton(page)).toHaveCount(0);
+  });
+
+  test('stays hidden, silently, when the status check fails', async ({ page }) => {
+    const answered = page.waitForResponse('**/api/auth/sso/status');
+    await openLoginWith(page, (route) => route.fulfill({ status: 500, json: { error: 'boom' } }));
+    await answered;
+    await expect(ssoButton(page)).toHaveCount(0);
+    // A pre-auth probe failing is not the user's problem: no error on the form.
+    await expect(page.locator('.login-error')).toHaveCount(0);
+  });
+});

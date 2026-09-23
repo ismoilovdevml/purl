@@ -269,18 +269,6 @@
           {loading ? 'Saving…' : 'Save'}
         </button>
       </div>
-
-      <!-- Feature info -->
-      <div class="feature-info">
-        <div class="feature-row">
-          <span class="feature-badge pro">Pro</span>
-          <span class="feature-text">Natural language log queries, query suggestions</span>
-        </div>
-        <div class="feature-row">
-          <span class="feature-badge enterprise">Enterprise</span>
-          <span class="feature-text">Batch log analysis, log entry explanation</span>
-        </div>
-      </div>
     </div>
   {/if}
 </div>
@@ -447,44 +435,6 @@
   }
 
   .btn-test:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .feature-info {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-  }
-
-  .feature-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-
-  .feature-badge {
-    font-size: 10px;
-    font-weight: 700;
-    padding: 1px 6px;
-    border-radius: 4px;
-    flex-shrink: 0;
-  }
-
-  .feature-badge.pro {
-    background: rgba(88, 166, 255, 0.15);
-    color: #58a6ff;
-    border: 1px solid rgba(88, 166, 255, 0.3);
-  }
-
-  .feature-badge.enterprise {
-    background: rgba(63, 185, 80, 0.15);
-    color: #3fb950;
-    border: 1px solid rgba(63, 185, 80, 0.3);
-  }
 
   .toggle-field {
     padding: 12px;

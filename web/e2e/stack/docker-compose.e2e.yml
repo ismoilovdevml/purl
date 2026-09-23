@@ -5,8 +5,8 @@
 # suite stops protecting the thing it is named after.
 #
 # Compose merges the `volumes` list keyed by container path, so:
-#   - /app/config          is REPLACED by a throwaway dir (fresh 14-day trial
-#                          license + fresh admin user on every run)
+#   - /app/config          is REPLACED by a throwaway dir (fresh settings +
+#                          fresh admin user on every run)
 #   - users.d/users-e2e.xml is ADDED alongside the shipped custom.xml
 #
 # Usage: docker compose -f docker-compose.yml -f web/e2e/stack/docker-compose.e2e.yml ...

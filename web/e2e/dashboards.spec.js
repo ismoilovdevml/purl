@@ -4,10 +4,6 @@ import { login, gotoTab, unique, csrfHeaders } from './fixtures/purl.js';
 /**
  * Custom dashboards: create -> widgets render -> delete.
  *
- * Dashboards are a Pro feature and the e2e stack runs on the 14-day trial, so
- * the tab is unlocked here; `gotoTab` fails loudly if it ever is not, rather
- * than skipping.
- *
  * Deletion is an `ALTER TABLE ... DELETE` mutation, which ClickHouse applies
  * asynchronously, so the "it is gone" assertion polls instead of reading once.
  */

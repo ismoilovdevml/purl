@@ -8,9 +8,9 @@ import { login, openSettingsSection, unique, stackEnv } from './fixtures/purl.js
  * "the row appeared" is not enough — the account has to actually work, and it
  * has to stop working after deletion.
  *
- * The Users section is Pro + admin gated; the managed e2e stack runs on the
- * trial plan as admin, and openSettingsSection() fails loudly rather than
- * skipping if that ever stops being true.
+ * The Users section is admin-only; the managed e2e stack runs as admin, and
+ * openSettingsSection() fails loudly rather than skipping if that ever stops
+ * being true.
  */
 test.describe('Users CRUD', () => {
   test.beforeEach(async ({ page }) => {

@@ -28,30 +28,29 @@ export const passwordChangeRequired = writable(false);
 /**
  * Does this deployment demand a dashboard session at all?
  *
- *   null   not established yet — the caller falls back to a heuristic
+ *   null   not established yet — the caller must assume credentials are needed
  *   true   the server rejected an unauthenticated request, or we have held a
  *          session, so credentials are definitely required
  *   false  the server explicitly reported that auth is off
- *
- * This must NEVER be derived from the license plan. The backend requires a
- * session whenever PURL_AUTH_ENABLED is set — "regardless of license plan"
- * (lib/Purl/API/Middleware/Auth.pm::check_auth). Gating the login screen on
- * the plan meant any hiccup in GET /api/license silently switched the whole
- * authentication UI off.
  */
 export const serverRequiresAuth = writable(null);
+
+/**
+ * Is this Purl instance running inside Kubernetes? Reported by the public
+ * GET /auth/me as `k8s_mode`; drives the K8s page and the K8s-only alert and
+ * settings UI. Defaults to false until the server says otherwise.
+ */
+export const k8sMode = writable(false);
 
 export async function checkAuth() {
   authState.set(AUTH_CHECKING);
   try {
     const data = await api.get('/auth/me');
 
-    // Preferred signal when the backend supplies it — see the API contract
-    // note in the change description. Absent today, so the fallback in
-    // App.svelte still has to hold.
     if (data?.auth_required !== undefined && data?.auth_required !== null) {
       serverRequiresAuth.set(Boolean(data.auth_required));
     }
+    k8sMode.set(Boolean(data?.k8s_mode));
 
     if (data?.authenticated) {
       if (data.must_change_password) {

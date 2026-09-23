@@ -199,13 +199,13 @@
     'login', 'logout', 'login_failed',
     'create_user', 'update_user', 'delete_user', 'change_password',
     'create_alert', 'update_alert', 'delete_alert',
-    'update_settings', 'update_license',
+    'update_settings',
     'generate_api_key', 'revoke_api_key',
     'create_backup', 'restore_backup', 'delete_backup',
   ];
 
   const knownResourceTypes = [
-    'user', 'alert', 'settings', 'license', 'api_key', 'backup', 'session',
+    'user', 'alert', 'settings', 'api_key', 'backup', 'session',
   ];
 </script>
 

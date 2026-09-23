@@ -16,7 +16,6 @@
   import NotificationSettings from './NotificationSettings.svelte';
   import DisplaySettings from './DisplaySettings.svelte';
   import DataSettings from './DataSettings.svelte';
-  import LicenseSettings from './LicenseSettings.svelte';
   import UsersSettings from './UsersSettings.svelte';
   import LDAPSettings from './LDAPSettings.svelte';
   import SSOSettings from './SSOSettings.svelte';
@@ -30,8 +29,7 @@
   import SourcesSettings from './SourcesSettings.svelte';
   import IntegrationsSettings from './IntegrationsSettings.svelte';
   import AgentsSettings from './AgentsSettings.svelte';
-  import { isPaidPlan, isEnterprise, k8sMode } from '../../stores/license.js';
-  import { currentUser } from '../../stores/auth.js';
+  import { currentUser, k8sMode } from '../../stores/auth.js';
   import Icon from '../ui/Icon.svelte';
   import {
     activity, agent, ai, bell, database, databaseThreeTier, databaseTwoTier,
@@ -57,16 +55,15 @@
     { id: 'display', label: 'Display', icon: monitor },
     { id: 'data', label: 'Data', icon: database, locked: !isAdmin },
     { id: 'backup', label: 'Backups', icon: upload, locked: !isAdmin },
-    { id: 'api-keys', label: 'API Keys', icon: key, requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
+    { id: 'api-keys', label: 'API Keys', icon: key, locked: !isAdmin },
     { id: 'sources', label: 'Sources', icon: activity },
     ...(!$k8sMode ? [{ id: 'agents', label: 'Agents', icon: agent, locked: !isAdmin }] : []),
-    { id: 'audit', label: 'Audit Logs', icon: fileText, requiresPlan: 'pro', locked: !$isPaidPlan },
-    { id: 'pipelines', label: 'Pipelines', icon: pipeline, requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
-    { id: 'license', label: 'License', icon: key, locked: !isAdmin },
-    { id: 'users', label: 'Users', icon: users, requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
-    { id: 'ldap', label: 'LDAP / AD', icon: databaseThreeTier, requiresPlan: 'enterprise', locked: !$isEnterprise || !isAdmin },
-    { id: 'sso', label: 'SSO / SAML', icon: lock, requiresPlan: 'enterprise', locked: !$isEnterprise || !isAdmin },
-    { id: 'ai', label: 'AI', icon: ai, requiresPlan: 'pro', locked: !$isPaidPlan || !isAdmin },
+    { id: 'audit', label: 'Audit Logs', icon: fileText, locked: !isAdmin },
+    { id: 'pipelines', label: 'Pipelines', icon: pipeline, locked: !isAdmin },
+    { id: 'users', label: 'Users', icon: users, locked: !isAdmin },
+    { id: 'ldap', label: 'LDAP / AD', icon: databaseThreeTier, locked: !isAdmin },
+    { id: 'sso', label: 'SSO / SAML', icon: lock, locked: !isAdmin },
+    { id: 'ai', label: 'AI', icon: ai, locked: !isAdmin },
     { id: 'integrations', label: 'Integrations', icon: integrations },
     { id: 'redis', label: 'Redis', icon: databaseTwoTier, locked: !isAdmin },
     { id: 'about', label: 'About', icon: info },
@@ -74,9 +71,9 @@
 
   /**
    * Re-run whenever the hash OR the section list changes. The second dependency
-   * matters: on a cold load the license store has not resolved yet, so a Pro
-   * section is momentarily `locked` and a deep link to it would be dropped.
-   * Once the plan arrives `sections` is rebuilt and the link resolves.
+   * matters: on a cold load the current user may not have resolved yet, so an
+   * admin section is momentarily `locked` and a deep link to it would be
+   * dropped. Once the role arrives `sections` is rebuilt and the link resolves.
    */
   $: applyRequestedSection(requestedSection, sections);
 
@@ -119,11 +116,7 @@
           class:active={activeSection === section.id}
           class:locked={section.locked}
           on:click={() => selectSection(section)}
-          title={section.locked
-            ? (section.requiresPlan && (section.requiresPlan === 'enterprise' ? !$isEnterprise : !$isPaidPlan)
-              ? `Requires ${section.requiresPlan === 'enterprise' ? 'Enterprise' : 'Pro'} plan`
-              : 'Admin access required')
-            : ''}
+          title={section.locked ? 'Admin access required' : ''}
         >
           <Icon icon={section.icon} size={16} />
           {section.label}
@@ -144,8 +137,6 @@
       <DisplaySettings />
     {:else if activeSection === 'data'}
       <DataSettings />
-    {:else if activeSection === 'license'}
-      <LicenseSettings />
     {:else if activeSection === 'users'}
       <UsersSettings />
     {:else if activeSection === 'ldap'}

@@ -1,6 +1,6 @@
 <!--
   LDAPSettings Component
-  LDAP / Active Directory authentication configuration (Enterprise only)
+  LDAP / Active Directory authentication configuration
 
   Usage:
   <LDAPSettings />
@@ -15,11 +15,7 @@
   import { api } from '../../utils/api.js';
   import { isEnvLocked } from '../../utils/envLock.js';
   import Icon from '../ui/Icon.svelte';
-  import { lock, caretDown, check, close, arrowRight } from '../ui/icons.js';
-
-  // ── License gate ──────────────────────────────────────────────────────────
-  let plan = $state('free');
-  let licenseLoading = $state(true);
+  import { caretDown, check, close } from '../ui/icons.js';
 
   // ── Page state ─────────────────────────────────────────────────────────────
   let loading = $state(true);
@@ -98,23 +94,10 @@
     }
   }
 
-  // ── On mount: fetch license + settings ────────────────────────────────────
+  // ── On mount: fetch settings ──────────────────────────────────────────────
   $effect(() => {
-    fetchLicense();
     fetchSettings();
   });
-
-  async function fetchLicense() {
-    licenseLoading = true;
-    try {
-      const data = await api.get('/license');
-      plan = data.plan || 'free';
-    } catch {
-      plan = 'free';
-    } finally {
-      licenseLoading = false;
-    }
-  }
 
   async function fetchSettings() {
     loading = true;
@@ -198,8 +181,6 @@
       saving = false;
     }
   }
-
-  const isEnterprise = $derived(plan === 'enterprise');
 </script>
 
 <section class="settings-section">
@@ -208,30 +189,10 @@
     <p>Configure external directory authentication for dashboard login</p>
   </div>
 
-  {#if licenseLoading || loading}
+  {#if loading}
     <Card padding="lg">
       <div class="loading">Loading...</div>
     </Card>
-  {:else if !isEnterprise}
-    <!-- Enterprise gate banner -->
-    <div class="enterprise-banner">
-      <div class="banner-icon">
-        <Icon icon={lock} size={20} />
-      </div>
-      <div class="banner-body">
-        <strong>LDAP authentication requires an Enterprise license.</strong>
-        <p>Upgrade to enable single sign-on via LDAP or Active Directory for your team.</p>
-      </div>
-      <div class="banner-actions">
-        <a href="https://purl.dev/pricing" class="upgrade-link" target="_blank" rel="noopener noreferrer">
-          Upgrade to Enterprise
-          <Icon icon={arrowRight} size={12} strokeWidth={3} />
-        </a>
-        <a href="https://purlogs.com/docs" class="docs-link" target="_blank" rel="noopener noreferrer">
-          How LDAP works
-        </a>
-      </div>
-    </div>
   {:else}
     <!-- ── Section 1: Enable/Disable ──────────────────────────────────────── -->
     <Card padding="md">
@@ -239,7 +200,7 @@
         <Toggle
           bind:checked={enabled}
           label="Enable LDAP Authentication"
-          description="Requires Enterprise license"
+          description="Let users sign in with their directory credentials"
           disabled={isEnvLocked(fromEnv, 'enabled')}
         />
         <EnvBadge locked={isEnvLocked(fromEnv, 'enabled')} />
@@ -484,90 +445,6 @@
     text-align: center;
     color: var(--text-secondary);
     padding: 20px;
-  }
-
-  /* ── Enterprise gate banner ──────────────────────────────────────────────── */
-  .enterprise-banner {
-    display: flex;
-    align-items: flex-start;
-    gap: 16px;
-    padding: 20px;
-    background: rgba(88, 166, 255, 0.06);
-    border: 1px solid rgba(88, 166, 255, 0.25);
-    border-radius: 8px;
-  }
-
-  .banner-icon {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    background: rgba(88, 166, 255, 0.12);
-    border-radius: 8px;
-    color: var(--color-primary);
-  }
-
-  .banner-body {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .banner-body strong {
-    display: block;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--text-bright);
-    margin-bottom: 4px;
-  }
-
-  .banner-body p {
-    margin: 0;
-    font-size: 0.8125rem;
-    color: var(--text-secondary);
-    line-height: 1.5;
-  }
-
-  .banner-actions {
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
-  }
-
-  .upgrade-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    background: var(--color-primary);
-    color: #ffffff;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    text-decoration: none;
-    border-radius: 6px;
-    white-space: nowrap;
-    transition: background 0.15s ease;
-  }
-
-  .upgrade-link:hover {
-    background: var(--color-primary-hover);
-  }
-
-  /* Secondary path: help, not checkout. */
-  .docs-link {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    text-decoration: none;
-    white-space: nowrap;
-    transition: color 0.15s ease;
-  }
-
-  .docs-link:hover {
-    color: var(--color-primary);
-    text-decoration: underline;
   }
 
   /* ── Card section title ──────────────────────────────────────────────────── */

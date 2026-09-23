@@ -9,7 +9,7 @@
   import Icon from './ui/Icon.svelte';
   import { caretRight, refresh, gridSolid, plus, dot, dotOutline, close, bell } from './ui/icons.js';
   import AlertTemplateGallery from './alerts/AlertTemplateGallery.svelte';
-  import { k8sMode } from '../stores/license.js';
+  import { k8sMode } from '../stores/auth.js';
   import { error as toastError, success as toastSuccess, warning as toastWarning } from '../stores/toast.js';
   import { api } from '../utils/api.js';
 
@@ -115,7 +115,7 @@
       // "Network error - could not reach the server" gives the user no idea
       // what the dashboard was doing. The write paths below stay unprefixed —
       // there the user just clicked something and the server's own wording
-      // (e.g. a plan limit) is the actionable part.
+      // (e.g. a validation error) is the actionable part.
       toastError('Failed to load alerts: ' + (err.message || 'Unknown error'));
     } finally {
       // In `finally`, not in the `try`: the case the TTL exists for is exactly
@@ -292,9 +292,9 @@
       await reconcileAlerts();
     } catch (err) {
       console.error('Failed to save alert:', err);
-      // The server's own wording matters here — the likeliest rejection is a
-      // plan limit ("Alert limit reached for your plan (3)"), which a generic
-      // message would hide behind something the user cannot act on.
+      // The server's own wording matters here — a validation rejection
+      // ("Invalid threshold", ...) is actionable, and a generic message would
+      // hide it behind something the user cannot act on.
       toastError(err.message || 'Failed to save alert');
     }
   }

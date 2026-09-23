@@ -55,11 +55,6 @@ export class ApiError extends Error {
     return this.status === 401;
   }
 
-  /** Authenticated but not allowed (permission, license, pending password change). */
-  get isForbidden() {
-    return this.status === 403;
-  }
-
   /**
    * Either flavour of auth failure. Call sites that used to silently `return`
    * on 401/403 can now do `if (err.isAuthError) return;`.
@@ -131,10 +126,10 @@ function isCsrfRejection(status, body) {
 /**
  * Endpoints whose 401 says nothing about the dashboard session.
  *
- *   /license, /auth/me, /csrf-token, /health*, /metrics*, /auth/sso/*
- *       public (lib/Purl/API/Server.pm) — the login page fetches /license
- *       BEFORE anyone has signed in, so treating its 401 as an expiry would
- *       pop a phantom "session expired" on the sign-in screen.
+ *   /auth/me, /csrf-token, /health*, /metrics*, /auth/sso/*
+ *       public (lib/Purl/API/Server.pm) — the login page fetches
+ *       /auth/sso/status BEFORE anyone has signed in, so treating its 401 as
+ *       an expiry would pop a phantom "session expired" on the sign-in screen.
  *   /auth/login
  *       401 = wrong username/password. The form shows the message itself.
  *   /auth/change-password
@@ -146,7 +141,6 @@ function isCsrfRejection(status, body) {
  * which is the only trustworthy evidence that this deployment needs a login.
  */
 const SESSION_AGNOSTIC_401 = [
-  /^\/license$/,
   /^\/csrf-token$/,
   /^\/health(\/|$)/,
   /^\/metrics(\/|$)/,
@@ -163,8 +157,7 @@ function isSessionAgnostic(path) {
 function handleSessionExpiry(path) {
   if (isSessionAgnostic(path)) return;
 
-  // The server refused an unauthenticated request, so credentials are required
-  // here — regardless of what the license endpoint had to say about the plan.
+  // The server refused an unauthenticated request, so credentials are required.
   markAuthRequired();
 
   // Unconditional teardown: it has to work when `currentUser` is ALREADY null

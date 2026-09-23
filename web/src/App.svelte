@@ -22,12 +22,10 @@
     layers,
     code,
     grid,
-    lock,
     settings as settingsIcon,
     chevronDown,
     braces,
     save,
-    clock,
     alertCircleSolid,
     close,
   } from './components/ui/icons.js';
@@ -65,7 +63,6 @@
     searchLogs,
   } from './stores/logs.js';
   import { refreshInterval, defaultTimeRange } from './stores/settings.js';
-  import { fetchLicense, hasFeature, currentPlan, isPaidPlan, isTrialPlan, trialDaysRemaining, licenseFeatures, k8sMode, planKnown } from './stores/license.js';
   import {
     currentUser,
     checkAuth,
@@ -73,9 +70,10 @@
     passwordChangeRequired,
     authState,
     serverRequiresAuth,
+    k8sMode,
     AUTH_AUTHENTICATED,
   } from './stores/auth.js';
-  import { success as toastSuccess, warning as toastWarning } from './stores/toast.js';
+  import { success as toastSuccess } from './stores/toast.js';
   import { fetchClusters, clusters } from './stores/cluster.js';
   import { initAI } from './stores/ai.js';
 
@@ -88,26 +86,18 @@
   let unsubscribeRefresh = null;
   let unsubscribeDefaultRange = null;
 
-  // Boot asks two questions — "which plan is this?" and "is there a session?" —
-  // and must paint neither the dashboard nor the login form until BOTH have
-  // landed. 'loading' | 'ready'.
+  // Boot asks "is there a session?" and must paint neither the dashboard nor
+  // the login form until that has landed. 'loading' | 'ready'.
   let bootState = 'loading';
   let initialDataLoaded = false;
 
-  // Does this deployment demand a dashboard session?
-  //   1. What the server told us always wins: a 401 from a protected endpoint,
-  //      or a session we are already holding.
-  //   2. Otherwise fall back to the plan — paid/trial installs run with auth on.
-  //   3. If the plan could not be determined at ALL (/license 401'd or errored),
-  //      demand credentials. The previous code fell through to "no auth needed"
-  //      here, which rendered the dashboard shell to an anonymous user with no
-  //      route back to the login form and a 401 on every request.
-  $: requiresLogin =
-    $serverRequiresAuth !== null
-      ? $serverRequiresAuth
-      : $planKnown
-        ? $isPaidPlan
-        : true;
+  // Does this deployment demand a dashboard session? What the server told us
+  // wins (/auth/me's auth_required, a 401 from a protected endpoint, or a
+  // session we are already holding). If /auth/me could not answer at all,
+  // demand credentials: falling through to "no auth needed" would render the
+  // dashboard shell to an anonymous user with no route back to the login form
+  // and a 401 on every request.
+  $: requiresLogin = $serverRequiresAuth ?? true;
 
   // The forced password-change screen lives inside LoginPage, so an
   // authenticated-but-must-change user still belongs on it.
@@ -145,11 +135,6 @@
   let selectionMenuOpen = false;
   let actionsMenuEl;
   let selectionMenuEl;
-
-  // Route dashboards gating through hasFeature so enterprise-bypass and the
-  // custom_dashboards → dashboards alias apply (matches backend has_feature).
-  // Referencing the stores keeps this reactive to license changes.
-  $: hasDashboards = ($currentPlan, $licenseFeatures, hasFeature('dashboards'));
 
   // Mobile responsive state
   let mobileMenuOpen = false;
@@ -251,11 +236,7 @@
   }
 
   onMount(async () => {
-    // Both are public endpoints answering independent questions, so they run in
-    // parallel. checkAuth() is UNCONDITIONAL: making it depend on the license
-    // plan meant a bad /license response skipped the session check entirely and
-    // the app rendered as if authentication did not exist.
-    await Promise.all([fetchLicense(), checkAuth()]);
+    await checkAuth();
 
     // Subscribe to refresh interval changes
     unsubscribeRefresh = refreshInterval.subscribe(v => {
@@ -308,12 +289,6 @@
     // settings, and the page itself reads the `/agents` suffix for its subtab.
     const hash = (window.location.hash.slice(1) || 'logs').split('/')[0];
     if (['logs', 'analytics', 'traces', 'k8s', 'query', 'dashboards', 'settings'].includes(hash)) {
-      if (hash === 'dashboards' && !hasDashboards) {
-        currentPage = 'logs';
-        window.location.hash = 'logs';
-        toastWarning('Custom Dashboards requires a Pro or Enterprise license');
-        return;
-      }
       if ((hash === 'settings' || hash === 'analytics') && $currentUser?.role === 'viewer') {
         currentPage = 'logs';
         window.location.hash = 'logs';
@@ -329,10 +304,6 @@
   }
 
   function navigate(page) {
-    if (page === 'dashboards' && !hasDashboards) {
-      toastWarning('Custom Dashboards requires a Pro or Enterprise license');
-      return;
-    }
     if ((page === 'settings' || page === 'analytics') && $currentUser?.role === 'viewer') {
       return;
     }
@@ -506,13 +477,6 @@
     <button class="logo" on:click={() => navigate('logs')}>
       <Icon icon={logo} size={32} />
       <span>Purl</span>
-      {#if $isTrialPlan}
-        <span class="plan-badge trial">Trial</span>
-      {:else if $isPaidPlan}
-        <span class="plan-badge" class:enterprise={$currentPlan === 'enterprise'}>
-          {$currentPlan === 'enterprise' ? 'Enterprise' : 'Pro'}
-        </span>
-      {/if}
     </button>
 
     <nav class="nav-tabs">
@@ -557,14 +521,10 @@
       </button>
       <button
         class:active={currentPage === 'dashboards'}
-        class:locked={!hasDashboards}
         on:click={() => navigate('dashboards')}
       >
-        <Icon icon={hasDashboards ? grid : lock} size={16} />
+        <Icon icon={grid} size={16} />
         Dashboards
-        {#if !hasDashboards}
-          <span class="pro-badge">Pro</span>
-        {/if}
       </button>
       {#if $currentUser?.role !== 'viewer'}
       <button
@@ -661,18 +621,6 @@
       </div>
     {/if}
   </header>
-
-  {#if $isTrialPlan}
-    <div class="trial-banner">
-      <Icon icon={clock} size={16} />
-      <span>
-        <strong>Pro Trial</strong> — {$trialDaysRemaining} {$trialDaysRemaining === 1 ? 'day' : 'days'} remaining
-      </span>
-      <a href="https://purlogs.com/pricing" target="_blank" rel="noopener" class="trial-upgrade-btn">
-        Upgrade to Pro
-      </a>
-    </div>
-  {/if}
 
   {#if exportStatus === 'preparing'}
     <div class="info-banner" role="status">
@@ -802,21 +750,6 @@
     color: #79c0ff;
   }
 
-  .plan-badge {
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 8px;
-    border-radius: 9999px;
-    background: rgba(88, 166, 255, 0.15);
-    color: #58a6ff;
-    letter-spacing: 0.02em;
-  }
-
-  .plan-badge.enterprise {
-    background: rgba(163, 113, 247, 0.15);
-    color: #a371f7;
-  }
-
   .user-menu {
     display: flex;
     align-items: center;
@@ -892,24 +825,6 @@
 
   .nav-tabs button.active :global(svg) {
     opacity: 1;
-  }
-
-  .nav-tabs button.locked {
-    opacity: 0.5;
-  }
-
-  .nav-tabs button.locked:hover {
-    opacity: 0.7;
-  }
-
-  .pro-badge {
-    font-size: 10px;
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: #388bfd26;
-    color: #58a6ff;
-    font-weight: 600;
-    line-height: 1.4;
   }
 
   .header-actions {
@@ -1334,48 +1249,5 @@
     .user-name {
       display: none;
     }
-  }
-
-  /* Trial banner */
-  .trial-banner {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 20px;
-    background: rgba(210, 153, 34, 0.1);
-    border-bottom: 1px solid rgba(210, 153, 34, 0.3);
-    color: #d29922;
-    font-size: 13px;
-  }
-
-  .trial-banner :global(svg) {
-    flex-shrink: 0;
-  }
-
-  .trial-banner span {
-    flex: 1;
-  }
-
-  .trial-upgrade-btn {
-    padding: 4px 12px;
-    background: rgba(210, 153, 34, 0.15);
-    border: 1px solid rgba(210, 153, 34, 0.4);
-    border-radius: 6px;
-    color: #d29922;
-    font-size: 12px;
-    font-weight: 500;
-    text-decoration: none;
-    transition: all 0.15s;
-    flex-shrink: 0;
-  }
-
-  .trial-upgrade-btn:hover {
-    background: rgba(210, 153, 34, 0.25);
-    color: #e3b341;
-  }
-
-  .plan-badge.trial {
-    background: rgba(210, 153, 34, 0.15);
-    color: #d29922;
   }
 </style>

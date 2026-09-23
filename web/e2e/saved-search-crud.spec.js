@@ -4,25 +4,11 @@ import { login, gotoTab, expandSidebarPanel, unique } from './fixtures/purl.js';
 /**
  * Saved search lifecycle: save from the Actions menu -> visible in the sidebar
  * -> survives a reload -> applying it drives the search bar -> delete.
- *
- * Requires a paid/trial plan: SavedSearches.pm gates both list and create on
- * the `saved_searches_unlimited` feature, and the sidebar renders an upgrade
- * CTA instead of the list on the free plan. The managed e2e stack starts on a
- * fresh 14-day trial, so this is exercised for real. If it ever runs against a
- * free instance the assertions below fail loudly rather than skipping.
  */
 test.describe('Saved searches CRUD', () => {
   const openPanel = async (page) => {
     await gotoTab(page, 'Logs');
-    const panel = await expandSidebarPanel(page, '.saved-searches');
-    // The plan check has to run AFTER the panel is expanded: `.upgrade-cta`
-    // lives inside `{#if expanded}`, so a count of 0 on a collapsed panel is
-    // true on every plan and would have proved nothing.
-    await expect(
-      panel.locator('.upgrade-cta'),
-      'saved searches are Pro-gated; the e2e target must be on a trial/paid plan'
-    ).toHaveCount(0);
-    return panel;
+    return expandSidebarPanel(page, '.saved-searches');
   };
 
   test.beforeEach(async ({ page }) => {

@@ -25,10 +25,8 @@ log "Project root:  $PROJECT_ROOT"
 log "Runtime dir:   $PURL_E2E_RUN_DIR"
 log "Image:         ismoilovdev/purl:${PURL_IMAGE_TAG}"
 
-# Fresh config dir => no trial.json => the backend starts a new 14-day trial,
-# which is what unlocks saved searches / users / non-browser alert channels.
-# Without this the suite would silently run against the free plan and half the
-# specs would be testing an upgrade prompt.
+# Fresh config dir => fresh settings and a freshly bootstrapped admin user, so
+# no spec depends on state a previous run left behind.
 rm -rf "$PURL_E2E_CONFIG_DIR"
 mkdir -p "$PURL_E2E_CONFIG_DIR"
 
@@ -41,8 +39,8 @@ log "Rendering ClickHouse password overlay..."
 sed "s|__CH_PASSWORD__|${PURL_CLICKHOUSE_PASSWORD}|g" \
     "$SCRIPT_DIR/users-e2e.xml" > "$PURL_E2E_USERS_XML"
 
-# A leftover stack from a killed run would serve stale code and a stale
-# (already-used) trial license, so always start from a clean slate.
+# A leftover stack from a killed run would serve stale code and stale config,
+# so always start from a clean slate.
 log "Removing any previous e2e stack..."
 e2e_compose down -v --remove-orphans >/dev/null 2>&1 || true
 

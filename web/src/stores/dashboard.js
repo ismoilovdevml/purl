@@ -14,11 +14,6 @@ export async function fetchDashboards() {
   } catch (err) {
     // 401 -> session cleared centrally by the api client (with one toast).
     if (err.isUnauthorized) return;
-    // 403 -> license gating: surface the backend's message (or the default).
-    if (err.isForbidden) {
-      toastError(err.body?.error || 'This feature requires a Pro or Enterprise license');
-      return;
-    }
     toastError('Failed to fetch dashboards');
   } finally {
     dashboardLoading.set(false);
@@ -87,10 +82,6 @@ export async function fetchTemplates() {
     templates.set(data.templates || []);
   } catch (err) {
     if (err.isUnauthorized) return;
-    if (err.isForbidden) {
-      toastError(err.body?.error || 'This feature requires a Pro or Enterprise license');
-      return;
-    }
     toastError('Failed to fetch templates');
   }
 }

@@ -6,7 +6,7 @@ import { login, gotoTab, ingestLogs, logEntry, waitForIngested, unique, stackEnv
  *
  * Traces are not a separate ingest path: `trace_id` / `span_id` are columns on
  * ordinary log rows, so a spec can manufacture a trace with the normal
- * `POST /api/logs` fixture. The page is neither plan- nor role-gated.
+ * `POST /api/logs` fixture. The page is not role-gated.
  *
  * Lowercase hex only: the lookup lowercases the id and strips anything outside
  * [a-fA-F0-9-] before matching, so an uppercase id ingested verbatim will not
