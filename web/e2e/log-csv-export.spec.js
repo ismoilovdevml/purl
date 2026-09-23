@@ -110,7 +110,7 @@ test.describe('Log CSV export (#94)', () => {
     );
 
     const record = text.split('\r\n').find((line) => line.includes('HYPERLINK'));
-    expect(record).toContain(`"'=HYPERLINK(""http://evil.test"",""x"")"`);
+    expect(record).toContain('"\'=HYPERLINK(""http://evil.test"",""x"")"');
     expect(record).toContain(",'@svc,'-h,");
     // No field in the file may start with a bare formula character.
     expect(text).not.toMatch(/(^|,|\r\n)"?[=+\-@]/);
