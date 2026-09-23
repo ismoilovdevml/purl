@@ -6,6 +6,7 @@
 -->
 <script>
   import LogCell from './LogCell.svelte';
+  import { stopPropagation } from '../../utils/dom.js';
 
   let {
     log,
@@ -21,15 +22,11 @@
     searchQuery = '',
     /** () => void — row click */
     onselect,
-    /** (Event) => void — row checkbox changed */
+    /** (MouseEvent) => void — row checkbox clicked (carries shiftKey) */
     oncheck,
   } = $props();
 
   const isError = $derived(highlightErrors && (log.level === 'ERROR' || log.level === 'FATAL'));
-
-  function stopPropagation(event) {
-    event.stopPropagation();
-  }
 </script>
 
 <tr
@@ -40,13 +37,15 @@
   onclick={onselect}
 >
   <!-- Checkbox cell -->
-  <td class="checkbox-col" onclick={stopPropagation}>
-      <input
+  <td class="checkbox-col" onclick={stopPropagation()}>
+    <!-- click, not change: only the click event carries shiftKey, which
+         LogTable needs for shift-click range selection. Space on a focused
+         checkbox also fires click, so keyboard toggling still works. -->
+    <input
       type="checkbox"
       class="row-checkbox"
       {checked}
-      onchange={oncheck}
-      onclick={stopPropagation}
+      onclick={oncheck}
       aria-label="Select row"
     />
   </td>
