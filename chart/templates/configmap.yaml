@@ -56,6 +56,9 @@ data:
   {{- with .Values.purl.metricsTtl }}
   PURL_METRICS_TTL: {{ . | quote }}
   {{- end }}
+  {{- with .Values.purl.sessionMaxAge }}
+  PURL_SESSION_MAX_AGE: {{ . | quote }}
+  {{- end }}
   {{- if .Values.backup.enabled }}
   {{- /*
     The app-side backup manager (restore, delete, retention cleanup) talks to

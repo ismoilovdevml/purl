@@ -44,6 +44,15 @@ podAnnotations: {}
 updateStrategy:
   type: Recreate
 
+# -- Seconds Kubernetes waits after SIGTERM before SIGKILLing the Purl pod.
+# On SIGTERM the prefork manager drains (#90): workers stop accepting, finish
+# in-flight requests and flush their ingest buffers to ClickHouse. This is the
+# real bound on that drain; Mojo's own graceful_timeout (120s, not
+# configurable) only matters if it is the shorter of the two. The Kubernetes
+# default of 30s can cut off a flush against a slow ClickHouse, dropping the
+# last buffered batch. docker-compose.yml uses the same 60s (stop_grace_period).
+terminationGracePeriodSeconds: 60
+
 # -- Pod-level security context
 podSecurityContext:
   fsGroup: 1000
@@ -246,6 +255,11 @@ purl:
   # -- Lifetime of a metrics counter key in the shared store, in seconds.
   # Empty = use the app default (604800 = 7d).
   metricsTtl: ""
+
+  # -- PURL_SESSION_MAX_AGE: absolute dashboard session lifetime in seconds.
+  # Sliding renewal cannot extend a session past it. Empty = use the app
+  # default (604800 = 7d); a non-positive or non-numeric value is ignored.
+  sessionMaxAge: ""
 
   # -- Generic webhook alerting
   alertWebhook:

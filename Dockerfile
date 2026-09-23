@@ -64,9 +64,17 @@ ENV PURL_HOST=0.0.0.0 \
 EXPOSE 3000
 USER purl
 
-# Prefork manager treats SIGQUIT as "graceful drain" and SIGTERM/SIGINT as
-# "kill workers immediately". Make `docker stop` send SIGQUIT so in-flight
-# requests finish and workers drain instead of being hard-killed.
+# The prefork manager (Purl::API::Server::Prefork, #90) drains gracefully on
+# SIGQUIT, SIGTERM and SIGINT alike: workers stop accepting, finish in-flight
+# requests, flush their ingest buffers, then exit. SIGQUIT is therefore no
+# longer required. It is kept because it is still Mojo's native graceful
+# signal, so an image run against an older Purl build (stock Mojo SIGKILLs
+# workers on TERM) still drains instead of dropping buffered logs.
+#
+# The real bound on the drain is the orchestrator's grace period, not Mojo's
+# graceful_timeout (120s default, not configurable by Purl): `docker stop`
+# SIGKILLs after 10s unless stop_grace_period is set (docker-compose.yml sets
+# 60s), Kubernetes after terminationGracePeriodSeconds (chart default 60).
 STOPSIGNAL SIGQUIT
 
 # Deliberately the DB-aware endpoint, unlike the Kubernetes livenessProbe

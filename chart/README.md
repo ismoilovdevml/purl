@@ -32,6 +32,21 @@ rendered on `X.Y.*` must keep rendering on `X.(Y+1).*`. A guard that rejects
 previously valid values is a MAJOR bump, which is why the release after 1.1.0
 is 2.0.0 and not 1.2.0.
 
+## 2.1.1
+
+- New `terminationGracePeriodSeconds` value, default **60** (was the
+  Kubernetes default of 30s). On SIGTERM Purl now drains instead of killing
+  its workers (#90): in-flight requests finish and every worker flushes its
+  ingest buffer. The pod's grace period, not Mojo's 120s `graceful_timeout`,
+  is what bounds that drain, and 30s could cut off a flush to a slow
+  ClickHouse. `docker-compose.yml` sets the same 60s via `stop_grace_period`.
+- New `purl.sessionMaxAge` value, rendered as `PURL_SESSION_MAX_AGE`
+  (absolute dashboard session lifetime in seconds). Empty keeps the app
+  default of 604800 (7 days).
+
+Both are additive; existing values files render unchanged apart from the
+grace period.
+
 ## 2.1.0
 
 The `purl.license` values block is gone, along with the license environment
