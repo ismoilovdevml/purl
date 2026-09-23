@@ -23,10 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `GET /api/auth/sso/status` returns `{enabled}`.
 - `GET /api/auth/me` includes `k8s_mode`.
+- Per-user rate limit on AI endpoints (`PURL_AI_RATE_LIMIT`, default 20 per
+  minute); over the limit returns 429.
 
 ### Changed
 
 - `GET /api/agents` no longer returns `limit`.
+- Unknown `/api/*` routes return a JSON 404 instead of the dashboard HTML.
 - **BREAKING** The chart no longer invents `PURL_CLICKHOUSE_PASSWORD`,
   `PURL_SESSION_SECRET` or `PURL_API_KEYS` by default (issue #22). Generation
   relied on `lookup`, which is always empty without cluster access, so every

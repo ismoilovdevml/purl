@@ -96,6 +96,7 @@ Save and reuse frequent queries with one click.
 | `PURL_CLICKHOUSE_PASSWORD` | - | ClickHouse password |
 | `PURL_API_KEYS` | - | Comma-separated API keys |
 | `PURL_RETENTION_DAYS` | `30` | Log retention days |
+| `PURL_AI_RATE_LIMIT` | `20` | AI requests per user per minute (`0` disables; exact across workers only with `PURL_REDIS_URL`) |
 | `PURL_TELEGRAM_BOT_TOKEN` | - | Telegram bot token |
 | `PURL_TELEGRAM_CHAT_ID` | - | Telegram chat ID |
 | `PURL_SLACK_WEBHOOK_URL` | - | Slack webhook URL |

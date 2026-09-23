@@ -86,6 +86,16 @@ my %metrics = (
 # Metrics accessor for controllers
 sub get_metrics { return \%metrics; }
 
+# One 429 shape for every limiter: JSON body + Retry-After header carrying the
+# seconds actually left in the caller's window, counted as an error.
+sub _render_rate_limited {
+    my ($c, $error, $retry_after) = @_;
+    $c->res->headers->header('Retry-After' => $retry_after);
+    $c->render(json => { error => $error, retry_after => $retry_after }, status => 429);
+    $metrics{errors_total}++;
+    return 0;
+}
+
 sub _build_ldap_middleware {
     my $ldap_config = $settings ? $settings->get_section('ldap') : {};
     my $ldap_enabled = $ENV{PURL_LDAP_ENABLED} // $ldap_config->{enabled} // 0;
@@ -908,14 +918,9 @@ sub setup_routes {
         my $ip = $auth_middleware->client_ip($c);
 
         # Rate limiting via middleware
-        unless ($auth_middleware->check_rate_limit($ip)) {
-            $c->render(json => {
-                error       => 'Rate limit exceeded',
-                retry_after => $auth_middleware->rate_limit_window,
-            }, status => 429);
-            $metrics{errors_total}++;
-            return 0;
-        }
+        return _render_rate_limited($c, 'Rate limit exceeded',
+            $auth_middleware->rate_limit_retry_after)
+            unless $auth_middleware->check_rate_limit($ip);
 
         # Add rate limit headers
         $c->res->headers->header('X-RateLimit-Limit' => $auth_middleware->rate_limit_max);
@@ -1165,10 +1170,19 @@ sub setup_routes {
     # ============================================
     # AI query endpoints
     # ============================================
-    $protected->post('/ai/query'    => sub ($c) { $ai_c->query($c) });
+    # The LLM-backed calls get their own per-user budget (#83).
+    my $ai_llm = $protected->under('/ai' => sub ($c) {
+        return 1 if $auth_middleware->check_ai_rate_limit($c);
+        my $max    = $auth_middleware->ai_rate_limit_max;
+        my $window = $auth_middleware->ai_rate_limit_window;
+        return _render_rate_limited($c,
+            "AI rate limit exceeded: at most $max AI requests per ${window}s",
+            $auth_middleware->ai_rate_limit_retry_after($c));
+    });
+    $ai_llm->post('/query'          => sub ($c) { $ai_c->query($c) });
+    $ai_llm->post('/analyze'        => sub ($c) { $ai_c->analyze($c) });
+    $ai_llm->post('/explain'        => sub ($c) { $ai_c->explain($c) });
     $protected->get('/ai/suggest'   => sub ($c) { $ai_c->suggest($c) });
-    $protected->post('/ai/analyze'  => sub ($c) { $ai_c->analyze($c) });
-    $protected->post('/ai/explain'  => sub ($c) { $ai_c->explain($c) });
     $protected->get('/ai/providers' => sub ($c) { $ai_c->providers($c) });
 
     # ============================================
@@ -1238,7 +1252,13 @@ sub setup_routes {
         send_connected($ws, $mode);
     });
 
-    # SPA fallback
+    # Unmatched /api/* (any method) is a JSON 404, never the SPA index (#84).
+    # Must stay the LAST /api route: Mojolicious matches in definition order.
+    $api->any('/*api_path' => { api_path => '' } => sub ($c) {
+        $c->render(json => { error => 'Not found' }, status => 404);
+    });
+
+    # SPA fallback (non-API paths only — /api/* is caught above)
     app->routes->get('/*catchall' => { catchall => '' } => sub ($c) {
         $c->reply->static('index.html');
     });

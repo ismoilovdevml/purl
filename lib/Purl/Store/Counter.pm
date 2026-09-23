@@ -150,6 +150,25 @@ sub get {
     return $self->_local_get($key);
 }
 
+# ttl($key) -> whole seconds until the counter's window ends (0 if absent or
+# expired). Used to tell a rate-limited client when to retry.
+sub ttl {
+    my ($self, $key) = @_;
+
+    if ($self->_use_redis) {
+        my $val;
+        my $ok = eval { $val = $self->_redis->db->ttl($key); 1; };
+        # Redis: -2 = no key, -1 = no expiry; neither is a live window.
+        return ($val // 0) > 0 ? $val + 0 : 0 if $ok;
+        $self->_mark_down($@);
+    }
+
+    my $entry = $self->_local->{$key};
+    return 0 unless $entry;
+    my $left = $entry->{expires_at} - time();
+    return $left > 0 ? int($left) + ($left > int($left) ? 1 : 0) : 0;
+}
+
 # del($key) -> remove the counter (used by lockout reset on successful login)
 sub del {
     my ($self, $key) = @_;
