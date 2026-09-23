@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { api, resetCsrfToken } from '../utils/api.js';
+import { warning as toastWarning } from './toast.js';
 
 /**
  * Dashboard session state.
@@ -42,6 +43,17 @@ export const serverRequiresAuth = writable(null);
  */
 export const k8sMode = writable(false);
 
+/**
+ * Why the user is looking at the sign-in form, when the server (not the user)
+ * ended the session — e.g. the live-tail socket was closed with 4401 because
+ * the session was revoked elsewhere. Rendered on the login card until the next
+ * successful sign-in; '' means no notice.
+ */
+export const signInNotice = writable('');
+
+/** Close code the server uses on /api/logs/stream for a revoked session. */
+export const WS_SESSION_REVOKED = 4401;
+
 export async function checkAuth() {
   authState.set(AUTH_CHECKING);
   try {
@@ -78,6 +90,7 @@ export async function login(username, password) {
 
   // A new session invalidates any CSRF token minted for the previous one.
   resetCsrfToken();
+  signInNotice.set('');
 
   // Credentials were accepted, so this instance has auth on. Remember it for
   // the rest of the tab's life, including across a later sign-out.
@@ -105,10 +118,18 @@ export async function changePassword(currentPassword, newPassword) {
 export async function logout() {
   try {
     await api.post('/auth/logout');
-  } catch {
+  } catch (err) {
     // Already signed out server-side, or the server is unreachable. Either way
     // we still tear down the local session - never trap the user in a
     // logged-in-looking UI they cannot escape.
+    //
+    // A 5xx is the one case worth telling the user about: the server cleared
+    // the cookie but could not revoke the session record ("Signed out in this
+    // browser, but the session could not be revoked on the server"). This
+    // browser is signed out regardless, so it is a warning, not a blocker.
+    if (err?.status >= 500) {
+      toastWarning(err.message, 8000);
+    }
   } finally {
     resetCsrfToken();
     clearSession();
@@ -133,6 +154,18 @@ export function clearSession() {
   passwordChangeRequired.set(false);
   authState.set(AUTH_ANONYMOUS);
   return hadSession;
+}
+
+/**
+ * The server ended this session on its own (revoked elsewhere, password reset,
+ * max age). Land on the sign-in form with an explanation instead of a toast
+ * that disappears before the user has looked at the screen.
+ */
+export function endRevokedSession(notice = 'Your session ended. Sign in again.') {
+  markAuthRequired();
+  resetCsrfToken();
+  clearSession();
+  signInNotice.set(notice);
 }
 
 /** The server refused an unauthenticated request: credentials are required. */

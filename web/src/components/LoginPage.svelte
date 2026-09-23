@@ -10,7 +10,7 @@
   import Input from './ui/Input.svelte';
   import Icon from './ui/Icon.svelte';
   import { logo, alertTriangle, alertCircle, lock } from './ui/icons.js';
-  import { login, changePassword, passwordChangeRequired } from '../stores/auth.js';
+  import { login, changePassword, passwordChangeRequired, signInNotice } from '../stores/auth.js';
   import api from '../utils/api.js';
 
   /**
@@ -120,7 +120,7 @@
     {#if $passwordChangeRequired}
       <p class="login-subtitle">Change your default password</p>
 
-      <div class="password-warning">
+      <div class="login-notice">
         <Icon icon={alertTriangle} size={14} />
         You are using the default admin password. Please set a new password to continue.
       </div>
@@ -173,6 +173,13 @@
       </div>
     {:else}
       <p class="login-subtitle">Sign in to your dashboard</p>
+
+      {#if $signInNotice}
+        <div class="login-notice session-notice" role="status">
+          <Icon icon={alertTriangle} size={14} />
+          {$signInNotice}
+        </div>
+      {/if}
 
       {#if error}
         {@render errorBanner(error)}
@@ -277,7 +284,7 @@
     font-size: 0.8125rem;
   }
 
-  .password-warning {
+  .login-notice {
     display: flex;
     align-items: flex-start;
     gap: 8px;
@@ -292,7 +299,7 @@
   }
 
   /* :global — the svg now lives inside <Icon>, outside this component's scope. */
-  .password-warning :global(svg) {
+  .login-notice :global(svg) {
     flex-shrink: 0;
     margin-top: 1px;
   }

@@ -2,7 +2,7 @@ import { writable, get } from 'svelte/store';
 import { escapeHtml } from '../utils/dom.js';
 import { api } from '../utils/api.js';
 import { settings, clampMaxResults } from './settings.js';
-import { passwordChangeRequired } from './auth.js';
+import { passwordChangeRequired, endRevokedSession, WS_SESSION_REVOKED } from './auth.js';
 import { error as toastError } from './toast.js';
 import { selectedCluster } from './cluster.js';
 
@@ -511,6 +511,17 @@ export function connectWebSocket() {
         return;
       }
 
+      // 4401 = the server revoked this session (logout elsewhere, password
+      // reset, max age). Reconnecting would only be refused again, so stop
+      // for good and send the user to the sign-in form.
+      if (event.code === WS_SESSION_REVOKED) {
+        console.log('Live tail: session revoked by the server');
+        stop();
+        isLive.set(false);
+        endRevokedSession();
+        return;
+      }
+
       // A connection that survived a while was healthy - a fresh problem
       // deserves a fresh (fast) backoff rather than inheriting old attempts.
       if (openedAt && Date.now() - openedAt >= STABLE_CONNECTION_MS) {
@@ -538,19 +549,22 @@ export function connectWebSocket() {
 
   open();
 
+  /** Permanent teardown: tears down timers and listeners, never reconnects. */
+  function stop() {
+    closedByUser = true;
+    clearTimers();
+    window.removeEventListener('online', onOnline);
+    detach(ws);
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      ws.close(1000, 'client disconnect');
+    }
+    ws = null;
+    liveStatus.set('disconnected');
+  }
+
   return {
     /** Explicit user-initiated disconnect. Never reconnects. */
-    close() {
-      closedByUser = true;
-      clearTimers();
-      window.removeEventListener('online', onOnline);
-      detach(ws);
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        ws.close(1000, 'client disconnect');
-      }
-      ws = null;
-      liveStatus.set('disconnected');
-    },
+    close: stop,
 
     get readyState() {
       return ws ? ws.readyState : WebSocket.CLOSED;
