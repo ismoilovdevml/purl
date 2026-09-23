@@ -74,3 +74,12 @@ web/playwright-report/
 .beads/
 
 .playwright-mcp/
+
+# AI assistant tooling — kept local, never published
+.claude/
+.planning/
+.perles/
+.next/
+CLAUDE.md
+AGENTS.md
+docs/superpowers/

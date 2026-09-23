@@ -693,7 +693,7 @@ jobs:
   # too. Secrets (API keys, ClickHouse password, session secret) live on
   # master-01 in /opt/purl-dev/values-secrets.yaml — never in the repo.
   # The legacy demo server (37.27.187.72) is no longer auto-deployed;
-  # update it manually if needed (see CLAUDE.md "Server Update").
+  # update it manually if needed.
   deploy-dev:
     name: Deploy Dev (k8s)
     runs-on: ubuntu-latest
