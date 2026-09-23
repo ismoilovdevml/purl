@@ -288,6 +288,36 @@ helm-lint:
 		echo "        ClickHouse passwords, expected exactly 1. The opt-in escape"; \
 		echo "        hatch for a real helm install is broken."; exit 1; \
 	fi
+	@echo "Asserting checksum annotations ignore chart-version-only changes..."
+	@set -e; \
+	PIN="--set clickhouse.password=pw --set purl.sessionSecret=ss --set purl.apiKeys=ak"; \
+	TMP=$$(mktemp -d); trap 'rm -rf "$$TMP"' EXIT; \
+	cp -R chart "$$TMP/chart"; \
+	sed -i.bak 's/^version: .*/version: 99.0.0/' "$$TMP/chart/Chart.yaml"; \
+	A=$$(helm template purl chart/ $$PIN | grep 'checksum/' | sort); \
+	B=$$(helm template purl "$$TMP/chart" $$PIN | grep 'checksum/' | sort); \
+	[ -n "$$A" ] || { echo "  FAIL: no checksum/ annotations rendered."; exit 1; }; \
+	[ "$$A" = "$$B" ] || { \
+		echo "  FAIL: bumping only Chart.yaml version changed a checksum/ annotation."; \
+		echo "        The checksums must hash config payload (purl.dataChecksum), not"; \
+		echo "        labels, or every chart release restarts ClickHouse and Vector."; exit 1; \
+	}; \
+	C=$$(helm template purl chart/ $$PIN --set clickhouse.serverConfig.markCacheSize=1 | grep 'checksum/server-config'); \
+	[ "$$C" != "$$(printf '%s\n' "$$A" | grep 'checksum/server-config')" ] || { \
+		echo "  FAIL: changing clickhouse.serverConfig did not change checksum/server-config."; exit 1; }
+	@echo "Asserting ClickHouse cache bounds are rendered and mounted..."
+	@set -e; \
+	R=$$(helm template purl chart/ $(AUTOGEN)); \
+	for want in '<uncompressed_cache_size>268435456</uncompressed_cache_size>' \
+		'<mark_cache_size>268435456</mark_cache_size>' \
+		'<max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>' \
+		'mountPath: /etc/clickhouse-server/config.d/zz-purl-server.xml'; do \
+		printf '%s\n' "$$R" | grep -qF "$$want" || { \
+			echo "  FAIL: default render is missing: $$want"; \
+			echo "        Without cache caps ClickHouse sizes caches above the pod limit."; exit 1; }; \
+	done; \
+	helm template purl chart/ $(AUTOGEN) --set clickhouse.serverConfig.enabled=false | grep -q 'zz-purl-server' && { \
+		echo "  FAIL: clickhouse.serverConfig.enabled=false still mounts the fragment."; exit 1; } || true
 	@echo "Asserting render-time guards fire..."
 	@set -e; \
 	for guard in \

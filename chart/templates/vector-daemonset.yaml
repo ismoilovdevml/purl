@@ -14,7 +14,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/vector-configmap.yaml") . | sha256sum }}
+        checksum/config: {{ include "purl.dataChecksum" (dict "ctx" $ "file" "vector-configmap.yaml") }}
       labels:
         app.kubernetes.io/name: {{ include "purl.name" . }}-vector
         app.kubernetes.io/instance: {{ .Release.Name }}

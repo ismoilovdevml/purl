@@ -1,0 +1,53 @@
+{{- /*
+Server-level memory and cache bounds for the embedded ClickHouse, mounted as
+config.d/zz-purl-server.xml (the zz- prefix sorts it after the image's own
+config.d fragments, so these values win the merge).
+
+Why this exists: without it ClickHouse sizes its caches for a big dedicated
+host — mark_cache_size, index_mark_cache_size and primary_index_cache_size
+default to 5 GiB and uncompressed_cache_size to 8 GiB, each larger than the
+container memory limit. Under ingest + search the uncompressed cache alone
+grew to 3.8 GB inside a 5 GiB pod; every query then failed with
+MEMORY_LIMIT_EXCEEDED, Purl's readiness went red and the dashboard answered
+"no healthy upstream". docker-compose never hit this because
+docker/clickhouse/config.xml caps the caches; the chart had no equivalent.
+
+A value left empty ("") is omitted and ClickHouse's own default applies.
+*/ -}}
+{{- if and .Values.clickhouse.enabled .Values.clickhouse.serverConfig.enabled }}
+{{- $s := .Values.clickhouse.serverConfig }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "purl.clickhouse.fullname" . }}-server
+  labels:
+    {{- include "purl.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+data:
+  zz-purl-server.xml: |
+    <clickhouse>
+      {{- with $s.maxServerMemoryUsageToRamRatio }}
+      <max_server_memory_usage_to_ram_ratio>{{ . }}</max_server_memory_usage_to_ram_ratio>
+      {{- end }}
+      {{- with $s.uncompressedCacheSize }}
+      <uncompressed_cache_size>{{ int64 . }}</uncompressed_cache_size>
+      {{- end }}
+      {{- with $s.markCacheSize }}
+      <mark_cache_size>{{ int64 . }}</mark_cache_size>
+      {{- end }}
+      {{- with $s.indexMarkCacheSize }}
+      <index_mark_cache_size>{{ int64 . }}</index_mark_cache_size>
+      {{- end }}
+      {{- with $s.primaryIndexCacheSize }}
+      <primary_index_cache_size>{{ int64 . }}</primary_index_cache_size>
+      {{- end }}
+      {{- with $s.queryConditionCacheSize }}
+      <query_condition_cache_size>{{ int64 . }}</query_condition_cache_size>
+      {{- end }}
+      {{- with $s.queryCacheMaxSizeInBytes }}
+      <query_cache>
+        <max_size_in_bytes>{{ int64 . }}</max_size_in_bytes>
+      </query_cache>
+      {{- end }}
+    </clickhouse>
+{{- end }}

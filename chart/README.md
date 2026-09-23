@@ -37,6 +37,50 @@ rendered on `X.Y.*` must keep rendering on `X.(Y+1).*`. A guard that rejects
 previously valid values is a MAJOR bump, which is why the release after 1.1.0
 is 2.0.0 and not 1.2.0.
 
+## 2.1.3
+
+- New `clickhouse.serverConfig` block, rendered to
+  `config.d/zz-purl-server.xml` and mounted into ClickHouse. It bounds server
+  memory and caches, which ClickHouse otherwise sizes for a large dedicated
+  host. Mark, index-mark and primary-index caches default to 5 GiB and the
+  uncompressed cache to 8 GiB, each above a typical pod limit. Unbounded, the
+  uncompressed cache filled a 5 GiB pod in about 12 minutes of ingest and
+  search. Every query then failed with `MEMORY_LIMIT_EXCEEDED` and the
+  dashboard went down. The new defaults:
+
+  | Key | Default | ClickHouse default |
+  |-----|---------|--------------------|
+  | `maxServerMemoryUsageToRamRatio` | 0.8 | 0.9 |
+  | `uncompressedCacheSize` | 256 MiB | 8 GiB |
+  | `markCacheSize` | 256 MiB | 5 GiB |
+  | `indexMarkCacheSize` | 64 MiB | 5 GiB |
+  | `primaryIndexCacheSize` | 128 MiB | 5 GiB |
+  | `queryConditionCacheSize` | 64 MiB | ~100 MiB |
+  | `queryCacheMaxSizeInBytes` | 64 MiB | 1 GiB |
+
+  On a large ClickHouse limit, raise the caches with it. Set a key to `""` to
+  fall back to ClickHouse's own default, or set `serverConfig.enabled=false`
+  to mount nothing. Changing any value restarts ClickHouse through the new
+  `checksum/server-config` annotation.
+- `checksum/*` pod annotations now hash only the config payload
+  (`data`/`stringData`/`binaryData`, via the `purl.dataChecksum` helper), not
+  the whole rendered object. Previously the hash included the
+  `helm.sh/chart` label, so every chart version bump restarted ClickHouse,
+  Purl and every Vector pod with nothing changed. `make helm-lint` now fails
+  if a version-only bump changes any checksum.
+- Upgrading to 2.1.3 restarts ClickHouse, Purl and Vector once, because the
+  annotation values change format and ClickHouse gains the new mount. Later
+  version-only upgrades do not.
+
+## 2.1.2
+
+- New `purl.trustedProxies` value (list or comma-separated string), rendered
+  as `PURL_TRUSTED_PROXIES`. Default empty keeps today's behaviour: Purl uses
+  the socket peer and ignores `X-Forwarded-For`. Behind an ingress or mesh,
+  set it to the pod CIDR (and any external proxy) so audit logs, login
+  lockout and IP rate limiting see the real client instead of the ingress pod.
+  Additive; existing values files render unchanged.
+
 ## 2.1.1
 
 - New `terminationGracePeriodSeconds` value, default **60** (was the

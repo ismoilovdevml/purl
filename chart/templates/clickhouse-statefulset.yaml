@@ -36,15 +36,18 @@ spec:
     metadata:
       annotations:
         {{- if .Values.clickhouse.cluster.enabled }}
-        checksum/cluster-config: {{ include (print $.Template.BasePath "/clickhouse-cluster-config.yaml") . | sha256sum }}
+        checksum/cluster-config: {{ include "purl.dataChecksum" (dict "ctx" $ "file" "clickhouse-cluster-config.yaml") }}
         {{- end }}
         {{- if ne .Values.clickhouse.user "default" }}
-        checksum/users-config: {{ include (print $.Template.BasePath "/clickhouse-users-config.yaml") . | sha256sum }}
+        checksum/users-config: {{ include "purl.dataChecksum" (dict "ctx" $ "file" "clickhouse-users-config.yaml") }}
         {{- end }}
         {{- if not .Values.purl.existingSecret }}
         # Roll ClickHouse on password rotation — env values come from the
         # Secret via secretKeyRef, so only a pod template change restarts it.
-        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/secret: {{ include "purl.dataChecksum" (dict "ctx" $ "file" "secret.yaml") }}
+        {{- end }}
+        {{- if .Values.clickhouse.serverConfig.enabled }}
+        checksum/server-config: {{ include "purl.dataChecksum" (dict "ctx" $ "file" "clickhouse-server-config.yaml") }}
         {{- end }}
       labels:
         {{- include "purl.clickhouse.selectorLabels" . | nindent 8 }}
@@ -180,6 +183,13 @@ spec:
               mountPath: /etc/clickhouse-server/config.d/backup-s3.xml
               subPath: backup-s3.xml
             {{- end }}
+            {{- if .Values.clickhouse.serverConfig.enabled }}
+            # Memory/cache bounds (clickhouse.serverConfig). "zz-" sorts it
+            # after the image's own config.d fragments so these values win.
+            - name: server-config
+              mountPath: /etc/clickhouse-server/config.d/zz-purl-server.xml
+              subPath: zz-purl-server.xml
+            {{- end }}
       {{- if and .Values.clickhouse.cluster.enabled .Values.clickhouse.cluster.keeper.enabled }}
       initContainers:
         # Keeper server_id must be 1..N to match <raft_configuration>, but a
@@ -242,6 +252,11 @@ spec:
         - name: backup-s3-config
           configMap:
             name: {{ include "purl.clickhouse.fullname" . }}-backup-s3
+        {{- end }}
+        {{- if .Values.clickhouse.serverConfig.enabled }}
+        - name: server-config
+          configMap:
+            name: {{ include "purl.clickhouse.fullname" . }}-server
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

@@ -277,3 +277,20 @@ Purl image reference
 {{- $tag := default .Chart.AppVersion .Values.image.tag }}
 {{- printf "%s:%s" .Values.image.repository $tag }}
 {{- end }}
+
+{{/*
+Checksum of a rendered config object's PAYLOAD for a checksum/* pod annotation.
+
+Hashes only data / stringData / binaryData. Hashing the whole rendered file
+(the old `include ... | sha256sum`) also hashed metadata.labels, which carry
+helm.sh/chart=purl-<chart version> — so every chart version bump rolled
+ClickHouse, Purl and the Vector DaemonSet even when no configuration or
+credential had changed. Every template passed here must render a single
+document (or nothing).
+
+Usage: {{ include "purl.dataChecksum" (dict "ctx" $ "file" "secret.yaml") }}
+*/}}
+{{- define "purl.dataChecksum" -}}
+{{- $obj := include (print .ctx.Template.BasePath "/" .file) .ctx | fromYaml | default dict -}}
+{{- pick $obj "data" "stringData" "binaryData" | toYaml | sha256sum -}}
+{{- end }}

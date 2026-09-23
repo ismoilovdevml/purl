@@ -261,6 +261,27 @@ purl:
   # default (604800 = 7d); a non-positive or non-numeric value is ignored.
   sessionMaxAge: ""
 
+  # -- PURL_TRUSTED_PROXIES: proxies whose X-Forwarded-For Purl believes, as a
+  # list or a comma-separated string of IPs/CIDRs (IPv4 and IPv6).
+  #
+  # Empty (the default) means Purl uses the TCP peer address and ignores
+  # X-Forwarded-For entirely. Behind an ingress controller or service mesh that
+  # peer is the ingress pod, so every audit-log row shows the ingress IP and
+  # login lockout / IP rate limiting treat ALL users as one client — one
+  # attacker's failed logins lock everybody out.
+  #
+  # Set it to every hop between the client and the pod that APPENDS to
+  # X-Forwarded-For: usually the pod CIDR (the ingress pod, plus the node
+  # SNAT address when the ingress Service uses externalTrafficPolicy=Cluster)
+  # and any external reverse proxy in front of the cluster. Purl walks the
+  # header right to left and takes the first address that is NOT in this list,
+  # so a client-supplied X-Forwarded-For cannot spoof its IP.
+  #
+  # Every pod inside a trusted CIDR can set its own X-Forwarded-For when it
+  # calls Purl directly. List the narrowest ranges that cover your proxies.
+  # e.g. ["10.233.64.0/18"] or "10.244.0.0/16, 203.0.113.10"
+  trustedProxies: []
+
   # -- PURL_GRACEFUL_TIMEOUT: seconds a worker may take to finish in-flight
   # requests and flush its buffer on shutdown before it is killed. Keep it
   # below terminationGracePeriodSeconds. Empty = app default (50).
@@ -408,6 +429,43 @@ clickhouse:
   # -- Cap on the /var/log/clickhouse-server emptyDir. Unbounded, ClickHouse
   # server+error logs grow onto the node filesystem with nothing to stop them.
   logsSizeLimit: 1Gi
+
+  # -- ClickHouse server memory/cache bounds, rendered into
+  # config.d/zz-purl-server.xml (templates/clickhouse-server-config.yaml).
+  #
+  # ClickHouse's own defaults assume a large dedicated host: mark, index-mark
+  # and primary-index caches default to 5 GiB and the uncompressed cache to
+  # 8 GiB — each bigger than clickhouse.resources.limits.memory. Unbounded, the
+  # uncompressed cache filled a 5 GiB pod in ~12 minutes of ingest + search,
+  # every query hit MEMORY_LIMIT_EXCEEDED and the dashboard went down.
+  # The defaults below suit a small install (a few GiB of limit); scale the
+  # caches with the limit, keeping their sum well under
+  # limit x maxServerMemoryUsageToRamRatio so queries and merges have room.
+  # Sizes are bytes. Set a key to "" to omit it and use ClickHouse's default.
+  serverConfig:
+    # -- Render and mount the server config fragment. Changing any value below
+    # restarts ClickHouse (checksum/server-config annotation).
+    enabled: true
+    # -- Fraction of the container memory limit (cgroup) ClickHouse may use in
+    # total before refusing allocations. ClickHouse default: 0.9.
+    maxServerMemoryUsageToRamRatio: 0.8
+    # -- Decompressed-block cache (used by queries with use_uncompressed_cache=1).
+    # 256 MiB. ClickHouse default: 8 GiB.
+    uncompressedCacheSize: 268435456
+    # -- Mark cache (granule offsets for MergeTree reads). 256 MiB.
+    # ClickHouse default: 5 GiB.
+    markCacheSize: 268435456
+    # -- Marks of secondary (skip) indexes. 64 MiB. ClickHouse default: 5 GiB.
+    indexMarkCacheSize: 67108864
+    # -- Primary-index cache (tables with use_primary_key_cache). 128 MiB.
+    # ClickHouse default: 5 GiB.
+    primaryIndexCacheSize: 134217728
+    # -- Query condition cache (granules known not to match a WHERE). 64 MiB.
+    # ClickHouse default: ~100 MiB.
+    queryConditionCacheSize: 67108864
+    # -- Query result cache (queries run with use_query_cache=1). 64 MiB.
+    # ClickHouse default: 1 GiB.
+    queryCacheMaxSizeInBytes: 67108864
 
 # -- Autoscaling (HPA) for Purl pods
 autoscaling:
