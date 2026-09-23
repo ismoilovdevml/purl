@@ -12,6 +12,9 @@ import { login, gotoTab } from './fixtures/purl.js';
  * a service name broke the toolbar's columns. Both now go through
  * utils/csv.js; this spec pins the exact bytes of all three download paths.
  *
+ * #100 extends it: a cell that starts like a formula is exported with a
+ * leading single quote, so a spreadsheet shows it instead of running it.
+ *
  * /api/logs is mocked so the rows — and therefore the expected file — are
  * fixed. `meta` arrives as a JSON string, as the real API sends it.
  */
@@ -44,6 +47,17 @@ const HITS = [
     host: '',
     message: 'plain',
   },
+  {
+    // #100: cells a spreadsheet would run as formulas (log lines are
+    // attacker-controlled).
+    id: 'csv-4',
+    timestamp: TS,
+    level: 'WARN',
+    service: '@svc',
+    host: '-h',
+    message: '=HYPERLINK("http://evil.test","x")',
+    meta: JSON.stringify({ region: '+1' }),
+  },
 ];
 
 // Header, then one record per row; CRLF between records (RFC 4180 §2.1).
@@ -53,6 +67,8 @@ const EXPECTED = [
   `${TS},ERROR,"api,gateway",h1,"He said ""hi""",eu,"a""b"`,
   `${TS},INFO,web,h2,"line one\nline two",us,`,
   `${TS},DEBUG,worker,,plain,,`,
+  // A leading = + - @ TAB CR gets a single quote (OWASP); nothing else changes.
+  `${TS},WARN,'@svc,'-h,"'=HYPERLINK(""http://evil.test"",""x"")",'+1,`,
 ].join('\r\n');
 
 async function downloadedText(page, trigger) {
@@ -85,6 +101,19 @@ test.describe('Log CSV export (#94)', () => {
 
     expect(name).toMatch(/^purl-logs-\d+\.csv$/);
     expect(text).toBe(EXPECTED);
+  });
+
+  test('formula-like cells are neutralised with a leading quote (#100)', async ({ page }) => {
+    await page.locator('.actions-dropdown button.dropdown-trigger', { hasText: 'Actions' }).last().click();
+    const { text } = await downloadedText(page, () =>
+      page.locator('.dropdown-menu.open button:has-text("Export CSV")').click()
+    );
+
+    const record = text.split('\r\n').find((line) => line.includes('HYPERLINK'));
+    expect(record).toContain(`"'=HYPERLINK(""http://evil.test"",""x"")"`);
+    expect(record).toContain(",'@svc,'-h,");
+    // No field in the file may start with a bare formula character.
+    expect(text).not.toMatch(/(^|,|\r\n)"?[=+\-@]/);
   });
 
   test('the selection bar and the Export Selected menu produce the identical file', async ({ page }) => {
