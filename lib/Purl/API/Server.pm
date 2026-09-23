@@ -8,9 +8,11 @@ our $VERSION = '1.3.0';
 use Mojolicious::Lite -signatures;
 use Purl::API::Server::Prefork;
 use Time::HiRes qw(time);
+use Scalar::Util qw(looks_like_number);
 use Purl::Util::ClientIP ();
 
 use Purl::Config;
+use Purl::Config::Defaults;
 use Purl::API::Middleware::Auth;
 use Purl::API::Middleware::NamespaceScope;
 use Purl::API::Server::Builders;
@@ -362,10 +364,24 @@ sub build_prefork {
     my $port    = $opts{port}    // 3000;
     my $workers = $opts{workers} // 4;
 
+    # How long a draining worker may take before the manager SIGKILLs it
+    # (server.graceful_timeout / PURL_GRACEFUL_TIMEOUT). Anything but a
+    # positive, finite number falls back to the default: "inf" and "nan" pass
+    # looks_like_number, hence the explicit bound.
+    my $default_gt = Purl::Config::Defaults::defaults()->{server}{graceful_timeout};
+    my $graceful_timeout = $opts{graceful_timeout} // ($config->{server} // {})->{graceful_timeout};
+    unless (defined $graceful_timeout && looks_like_number($graceful_timeout)
+            && $graceful_timeout > 0 && $graceful_timeout < 9**9**9) {
+        app->log->warn("Invalid server.graceful_timeout '$graceful_timeout', using "
+            . "${default_gt}s") if defined $graceful_timeout;
+        $graceful_timeout = $default_gt;
+    }
+
     my $prefork = Purl::API::Server::Prefork->new(
-        app     => app,
-        listen  => ["http://$host:$port"],
-        workers => $workers,
+        app              => app,
+        listen           => ["http://$host:$port"],
+        workers          => $workers,
+        graceful_timeout => $graceful_timeout,
     );
 
     # ------------------------------------------------------------------
@@ -390,6 +406,7 @@ sub build_prefork {
         storage    => sub { $storage },
         websockets => $websockets,
         log        => app->log,
+        server     => $prefork,
     );
 
     return $prefork;

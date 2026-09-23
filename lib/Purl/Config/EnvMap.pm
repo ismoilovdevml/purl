@@ -89,6 +89,7 @@ my %ENV_MAP = (
     # LLM calls (/api/ai/{query,analyze,explain}) per user per 60s; 0 = off.
     'ai.rate_limit'       => 'PURL_AI_RATE_LIMIT',
     'server.workers'              => 'PURL_WORKERS',
+    'server.graceful_timeout'     => 'PURL_GRACEFUL_TIMEOUT',
     'security.trusted_proxies'    => 'PURL_TRUSTED_PROXIES',
     'security.csrf_enabled'       => 'PURL_CSRF_ENABLED',
     'ingest.durable'              => 'PURL_INGEST_DURABLE',

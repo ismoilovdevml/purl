@@ -29,6 +29,7 @@ BEGIN {
     $ENV{PURL_PIPELINE_REGEX_TIMEOUT_MS} = 777;
     $ENV{PURL_PIPELINE_REGEX_MAX_LENGTH} = 333;
     $ENV{PURL_WORKERS}                   = 3;
+    $ENV{PURL_GRACEFUL_TIMEOUT}          = 33;
     # Keep Config from touching a real settings file.
     $ENV{PURL_CONFIG_FILE} //= File::Spec->catfile(File::Spec->tmpdir, "purl-prefork-$$.json");
 }
@@ -97,6 +98,18 @@ my $pf = $server->build_prefork(host => '127.0.0.1', port => 12345, workers => 4
 isa_ok($pf, 'Mojo::Server::Prefork', 'run() builds a prefork server');
 is($pf->workers, 4, 'worker count is honoured');
 is_deeply($pf->listen, ['http://127.0.0.1:12345'], 'listen address configured');
+
+# graceful_timeout (#90 follow-up): must stay below the orchestrator's grace
+# period, so it comes from config and never silently stays at Mojo's 120s.
+is($eff->{server}{graceful_timeout}, 33,
+    'PURL_GRACEFUL_TIMEOUT folded into config->{server}{graceful_timeout}');
+is($pf->graceful_timeout, 33, 'build_prefork passes the configured graceful_timeout');
+is($server->build_prefork(port => 12345, graceful_timeout => 7.5)->graceful_timeout, 7.5,
+    'an explicit graceful_timeout wins');
+for my $bad ('0', '-5', 'abc', 'inf', 'nan', '') {
+    is($server->build_prefork(port => 12345, graceful_timeout => $bad)->graceful_timeout, 50,
+        "invalid graceful_timeout '$bad' falls back to the 50s default");
+}
 
 # ============================================================
 # 3. CONCURRENCY PROOF — a blocking request must not stall others.
@@ -220,6 +233,14 @@ SKIP: {
 
     diag(sprintf('health_code=%s health_latency=%.3fs slow_finished_before_health=%s',
         $health_code // 'n/a', $health_latency // -1, (defined $slow_done ? 'yes' : 'no')));
+
+    # Regression (#90 follow-up): build_prefork() ran in THIS process and the
+    # singleton loop just ran here. The worker claim must not have fired:
+    # this test process is not a worker, so its END must not flush and its
+    # SIGTERM must keep the default action.
+    is(Purl::API::Server::Shutdown::owner_pid(), undef,
+        'running the loop in a process that only built the server claims no worker role');
+    ok(!ref $SIG{TERM}, 'SIGTERM handler of the building process left untouched');
 
     # --- graceful shutdown (SIGQUIT) ---
     kill 'QUIT', $child_pid if $child_pid;

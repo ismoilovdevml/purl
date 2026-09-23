@@ -13,6 +13,11 @@ my $DEFAULTS = {
         host    => '0.0.0.0',
         port    => 3000,
         workers => 4,
+        # Seconds the prefork manager waits for a draining worker before it
+        # SIGKILLs it. Must stay BELOW the orchestrator's grace period
+        # (terminationGracePeriodSeconds / stop_grace_period, 60s), or a
+        # stuck worker is killed by k8s/docker instead of by the manager.
+        graceful_timeout => 50,
     },
     security => {
         # Comma-separated CIDRs/IPs allowed to set X-Forwarded-For.
