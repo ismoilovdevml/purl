@@ -15,6 +15,7 @@
   import { clusters } from '../../stores/cluster.js';
   import { success as toastSuccess } from '../../stores/toast.js';
   import { downloadBlob } from '../../utils/dom.js';
+  import { downloadLogsCsv } from '../../utils/csv.js';
 
   /**
    * @type {{
@@ -36,8 +37,12 @@
     searchLogs();
   }
 
-  function csvCell(value) {
-    return `"${(value + '').replace(/"/g, '""')}"`;
+  // "Ask AI" → "Apply as search": the generated query becomes the search
+  // query and runs, exactly as if it had been typed into the bar.
+  function applyAIQuery({ sql }) {
+    if (!sql) return;
+    $query = sql;
+    searchLogs();
   }
 
   function exportCSV(logsToExport) {
@@ -47,28 +52,7 @@
       exportStatus = 'preparing';
     }
 
-    // Collect all unique meta keys across all logs
-    const metaKeys = [...new Set(
-      logsToExport.flatMap(l => Object.keys(l.meta || l.parsedMeta || {}))
-    )].sort();
-
-    const headers = ['timestamp', 'level', 'service', 'host', 'message',
-                     ...metaKeys.map(k => `meta.${k}`)];
-
-    const rows = logsToExport.map(log => {
-      const metaObj = log.meta || log.parsedMeta || {};
-      return [
-        log.timestamp || '',
-        log.level || '',
-        log.service || '',
-        log.host || '',
-        csvCell(log.message || ''),
-        ...metaKeys.map(k => csvCell(metaObj[k] !== undefined ? metaObj[k] : '')),
-      ];
-    });
-
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), `purl-logs-${Date.now()}.csv`);
+    downloadLogsCsv(logsToExport, 'purl-logs');
     exportStatus = '';
     toastSuccess(`Exported ${logsToExport.length} logs as CSV`);
   }
@@ -98,7 +82,7 @@
   </button>
 {/snippet}
 
-<SearchBar bind:value={$query} onsearch={searchLogs} />
+<SearchBar bind:value={$query} onsearch={searchLogs} onaiapply={applyAIQuery} />
 <button
   class="search-help-btn"
   onclick={onshowhelp}

@@ -22,7 +22,7 @@
   import AIExplainModal from '../ai/AIExplainModal.svelte';
   import { refreshIngestState } from '../../stores/ingest.js';
   import { defaultColumns } from '../../utils/columns.js';
-  import { downloadBlob } from '../../utils/dom.js';
+  import { downloadLogsCsv } from '../../utils/csv.js';
 
   let {
     logs = [],
@@ -278,21 +278,7 @@
   function exportSelected() {
     const selected = logs.filter(l => selectedIds.has(l.id));
     if (selected.length === 0) return;
-
-    const headers = ['timestamp', 'level', 'service', 'host', 'message'];
-    const csvRows = [headers.join(',')];
-
-    for (const log of selected) {
-      const row = headers.map(h => {
-        const val = log[h] || '';
-        const escaped = String(val).replace(/"/g, '""');
-        return /[,\r\n"]/.test(escaped) ? `"${escaped}"` : escaped;
-      });
-      csvRows.push(row.join(','));
-    }
-
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    downloadBlob(blob, `purl-selected-${Date.now()}.csv`);
+    downloadLogsCsv(selected, 'purl-selected');
   }
 </script>
 
