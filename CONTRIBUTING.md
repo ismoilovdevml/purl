@@ -11,7 +11,7 @@ all welcome.
 
 ## Development setup
 
-You need Docker (with Compose), Perl 5.40, Node.js 20 and `make`. Helm is
+You need Docker (with Compose), Perl 5.42, Node.js 24 and `make`. Helm is
 only needed if you touch `chart/`.
 
 ```bash

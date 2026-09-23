@@ -4,8 +4,10 @@
 #   docker buildx imagetools inspect <image>:<tag>   # copy the index Digest
 # and bump the tag comment alongside it.
 
-# Build web assets — node:20-alpine
-FROM node@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS web-builder
+# Build web assets — node:24-alpine (Active LTS). Node 20 is EOL; 26 is not
+# picked while it is still "Current" (not LTS). Vite 8 / ESLint 10 need
+# ^20.19 || >=22.12, so any 22+/24 LTS satisfies them.
+FROM node@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS web-builder
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -13,8 +15,10 @@ COPY web/ ./
 RUN npm run build
 
 # Perl dependencies builder (build-essential only here, not in final image)
-# perl:5.40-slim-bookworm
-FROM perl@sha256:48af946921e59d23196ac28a40bdbde5b22b7ba89edce911d3d091468a82ff67 AS perl-builder
+# Stable Perl releases only: an ODD minor (5.41, 5.43, ...) is a development
+# series and must never be a base image (see .github/dependabot.yml ignore).
+# perl:5.42-slim-bookworm
+FROM perl@sha256:cb30febd1c9b2bc88c77047454ca0eb8cd0defefad8312bcf3957e6e25e05711 AS perl-builder
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential libssl-dev libxml2-dev \
@@ -29,8 +33,8 @@ COPY cpanfile ./
 RUN cpanm --notest --installdeps .
 
 # Final image (no build-essential = ~400MB smaller)
-# perl:5.40-slim-bookworm
-FROM perl@sha256:48af946921e59d23196ac28a40bdbde5b22b7ba89edce911d3d091468a82ff67
+# perl:5.42-slim-bookworm
+FROM perl@sha256:cb30febd1c9b2bc88c77047454ca0eb8cd0defefad8312bcf3957e6e25e05711
 LABEL maintainer="Purl Contributors"
 LABEL org.opencontainers.image.source="https://github.com/ismoilovdevml/purl"
 LABEL org.opencontainers.image.title="Purl"

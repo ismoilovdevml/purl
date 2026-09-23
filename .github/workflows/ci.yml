@@ -36,10 +36,10 @@ jobs:
     name: Perl Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Cache Perl modules
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: cache-perl
         with:
           path: |
@@ -82,12 +82,13 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '20'
+          # Same major as the Dockerfile web-builder stage (node:24-alpine).
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
@@ -127,7 +128,7 @@ jobs:
         # who hit it.
         helm: ['v3.16.4', 'v4.2.3']
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The action is SHA-pinned but `version` was not, so it installed
       # whatever Helm was newest that morning — and when it could not reach
@@ -398,7 +399,7 @@ jobs:
     name: Release Tag Guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           # merge-base needs real history, not a depth-1 checkout.
@@ -419,9 +420,9 @@ jobs:
           fi
 
       # The message above tells you to bump the chart version too, so enforce
-      # it. Publishing an unchanged chart version is rejected by
-      # `make chart-publish` at the very end of a release, after the Docker
-      # tags are already public — this catches it before anything ships.
+      # it. The Chart Release workflow (chart-release.yml) never republishes a
+      # version already in the index, so an unbumped chart would silently not
+      # ship with the release — this catches it before anything ships.
       - name: Chart version must be bumped since the previous release tag
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -454,7 +455,7 @@ jobs:
           echo "this tag      : ${GITHUB_REF_NAME} (chart version ${CHART_VERSION})"
           if [ "${CHART_VERSION}" = "${PREV_CHART_VERSION}" ]; then
             echo "::error::chart/Chart.yaml version is still ${CHART_VERSION}, unchanged since ${PREV_TAG}."
-            echo "::error::Bump it — charts.purlogs.com will refuse to republish the same version."
+            echo "::error::Bump it — the Chart Release workflow never republishes an existing version."
             exit 1
           fi
 
@@ -483,7 +484,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Blocking gate: dependency vulns (web/package-lock.json, cpanfile)
       # and hardcoded secrets. Suppressions live in /.trivyignore.
@@ -536,7 +537,7 @@ jobs:
       - name: Upload SARIF to code scanning
         if: always()
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
@@ -556,13 +557,13 @@ jobs:
       security-events: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to Docker Hub
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.USER }}
           password: ${{ secrets.PASSWORD }}
@@ -705,7 +706,7 @@ jobs:
     needs: [build-and-push]
     if: github.ref == 'refs/heads/dev'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # A dead cluster is not a failed build. When the control plane is
       # unreachable — as it was for days after the nodes lost their private
@@ -782,7 +783,7 @@ jobs:
     needs: [perl-lint, js-lint, k8s-validate, security-fs, release-guard]
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build Docker image
         run: docker build -t purl:test .

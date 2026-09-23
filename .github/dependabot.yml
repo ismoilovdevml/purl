@@ -82,7 +82,7 @@ updates:
       - dependencies
 
   # ------------------------------------------------------------------
-  # Dockerfile base images (node:20-alpine, perl:5.40-slim-bookworm)
+  # Dockerfile base images (node:24-alpine, perl:5.42-slim-bookworm)
   # ------------------------------------------------------------------
   - package-ecosystem: docker
     directory: /
@@ -97,3 +97,20 @@ updates:
     labels:
       - dependencies
       - docker
+    ignore:
+      # Perl: an ODD minor (5.41, 5.43, ...) is a development series, never a
+      # stable release. PR #75 proposed perl 5.43 as a production base image.
+      - dependency-name: perl
+        versions:
+          - '>= 5.41, < 5.42'
+          - '>= 5.43, < 5.44'
+          - '>= 5.45, < 5.46'
+          - '>= 5.47, < 5.48'
+          - '>= 5.49, < 5.50'
+      # Node: ODD majors never become LTS; even majors are "Current" for
+      # their first ~6 months, so review those by hand before merging.
+      - dependency-name: node
+        versions:
+          - '>= 25, < 26'
+          - '>= 27, < 28'
+          - '>= 29, < 30'
