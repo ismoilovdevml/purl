@@ -8,7 +8,7 @@ use FindBin qw($Bin);
 use lib "$Bin/../../lib";
 use Mojo::JSON qw(encode_json);
 
-use Purl::API::Controller::Settings;
+use Purl::API::Controller::Settings::Redis;
 use Purl::Config;
 
 # ============================================
@@ -115,7 +115,7 @@ subtest 'get_redis returns config and from_env flags' => sub {
         redis    => { url => 'redis://localhost:6379', mode => 'redis' },
         from_env => {},
     );
-    my $ctrl = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $ctrl = Purl::API::Controller::Settings::Redis->new(settings => $settings, storage => MockStorage->new);
     my $c    = MockCtrl->new;
 
     $ctrl->get_redis($c);
@@ -133,7 +133,7 @@ subtest 'get_redis marks env-locked fields' => sub {
         redis    => { url => 'redis://env-host:6379', mode => 'redis' },
         from_env => { 'redis.url' => 1, 'redis.mode' => 1 },
     );
-    my $ctrl = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $ctrl = Purl::API::Controller::Settings::Redis->new(settings => $settings, storage => MockStorage->new);
     my $c    = MockCtrl->new;
 
     $ctrl->get_redis($c);
@@ -148,7 +148,7 @@ subtest 'get_redis marks env-locked fields' => sub {
 # ============================================
 subtest 'update_redis saves broadcast_mode=local' => sub {
     my $settings = MockSettings->new;
-    my $ctrl     = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $ctrl     = Purl::API::Controller::Settings::Redis->new(settings => $settings, storage => MockStorage->new);
     my $c        = MockCtrl->new;
     $c->req->{body} = encode_json({ mode => 'local' });
 
@@ -162,7 +162,7 @@ subtest 'update_redis saves broadcast_mode=local' => sub {
 
 subtest 'update_redis saves redis_url' => sub {
     my $settings = MockSettings->new;
-    my $ctrl     = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $ctrl     = Purl::API::Controller::Settings::Redis->new(settings => $settings, storage => MockStorage->new);
     my $c        = MockCtrl->new;
     $c->req->{body} = encode_json({ url => 'redis://myhost:6379', mode => 'redis' });
 
@@ -176,7 +176,7 @@ subtest 'update_redis saves redis_url' => sub {
 
 subtest 'update_redis rejects invalid mode' => sub {
     my $settings = MockSettings->new;
-    my $ctrl     = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $ctrl     = Purl::API::Controller::Settings::Redis->new(settings => $settings, storage => MockStorage->new);
     my $c        = MockCtrl->new;
     $c->req->{body} = encode_json({ mode => 'invalid_mode' });
 
@@ -189,7 +189,7 @@ subtest 'update_redis rejects invalid mode' => sub {
 
 subtest 'update_redis rejects invalid JSON' => sub {
     my $settings = MockSettings->new;
-    my $ctrl     = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $ctrl     = Purl::API::Controller::Settings::Redis->new(settings => $settings, storage => MockStorage->new);
     my $c        = MockCtrl->new;
     $c->req->{body} = 'not-json';
 
@@ -213,7 +213,7 @@ subtest 'update_redis refuses an env-owned url with 409' => sub {
         redis    => { url => 'redis://env:6379', mode => 'redis' },
         from_env => { 'redis.url' => 1 },
     );
-    my $ctrl = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $ctrl = Purl::API::Controller::Settings::Redis->new(settings => $settings, storage => MockStorage->new);
     my $c    = MockCtrl->new;
     $c->req->{body} = encode_json({ url => 'redis://new:6379', mode => 'local' });
 
@@ -230,7 +230,7 @@ subtest 'update_redis still saves the keys the environment does NOT own' => sub 
         redis    => { url => 'redis://env:6379', mode => 'redis' },
         from_env => { 'redis.url' => 1 },
     );
-    my $ctrl = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $ctrl = Purl::API::Controller::Settings::Redis->new(settings => $settings, storage => MockStorage->new);
     my $c    = MockCtrl->new;
     # No `url` in the body: nothing env-owned is being changed.
     $c->req->{body} = encode_json({ mode => 'local' });
@@ -247,7 +247,7 @@ subtest 'resubmitting the env value unchanged is not an error' => sub {
         redis    => { url => 'redis://env:6379', mode => 'redis' },
         from_env => { 'redis.url' => 1 },
     );
-    my $ctrl = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $ctrl = Purl::API::Controller::Settings::Redis->new(settings => $settings, storage => MockStorage->new);
     my $c    = MockCtrl->new;
     # This is what "load the form, change one field, save" sends: the env-owned
     # field comes back with the value the GET handed out. Nothing changes, so
@@ -263,7 +263,7 @@ subtest 'resubmitting the env value unchanged is not an error' => sub {
 
 subtest 'update_redis returns 500 on save failure' => sub {
     my $settings = MockSettings->new(save_fails => 1);
-    my $ctrl     = Purl::API::Controller::Settings->new(settings => $settings, storage => MockStorage->new);
+    my $ctrl     = Purl::API::Controller::Settings::Redis->new(settings => $settings, storage => MockStorage->new);
     my $c        = MockCtrl->new;
     $c->req->{body} = encode_json({ mode => 'local' });
 

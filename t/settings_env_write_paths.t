@@ -13,6 +13,8 @@ use lib "$Bin/../lib", "$Bin/lib";
 use PurlTest::Mock qw(mock_ctx mock_storage);
 use Purl::Config;
 use Purl::API::Controller::Settings;
+use Purl::API::Controller::Settings::Notifications;
+use Purl::API::Controller::Settings::LDAP;
 use Purl::API::Controller::Backup;
 
 # ============================================
@@ -62,9 +64,12 @@ sub on_disk {
     return decode_json($json);
 }
 
+# One controller per settings section (Purl::API::Controller::Settings::*);
+# no section is the overview / ClickHouse / retention controller.
 sub settings_ctrl {
-    return Purl::API::Controller::Settings->new(
-        storage => mock_storage(), settings => $_[0]);
+    my ($settings, $section) = @_;
+    my $class = "Purl::API::Controller::Settings" . ($section ? "::$section" : "");
+    return $class->new(storage => mock_storage(), settings => $settings);
 }
 
 sub backup_ctrl {
@@ -90,7 +95,7 @@ subtest 'a notifications save keeps the file value the env shadows' => sub {
         body   => encode_json({ enabled => 1, bot_token => 'NEW_TOKEN' }),
         params => { type => 'telegram' },
     );
-    settings_ctrl($settings)->update_notifications($c);
+    settings_ctrl($settings, 'Notifications')->update_notifications($c);
 
     is $c->rendered->{json}{status}, 'ok', 'the save is accepted';
 
@@ -114,7 +119,7 @@ subtest 'the flat sections already behaved this way (the invariant copied)' => s
     });
 
     my $c = mock_ctx(body => encode_json({ search_base => 'dc=new' }));
-    settings_ctrl($settings)->update_ldap($c);
+    settings_ctrl($settings, 'LDAP')->update_ldap($c);
 
     is $c->rendered->{json}{status}, 'ok', 'accepted';
     is on_disk($file)->{ldap}{bind_dn}, 'cn=file', 'file bind_dn survived';
@@ -142,7 +147,7 @@ subtest 'notifications: the UI sends "" for secrets it never received' => sub {
         body   => encode_json({ enabled => 1, bot_token => '', chat_id => '' }),
         params => { type => 'telegram' },
     );
-    settings_ctrl($settings)->update_notifications($c);
+    settings_ctrl($settings, 'Notifications')->update_notifications($c);
 
     my $r = $c->rendered;
     isnt $r->{status}, 409, 'not refused — nothing was actually edited'
@@ -168,7 +173,7 @@ subtest 'a blank secret does not wipe the one already stored' => sub {
         body   => encode_json({ enabled => 0, bot_token => '', chat_id => '' }),
         params => { type => 'telegram' },
     );
-    settings_ctrl($settings)->update_notifications($c);
+    settings_ctrl($settings, 'Notifications')->update_notifications($c);
 
     is $c->rendered->{json}{status}, 'ok', 'saved';
 
@@ -305,13 +310,13 @@ subtest 'PURL_LDAP_TLS_ENABLED=true accepts 1 and still refuses 0' => sub {
 
     my ($settings) = settings_with();
     my $c = mock_ctx(body => encode_json({ tls_enabled => 1 }));
-    settings_ctrl($settings)->update_ldap($c);
+    settings_ctrl($settings, 'LDAP')->update_ldap($c);
     isnt $c->rendered->{status}, 409, '1 means the same as "true"'
         or diag explain $c->rendered;
 
     my ($settings2) = settings_with();
     my $c2 = mock_ctx(body => encode_json({ tls_enabled => \0 }));
-    settings_ctrl($settings2)->update_ldap($c2);
+    settings_ctrl($settings2, 'LDAP')->update_ldap($c2);
     is $c2->rendered->{status}, 409,
         'turning it OFF is a real change and is still refused';
 };

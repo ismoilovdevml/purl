@@ -11,7 +11,7 @@ use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
 use Purl::Config;
-use Purl::API::Controller::Settings;
+use Purl::API::Controller::Settings::ApiKeys;
 
 # ============================================
 # REGRESSION (#45): the API-key endpoints must not pretend.
@@ -53,7 +53,7 @@ my $file = File::Spec->catfile($dir, 'settings.json');
 sub controller {
     local $ENV{PURL_CONFIG_FILE} = $file;
     my $settings = Purl::Config->new(config_file => $file);
-    my $ctrl = Purl::API::Controller::Settings->new(
+    my $ctrl = Purl::API::Controller::Settings::ApiKeys->new(
         storage  => bless({}, 'MockStorage'),
         settings => $settings,
     );

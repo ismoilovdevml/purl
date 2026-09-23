@@ -14,7 +14,7 @@ use Mojo::JSON qw(encode_json);
 use Purl::Config;
 use Purl::API::Middleware::Auth;
 use Purl::API::Controller::Auth;
-use Purl::API::Controller::Settings;
+use Purl::API::Controller::Settings::Users;
 
 # ============================================
 # GitHub issue #18 — a newly created user cannot log in.
@@ -107,9 +107,9 @@ close $seed;
 
 my $auth_mw = Purl::API::Middleware::Auth->new(config => {});
 
-sub settings_ctrl {
+sub users_ctrl {
     my ($settings) = @_;
-    return Purl::API::Controller::Settings->new(
+    return Purl::API::Controller::Settings::Users->new(
         settings        => $settings,
         auth_middleware => $auth_mw,
         storage         => undef,
@@ -134,7 +134,7 @@ sub create_user {
         session => { role => 'admin' },
         stash   => $opts{stash} // {},
     );
-    settings_ctrl($settings)->create_user($c);
+    users_ctrl($settings)->create_user($c);
     return $c->rendered;
 }
 
@@ -144,7 +144,7 @@ sub delete_user {
         params  => { username => $username },
         session => { role => 'admin' },
     );
-    settings_ctrl($settings)->delete_user($c);
+    users_ctrl($settings)->delete_user($c);
     return $c->rendered;
 }
 

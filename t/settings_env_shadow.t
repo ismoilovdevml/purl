@@ -14,6 +14,11 @@ use PurlTest::Mock qw(mock_ctx mock_storage);
 
 use Purl::Config;
 use Purl::API::Controller::Settings;
+use Purl::API::Controller::Settings::Notifications;
+use Purl::API::Controller::Settings::LDAP;
+use Purl::API::Controller::Settings::SSO;
+use Purl::API::Controller::Settings::AI;
+use Purl::API::Controller::Settings::Redis;
 use Purl::API::Controller::Backup;
 
 # ============================================
@@ -44,9 +49,12 @@ sub fresh_settings {
     return Purl::Config->new(config_file => $file);
 }
 
+# One controller per settings section (Purl::API::Controller::Settings::*);
+# no section is the overview / ClickHouse / retention controller.
 sub settings_ctrl {
-    my ($settings) = @_;
-    return Purl::API::Controller::Settings->new(
+    my ($settings, $section) = @_;
+    my $class = 'Purl::API::Controller::Settings' . ($section ? "::$section" : '');
+    return $class->new(
         storage  => mock_storage(),
         settings => $settings,
     );
@@ -74,42 +82,42 @@ my @CASES = (
         env      => { PURL_CLICKHOUSE_HOST => 'env-clickhouse' },
         body     => { host => 'typed-by-admin' },
         blocked  => ['host'],
-        call     => sub { $_[0]->update_clickhouse($_[1]) },
+        call     => sub { settings_ctrl($_[0])->update_clickhouse($_[1]) },
     },
     {
         name     => 'update_ldap (key no hardcoded check knew about)',
         env      => { PURL_LDAP_SEARCH_FILTER => '(uid=%s)' },
         body     => { search_filter => '(sAMAccountName=%s)' },
         blocked  => ['search_filter'],
-        call     => sub { $_[0]->update_ldap($_[1]) },
+        call     => sub { settings_ctrl($_[0], 'LDAP')->update_ldap($_[1]) },
     },
     {
         name     => 'update_sso (key no hardcoded check knew about)',
         env      => { PURL_SAML_NAME_ID_FORMAT => 'persistent' },
         body     => { name_id_format => 'emailAddress' },
         blocked  => ['name_id_format'],
-        call     => sub { $_[0]->update_sso($_[1]) },
+        call     => sub { settings_ctrl($_[0], 'SSO')->update_sso($_[1]) },
     },
     {
         name     => 'update_ai (key that used to be silently skipped)',
         env      => { PURL_AI_MODEL => 'gpt-4o-mini' },
         body     => { model => 'claude-opus' },
         blocked  => ['model'],
-        call     => sub { $_[0]->update_ai($_[1]) },
+        call     => sub { settings_ctrl($_[0], 'AI')->update_ai($_[1]) },
     },
     {
         name     => 'update_redis (key that used to be silently skipped)',
         env      => { PURL_BROADCAST_MODE => 'redis' },
         body     => { mode => 'local' },
         blocked  => ['mode'],
-        call     => sub { $_[0]->update_redis($_[1]) },
+        call     => sub { settings_ctrl($_[0], 'Redis')->update_redis($_[1]) },
     },
     {
         name     => 'update_retention',
         env      => { PURL_RETENTION_DAYS => '30' },
         body     => { days => 7 },
         blocked  => ['days'],
-        call     => sub { $_[0]->update_retention($_[1]) },
+        call     => sub { settings_ctrl($_[0])->update_retention($_[1]) },
     },
 );
 
@@ -119,10 +127,9 @@ for my $case (@CASES) {
         local @ENV{ keys %env } = values %env;
 
         my $settings = fresh_settings();
-        my $ctrl     = settings_ctrl($settings);
         my $c        = mock_ctx(body => encode_json($case->{body}));
 
-        $case->{call}->($ctrl, $c);
+        $case->{call}->($settings, $c);
         my $r = $c->rendered;
 
         is $r->{status}, 409,
@@ -145,7 +152,7 @@ subtest 'update_notifications refuses PURL_TELEGRAM_CHAT_ID' => sub {
     delete local $ENV{PURL_TELEGRAM_BOT_TOKEN};
 
     my $settings = fresh_settings();
-    my $ctrl     = settings_ctrl($settings);
+    my $ctrl     = settings_ctrl($settings, 'Notifications');
     my $c = mock_ctx(
         body   => encode_json({ enabled => 1, chat_id => '-100111' }),
         params => { type => 'telegram' },
@@ -167,7 +174,7 @@ subtest 'update_notifications accepts the body the real UI sends' => sub {
     delete local $ENV{PURL_TELEGRAM_BOT_TOKEN};
 
     my $settings = fresh_settings();
-    my $ctrl     = settings_ctrl($settings);
+    my $ctrl     = settings_ctrl($settings, 'Notifications');
     my $c = mock_ctx(
         body   => encode_json({ enabled => 1, bot_token => '', chat_id => '' }),
         params => { type => 'telegram' },
@@ -223,10 +230,10 @@ subtest 'update_s3_config refuses PURL_BACKUP_S3_REGION' => sub {
 # ============================================
 subtest 'EVERY mappable key of a section is refused, not a curated subset' => sub {
     my %endpoint = (
-        ldap  => sub { $_[0]->update_ldap($_[1]) },
-        saml  => sub { $_[0]->update_sso($_[1]) },
-        ai    => sub { $_[0]->update_ai($_[1]) },
-        redis => sub { $_[0]->update_redis($_[1]) },
+        ldap  => sub { settings_ctrl($_[0], 'LDAP')->update_ldap($_[1]) },
+        saml  => sub { settings_ctrl($_[0], 'SSO')->update_sso($_[1]) },
+        ai    => sub { settings_ctrl($_[0], 'AI')->update_ai($_[1]) },
+        redis => sub { settings_ctrl($_[0], 'Redis')->update_redis($_[1]) },
     );
 
     my $probe = Purl::Config->new(config_file => $file);
@@ -240,12 +247,11 @@ subtest 'EVERY mappable key of a section is refused, not a curated subset' => su
 
             local $ENV{$env_var} = 'environment-value';
             my $settings = fresh_settings();
-            my $ctrl     = settings_ctrl($settings);
 
             # 'different-value' is never equal to the env value, so this is a
             # real attempted change for every key, whatever its type.
             my $c = mock_ctx(body => encode_json({ $key => 'different-value' }));
-            $endpoint{$section}->($ctrl, $c);
+            $endpoint{$section}->($settings, $c);
 
             my $r = $c->rendered;
             is $r->{status}, 409, "$section.$key ($env_var) is refused"
@@ -291,7 +297,7 @@ subtest 'a no-op resubmit of the env value is accepted, not 409' => sub {
     local $ENV{PURL_LDAP_SEARCH_FILTER} = '(uid=%s)';
 
     my $settings = fresh_settings();
-    my $ctrl     = settings_ctrl($settings);
+    my $ctrl     = settings_ctrl($settings, 'LDAP');
     my $c = mock_ctx(body => encode_json({
         search_filter => '(uid=%s)',      # unchanged
         search_base   => 'dc=purl,dc=io', # the actual edit
@@ -311,7 +317,7 @@ subtest 'a masked secret sent back unchanged is not an attempted edit' => sub {
     local $ENV{PURL_LDAP_BIND_PASSWORD} = 'env-secret';
 
     my $settings = fresh_settings();
-    my $ctrl     = settings_ctrl($settings);
+    my $ctrl     = settings_ctrl($settings, 'LDAP');
     my $c = mock_ctx(body => encode_json({
         bind_password => '********',
         search_base   => 'dc=purl,dc=io',
@@ -331,7 +337,7 @@ subtest 'retyping the masked secret to something else IS refused' => sub {
     local $ENV{PURL_LDAP_BIND_PASSWORD} = 'env-secret';
 
     my $settings = fresh_settings();
-    my $ctrl     = settings_ctrl($settings);
+    my $ctrl     = settings_ctrl($settings, 'LDAP');
     my $c = mock_ctx(body => encode_json({ bind_password => 'admin-typed-this' }));
 
     $ctrl->update_ldap($c);
@@ -348,16 +354,15 @@ subtest 'retyping the masked secret to something else IS refused' => sub {
 # ============================================
 subtest 'get_ldap / get_sso report every mappable key, not a subset' => sub {
     my $settings = fresh_settings();
-    my $ctrl     = settings_ctrl($settings);
 
     my %check = (
-        ldap => sub { $_[0]->get_ldap($_[1]) },
-        saml => sub { $_[0]->get_sso($_[1]) },
+        ldap => sub { settings_ctrl($_[0], 'LDAP')->get_ldap($_[1]) },
+        saml => sub { settings_ctrl($_[0], 'SSO')->get_sso($_[1]) },
     );
 
     for my $section (sort keys %check) {
         my $c = mock_ctx();
-        $check{$section}->($ctrl, $c);
+        $check{$section}->($settings, $c);
 
         my @reported = sort keys %{ $c->rendered->{json}{from_env} };
         my @mappable = $settings->env_managed_keys($section);
@@ -406,7 +411,7 @@ subtest 'get_ldap marks the key the environment actually owns' => sub {
     local $ENV{PURL_LDAP_SEARCH_FILTER} = '(uid=%s)';
 
     my $settings = fresh_settings();
-    my $ctrl     = settings_ctrl($settings);
+    my $ctrl     = settings_ctrl($settings, 'LDAP');
     my $c        = mock_ctx();
 
     $ctrl->get_ldap($c);

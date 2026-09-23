@@ -16,6 +16,7 @@ use PurlTest::Mock qw(mock_ctx mock_storage);
 use Purl::Config;
 use Purl::Alert::Telegram;
 use Purl::API::Controller::Settings;
+use Purl::API::Controller::Settings::Notifications;
 require Purl::API::Server;
 
 # ============================================
@@ -65,14 +66,19 @@ sub settings_ctrl {
     );
 }
 
-# Drive PUT /api/settings/notifications/telegram with $body.
+# Drive PUT /api/settings/notifications/telegram with $body, through the
+# notifications controller over the same Purl::Config as $ctrl.
 sub save_telegram {
     my ($ctrl, $body) = @_;
+    my $notifications = Purl::API::Controller::Settings::Notifications->new(
+        storage  => mock_storage(),
+        settings => $ctrl->settings,
+    );
     my $c = mock_ctx(
         body   => encode_json($body),
         params => { type => 'telegram' },
     );
-    $ctrl->update_notifications($c);
+    $notifications->update_notifications($c);
     return $c->rendered;
 }
 

@@ -25,7 +25,7 @@ use POSIX ();
 #      context (the property that makes server-side scheduling possible).
 #   2. Interval resolution: ENV > settings > default, 0 == disabled, and a
 #      floor so a mistyped interval cannot hammer ClickHouse.
-#   3. _run_alert_check() runs the check ONLY in the cron leader — a
+#   3. Cron::run_alert_check() runs the check ONLY in the cron leader — a
 #      non-leader process must NOT send duplicate notifications.
 #   4. setup_routes() actually registers a recurring timer for it.
 #   5. The controller endpoint and the timer share ONE implementation.
@@ -98,16 +98,16 @@ subtest 'alert check interval: ENV > settings > default' => sub {
 
     {
         local $ENV{PURL_ALERT_CHECK_INTERVAL} = '120';
-        is Purl::API::Server::_alert_check_interval($settings), 120,
+        is Purl::API::Server::Cron::alert_check_interval($settings), 120,
             'PURL_ALERT_CHECK_INTERVAL wins over settings';
     }
 
     {
         local %ENV = %ENV;
         delete $ENV{PURL_ALERT_CHECK_INTERVAL};
-        is Purl::API::Server::_alert_check_interval($settings), 45,
+        is Purl::API::Server::Cron::alert_check_interval($settings), 45,
             'settings alerts.check_interval_seconds is used when no ENV';
-        is Purl::API::Server::_alert_check_interval(undef), 60,
+        is Purl::API::Server::Cron::alert_check_interval(undef), 60,
             'default is 60s with neither ENV nor settings';
     }
 
@@ -115,15 +115,15 @@ subtest 'alert check interval: ENV > settings > default' => sub {
     # Treating that as "junk" disabled alerting entirely on a default install.
     {
         local $ENV{PURL_ALERT_CHECK_INTERVAL} = '';
-        is Purl::API::Server::_alert_check_interval(MockSettings->new(undef)), 60,
+        is Purl::API::Server::Cron::alert_check_interval(MockSettings->new(undef)), 60,
             'empty env var falls back to the default, it does NOT disable alerting';
-        is Purl::API::Server::_alert_check_interval($settings), 45,
+        is Purl::API::Server::Cron::alert_check_interval($settings), 45,
             'empty env var falls through to settings';
     }
 
     {
         local $ENV{PURL_ALERT_CHECK_INTERVAL} = ' 90 ';
-        is Purl::API::Server::_alert_check_interval(MockSettings->new(undef)), 90,
+        is Purl::API::Server::Cron::alert_check_interval(MockSettings->new(undef)), 90,
             'surrounding whitespace is trimmed, not treated as junk';
     }
 };
@@ -132,20 +132,20 @@ subtest 'alert check interval: 0 disables, junk disables, low values floored' =>
     local %ENV = %ENV;
 
     $ENV{PURL_ALERT_CHECK_INTERVAL} = '0';
-    is Purl::API::Server::_alert_check_interval(MockSettings->new(undef)), 0, '0 disables the timer';
+    is Purl::API::Server::Cron::alert_check_interval(MockSettings->new(undef)), 0, '0 disables the timer';
 
     $ENV{PURL_ALERT_CHECK_INTERVAL} = 'not-a-number';
-    is Purl::API::Server::_alert_check_interval(MockSettings->new(undef)), 0, 'junk disables the timer';
+    is Purl::API::Server::Cron::alert_check_interval(MockSettings->new(undef)), 0, 'junk disables the timer';
 
     $ENV{PURL_ALERT_CHECK_INTERVAL} = '-5';
-    is Purl::API::Server::_alert_check_interval(MockSettings->new(undef)), 0, 'negative disables the timer';
+    is Purl::API::Server::Cron::alert_check_interval(MockSettings->new(undef)), 0, 'negative disables the timer';
 
     $ENV{PURL_ALERT_CHECK_INTERVAL} = '1';
-    is Purl::API::Server::_alert_check_interval(MockSettings->new(undef)), 10,
+    is Purl::API::Server::Cron::alert_check_interval(MockSettings->new(undef)), 10,
         '1s is raised to the 10s floor (check_alerts scans every rule)';
 
     $ENV{PURL_ALERT_CHECK_INTERVAL} = '300';
-    is Purl::API::Server::_alert_check_interval(MockSettings->new(undef)), 300, 'sane values pass through';
+    is Purl::API::Server::Cron::alert_check_interval(MockSettings->new(undef)), 300, 'sane values pass through';
 };
 
 # ============================================================
@@ -155,7 +155,7 @@ my $lock = File::Spec->catfile(File::Spec->tmpdir, "purl-alert-lead-$$.lock");
 unlink $lock;
 
 subtest 'leader runs the check; a non-leader process does NOT' => sub {
-    $Purl::API::Server::CRON_LEADER_FH = undef;
+    $Purl::API::Server::Cron::CRON_LEADER_FH = undef;
 
     my $storage = MockAlertStorage->new([
         { name => 'disk-full', notify_type => 'telegram', count => 7 },
@@ -167,7 +167,7 @@ subtest 'leader runs the check; a non-leader process does NOT' => sub {
     );
 
     # This process takes leadership and runs.
-    my $result = Purl::API::Server::_run_alert_check($sched, $lock);
+    my $result = Purl::API::Server::Cron::run_alert_check($sched, $lock);
     ok defined $result, 'leader ran the check';
     is $storage->calls, 1, 'check_alerts evaluated exactly once';
     is_deeply $telegram->sent, ['disk-full'], 'leader sent the notification';
@@ -178,7 +178,7 @@ subtest 'leader runs the check; a non-leader process does NOT' => sub {
         diag("fork failed: $! -- skipping non-leader check");
     }
     elsif ($pid == 0) {
-        $Purl::API::Server::CRON_LEADER_FH = undef;   # drop inherited leadership
+        $Purl::API::Server::Cron::CRON_LEADER_FH = undef;   # drop inherited leadership
         my $child_storage = MockAlertStorage->new([
             { name => 'disk-full', notify_type => 'telegram', count => 7 },
         ]);
@@ -186,7 +186,7 @@ subtest 'leader runs the check; a non-leader process does NOT' => sub {
             storage   => $child_storage,
             notifiers => { telegram => MockNotifier->new },
         );
-        my $r = Purl::API::Server::_run_alert_check($child_sched, $lock);
+        my $r = Purl::API::Server::Cron::run_alert_check($child_sched, $lock);
         # exit 0 == correctly skipped (no result, no evaluation)
         POSIX::_exit((!defined $r && $child_storage->calls == 0) ? 0 : 1);
     }
@@ -198,16 +198,16 @@ subtest 'leader runs the check; a non-leader process does NOT' => sub {
 };
 
 subtest 'a failing storage does not propagate out of the timer tick' => sub {
-    $Purl::API::Server::CRON_LEADER_FH = undef;
+    $Purl::API::Server::Cron::CRON_LEADER_FH = undef;
     my $sched = Purl::Alert::Scheduler->new(storage => DyingStorage->new);
-    my $result = Purl::API::Server::_run_alert_check($sched, $lock);
+    my $result = Purl::API::Server::Cron::run_alert_check($sched, $lock);
     ok defined $result, 'tick returned instead of dying';
     like $result->{error}, qr/clickhouse unreachable/, 'error is reported, not thrown';
     is_deeply $result->{triggered}, [], 'no alerts claimed as triggered';
 };
 
-close $Purl::API::Server::CRON_LEADER_FH if $Purl::API::Server::CRON_LEADER_FH;
-$Purl::API::Server::CRON_LEADER_FH = undef;
+close $Purl::API::Server::Cron::CRON_LEADER_FH if $Purl::API::Server::Cron::CRON_LEADER_FH;
+$Purl::API::Server::Cron::CRON_LEADER_FH = undef;
 unlink $lock;
 
 # ============================================================
@@ -282,7 +282,7 @@ done_testing;
 # ------------------------------------------------------------
 {
     # Mirrors Purl::Config::get precedence for this key: ENV wins, but an
-    # empty-or-missing env var falls through. _alert_check_interval delegates
+    # empty-or-missing env var falls through. Cron::alert_check_interval delegates
     # to this rather than reading %ENV itself, so the mock must model it — an
     # unfaithful mock is what let PURL_ALERT_CHECK_INTERVAL="" ship as
     # "alerting silently disabled".

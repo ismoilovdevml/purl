@@ -12,7 +12,7 @@ use POSIX ();
 # In prefork, setup_routes() registers the recurring timers in the manager
 # BEFORE fork, so every worker inherits them. Host-wide singleton jobs
 # (scheduled backup, alert evaluation) must run in EXACTLY ONE process. We
-# gate them behind Purl::API::Server::_acquire_cron_leadership(), which lets
+# gate them behind Purl::API::Server::Cron::acquire_leadership(), which lets
 # exactly one process hold an exclusive advisory lock at a time and is
 # self-healing when the holder dies.
 #
@@ -24,29 +24,29 @@ use POSIX ();
 # process": mutual exclusion + self-healing takeover after the leader dies.
 # ============================================================
 
-require Purl::API::Server;
+require Purl::API::Server::Cron;
 
 my $lock = File::Spec->catfile(File::Spec->tmpdir, "purl-cron-lead-$$.lock");
 unlink $lock;
 
 # Reset any leadership state this process may have picked up.
-$Purl::API::Server::CRON_LEADER_FH = undef;
+$Purl::API::Server::Cron::CRON_LEADER_FH = undef;
 
 # ------------------------------------------------------------
 # 1. Fresh acquire -> this process becomes leader.
 # ------------------------------------------------------------
-ok(Purl::API::Server::_acquire_cron_leadership($lock),
+ok(Purl::API::Server::Cron::acquire_leadership($lock),
     'fresh acquire returns true (became cron leader)');
-ok(defined $Purl::API::Server::CRON_LEADER_FH,
+ok(defined $Purl::API::Server::Cron::CRON_LEADER_FH,
     'leader holds the lock descriptor open');
 
 # ------------------------------------------------------------
 # 2. Idempotent -> calling again while leader stays true, no reopen.
 # ------------------------------------------------------------
-my $fh_before = $Purl::API::Server::CRON_LEADER_FH;
-ok(Purl::API::Server::_acquire_cron_leadership($lock),
+my $fh_before = $Purl::API::Server::Cron::CRON_LEADER_FH;
+ok(Purl::API::Server::Cron::acquire_leadership($lock),
     'second call while already leader returns true');
-is($Purl::API::Server::CRON_LEADER_FH, $fh_before,
+is($Purl::API::Server::Cron::CRON_LEADER_FH, $fh_before,
     'idempotent: descriptor not reopened on repeat acquire');
 
 # ------------------------------------------------------------
@@ -62,8 +62,8 @@ is($Purl::API::Server::CRON_LEADER_FH, $fh_before,
     elsif ($pid == 0) {
         # Child: drop the inherited "already leader" flag so we genuinely
         # re-attempt the flock against the parent's held lock.
-        $Purl::API::Server::CRON_LEADER_FH = undef;
-        my $got = Purl::API::Server::_acquire_cron_leadership($lock);
+        $Purl::API::Server::Cron::CRON_LEADER_FH = undef;
+        my $got = Purl::API::Server::Cron::acquire_leadership($lock);
         # exit 0 == correctly DENIED, exit 1 == wrongly acquired.
         POSIX::_exit($got ? 1 : 0);
     }
@@ -79,8 +79,8 @@ is($Purl::API::Server::CRON_LEADER_FH, $fh_before,
 #    another process CAN acquire it. This is the failover behaviour the
 #    30s election tick relies on.
 # ------------------------------------------------------------
-close $Purl::API::Server::CRON_LEADER_FH if $Purl::API::Server::CRON_LEADER_FH;
-$Purl::API::Server::CRON_LEADER_FH = undef;   # simulate leader process exit
+close $Purl::API::Server::Cron::CRON_LEADER_FH if $Purl::API::Server::Cron::CRON_LEADER_FH;
+$Purl::API::Server::Cron::CRON_LEADER_FH = undef;   # simulate leader process exit
 
 {
     my $pid = fork();
@@ -88,8 +88,8 @@ $Purl::API::Server::CRON_LEADER_FH = undef;   # simulate leader process exit
         diag("fork failed: $! -- skipping takeover check");
     }
     elsif ($pid == 0) {
-        $Purl::API::Server::CRON_LEADER_FH = undef;
-        my $got = Purl::API::Server::_acquire_cron_leadership($lock);
+        $Purl::API::Server::Cron::CRON_LEADER_FH = undef;
+        my $got = Purl::API::Server::Cron::acquire_leadership($lock);
         POSIX::_exit($got ? 0 : 1);   # exit 0 == successfully took over
     }
     else {
@@ -104,10 +104,10 @@ $Purl::API::Server::CRON_LEADER_FH = undef;   # simulate leader process exit
 # ------------------------------------------------------------
 {
     local $ENV{PURL_CRON_LOCK_FILE} = '/some/custom/purl.lock';
-    is(Purl::API::Server::_cron_lock_path(), '/some/custom/purl.lock',
+    is(Purl::API::Server::Cron::cron_lock_path(), '/some/custom/purl.lock',
         'PURL_CRON_LOCK_FILE overrides the default lock path');
 }
-like(Purl::API::Server::_cron_lock_path(), qr/purl-cron-leader\.lock$/,
+like(Purl::API::Server::Cron::cron_lock_path(), qr/purl-cron-leader\.lock$/,
     'default lock path falls back to tmpdir/purl-cron-leader.lock');
 
 unlink $lock;

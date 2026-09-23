@@ -10,12 +10,23 @@ my @modules = qw(
     Purl::Config
     Purl::Util::Time
     Purl::API::Middleware::Auth
+    Purl::API::Middleware::Auth::Password
+    Purl::API::Middleware::Auth::CSRF
+    Purl::API::Middleware::Auth::RateLimit
+    Purl::API::Middleware::Auth::LoginLockout
     Purl::API::Controller::Base
     Purl::API::Controller::Logs
     Purl::API::Controller::Auth
     Purl::API::Controller::SSOStatus
     Purl::API::Controller::Alerts
     Purl::API::Controller::Settings
+    Purl::API::Controller::Settings::Notifications
+    Purl::API::Controller::Settings::ApiKeys
+    Purl::API::Controller::Settings::Users
+    Purl::API::Controller::Settings::LDAP
+    Purl::API::Controller::Settings::SSO
+    Purl::API::Controller::Settings::AI
+    Purl::API::Controller::Settings::Redis
     Purl::API::Controller::Patterns
     Purl::API::Controller::Traces
     Purl::API::Controller::System
@@ -33,6 +44,22 @@ my @modules = qw(
     Purl::Alert::Slack
     Purl::Alert::Webhook
     Purl::Storage::ClickHouse
+    Purl::Storage::ClickHouse::Connection
+    Purl::Storage::ClickHouse::CircuitBreaker
+    Purl::Storage::ClickHouse::Schema
+    Purl::Storage::ClickHouse::Ingest
+    Purl::Storage::ClickHouse::Search
+    Purl::Storage::ClickHouse::Traces
+    Purl::API::Server::Builders
+    Purl::API::Server::Bootstrap
+    Purl::API::Server::Cron
+    Purl::API::Server::Hooks
+    Purl::API::Routes
+    Purl::API::Routes::System
+    Purl::API::Routes::Logs
+    Purl::API::Routes::Management
+    Purl::API::Routes::Integrations
+    Purl::API::Routes::LiveTail
 );
 
 for my $module (@modules) {

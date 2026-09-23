@@ -13,6 +13,8 @@ use lib "$Bin/../lib", "$Bin/lib";
 use PurlTest::Mock qw(mock_ctx mock_storage);
 use Purl::Config;
 use Purl::API::Controller::Settings;
+use Purl::API::Controller::Settings::Notifications;
+use Purl::API::Controller::Settings::LDAP;
 use Purl::API::Controller::Backup;
 
 # ============================================
@@ -68,9 +70,12 @@ sub on_disk {
     return decode_json($json);
 }
 
+# One controller per settings section (Purl::API::Controller::Settings::*);
+# no section is the overview / ClickHouse / retention controller.
 sub settings_ctrl {
-    return Purl::API::Controller::Settings->new(
-        storage => mock_storage(), settings => $_[0]);
+    my ($settings, $section) = @_;
+    my $class = "Purl::API::Controller::Settings" . ($section ? "::$section" : "");
+    return $class->new(storage => mock_storage(), settings => $settings);
 }
 
 sub backup_ctrl {
@@ -195,7 +200,7 @@ subtest 'notifications: clear_bot_token deletes the stored token' => sub {
         }),
         params => { type => 'telegram' },
     );
-    settings_ctrl($settings)->update_notifications($c);
+    settings_ctrl($settings, 'Notifications')->update_notifications($c);
 
     is $c->rendered->{json}{status}, 'ok', 'accepted';
     is_deeply $c->rendered->{json}{cleared}, ['telegram.bot_token'],
@@ -220,7 +225,7 @@ subtest 'without the flag an empty field still means "untouched" (#56 holds)' =>
         body   => encode_json({ enabled => 0, bot_token => '', chat_id => '' }),
         params => { type => 'telegram' },
     );
-    settings_ctrl($settings)->update_notifications($c);
+    settings_ctrl($settings, 'Notifications')->update_notifications($c);
 
     is $c->rendered->{json}{status}, 'ok', 'accepted';
     is on_disk($file)->{notifications}{telegram}{bot_token}, 'REAL_TOKEN',
@@ -288,7 +293,7 @@ subtest 'clearing an ENV-owned key is a 409 and changes nothing' => sub {
         body   => encode_json({ enabled => 1, bot_token => '', clear_bot_token => \1 }),
         params => { type => 'telegram' },
     );
-    settings_ctrl($settings)->update_notifications($c);
+    settings_ctrl($settings, 'Notifications')->update_notifications($c);
 
     is $c->rendered->{status}, 409, 'refused — the environment owns the value'
         or diag explain $c->rendered;
@@ -306,7 +311,7 @@ subtest 'a clear flag for a key that is not a write-only secret is a 400' => sub
         body   => encode_json({ enabled => 1, clear_channel => \1 }),
         params => { type => 'slack' },
     );
-    settings_ctrl($settings)->update_notifications($c);
+    settings_ctrl($settings, 'Notifications')->update_notifications($c);
 
     is $c->rendered->{status}, 400, 'refused as a bad request'
         or diag explain $c->rendered;
@@ -361,7 +366,7 @@ subtest 'the masked keys keep clearing on empty — the asymmetry is intact' => 
     });
 
     my $c = mock_ctx(body => encode_json({ bind_password => '', search_base => 'dc=y' }));
-    settings_ctrl($settings)->update_ldap($c);
+    settings_ctrl($settings, 'LDAP')->update_ldap($c);
 
     is $c->rendered->{json}{status}, 'ok', 'accepted';
     is on_disk($file)->{ldap}{bind_password}, '',
