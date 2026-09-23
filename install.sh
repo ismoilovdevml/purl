@@ -155,6 +155,8 @@ install_purl_docker() {
 
     local ch_password=$(generate_password 24)
     local api_key=$(generate_api_key)
+    local session_secret=$(openssl rand -hex 32)
+    local admin_password=$(generate_password 16)
     local purl_port="3000"
     local retention_days="30"
 
@@ -163,6 +165,7 @@ install_purl_docker() {
         log_step "Configuration"
         ch_password=$(prompt "ClickHouse password" "$ch_password")
         api_key=$(prompt "API Key" "$api_key")
+        admin_password=$(prompt "Admin password" "$admin_password")
         purl_port=$(prompt "Purl port" "$purl_port")
         retention_days=$(prompt "Log retention (days)" "$retention_days")
     fi
@@ -178,6 +181,8 @@ PURL_CLICKHOUSE_USER=purl
 PURL_CLICKHOUSE_PASSWORD=$ch_password
 PURL_AUTH_ENABLED=1
 PURL_API_KEYS=$api_key
+PURL_SESSION_SECRET=$session_secret
+PURL_ADMIN_PASSWORD=$admin_password
 PURL_RETENTION_DAYS=$retention_days
 VECTOR_HOSTNAME=$(hostname)
 EOF
@@ -212,7 +217,10 @@ EOF
     local server_ip=$(get_ip_address)
     cat > "$install_path/.credentials" << EOF
 PURL_URL=http://$server_ip:$purl_port
+ADMIN_USER=admin
+ADMIN_PASSWORD=$admin_password
 API_KEY=$api_key
+SESSION_SECRET=$session_secret
 CLICKHOUSE_PASSWORD=$ch_password
 EOF
     chmod 600 "$install_path/.credentials"
@@ -222,14 +230,16 @@ EOF
     echo -e "${GREEN}   Purl Installation Complete!${NC}"
     echo -e "${GREEN}============================================${NC}"
     echo
-    echo -e "${BOLD}Dashboard:${NC} http://$server_ip:$purl_port"
-    echo -e "${BOLD}API Key:${NC} $api_key"
+    echo -e "${BOLD}Dashboard:${NC}  http://$server_ip:$purl_port"
+    echo -e "${BOLD}Username:${NC}   admin"
+    echo -e "${BOLD}Password:${NC}   $admin_password"
+    echo -e "${BOLD}API Key:${NC}    $api_key"
     echo
     echo -e "${BOLD}Remote agents:${NC}"
     echo -e "  PURL_URL=http://$server_ip:$purl_port"
     echo -e "  PURL_API_KEY=$api_key"
     echo
-    echo -e "${YELLOW}Credentials: $install_path/.credentials${NC}"
+    echo -e "${YELLOW}Credentials saved: $install_path/.credentials${NC}"
     echo
 }
 
