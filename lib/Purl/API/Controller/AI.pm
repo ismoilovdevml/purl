@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::Principal qw(principal_via principal_user);
 use namespace::clean;
 use Mojo::JSON qw(decode_json encode_json);
 use JSON::PP ();
@@ -32,7 +33,7 @@ has 'settings' => (
 sub _require_session_user {
     my ($self, $c) = @_;
     return 1 if $self->settings && !$self->settings->auth_enabled;
-    return 1 if $c->session('logged_in') && $c->session('username');
+    return 1 if principal_via($c) eq 'session' && defined principal_user($c);
     $self->render_error($c, 'AI requires a signed-in user', 403);
     return 0;
 }

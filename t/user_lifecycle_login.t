@@ -82,6 +82,11 @@ use Purl::API::Controller::Settings::Users;
     sub audit_event { }
     sub stash {
         my ($s, $k, $v) = @_;
+        # The principal check_auth records for the signed-in caller
+        # (Purl::Util::Principal); require_role reads it, not the cookie.
+        $s->{stash}{'purl.principal'} //= { via => 'session', username => 'admin',
+                                            role => $s->{session}{role} // 'viewer' }
+            if $s->{session}{role};
         return $s->{stash} unless defined $k;
         $s->{stash}{$k} = $v if defined $v;
         return $s->{stash}{$k};

@@ -67,6 +67,9 @@ my $json = JSON::XS->new->utf8;
     sub rendered { $_[0]->{rendered} }
     sub stash {
         my ($self, $key, $val) = @_;
+        # The principal check_auth records for a signed-in user
+        # (Purl::Util::Principal); require_role reads it, not the cookie.
+        $self->{stash}{'purl.principal'} //= { via => 'session', username => $self->{session}{username}, role => $self->{session}{role} // 'viewer' };
         return $self->{stash} unless defined $key;
         $self->{stash}{$key} = $val if defined $val;
         return $self->{stash}{$key};

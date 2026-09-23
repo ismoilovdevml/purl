@@ -7,10 +7,11 @@ use Exporter qw(import);
 use Scalar::Util qw(looks_like_number);
 use Time::HiRes ();
 use Purl::Util::Random qw(random_hex);
+use Purl::Util::Principal qw(set_principal clear_principal);
 
 our @EXPORT_OK = qw(
     start_session session_is_valid check_session end_session
-    revoke_sessions session_max_age
+    revoke_sessions mark_revoked session_max_age
 );
 
 # ============================================
@@ -47,12 +48,17 @@ sub _now { return Time::HiRes::time() }
 
 # Absolute session lifetime in seconds: PURL_SESSION_MAX_AGE, then
 # session.max_age in settings.json, then 7 days. A value that is not a
-# positive number is skipped — it can never disable the limit.
+# positive, finite number is skipped — it can never disable the limit
+# ("inf" and "nan" pass looks_like_number, hence the explicit bound).
+my $INFINITY = 9**9**9;
+
 sub session_max_age {
     my ($settings) = @_;
     for my $v ($ENV{PURL_SESSION_MAX_AGE},
                $settings ? eval { $settings->get('session', 'max_age') } : undef) {
-        return $v + 0 if defined $v && looks_like_number($v) && $v > 0;
+        next unless defined $v && looks_like_number($v);
+        my $n = $v + 0;
+        return $n if $n > 0 && $n < $INFINITY;
     }
     return $DEFAULT_MAX_AGE;
 }
@@ -84,7 +90,20 @@ sub start_session {
     $session->{sid}       = random_hex(16);    # 128 bits
     $session->{iat}       = $now > $floor ? $now : $floor + 0.001;
     $c->session(expiration => $IDLE_EXPIRATION);
+    _set_session_principal($c, $session);
     return $session;
+}
+
+# The rest of this request acts as the session's user (see Purl::Util::Principal).
+sub _set_session_principal {
+    my ($c, $session) = @_;
+    return set_principal($c,
+        via                  => 'session',
+        username             => $session->{username},
+        role                 => $session->{role} // 'viewer',
+        login_method         => $session->{auth_method} // 'local',
+        must_change_password => $session->{must_change_password} ? 1 : 0,
+    );
 }
 
 sub session_is_valid {
@@ -121,34 +140,69 @@ sub end_session {
     my $session = $c->session;
     %$session = ();
     $c->session(expires => 1);
+    clear_principal($c);
     return;
 }
 
-# Validate the request's session; a present-but-invalid one is ended so the
-# stale cookie is not re-signed back to the browser. Returns 1/0.
+# Validate the request's session; on success the request's principal becomes
+# the session's user. A present-but-invalid one is ended so the stale cookie is
+# not re-signed back to the browser. Returns 1/0.
 sub check_session {
     my ($c, $auth_section, $max_age) = @_;
     my $session = $c->session;
     return 0 unless $session->{logged_in} || $session->{username};
-    return 1 if session_is_valid($session, $auth_section, $max_age);
+    if (session_is_valid($session, $auth_section, $max_age)) {
+        _set_session_principal($c, $session);
+        return 1;
+    }
     end_session($c);
     return 0;
 }
 
-# Kill every session of $username issued up to now, on every worker/replica.
+# Move $username's revocation stamp in an auth section the caller holds under
+# the settings lock (update_section). The new stamp is
+#
+#   max(now, $at_least, existing + $STAMP_STEP)
+#
+# so it only ever moves forward, and always strictly past the old one:
+#
+# - Overwriting with "now" would revive a cookie an earlier revocation killed
+#   with a later stamp (a clock-ahead replica's iat).
+# - Merely KEEPING a stamp that is ahead of this clock is not enough either:
+#   start_session issues iat = old stamp + 1ms while the stamp is in the
+#   future, and a revocation that left the stamp where it was would not kill
+#   those sessions until real time caught up.
+# - "now" is read here, under the lock, so a writer that waited for the lock
+#   never stores an older time than the one it found.
+#
 # $at_least (optional) is the iat of the session asking for it: a cookie minted
 # by a replica whose clock runs ahead of this one would otherwise outlive its
-# own logout. Returns the settings save result.
+# own logout.
+my $STAMP_STEP = 0.002;    # > the 1ms start_session adds to a future stamp
+
+sub mark_revoked {
+    my ($section, $username, $at_least) = @_;
+    $section->{sessions_valid_after} = {}
+        unless ref $section->{sessions_valid_after} eq 'HASH';
+    my $map = $section->{sessions_valid_after};
+
+    my $existing = $map->{$username};
+    my $stamp = _now();
+    for my $v ($at_least, looks_like_number($existing) ? $existing + $STAMP_STEP : undef) {
+        $stamp = $v if looks_like_number($v) && $v > $stamp;
+    }
+    $map->{$username} = $stamp;
+    return $stamp;
+}
+
+# Kill every session of $username issued up to now, on every worker/replica.
+# Returns the settings save result (false = NOT revoked; callers must say so).
 sub revoke_sessions {
     my ($settings, $username, $at_least) = @_;
     return 0 unless $settings && defined $username && length $username;
-    my $stamp = _now();
-    $stamp = $at_least if looks_like_number($at_least) && $at_least > $stamp;
     return $settings->update_section('auth', sub {
         my ($section) = @_;
-        $section->{sessions_valid_after} = {}
-            unless ref $section->{sessions_valid_after} eq 'HASH';
-        $section->{sessions_valid_after}{$username} = $stamp;
+        mark_revoked($section, $username, $at_least);
         return;
     });
 }
@@ -175,13 +229,17 @@ the user's C<auth.sessions_valid_after> stamp and, for local accounts, the user
 still exists.
 
 =item * check_session($c, $auth_section, $max_age) - C<session_is_valid> on the
-request's session; ends an invalid one.
+request's session; a valid one becomes the request principal
+(L<Purl::Util::Principal>), an invalid one is ended.
 
 =item * end_session($c) - clear the session and expire the cookie.
 
-=item * revoke_sessions($settings, $username, $at_least) - set the user's
-C<sessions_valid_after> to now (or C<$at_least> if later) in settings.json
-(seen by every worker).
+=item * mark_revoked($auth_section, $username, $at_least) - move the user's
+C<sessions_valid_after> to max(now, C<$at_least>, existing + 2ms) inside an
+C<update_section('auth', ...)> callback the caller is already running.
+
+=item * revoke_sessions($settings, $username, $at_least) - C<mark_revoked> in
+its own locked settings write (seen by every worker). Returns the save result.
 
 =item * session_max_age($settings) - C<PURL_SESSION_MAX_AGE>, then
 C<session.max_age>, then 7 days (seconds).

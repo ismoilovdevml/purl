@@ -4,17 +4,24 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::Principal qw(principal_via principal_user);
 use namespace::clean;
 
 extends 'Purl::API::Controller::Base';
+
+# A signed-in user or an API key (the credentials that reached this before);
+# the admin check that follows decides the rest.
+sub _authenticated {
+    my ($c) = @_;
+    my $via = principal_via($c);
+    return $via eq 'api_key' || ($via eq 'session' && defined principal_user($c));
+}
 
 sub list {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        my $username = $c->session('username');
-        my $api_key  = $c->req->headers->header('X-API-Key');
-        unless ($username || $api_key) {
+        unless (_authenticated($c)) {
             $self->render_error($c, 'Unauthorized', 401);
             return;
         }
@@ -60,9 +67,7 @@ sub stats {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        my $username = $c->session('username');
-        my $api_key  = $c->req->headers->header('X-API-Key');
-        unless ($username || $api_key) {
+        unless (_authenticated($c)) {
             $self->render_error($c, 'Unauthorized', 401);
             return;
         }

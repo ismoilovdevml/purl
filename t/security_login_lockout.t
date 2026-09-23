@@ -86,6 +86,12 @@ use Purl::API::Controller::Auth;
         $self->{session}{$a[0]} = $a[1] if @a == 2;
     }
     sub audit_event { push @{$_[0]->{audit}}, { @_[1 .. $#_] } }
+    sub stash {
+        my ($self, $k, $v) = @_;
+        return $self->{stash} //= {} unless defined $k;
+        $self->{stash}{$k} = $v if defined $v;
+        return $self->{stash}{$k};
+    }
 }
 
 # Real middleware (in-memory counter store) + real controller.

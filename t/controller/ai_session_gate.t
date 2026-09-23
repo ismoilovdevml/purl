@@ -43,6 +43,16 @@ use Purl::API::Controller::AI;
     sub req      { $_[0]->{req} }
     sub app      { $_[0]->{app} }
     sub session  { $_[0]->{session}{ $_[1] } }
+    # What check_auth records for a valid session cookie (Purl::Util::Principal):
+    # the AI gate reads this, never the cookie.
+    sub stash {
+        my ($s, $k) = @_;
+        my $sess = $s->{session};
+        my %st = $sess->{logged_in}
+            ? ('purl.principal' => { via => 'session', username => $sess->{username}, role => $sess->{role} })
+            : ();
+        return defined $k ? $st{$k} : \%st;
+    }
     sub param    { undef }
     sub render   { my ($s, %a) = @_; $s->{rendered} = \%a }
     sub rendered { $_[0]->{rendered} }

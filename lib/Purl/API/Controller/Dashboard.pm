@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::Principal qw(principal_user);
 use namespace::clean;
 use Mojo::JSON qw(decode_json encode_json);
 
@@ -69,7 +70,7 @@ sub create {
             }
         }
 
-        $body->{owner} = $c->session('username') // '';
+        $body->{owner} = principal_user($c) // '';
         my $result = $self->storage->create_dashboard($body);
         $c->render(json => $result, status => 201);
     });
@@ -198,7 +199,7 @@ sub create_from_template {
         my $dashboard = {
             name    => $body->{name} // $template->{name},
             widgets => $template->{widgets},
-            owner   => $c->session('username') // '',
+            owner   => principal_user($c) // '',
         };
 
         my $result = $self->storage->create_dashboard($dashboard);

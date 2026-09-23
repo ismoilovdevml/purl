@@ -88,7 +88,14 @@ sub update_section {
         return 0 if $cancelled;
 
         $self->_config->{$section} = $self->_writable_values($section, $data);
-        return $self->save();
+        return 1 if $self->save();
+
+        # Not saved: put memory back in line with disk. Otherwise this worker
+        # alone would act on a change the caller was told failed (a password
+        # that "failed" to change would work here and nowhere else).
+        # _last_save_error is kept for the caller.
+        $self->load();
+        return 0;
     });
 }
 

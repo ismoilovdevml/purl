@@ -5,8 +5,7 @@ use 5.024;
 
 use Test::More;
 use FindBin qw($Bin);
-use lib "$Bin/../lib";
-use File::Temp qw(tempdir);
+use lib "$Bin/../lib", "$Bin/lib";
 use POSIX ();
 use Mojo::JSON qw(encode_json decode_json);
 
@@ -26,106 +25,17 @@ use Mojo::JSON qw(encode_json decode_json);
 # this code base keeps meeting (#18/#37/#64).
 # ============================================
 
-my $DIR;
-BEGIN {
-    $DIR = tempdir(CLEANUP => 1);
-    $ENV{PURL_AUTH_ENABLED}    = '1';
-    $ENV{PURL_ADMIN_PASSWORD}  = 'StrongAdminPass123';
-    $ENV{PURL_LDAP_ENABLED}    = '0';
-    $ENV{PURL_SAML_ENABLED}    = '0';
-    $ENV{PURL_SESSION_SECRET}  = 'session-revocation-test-secret-0123456789';
-    $ENV{PURL_CONFIG_FILE}     = "$DIR/settings.json";
-    $ENV{PURL_CONFIG_DIR}      = $DIR;
-    $ENV{PURL_CLICKHOUSE_HOST} = '127.0.0.1';
-    $ENV{PURL_CLICKHOUSE_PORT} = '19999';               # unlikely to be up
-    delete $ENV{PURL_API_KEYS};
-    delete $ENV{PURL_SESSION_MAX_AGE};
-}
-
-{
-    package Purl::Storage::InMemory;
-    use Moo;
-    sub flush              { 1 }
-    sub maybe_flush        { }
-    sub get_metrics        { { queries_total => 0, inserts_total => 0, errors_total => 0, buffer_size => 0 } }
-    sub log_audit_event    { 1 }
-    sub _init_audit_schema { 1 }
-    sub get_alerts         { [] }
-}
-
-require Purl::API::Server;
-{
-    no warnings 'redefine';
-    *Purl::API::Server::_build_storage = sub { return Purl::Storage::InMemory->new };
-}
-
+use PurlTest::SessionApp qw(
+    config_dir build_app app csrf login cookie_of replay forge_cookie admin_call
+    in_child
+);
 use Test::Mojo;
 use Purl::Config;
 use Purl::API::Controller::Auth;
 use Purl::Util::Session;
 
-# One app = one worker/replica: its own Purl::Config, its own middleware.
-sub build_app {
-    my $server = Purl::API::Server->create(config => { auth => { enabled => 1 } });
-    return $server->setup_routes;
-}
-
-my $app = build_app();
-
-# ---- helpers ---------------------------------------------------------------
-
-sub csrf {
-    my ($t) = @_;
-    $t->get_ok('/api/csrf-token');
-    return $t->tx->res->json->{csrf_token};
-}
-
-sub login {
-    my ($user, $pass, $on) = @_;
-    my $t = Test::Mojo->new($on // $app);
-    $t->post_ok('/api/auth/login', json => { username => $user, password => $pass })
-      ->status_is(200)->json_is('/authenticated' => 1);
-    return $t;
-}
-
-# The raw session cookie as the browser would send it.
-sub cookie_of {
-    my ($t) = @_;
-    my ($ck) = grep { $_->name eq 'mojolicious' } @{ $t->ua->cookie_jar->all };
-    return $ck ? $ck->name . '=' . $ck->value : undef;
-}
-
-# Replay a captured cookie from a client with no jar of its own. Returns
-# (me.authenticated, status of a protected GET).
-sub replay {
-    my ($cookie, $on) = @_;
-    my $t = Test::Mojo->new($on // $app);
-    $t->ua->cookie_jar->ignore(sub { 1 });
-    my $me = $t->get_ok('/api/auth/me', { Cookie => $cookie })->tx->res->json->{authenticated};
-    my $st = $t->get_ok('/api/alerts', { Cookie => $cookie })->tx->res->code;
-    return ($me, $st);
-}
-
-# Sign an arbitrary session exactly the way the app does, so a cookie from
-# before this fix (or with a chosen iat) can be presented.
-sub forge_cookie {
-    my (%session) = @_;
-    my $c = $app->build_controller;
-    %{ $c->session } = %session;
-    $c->session(expiration => 86400);
-    $app->sessions->store($c);
-    my ($ck) = grep { $_->name eq 'mojolicious' } @{ $c->res->cookies };
-    return $ck->name . '=' . $ck->value;
-}
-
-sub admin_call {
-    my ($method, $path, $body) = @_;
-    my $t = login('admin', 'StrongAdminPass123');
-    my $m = "${method}_ok";
-    $t->$m($path, { 'X-CSRF-Token' => csrf($t) }, $body ? (json => $body) : ())
-      ->status_is(200);
-    return;
-}
+my $DIR = config_dir();
+my $app = app();
 
 admin_call(post => '/api/settings/users',
     { username => 'alice', password => 'AlicePass12345', role => 'admin' });
@@ -245,20 +155,10 @@ subtest 'logout on another replica kills the cookie here' => sub {
     is +(replay($cookie))[0], 1, 'valid here to begin with (this config is warm)';
 
     # A replica built from scratch in its own process handles the logout.
-    pipe(my $r, my $w) or die $!;
-    my $pid = fork() // die "fork: $!";
-    if (!$pid) {
-        close $r;
-        my $code = eval {
-            Test::Mojo->new(build_app())
-              ->post_ok('/api/auth/logout', { Cookie => $cookie })->tx->res->code;
-        } // "error: $@";
-        syswrite $w, "$code\n";
-        POSIX::_exit(0);
-    }
-    close $w;
-    chomp(my $code = <$r> // 'child died');
-    waitpid $pid, 0;
+    my $code = in_child(sub {
+        return { code => Test::Mojo->new(build_app())
+              ->post_ok('/api/auth/logout', { Cookie => $cookie })->tx->res->code };
+    })->{code};
     is $code, 200, 'the other replica logged the session out';
 
     is_deeply [ replay($cookie) ], [ 0, 401 ], 'rejected here, where the logout did not run';
@@ -379,7 +279,7 @@ subtest 'max age: ENV, then session.max_age, then 7 days' => sub {
 sub external_login {
     my ($action, %mw) = @_;
     my $ctrl = Purl::API::Controller::Auth->new(
-        storage  => Purl::Storage::InMemory->new,
+        storage  => PurlTest::SessionApp::storage(),
         settings => Purl::Config->new(config_file => "$DIR/settings.json"), %mw);
     my $c = $app->build_controller;
     if ($action eq 'login') {

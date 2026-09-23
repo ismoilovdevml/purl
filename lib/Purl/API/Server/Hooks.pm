@@ -5,6 +5,7 @@ use 5.024;
 
 use Time::HiRes qw(time);
 use Purl::Util::IngestRoutes qw(is_ingest_request);
+use Purl::Util::Principal qw(principal_user);
 
 # App-wide request hooks and helpers: security headers + CORS, request
 # metrics/logging, and the audit_event helper. %args:
@@ -146,7 +147,7 @@ sub install {
         eval {
             my $auth_middleware = $auth->();
             $c->app->storage->log_audit_event({
-                actor         => $event{actor} // $c->session('username') // 'system',
+                actor         => $event{actor} // principal_user($c) // 'system',
                 action        => $event{action},
                 resource_type => $event{resource_type} // '',
                 resource_id   => $event{resource_id}   // '',

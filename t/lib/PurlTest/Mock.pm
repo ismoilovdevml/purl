@@ -13,8 +13,9 @@ our @EXPORT_OK = qw(mock_ctx mock_storage mock_auth_ctx mock_server_storage);
 # four-method mock is exactly the "same logic in two places" that drifts, so it
 # lives here once and both files use it.
 #
-# Deliberately tiny: render() records instead of rendering, stash() returns
-# undef, and session('role') is admin so require_role passes.
+# Deliberately tiny: render() records instead of rendering, and the only stash
+# entry is the request principal of a signed-in admin (what check_auth records;
+# require_role reads it), so require_role passes.
 # ============================================
 
 {
@@ -38,11 +39,10 @@ our @EXPORT_OK = qw(mock_ctx mock_storage mock_auth_ctx mock_server_storage);
     sub param { return $_[0]->{params}{ $_[1] } }
     sub render   { my ($s, %a) = @_; $s->{rendered} = \%a; return }
     sub rendered { return $_[0]->{rendered} }
-    sub stash    { return undef }
-    sub session  {
+    sub stash {
         my ($s, $k) = @_;
-        my %h = (role => 'admin');
-        return defined $k ? $h{$k} : \%h;
+        $s->{stash} //= { 'purl.principal' => { via => 'session', username => 'admin', role => 'admin' } };
+        return defined $k ? $s->{stash}{$k} : $s->{stash};
     }
 
     package PurlTest::Mock::Storage;
@@ -142,7 +142,9 @@ our @EXPORT_OK = qw(mock_ctx mock_storage mock_auth_ctx mock_server_storage);
         return { queries_total => 0, inserts_total => 0, errors_total => 0, buffer_size => 0 };
     }
     sub _init_audit_schema { return 1 }
-    sub log_audit_event    { return 1 }
+    sub get_alerts         { return [] }
+    sub audit_events       { return $_[0]->{audit} //= [] }
+    sub log_audit_event    { push @{ $_[0]->audit_events }, $_[1]; return 1 }
 }
 
 sub mock_ctx      { return PurlTest::Mock::Ctx->new(@_) }

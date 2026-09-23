@@ -6,6 +6,7 @@ use 5.024;
 use Moo::Role;
 use Time::HiRes qw(time);
 use Purl::Store::Counter;
+use Purl::Util::Principal qw(principal_via principal_user);
 use namespace::clean;
 
 # Shared counter store (Redis-backed across prefork workers, in-memory fallback).
@@ -114,7 +115,7 @@ sub ai_rate_limit_max {
 
 sub _ai_rate_limit_key {
     my ($self, $c) = @_;
-    my $username = $c->session('logged_in') ? $c->session('username') : undef;
+    my $username = principal_via($c) eq 'session' ? principal_user($c) : undef;
     return defined $username && length $username
         ? "ai:user:$username"
         : 'ai:ip:' . $self->client_ip($c);

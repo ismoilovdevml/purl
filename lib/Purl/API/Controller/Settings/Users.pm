@@ -6,7 +6,7 @@ use 5.024;
 use Moo;
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
-use Purl::Util::Session qw(revoke_sessions);
+use Purl::Util::Session qw(mark_revoked);
 
 extends 'Purl::API::Controller::Base';
 
@@ -74,31 +74,23 @@ sub create_user {
             $role = 'viewer';
         }
 
-        # Access file config directly to avoid ENV pollution
-        $self->settings->_config->{auth} //= {};
-        my $users = $self->settings->_config->{auth}{users} //= {};
-
-        if (exists $users->{$username}) {
-            $self->render_error($c, 'User already exists', 409);
-            return;
-        }
-
-        # Hash password
+        # Hash BEFORE taking the settings lock: bcrypt is slow, and the write
+        # below must not hold the lock for it.
         my $hashed = $self->auth_middleware->hash_password($password);
         unless ($hashed) {
             $self->render_error($c, 'Failed to hash password', 500);
             return;
         }
-        $users->{$username} = { password => $hashed, role => $role };
 
-        if ($self->settings->save()) {
-            $c->render(json => { status => 'ok', username => $username });
-        } else {
-            # Rollback in-memory state on save failure
-            delete $users->{$username};
-            my $err = $self->settings->{_last_save_error} // 'unknown';
-            $self->render_error($c, "Failed to create user: $err", 500);
-        }
+        my ($status, $error) = $self->_update_users(sub {
+            my ($users) = @_;
+            return (409, 'User already exists') if exists $users->{$username};
+            $users->{$username} = { password => $hashed, role => $role };
+            return;
+        });
+        return $self->_render_failure($c, 'create user', $status, $error) if $status;
+
+        $c->render(json => { status => 'ok', username => $username });
     });
 }
 
@@ -122,19 +114,7 @@ sub update_user {
             return;
         }
 
-        $self->settings->_config->{auth} //= {};
-        my $users = $self->settings->_config->{auth}{users} //= {};
-
-        unless (exists $users->{$username}) {
-            $self->render_error($c, 'User not found', 404);
-            return;
-        }
-
-        my $entry = $users->{$username};
-        my $current_hash = ref $entry eq 'HASH' ? $entry->{password} : $entry;
-        my $current_role = ref $entry eq 'HASH' ? ($entry->{role} // 'viewer') : 'admin';
-
-        my $new_hash = $current_hash;
+        my $new_hash;
         if ($body->{password} && length($body->{password}) > 0) {
             unless (length($body->{password}) >= 8) {
                 $self->render_error($c, 'Password must be at least 8 characters', 400);
@@ -147,27 +127,33 @@ sub update_user {
             }
         }
 
-        my $new_role = $body->{role} // $current_role;
-        unless ($new_role =~ /^(viewer|operator|admin)$/) {
-            $new_role = $current_role;
-        }
+        my $requested_role = $body->{role};
+        $requested_role = undef
+            if defined $requested_role && $requested_role !~ /^(viewer|operator|admin)$/;
 
-        my $old_entry = $users->{$username};
-        $users->{$username} = { password => $new_hash, role => $new_role };
+        my ($status, $error) = $self->_update_users(sub {
+            my ($users, $section) = @_;
+            return (404, 'User not found') unless exists $users->{$username};
 
-        if ($self->settings->save()) {
+            my $entry        = $users->{$username};
+            my $current_hash = ref $entry eq 'HASH' ? $entry->{password} : $entry;
+            my $current_role = ref $entry eq 'HASH' ? ($entry->{role} // 'viewer') : 'admin';
+            my $hash = $new_hash // $current_hash;
+            my $role = $requested_role // $current_role;
+
+            $users->{$username} = { password => $hash, role => $role };
+
             # A new password or a changed role must not leave sessions that
             # were issued under the old ones (#91) — including a demoted
-            # admin's cookie that still says role=admin.
-            revoke_sessions($self->settings, $username)
-                if $new_hash ne ($current_hash // '') || $new_role ne $current_role;
-            $c->render(json => { status => 'ok', message => 'User updated' });
-        } else {
-            # Rollback in-memory state on save failure
-            $users->{$username} = $old_entry;
-            my $err = $self->settings->{_last_save_error} // 'unknown';
-            $self->render_error($c, "Failed to update user: $err", 500);
-        }
+            # admin's cookie that still says role=admin. Same locked write,
+            # so the user record and the stamp are never saved apart.
+            mark_revoked($section, $username)
+                if $hash ne ($current_hash // '') || $role ne $current_role;
+            return;
+        });
+        return $self->_render_failure($c, 'update user', $status, $error) if $status;
+
+        $c->render(json => { status => 'ok', message => 'User updated' });
     });
 }
 
@@ -179,41 +165,58 @@ sub delete_user {
 
         my $username = $c->param('username');
 
-        $self->settings->_config->{auth} //= {};
-        my $users = $self->settings->_config->{auth}{users} //= {};
-
-        unless (exists $users->{$username}) {
-            $self->render_error($c, 'User not found', 404);
-            return;
-        }
-
-        # Prevent deleting the last user
-        if (scalar(keys %$users) <= 1) {
-            $self->render_error($c, 'Cannot delete the last user', 400);
-            return;
-        }
-
         # Prevent deleting yourself
         my $current = $c->stash('current_user') // '';
-        if ($current eq $username) {
-            $self->render_error($c, 'Cannot delete your own account', 400);
-            return;
-        }
+        my $self_delete = $current eq $username;
 
-        my $old_entry = delete $users->{$username};
+        my ($status, $error) = $self->_update_users(sub {
+            my ($users, $section) = @_;
+            return (404, 'User not found') unless exists $users->{$username};
+            return (400, 'Cannot delete the last user') if keys %$users <= 1;
+            return (400, 'Cannot delete your own account') if $self_delete;
 
-        if ($self->settings->save()) {
+            delete $users->{$username};
             # The record is gone, which already refuses its local sessions; the
             # stamp also covers a same-name account created later (#91).
-            revoke_sessions($self->settings, $username);
-            $c->render(json => { status => 'ok' });
-        } else {
-            # Rollback in-memory state on save failure
-            $users->{$username} = $old_entry;
-            my $err = $self->settings->{_last_save_error} // 'unknown';
-            $self->render_error($c, "Failed to delete user: $err", 500);
-        }
+            mark_revoked($section, $username);
+            return;
+        });
+        return $self->_render_failure($c, 'delete user', $status, $error) if $status;
+
+        $c->render(json => { status => 'ok' });
     });
+}
+
+# One locked read-modify-write of auth.users (Purl::Config::update_section).
+#
+# These handlers used to edit settings->_config in place and save() without
+# the lock, with a bcrypt hash between read and write — so a revocation stamp
+# another worker wrote in between (a logout) was overwritten by the stale
+# snapshot and the logged-out cookie came back. The callback runs on the
+# freshly re-read section under the lock; it returns (status, message) to
+# refuse (nothing is written) or nothing to save.
+#
+# Returns () on success, or (status, message) on refusal or save failure.
+sub _update_users {
+    my ($self, $cb) = @_;
+    my @refused;
+    my $saved = $self->settings->update_section('auth', sub {
+        my ($section, $cancel) = @_;
+        $section->{users} = {} unless ref $section->{users} eq 'HASH';
+        @refused = $cb->($section->{users}, $section);
+        $cancel->() if @refused;
+        return;
+    });
+    return @refused if @refused;
+    return if $saved;
+    return (500, $self->settings->{_last_save_error} // 'unknown');
+}
+
+sub _render_failure {
+    my ($self, $c, $what, $status, $error) = @_;
+    $error = "Failed to $what: $error" if $status == 500;
+    $self->render_error($c, $error, $status);
+    return;
 }
 
 1;

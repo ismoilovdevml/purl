@@ -46,8 +46,12 @@ my $file = File::Spec->catfile($dir, 'settings.json');
     sub param { $_[0]->{params}{$_[1]} }
     sub render { my ($s, %a) = @_; $s->{rendered} = \%a }
     sub rendered { $_[0]->{rendered} }
-    sub stash { return undef }
-    sub session { my ($s, $k) = @_; my %h = (role => 'admin'); return defined $k ? $h{$k} : \%h }
+    # A signed-in admin, as check_auth records it (Purl::Util::Principal).
+    sub stash {
+        my ($s, $k) = @_;
+        $s->{stash} //= { 'purl.principal' => { via => 'session', username => 'admin', role => 'admin' } };
+        return defined $k ? $s->{stash}{$k} : $s->{stash};
+    }
 }
 
 sub controller {

@@ -49,6 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that user's sessions, and sessions have an absolute lifetime
   (`PURL_SESSION_MAX_AGE`, default 7 days). Everyone is signed out once on
   upgrade.
+- **Logout signs you out on every device.** Revocation is per user, so logging
+  out in one browser also ends that user's sessions in every other browser and
+  device, and closes their open live-tail streams (WebSocket close code 4401,
+  re-checked every 30 seconds).
+- A request authenticated by an API key, bearer token or basic auth no longer
+  picks up a role from a session cookie sent alongside it. It always has the
+  viewer role, and the cookie is ignored (not validated, not renewed).
 - Backup list, download, schedule and S3 config, and the LDAP and SSO
   settings reads, now require the admin role. They were previously readable
   by any authenticated caller, including ingest API keys, on licensed installs.

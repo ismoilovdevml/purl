@@ -8,6 +8,7 @@ use Purl::API::Routes::Logs;
 use Purl::API::Routes::Management;
 use Purl::API::Routes::Integrations;
 use Purl::API::Routes::LiveTail;
+use Purl::Util::Principal qw(principal);
 
 # Route table of the Purl API. Mojolicious matches routes in DEFINITION ORDER,
 # so the area modules below are registered in a fixed sequence and the JSON 404
@@ -68,7 +69,7 @@ sub register {
         }
 
         # Block access if password change required (except for the change-password endpoint itself)
-        if ($c->session->{must_change_password} && $path !~ m{^/api/auth/(change-password|me|logout)$}) {
+        if (principal($c)->{must_change_password} && $path !~ m{^/api/auth/(change-password|me|logout)$}) {
             $c->render(json => {
                 error => 'Password change required',
                 password_change_required => \1,

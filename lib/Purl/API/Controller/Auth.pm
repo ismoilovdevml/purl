@@ -4,11 +4,13 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::Session qw(
+    start_session check_session end_session revoke_sessions mark_revoked
+    session_max_age
+);
+use Purl::Util::Principal qw(principal_via principal_user);
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
-use Purl::Util::Session qw(
-    start_session check_session end_session revoke_sessions session_max_age
-);
 
 extends 'Purl::API::Controller::Base';
 
@@ -213,20 +215,34 @@ sub logout {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        $c->audit_event(action => 'logout');
-
         # Server-side revocation (#91): expiring the cookie only asks the
         # browser to forget it. Moving the user's sessions_valid_after stamp
         # kills every copy of every cookie issued so far, on every worker and
         # replica — including one an in-flight request re-sets after this.
-        # Only a genuinely valid session may revoke, so a dead or forged-name
-        # cookie cannot be used to log someone else out.
-        my $username = $c->session->{username};
-        if (defined $username
-            && check_session($c, $self->_auth_section, session_max_age($self->settings))) {
-            revoke_sessions($self->settings, $username, $c->session->{iat});
+        # Only a genuinely valid session may revoke (check_session makes it the
+        # principal), so a dead or forged-name cookie cannot log someone out.
+        my $revoked = 1;
+        my $username;
+        if (check_session($c, $self->_auth_section, session_max_age($self->settings))) {
+            $username = principal_user($c);
+            $revoked  = revoke_sessions($self->settings, $username, $c->session->{iat});
         }
-        end_session($c);
+        end_session($c);    # the browser drops its copy either way
+
+        # If the stamp could not be persisted, every copy of this cookie is
+        # still valid. Saying "ok" would be a false security claim, so the
+        # failure is logged, audited and answered with 500.
+        unless ($revoked) {
+            my $err = ($self->settings && $self->settings->{_last_save_error}) // 'unknown';
+            $c->app->log->error("logout: could not revoke sessions of '$username': $err");
+            $c->audit_event(action => 'logout', status => 'failure', actor => $username,
+                details => 'session revocation not persisted');
+            $self->render_error($c,
+                'Signed out in this browser, but the session could not be revoked on the server', 500);
+            return;
+        }
+
+        $c->audit_event(action => 'logout', ($username ? (actor => $username) : ()));
         $c->render(json => { status => 'ok' });
     });
 }
@@ -288,10 +304,11 @@ sub change_password {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        my $username = $c->session->{username};
-        my $logged_in = $c->session->{logged_in};
+        # Only a signed-in person changes their own password: a key or basic
+        # client that also sends a cookie gets no identity from that cookie.
+        my $username = principal_via($c) eq 'session' ? principal_user($c) : undef;
 
-        unless ($logged_in && $username) {
+        unless (defined $username && length $username) {
             $self->render_error($c, 'Authentication required', 401);
             return;
         }
@@ -344,17 +361,39 @@ sub change_password {
             return;
         }
 
-        # Hash and store new password
+        # Hash first (slow), then one locked write that stores the password
+        # AND the revocation stamp: every other session of this user dies with
+        # the old password, and the two can never be saved apart. The role is
+        # re-read under the lock so a concurrent role change is not undone.
         my $new_hash = $self->auth_middleware->hash_password($new_password);
-        $self->settings->update_section('auth', sub {
-            my ($section) = @_;
+        unless ($new_hash) {
+            $self->render_error($c, 'Failed to hash password', 500);
+            return;
+        }
+        my $iat  = $c->session->{iat};
+        my $gone = 0;
+        my $saved = $self->settings->update_section('auth', sub {
+            my ($section, $cancel) = @_;
+            my $cur = ref $section->{users} eq 'HASH' ? $section->{users}{$username} : undef;
+            unless (defined $cur) { $gone = 1; $cancel->(); return; }
+            $role = ref $cur eq 'HASH' ? ($cur->{role} // 'viewer') : 'admin';
             $section->{users}{$username} = { password => $new_hash, role => $role };
+            mark_revoked($section, $username, $iat);
+            return;
         });
+        unless ($saved) {
+            my $why = $gone ? 'user no longer exists'
+                    : ($self->settings->{_last_save_error} // 'settings not saved');
+            $c->app->log->error("change_password for '$username' not saved: $why");
+            $c->audit_event(action => 'change_password', status => 'failure', details => $why);
+            $self->render_error($c, $gone ? 'User not found' : 'Failed to change password',
+                $gone ? 404 : 500);
+            return;
+        }
 
-        # Every other session of this user dies with the old password; this
-        # one is re-issued after the revocation stamp so the caller stays in.
+        # This session is re-issued after the revocation stamp so the caller
+        # stays in.
         my $auth_method = $c->session->{auth_method} // 'local';
-        revoke_sessions($self->settings, $username, $c->session->{iat});
         start_session($c, $self->_auth_section,
             username         => $username,
             auth_method      => $auth_method,

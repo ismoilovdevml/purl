@@ -9,6 +9,7 @@ use Moo;
 # and plan_search_query would leak into every controller subclass as a method.
 use Purl::Util::SearchQuery qw(plan_search_query);
 
+use Purl::Util::Principal qw(principal_role);
 use namespace::clean;
 
 has 'storage' => (
@@ -112,9 +113,11 @@ sub _apply_query {
 # RBAC helpers
 # ============================================
 
+# The role comes from the request principal — the credential check_auth
+# actually accepted — never from the session cookie directly (#91 review).
 sub require_role {
     my ($self, $c, @allowed_roles) = @_;
-    my $role = $c->session('role') // 'viewer';
+    my $role = principal_role($c);
     return 1 if $role eq 'admin';
     return 1 if grep { $_ eq $role } @allowed_roles;
     $self->render_error($c, 'Insufficient permissions', 403);

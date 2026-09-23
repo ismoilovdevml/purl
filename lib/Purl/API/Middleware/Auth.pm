@@ -7,7 +7,8 @@ use Moo;
 use MIME::Base64 qw(decode_base64);
 use Purl::Util::ClientIP qw(resolve_client_ip);
 use Purl::Util::IngestRoutes qw(is_ingest_request);
-use Purl::Util::Session qw(check_session session_max_age);
+use Purl::Util::Session qw(check_session session_is_valid session_max_age);
+use Purl::Util::Principal qw(set_principal);
 use namespace::clean;
 
 # Cross-cutting concerns live in roles; this class is request authentication
@@ -68,39 +69,60 @@ sub auth_enabled {
     return ($ENV{PURL_AUTH_ENABLED} // $section->{enabled} // 0) ? 1 : 0;
 }
 
+# Authenticate the request and record WHO it is (Purl::Util::Principal).
+#
+# The first credential that authenticates is the only source of identity and
+# role for the rest of the request. A session cookie sent alongside an API key,
+# bearer token or basic auth is not consulted at all — it adds no authority and
+# is not re-signed. Before this, handlers read session('role') directly, so a
+# key plus a revoked admin cookie was served as admin (#91 review).
+#
+# Key, bearer and basic callers get role viewer: that is what require_role
+# always gave a caller without a session, and it is unchanged.
 sub check_auth {
     my ($self, $c) = @_;
     my $auth_config = $self->_auth_config;
 
-    # Check if auth is enabled
-    my $auth_enabled = $self->auth_enabled;
-
     # API Key auth always works (programmatic access)
     if ($self->_check_api_key($c, $auth_config)) {
+        set_principal($c, via => 'api_key');
         return 1;
     }
 
     # Same key material over `Authorization: Bearer`, on ingest routes only —
     # for clients that cannot set a custom header (kube-apiserver audit webhook).
     if ($self->_check_bearer_token($c, $auth_config)) {
+        set_principal($c, via => 'bearer');
         return 1;
     }
 
     # Basic auth always works
-    if ($self->_check_basic_auth($c, $auth_config)) {
+    if (my $user = $self->_check_basic_auth($c, $auth_config)) {
         $c->stash(current_user => 'api');
+        set_principal($c, via => 'basic', username => $user);
         return 1;
     }
 
-    # Auth disabled entirely => open instance (no credentials configured).
-    return 1 unless $auth_enabled;
-
-    # Otherwise a valid session cookie is REQUIRED.
-    # There is deliberately no Origin/Referer "same-origin" bypass: those headers
-    # are attacker-controlled and must never grant access.
+    # A valid session cookie. There is deliberately no Origin/Referer
+    # "same-origin" bypass: those headers are attacker-controlled and must
+    # never grant access.
     return 1 if $self->_check_session($c);
 
+    # Auth disabled entirely => open instance (no credentials configured).
+    unless ($self->auth_enabled) {
+        set_principal($c, via => 'open');
+        return 1;
+    }
+
     return 0;
+}
+
+# Is this (already accepted) session still good? For connections that outlive
+# the request that authenticated them — the live-tail WebSocket re-asks this
+# periodically so a logout or password change also closes it.
+sub session_still_valid {
+    my ($self, $session) = @_;
+    return session_is_valid($session, $self->_auth_config, session_max_age($self->settings));
 }
 
 # A signed cookie alone is not enough: it must also be unrevoked and inside
@@ -205,11 +227,11 @@ sub _check_basic_auth {
     if ($stored && ($stored =~ /^\$2[aby]\$/ || $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/)) {
         my ($valid, $new_hash) = $self->verify_password($pass, $stored);
         # Auto-migrate hash if needed (basic auth won't save, but login will)
-        return $valid;
+        return $valid ? $user : 0;
     }
 
     # Legacy plaintext (log warning in caller)
-    return $stored eq $pass;
+    return $stored eq $pass ? $user : 0;
 }
 
 # ============================================
@@ -294,7 +316,12 @@ callable on this class.
 order they are consulted: C<X-API-Key>; C<Authorization: Bearer E<lt>api keyE<gt>>
 (ingest routes only — see L<Purl::Util::IngestRoutes>); C<Authorization: Basic>;
 session cookie. C<X-API-Key> takes precedence: when that header is present the
-bearer token is ignored entirely.
+bearer token is ignored entirely. The credential that succeeds becomes the
+request principal (L<Purl::Util::Principal>); a session cookie sent alongside a
+key, bearer token or basic auth is ignored.
+
+=item * session_still_valid($session) - re-check an accepted session against
+the live revocation stamps and max age (long-lived connections).
 
 =item * hash_password($password, $salt) - Hash a password
 

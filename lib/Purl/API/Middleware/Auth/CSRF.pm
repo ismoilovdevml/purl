@@ -7,6 +7,7 @@ use Moo::Role;
 use Digest::SHA qw(hmac_sha256_hex);
 use Time::HiRes qw(time);
 use Purl::Util::Random qw(random_hex);
+use Purl::Util::Principal qw(principal_via);
 use namespace::clean;
 
 # CSRF enforcement toggle (security.csrf_enabled). Default on.
@@ -101,14 +102,12 @@ sub check_csrf {
     my $method = $c->req->method;
     return 1 unless $method =~ /^(?:POST|PUT|PATCH|DELETE)$/;
 
-    # Programmatic clients authenticate per-request (no ambient cookie), so they
-    # are NOT vulnerable to CSRF and MUST be exempt (log ingestion, API automation).
-    return 1 if $c->req->headers->header('X-API-Key');
-    return 1 if ($c->req->headers->authorization // '') =~ /^Basic\s+/i;
-
-    # CSRF only threatens requests authorised by an ambient session cookie.
-    # No active session => nothing for an attacker to ride on => exempt.
-    return 1 unless $c->session->{logged_in};
+    # CSRF only threatens requests authorised by the ambient session cookie.
+    # Programmatic clients (API key, bearer, basic) authenticate per request and
+    # are exempt — but only when that credential is what check_auth accepted:
+    # the mere presence of an X-API-Key or Basic header no longer waives the
+    # token for a request the session cookie authorised.
+    return 1 unless principal_via($c) eq 'session';
 
     # Cookie-authenticated browser request: a valid CSRF token is mandatory.
     my $csrf_token = $c->req->headers->header('X-CSRF-Token') // '';
