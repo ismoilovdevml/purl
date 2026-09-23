@@ -12,15 +12,15 @@
   </EmptyState>
 
   <EmptyState icon={box} title="No logs yet" size="lg" tone="accent">
-    <span slot="description">Purl has not received a single log line.</span>
-    <svelte:fragment slot="actions">
+    {#snippet description()}Purl has not received a single log line.{/snippet}
+    {#snippet actions()}
       <a href="#settings">Set up a source</a>
-    </svelte:fragment>
+    {/snippet}
   </EmptyState>
 
-  Slots:
-    default      — the description line (plain text is the common case)
-    description  — same as default, for call sites that also fill `actions`
+  Snippets:
+    children     — the description line (plain text is the common case)
+    description  — same as children, for call sites that also fill `actions`
     actions      — buttons/links below the description
     extra        — full-width block under the actions (e.g. a code snippet)
 
@@ -31,17 +31,24 @@
 <script>
   import Icon from './Icon.svelte';
 
-  /** Glyph imported from ./icons.js. */
-  export let icon = null;
-  /** The one-line summary. Say what is missing, not what the user did wrong. */
-  export let title;
-  /** 'sm' (inline panels) | 'md' (default) | 'lg' (full-page). */
-  export let size = 'md';
-  /** 'muted' (default) | 'accent' | 'error' — tints the icon only. */
-  export let tone = 'muted';
-
-  let className = '';
-  export { className as class };
+  let {
+    /** Glyph imported from ./icons.js. */
+    icon = null,
+    /** The one-line summary. Say what is missing, not what the user did wrong. */
+    title,
+    /** 'sm' (inline panels) | 'md' (default) | 'lg' (full-page). */
+    size = 'md',
+    /** 'muted' (default) | 'accent' | 'error' — tints the icon only. */
+    tone = 'muted',
+    class: className = '',
+    /** Description line; `children` is the same thing for the plain-text case. */
+    description,
+    /** Buttons/links below the description. */
+    actions,
+    /** Full-width block under the actions (e.g. a code snippet). */
+    extra,
+    children,
+  } = $props();
 
   const ICON_SIZE = { sm: 24, md: 40, lg: 56 };
 </script>
@@ -56,18 +63,22 @@
   <p class="empty-title">{title}</p>
 
   <div class="empty-description">
-    <slot name="description"><slot /></slot>
+    {#if description}
+      {@render description()}
+    {:else}
+      {@render children?.()}
+    {/if}
   </div>
 
-  {#if $$slots.actions}
+  {#if actions}
     <div class="empty-actions">
-      <slot name="actions" />
+      {@render actions()}
     </div>
   {/if}
 
-  {#if $$slots.extra}
+  {#if extra}
     <div class="empty-extra">
-      <slot name="extra" />
+      {@render extra()}
     </div>
   {/if}
 </div>

@@ -1,15 +1,17 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
   import Badge from '../ui/Badge.svelte';
   import Button from '../ui/Button.svelte';
   import { api } from '../../utils/api.js';
 
-  const dispatch = createEventDispatcher();
+  let {
+    /** ({ name, query, threshold, window_minutes }) when a template is picked */
+    onusetemplate,
+  } = $props();
 
-  let templates = [];
-  let loading = true;
-  let error = null;
-  let severityFilter = 'all'; // 'all' | 'critical' | 'warning'
+  let templates = $state([]);
+  let loading = $state(true);
+  let error = $state(null);
+  let severityFilter = $state('all'); // 'all' | 'critical' | 'warning'
 
   async function loadTemplates() {
     loading = true;
@@ -26,7 +28,7 @@
   }
 
   function useTemplate(template) {
-    dispatch('use-template', {
+    onusetemplate?.({
       name: template.name,
       query: template.query,
       threshold: template.threshold,
@@ -34,9 +36,11 @@
     });
   }
 
-  $: filteredTemplates = severityFilter === 'all'
-    ? templates
-    : templates.filter(t => t.severity === severityFilter);
+  const filteredTemplates = $derived(
+    severityFilter === 'all'
+      ? templates
+      : templates.filter(t => t.severity === severityFilter)
+  );
 
   // Load on mount
   loadTemplates();
@@ -49,21 +53,21 @@
       <button
         class="filter-btn"
         class:active={severityFilter === 'all'}
-        on:click={() => severityFilter = 'all'}
+        onclick={() => severityFilter = 'all'}
       >
         All
       </button>
       <button
         class="filter-btn"
         class:active={severityFilter === 'critical'}
-        on:click={() => severityFilter = 'critical'}
+        onclick={() => severityFilter = 'critical'}
       >
         Critical
       </button>
       <button
         class="filter-btn"
         class:active={severityFilter === 'warning'}
-        on:click={() => severityFilter = 'warning'}
+        onclick={() => severityFilter = 'warning'}
       >
         Warning
       </button>
@@ -97,7 +101,7 @@
             <span class="meta-item">Window: {template.window_minutes}m</span>
           </div>
           <div class="card-actions">
-            <Button size="sm" variant="primary" on:click={() => useTemplate(template)}>
+            <Button size="sm" variant="primary" onclick={() => useTemplate(template)}>
               Use Template
             </Button>
           </div>

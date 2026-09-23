@@ -4,103 +4,105 @@
 
   Usage:
   <Input bind:value={email} label="Email" type="email" placeholder="Enter email" />
-  <Input bind:value={search} placeholder="Search...">
-    <Icon slot="icon" icon={search} size={16} />
+  <Input bind:value={search} placeholder="Search..." onenter={({ value }) => run(value)}>
+    {#snippet icon()}<Icon icon={search} size={16} />{/snippet}
   </Input>
 -->
 <script>
-  import { createEventDispatcher } from 'svelte';
   import EnvBadge from './EnvBadge.svelte';
 
-  /** Input type */
-  export let type = 'text';
+  let {
+    /** Input type */
+    type = 'text',
+    /**
+     * Input value. Deliberately no fallback: a runes $bindable with a default
+     * throws when a parent binds `undefined` (e.g. a not-yet-loaded form field).
+     */
+    value = $bindable(),
+    /** Label text */
+    label = '',
+    /** Placeholder text */
+    placeholder = '',
+    /** Error message */
+    error = '',
+    /** Helper text */
+    helper = '',
+    /** Disabled state */
+    disabled = false,
+    /** Required field */
+    required = false,
+    /** Input size: sm, md, lg */
+    size = 'md',
+    /** Full width */
+    fullWidth = false,
+    /** Input name */
+    name = '',
+    /** Autocomplete */
+    autocomplete = 'off',
+    /** Min value (for number) */
+    min = undefined,
+    /** Max value (for number) */
+    max = undefined,
+    /** Step (for number) */
+    step = undefined,
+    /** Readonly */
+    readonly = false,
+    /** Input id (auto-generated if not provided) */
+    id = '',
+    /**
+     * Field is pinned by a server environment variable.
+     *
+     * Forces the control disabled (the server answers 409 for such a change) AND
+     * shows an <EnvBadge> next to the label, so the field is never disabled
+     * without a visible reason. Independent of `disabled`: a field can be locked
+     * by ENV and disabled for an unrelated reason at the same time.
+     */
+    envLocked = false,
+    /** ({ value }) on every keystroke, after `value` is updated */
+    oninput,
+    /** ({ value }) on commit (blur / Enter), like the native change event */
+    onchange,
+    /** (FocusEvent) */
+    onfocus,
+    /** (FocusEvent) */
+    onblur,
+    /** (KeyboardEvent) */
+    onkeydown,
+    /** ({ value }) when Enter is pressed */
+    onenter,
+    /** Leading icon snippet */
+    icon,
+    /** Trailing suffix snippet */
+    suffix,
+  } = $props();
 
-  /** Input value */
-  export let value = '';
+  const isDisabled = $derived(disabled || envLocked);
 
-  /** Label text */
-  export let label = '';
-
-  /** Placeholder text */
-  export let placeholder = '';
-
-  /** Error message */
-  export let error = '';
-
-  /** Helper text */
-  export let helper = '';
-
-  /** Disabled state */
-  export let disabled = false;
-
-  /** Required field */
-  export let required = false;
-
-  /** Input size */
-  export let size = 'md'; // sm, md, lg
-
-  /** Full width */
-  export let fullWidth = false;
-
-  /** Input name */
-  export let name = '';
-
-  /** Autocomplete */
-  export let autocomplete = 'off';
-
-  /** Min value (for number) */
-  export let min = undefined;
-
-  /** Max value (for number) */
-  export let max = undefined;
-
-  /** Step (for number) */
-  export let step = undefined;
-
-  /** Readonly */
-  export let readonly = false;
-
-  /** Input id (auto-generated if not provided) */
-  export let id = '';
-
-  /**
-   * Field is pinned by a server environment variable.
-   *
-   * Forces the control disabled (the server answers 409 for such a change) AND
-   * shows an <EnvBadge> next to the label, so the field is never disabled
-   * without a visible reason. Independent of `disabled`: a field can be locked
-   * by ENV and disabled for an unrelated reason at the same time.
-   */
-  export let envLocked = false;
-
-  $: isDisabled = disabled || envLocked;
-
-  const dispatch = createEventDispatcher();
-
-  // Generate unique id for label-input association
+  // Generate unique id for label-input association (fixed at creation, as before)
+  // svelte-ignore state_referenced_locally
   const uniqueId = id || `input-${Math.random().toString(36).slice(2, 9)}`;
 
   function handleInput(event) {
     value = event.target.value;
-    dispatch('input', { value });
+    oninput?.({ value });
   }
 
   function handleChange(event) {
-    dispatch('change', { value: event.target.value });
+    onchange?.({ value: event.target.value });
   }
 
   function handleFocus(event) {
-    dispatch('focus', event);
+    onfocus?.(event);
   }
 
   function handleBlur(event) {
-    dispatch('blur', event);
+    onblur?.(event);
   }
 
   function handleKeydown(event) {
-    dispatch('keydown', event);
+    onkeydown?.(event);
     if (event.key === 'Enter') {
-      dispatch('enter', { value });
+      onenter?.({ value: value ?? '' });
     }
   }
 </script>
@@ -114,9 +116,9 @@
   {/if}
 
   <div class="input-container" class:has-error={error} class:disabled={isDisabled} class:size-sm={size === 'sm'} class:size-lg={size === 'lg'}>
-    {#if $$slots.icon}
+    {#if icon}
       <span class="input-icon">
-        <slot name="icon" />
+        {@render icon()}
       </span>
     {/if}
 
@@ -130,11 +132,11 @@
         {required}
         class="input-field"
         bind:value
-        on:input={handleInput}
-        on:change={handleChange}
-        on:focus={handleFocus}
-        on:blur={handleBlur}
-        on:keydown={handleKeydown}
+        oninput={handleInput}
+        onchange={handleChange}
+        onfocus={handleFocus}
+        onblur={handleBlur}
+        onkeydown={handleKeydown}
       ></textarea>
     {:else}
       <input
@@ -151,17 +153,17 @@
         {step}
         class="input-field"
         bind:value
-        on:input={handleInput}
-        on:change={handleChange}
-        on:focus={handleFocus}
-        on:blur={handleBlur}
-        on:keydown={handleKeydown}
+        oninput={handleInput}
+        onchange={handleChange}
+        onfocus={handleFocus}
+        onblur={handleBlur}
+        onkeydown={handleKeydown}
       />
     {/if}
 
-    {#if $$slots.suffix}
+    {#if suffix}
       <span class="input-suffix">
-        <slot name="suffix" />
+        {@render suffix()}
       </span>
     {/if}
   </div>

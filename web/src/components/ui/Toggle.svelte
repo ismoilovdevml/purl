@@ -6,32 +6,30 @@
   <Toggle bind:checked={enabled} label="Enable notifications" />
 -->
 <script>
-  import { createEventDispatcher } from 'svelte';
-
-  /** Checked state */
-  export let checked = false;
-
-  /** Label text */
-  export let label = '';
-
-  /** Description text */
-  export let description = '';
-
-  /** Disabled state */
-  export let disabled = false;
-
-  /** Size */
-  export let size = 'md'; // sm, md
-
-  /** Label position */
-  export let labelPosition = 'right'; // left, right
-
-  const dispatch = createEventDispatcher();
+  let {
+    /**
+     * Checked state. No fallback on purpose: a runes $bindable with a default
+     * throws when a parent binds `undefined` (e.g. a not-yet-loaded setting).
+     */
+    checked = $bindable(),
+    /** Label text */
+    label = '',
+    /** Description text */
+    description = '',
+    /** Disabled state */
+    disabled = false,
+    /** Size: sm, md */
+    size = 'md',
+    /** Label position: left, right */
+    labelPosition = 'right',
+    /** ({ checked }) after a click or keyboard toggle */
+    onchange,
+  } = $props();
 
   function toggle() {
     if (disabled) return;
     checked = !checked;
-    dispatch('change', { checked });
+    onchange?.({ checked });
   }
 
   function handleKeydown(event) {
@@ -63,10 +61,10 @@
     class:size-sm={size === 'sm'}
     {disabled}
     role="switch"
-    aria-checked={checked}
+    aria-checked={!!checked}
     aria-label={label || 'Toggle'}
-    on:click={toggle}
-    on:keydown={handleKeydown}
+    onclick={toggle}
+    onkeydown={handleKeydown}
   >
     <span class="toggle-handle"></span>
   </button>

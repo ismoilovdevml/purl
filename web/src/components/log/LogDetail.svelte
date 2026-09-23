@@ -3,23 +3,32 @@
   Expanded log details panel with copy functionality
 
   Usage:
-  <LogDetail {log} {searchQuery} on:filterTrace on:filterRequest on:showContext />
+  <LogDetail {log} {searchQuery} onfiltertrace={...} onfilterrequest={...} onshowcontext={...}>
+    {#snippet context()}...{/snippet}
+  </LogDetail>
 -->
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { getLevelColor } from '../../utils/colors.js';
   import { highlightText, copyToClipboard } from '../../utils/dom.js';
 
-  export let log;
-  export let searchQuery = '';
-  export let showContextButton = true;
-  export let contextLoading = false;
-  export let contextOpen = false;
-
-  const dispatch = createEventDispatcher();
+  let {
+    log,
+    searchQuery = '',
+    showContextButton = true,
+    contextLoading = false,
+    contextOpen = false,
+    /** ({ traceId }) */
+    onfiltertrace,
+    /** ({ requestId }) */
+    onfilterrequest,
+    /** ({ logId }) */
+    onshowcontext,
+    /** Snippet rendered under the detail lines (the surrounding-logs panel) */
+    context,
+  } = $props();
 
   // Copy feedback state
-  let copiedField = null;
+  let copiedField = $state(null);
   let copiedTimeout = null;
 
   function handleCopy(text, fieldId = null) {
@@ -32,43 +41,93 @@
     }, 700);
   }
 
+  // Replaces the old `|stopPropagation` modifier: clicks inside the detail
+  // panel must not reach the row's own click handler (which collapses it).
+  function stop(fn) {
+    return (event) => {
+      event.stopPropagation();
+      fn();
+    };
+  }
+
   function handleFilterTrace() {
-    dispatch('filterTrace', { traceId: log.trace_id });
+    onfiltertrace?.({ traceId: log.trace_id });
   }
 
   function handleFilterRequest() {
-    dispatch('filterRequest', { requestId: log.request_id });
+    onfilterrequest?.({ requestId: log.request_id });
   }
 
   function handleShowContext() {
-    dispatch('showContext', { logId: log.id });
+    onshowcontext?.({ logId: log.id });
   }
 
-  $: levelColor = getLevelColor(log.level);
-  $: highlightedMessage = highlightText(log.message, searchQuery);
-  $: parsedMeta = (() => {
+  const levelColor = $derived(getLevelColor(log.level));
+  const highlightedMessage = $derived(highlightText(log.message, searchQuery));
+  const parsedMeta = $derived.by(() => {
     if (!log.meta) return null;
     try {
       return typeof log.meta === 'string' ? JSON.parse(log.meta) : log.meta;
     } catch {
       return null;
     }
-  })();
+  });
 </script>
+
+<!-- One click-to-copy line for a plain top-level field. -->
+{#snippet copyLine(key, value, valueClass, valueStyle)}
+  {@const id = `${log.id}-${key}`}
+  <button
+    type="button"
+    class="detail-line"
+    class:copied={copiedField === id}
+    onclick={stop(() => handleCopy(value, id))}
+  >
+    <span class="line-key">{key}</span>
+    <span class="line-value {valueClass}" style={valueStyle}>{value}</span>
+    <span class="copy-feedback">{copiedField === id ? 'Copied!' : ''}</span>
+  </button>
+{/snippet}
+
+<!-- A trace_id / request_id line: clicking filters the search by it. -->
+{#snippet filterLine(key, value, title, onfilter)}
+  <button
+    type="button"
+    class="detail-line trace"
+    onclick={stop(onfilter)}
+    {title}
+  >
+    <span class="line-key">{key}</span>
+    <span class="line-value mono trace-link">{value}</span>
+    <span class="trace-action">Filter</span>
+  </button>
+{/snippet}
+
+<!-- A span id line: click copies, without the "Copied!" feedback. -->
+{#snippet spanLine(key, value)}
+  <button
+    type="button"
+    class="detail-line"
+    onclick={stop(() => handleCopy(value))}
+  >
+    <span class="line-key">{key}</span>
+    <span class="line-value mono">{value}</span>
+  </button>
+{/snippet}
 
 <div class="log-detail">
   <div class="detail-actions">
-    <button class="action-btn" on:click|stopPropagation={() => handleCopy(log.raw || log.message)} title="Copy raw log">
+    <button class="action-btn" onclick={stop(() => handleCopy(log.raw || log.message))} title="Copy raw log">
       Copy
     </button>
-    <button class="action-btn" on:click|stopPropagation={() => handleCopy(JSON.stringify(log, null, 2))} title="Copy as JSON">
+    <button class="action-btn" onclick={stop(() => handleCopy(JSON.stringify(log, null, 2)))} title="Copy as JSON">
       JSON
     </button>
     {#if showContextButton}
       <button
         class="action-btn context"
         class:active={contextOpen}
-        on:click|stopPropagation={handleShowContext}
+        onclick={stop(handleShowContext)}
         title="Show surrounding logs"
         disabled={contextLoading}
       >
@@ -84,60 +143,17 @@
   </div>
 
   <div class="detail-lines">
-    <!-- Timestamp -->
-    <button
-      type="button"
-      class="detail-line"
-      class:copied={copiedField === `${log.id}-timestamp`}
-      on:click|stopPropagation={() => handleCopy(log.timestamp, `${log.id}-timestamp`)}
-    >
-      <span class="line-key">timestamp</span>
-      <span class="line-value mono">{log.timestamp}</span>
-      <span class="copy-feedback">{copiedField === `${log.id}-timestamp` ? 'Copied!' : ''}</span>
-    </button>
-
-    <!-- Level -->
-    <button
-      type="button"
-      class="detail-line"
-      class:copied={copiedField === `${log.id}-level`}
-      on:click|stopPropagation={() => handleCopy(log.level, `${log.id}-level`)}
-    >
-      <span class="line-key">level</span>
-      <span class="line-value" style="color: {levelColor}">{log.level}</span>
-      <span class="copy-feedback">{copiedField === `${log.id}-level` ? 'Copied!' : ''}</span>
-    </button>
-
-    <!-- Service -->
-    <button
-      type="button"
-      class="detail-line"
-      class:copied={copiedField === `${log.id}-service`}
-      on:click|stopPropagation={() => handleCopy(log.service, `${log.id}-service`)}
-    >
-      <span class="line-key">service</span>
-      <span class="line-value blue">{log.service}</span>
-      <span class="copy-feedback">{copiedField === `${log.id}-service` ? 'Copied!' : ''}</span>
-    </button>
-
-    <!-- Host -->
-    <button
-      type="button"
-      class="detail-line"
-      class:copied={copiedField === `${log.id}-host`}
-      on:click|stopPropagation={() => handleCopy(log.host, `${log.id}-host`)}
-    >
-      <span class="line-key">host</span>
-      <span class="line-value purple">{log.host}</span>
-      <span class="copy-feedback">{copiedField === `${log.id}-host` ? 'Copied!' : ''}</span>
-    </button>
+    {@render copyLine('timestamp', log.timestamp, 'mono')}
+    {@render copyLine('level', log.level, '', `color: ${levelColor}`)}
+    {@render copyLine('service', log.service, 'blue')}
+    {@render copyLine('host', log.host, 'purple')}
 
     <!-- Message -->
     <button
       type="button"
       class="detail-line msg"
       class:copied={copiedField === `${log.id}-message`}
-      on:click|stopPropagation={() => handleCopy(log.message, `${log.id}-message`)}
+      onclick={stop(() => handleCopy(log.message, `${log.id}-message`))}
     >
       <span class="line-key">message</span>
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -152,7 +168,7 @@
           type="button"
           class="detail-line meta"
           class:copied={copiedField === `${log.id}-${key}`}
-          on:click|stopPropagation={() => handleCopy(String(value), `${log.id}-${key}`)}
+          onclick={stop(() => handleCopy(String(value), `${log.id}-${key}`))}
         >
           <span class="line-key">{key}</span>
           <span class="line-value mono">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
@@ -161,56 +177,17 @@
       {/each}
     {/if}
 
-    <!-- Trace ID -->
     {#if log.trace_id}
-      <button
-        type="button"
-        class="detail-line trace"
-        on:click|stopPropagation={handleFilterTrace}
-        title="Filter by trace ID"
-      >
-        <span class="line-key">trace_id</span>
-        <span class="line-value mono trace-link">{log.trace_id}</span>
-        <span class="trace-action">Filter</span>
-      </button>
+      {@render filterLine('trace_id', log.trace_id, 'Filter by trace ID', handleFilterTrace)}
     {/if}
-
-    <!-- Request ID -->
     {#if log.request_id}
-      <button
-        type="button"
-        class="detail-line trace"
-        on:click|stopPropagation={handleFilterRequest}
-        title="Filter by request ID"
-      >
-        <span class="line-key">request_id</span>
-        <span class="line-value mono trace-link">{log.request_id}</span>
-        <span class="trace-action">Filter</span>
-      </button>
+      {@render filterLine('request_id', log.request_id, 'Filter by request ID', handleFilterRequest)}
     {/if}
-
-    <!-- Span ID -->
     {#if log.span_id}
-      <button
-        type="button"
-        class="detail-line"
-        on:click|stopPropagation={() => handleCopy(log.span_id)}
-      >
-        <span class="line-key">span_id</span>
-        <span class="line-value mono">{log.span_id}</span>
-      </button>
+      {@render spanLine('span_id', log.span_id)}
     {/if}
-
-    <!-- Parent Span ID -->
     {#if log.parent_span_id}
-      <button
-        type="button"
-        class="detail-line"
-        on:click|stopPropagation={() => handleCopy(log.parent_span_id)}
-      >
-        <span class="line-key">parent_span</span>
-        <span class="line-value mono">{log.parent_span_id}</span>
-      </button>
+      {@render spanLine('parent_span', log.parent_span_id)}
     {/if}
 
     <!-- Raw log -->
@@ -222,7 +199,7 @@
     {/if}
   </div>
 
-  <slot name="context" />
+  {@render context?.()}
 </div>
 
 <style>

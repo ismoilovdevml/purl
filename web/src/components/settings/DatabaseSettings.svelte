@@ -14,39 +14,39 @@
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import ClearSecretToggle from '../ui/ClearSecretToggle.svelte';
   import ClearSecretConfirm from '../ui/ClearSecretConfirm.svelte';
-  import { formatBytes, formatNumber, formatRelativeTime } from '../../utils/format.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import { clearFlags, describeCleared } from '../../utils/clearSecret.js';
   import Icon from '../ui/Icon.svelte';
   import { check, xCircle } from '../ui/icons.js';
+  import RetentionCard from './database/RetentionCard.svelte';
 
   // Server settings state
-  let serverSettings = null;
-  let loadingSettings = true;
+  let serverSettings = $state(null);
+  let loadingSettings = $state(true);
 
   // Database form
-  let dbForm = {
+  let dbForm = $state({
     host: 'localhost',
     port: 8123,
     database: 'purl',
     user: 'default',
     password: ''
-  };
-  let savingDb = false;
-  let dbMessage = null;
-  let testingDb = false;
-  let dbTestResult = null;
+  });
+  let savingDb = $state(false);
+  let dbMessage = $state(null);
+  let testingDb = $state(false);
+  let dbTestResult = $state(null);
 
   /*
    * The password is write-only: GET /settings reports password_set, never the
    * value, so posting an empty field means "keep it". Erasing the stored one
    * needs the explicit clear_password instruction — see utils/clearSecret.js.
    */
-  let clearPassword = false;
-  let clearRequest = null;
+  let clearPassword = $state(false);
+  let clearRequest = $state(null);
 
-  $: passwordStored = !!serverSettings?.clickhouse?.password_set?.value;
+  const passwordStored = $derived(!!serverSettings?.clickhouse?.password_set?.value);
 
   /*
    * GET /settings reports env ownership per field — { value, from_env } on each
@@ -58,20 +58,20 @@
    *
    * `ck` is read as a whole so the markup below stays reactive to a re-fetch.
    */
-  $: ck = serverSettings?.clickhouse;
-  $: passwordFromEnv = !!ck?.password_set?.from_env;
-  $: dbEnvFields = ['host', 'port', 'database', 'user', 'password_set'];
-  $: dbAnyFromEnv = !!ck && dbEnvFields.some((k) => ck[k]?.from_env);
+  const ck = $derived(serverSettings?.clickhouse);
+  const passwordFromEnv = $derived(!!ck?.password_set?.from_env);
+  const dbEnvFields = ['host', 'port', 'database', 'user', 'password_set'];
+  const dbAnyFromEnv = $derived(!!ck && dbEnvFields.some((k) => ck[k]?.from_env));
   // Nothing left to submit — Save could only produce a 409.
-  $: dbAllFromEnv = !!ck && dbEnvFields.every((k) => ck[k]?.from_env);
+  const dbAllFromEnv = $derived(!!ck && dbEnvFields.every((k) => ck[k]?.from_env));
 
-  $: retentionFromEnv = !!serverSettings?.retention?.days?.from_env;
+  const retentionFromEnv = $derived(!!serverSettings?.retention?.days?.from_env);
 
   // Retention
-  let retentionDays = 30;
-  let retentionStats = null;
-  let savingRetention = false;
-  let retentionMessage = null;
+  let retentionDays = $state(30);
+  let retentionStats = $state(null);
+  let savingRetention = $state(false);
+  let retentionMessage = $state(null);
 
   onMount(() => {
     fetchServerSettings();
@@ -253,10 +253,10 @@
       </div>
 
       <div class="form-actions">
-        <Button variant="default" on:click={testDbConnection} loading={testingDb}>
+        <Button variant="default" onclick={testDbConnection} loading={testingDb}>
           {testingDb ? 'Testing...' : 'Test Connection'}
         </Button>
-        <Button variant="success" on:click={requestSaveDb} loading={savingDb} disabled={dbAllFromEnv}>
+        <Button variant="success" onclick={requestSaveDb} loading={savingDb} disabled={dbAllFromEnv}>
           {savingDb ? 'Saving...' : 'Save Settings'}
         </Button>
       </div>
@@ -281,68 +281,14 @@
     </Card>
 
     <!-- Retention Settings -->
-    <Card padding="none" class="retention-card">
-      <div class="group-header">
-        <span class="group-title">Data Retention</span>
-        {#if retentionFromEnv}
-          <Badge variant="warning" size="sm">From Environment</Badge>
-        {/if}
-      </div>
-
-      <div class="setting-item">
-        <div class="setting-info">
-          <span class="setting-label">Retention Period</span>
-          <span class="setting-hint">How long to keep log data (ClickHouse TTL)</span>
-        </div>
-        <div class="retention-control">
-          <Input
-            type="number"
-            min={1}
-            max={365}
-            bind:value={retentionDays}
-            size="sm"
-            envLocked={retentionFromEnv}
-          />
-          <span class="unit">days</span>
-          <Button
-            variant="success"
-            size="sm"
-            on:click={saveRetention}
-            loading={savingRetention}
-            disabled={retentionFromEnv}
-          >
-            {savingRetention ? 'Saving...' : 'Apply'}
-          </Button>
-        </div>
-      </div>
-
-      {#if retentionMessage}
-        <div class="result-box" class:success={retentionMessage.success}>
-          {retentionMessage.text}
-        </div>
-      {/if}
-
-      {#if retentionStats}
-        <div class="stats-grid">
-          <div class="stat-card">
-            <span class="stat-value">{formatNumber(retentionStats.total_logs || 0)}</span>
-            <span class="stat-label">Total Logs</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value">{formatBytes((retentionStats.db_size_mb || 0) * 1024 * 1024)}</span>
-            <span class="stat-label">Database Size</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value">{retentionStats.oldest_log ? formatRelativeTime(retentionStats.oldest_log) : 'N/A'}</span>
-            <span class="stat-label">Oldest Log</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value">{retentionStats.newest_log ? formatRelativeTime(retentionStats.newest_log) : 'N/A'}</span>
-            <span class="stat-label">Newest Log</span>
-          </div>
-        </div>
-      {/if}
-    </Card>
+    <RetentionCard
+      bind:days={retentionDays}
+      fromEnv={retentionFromEnv}
+      saving={savingRetention}
+      message={retentionMessage}
+      stats={retentionStats}
+      onsave={saveRetention}
+    />
   {/if}
 </section>
 
@@ -424,79 +370,4 @@
     color: var(--color-success);
     background: rgba(63, 185, 80, 0.1);
   }
-
-  .setting-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-muted);
-  }
-
-  .setting-item:last-child {
-    border-bottom: none;
-  }
-
-  .setting-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .setting-label {
-    font-size: 0.875rem;
-    color: var(--text-primary);
-  }
-
-  .setting-hint {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-  }
-
-  .retention-control {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .retention-control .unit {
-    font-size: 0.8125rem;
-    color: var(--text-secondary);
-  }
-
-  :global(.retention-card) {
-    margin-top: 24px;
-  }
-
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-    padding: 16px;
-    background: var(--bg-primary);
-    border-top: 1px solid var(--border-muted);
-  }
-
-  .stat-card {
-    text-align: center;
-    padding: 12px 8px;
-    background: var(--bg-secondary);
-    border-radius: 6px;
-  }
-
-  .stat-value {
-    display: block;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--text-bright);
-    font-family: var(--font-mono);
-  }
-
-  .stat-label {
-    display: block;
-    font-size: 0.6875rem;
-    color: var(--text-secondary);
-    margin-top: 4px;
-  }
-
 </style>

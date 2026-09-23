@@ -8,19 +8,19 @@
   </Tooltip>
 -->
 <script>
-  /** Tooltip text */
-  export let content = '';
+  let {
+    /** Tooltip text */
+    content = '',
+    /** Position: top, bottom, left, right */
+    position = 'top',
+    /** Show delay in ms */
+    delay = 200,
+    /** Disabled state */
+    disabled = false,
+    children,
+  } = $props();
 
-  /** Position */
-  export let position = 'top'; // top, bottom, left, right
-
-  /** Show delay in ms */
-  export let delay = 200;
-
-  /** Disabled state */
-  export let disabled = false;
-
-  let visible = false;
+  let visible = $state(false);
   let timeout;
 
   function show() {
@@ -39,12 +39,12 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="tooltip-wrapper"
-  on:mouseenter={show}
-  on:mouseleave={hide}
-  on:focusin={show}
-  on:focusout={hide}
+  onmouseenter={show}
+  onmouseleave={hide}
+  onfocusin={show}
+  onfocusout={hide}
 >
-  <slot />
+  {@render children?.()}
 
   {#if visible && content}
     <div

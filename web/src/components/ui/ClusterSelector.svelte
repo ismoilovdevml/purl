@@ -4,17 +4,19 @@
   Shows available clusters from meta.cluster field.
 -->
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { selectedCluster, clusters, clustersLoading } from '../../stores/cluster.js';
   import Icon from './Icon.svelte';
   import { chevronDown, globe } from './icons.js';
 
-  const dispatch = createEventDispatcher();
+  let {
+    /** ({ cluster }) after the store is updated */
+    onchange,
+  } = $props();
 
   function handleChange(event) {
     const value = event.target.value;
     selectedCluster.set(value);
-    dispatch('change', { cluster: value });
+    onchange?.({ cluster: value });
   }
 </script>
 
@@ -23,7 +25,7 @@
   <select
     class="cluster-select"
     value={$selectedCluster}
-    on:change={handleChange}
+    onchange={handleChange}
     disabled={$clustersLoading}
     aria-label="Select cluster"
   >

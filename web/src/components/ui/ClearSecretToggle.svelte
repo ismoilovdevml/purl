@@ -47,7 +47,7 @@
    * the next save of an unrelated field.
    *
    * $effect.pre (not $effect) so the reset lands in the same flush as the
-   * change that caused it, the way the old `$:` statement did — a plain
+   * change that caused it, the way the old reactive statement did — a plain
    * $effect would let one frame render with the stale armed state.
    *
    * Only writes when there is something to reset. `armed` is bound into

@@ -1,6 +1,7 @@
 <!--
   BackupSettings Component
-  Backup management: create, list, restore, delete, download, schedule, S3
+  Backup management: create, list, restore, delete, download.
+  Schedule and S3 configuration live in BackupConfig.svelte.
 
   Usage:
   <BackupSettings />
@@ -11,46 +12,31 @@
   import Card from '../ui/Card.svelte';
   import Input from '../ui/Input.svelte';
   import Modal from '../ui/Modal.svelte';
-  import Toggle from '../ui/Toggle.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
-  import EnvBadge from '../ui/EnvBadge.svelte';
-  import ClearSecretToggle from '../ui/ClearSecretToggle.svelte';
-  import ClearSecretConfirm from '../ui/ClearSecretConfirm.svelte';
+  import BackupConfig from './BackupConfig.svelte';
+  import BackupItem from './backup/BackupItem.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
-  import { isEnvLocked } from '../../utils/envLock.js';
-  import { clearFlags, describeCleared } from '../../utils/clearSecret.js';
+  import { downloadBlob } from '../../utils/dom.js';
 
   const API_BASE = '/api';
 
   // Backup list state
-  let backups = [];
-  let loading = true;
-  let creating = false;
-  let restoring = null;
-  let deleting = null;
-  let downloading = null;
-  let uploadingS3 = null;
-  let backupName = '';
-  let message = null;
-  let confirmRestore = null;
-  let confirmDelete = null;
+  let backups = $state([]);
+  let loading = $state(true);
+  let creating = $state(false);
+  let restoring = $state(null);
+  let deleting = $state(null);
+  let downloading = $state(null);
+  let uploadingS3 = $state(null);
+  let backupName = $state('');
+  let message = $state(null);
+  let confirmRestore = $state(null);
+  let confirmDelete = $state(null);
 
-  // Schedule state
-  let schedule = {
-    enabled: false,
-    interval_hours: 24,
-    retention_days: 30,
-    // Coarse flag: PURL_BACKUP_SCHEDULE_ENABLED only.
-    from_env: false,
-    // Per-key truth for every backup.* key %ENV_MAP can manage.
-    from_env_keys: {},
-  };
-  let loadingSchedule = true;
-  let savingSchedule = false;
-
-  // S3 state
-  let s3Config = {
+  // Owned here because Backup History shows its "Upload S3" button off the
+  // live toggle; <BackupConfig> fills and edits it through the binding.
+  let s3Config = $state({
     enabled: false,
     bucket: '',
     region: 'us-east-1',
@@ -60,35 +46,10 @@
     // Coarse flag: PURL_BACKUP_S3_ENABLED only.
     from_env: false,
     from_env_keys: {},
-  };
-
-  // The whole panel is frozen by the coarse flag; individual fields are frozen
-  // by their own variable. Both must disable a control, or the save 409s on a
-  // field that looked editable.
-  $: scheduleEnv = schedule.from_env_keys;
-  $: s3Env = s3Config.from_env_keys;
-  let loadingS3 = true;
-  let savingS3 = false;
-  let s3AccessKey = '';
-  let s3SecretKey = '';
-
-  /*
-   * Both credentials are write-only — GET /backup/s3 answers a single
-   * has_credentials flag and never the values — so an empty input means "keep
-   * what is stored". Removing one needs the explicit clear_s3_access_key /
-   * clear_s3_secret_key instruction (see utils/clearSecret.js).
-   *
-   * has_credentials gates BOTH controls because it is the only "is anything
-   * stored" signal the endpoint offers; a per-key flag would let the secret
-   * key's control appear on its own.
-   */
-  let clearingS3 = { s3_access_key: false, s3_secret_key: false };
-  let clearRequest = null;
+  });
 
   onMount(() => {
     fetchBackups();
-    fetchSchedule();
-    fetchS3Config();
   });
 
   // ============================================
@@ -163,15 +124,7 @@
       // utils/api.js parses every response as text/JSON, which would corrupt it.
       const res = await fetch(`${API_BASE}/backup/${encodeURIComponent(id)}/download`);
       if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${name || id}.tar.gz`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        downloadBlob(await res.blob(), `${name || id}.tar.gz`);
         toastSuccess('Backup downloaded');
       } else {
         const data = await res.json().catch(() => ({}));
@@ -184,94 +137,8 @@
   }
 
   // ============================================
-  // Schedule
+  // S3 upload
   // ============================================
-  async function fetchSchedule() {
-    loadingSchedule = true;
-    try {
-      const data = await api.get('/backup/schedule');
-      schedule = data.schedule || schedule;
-    } catch { /* ignore */ }
-    loadingSchedule = false;
-  }
-
-  async function saveSchedule() {
-    savingSchedule = true;
-    try {
-      await api.put('/backup/schedule', {
-        enabled: schedule.enabled,
-        interval_hours: schedule.interval_hours,
-        retention_days: schedule.retention_days,
-      });
-      toastSuccess('Backup schedule saved. Restart required to apply.');
-    } catch (err) {
-      toastError('Failed to save schedule: ' + (err.message || 'Unknown error'));
-    }
-    savingSchedule = false;
-  }
-
-  // ============================================
-  // S3
-  // ============================================
-  async function fetchS3Config() {
-    loadingS3 = true;
-    try {
-      const data = await api.get('/backup/s3');
-      s3Config = data.s3 || s3Config;
-    } catch { /* ignore */ }
-    loadingS3 = false;
-  }
-
-  /** Credentials the user armed for removal. */
-  function pendingS3Clears() {
-    return Object.keys(clearingS3).filter((key) => clearingS3[key]);
-  }
-
-  /** Save, but let the user confirm first when it would erase a credential. */
-  function requestSaveS3() {
-    const armed = pendingS3Clears();
-    if (armed.length) {
-      clearRequest = { keys: armed, run: saveS3Config };
-      return;
-    }
-    saveS3Config();
-  }
-
-  async function saveS3Config() {
-    savingS3 = true;
-    try {
-      const payload = {
-        s3_enabled: s3Config.enabled,
-        s3_bucket: s3Config.bucket,
-        s3_region: s3Config.region,
-        s3_prefix: s3Config.prefix,
-        s3_endpoint: s3Config.endpoint,
-        // Only the armed ones; a disarmed clear_* is a no-op the request has
-        // no business carrying.
-        ...clearFlags(clearingS3),
-      };
-      // Guarded by the inputs being disabled while armed, but restated here:
-      // clear_x with a non-blank x is a 400, not a removal.
-      if (s3AccessKey && !clearingS3.s3_access_key) payload.s3_access_key = s3AccessKey;
-      if (s3SecretKey && !clearingS3.s3_secret_key) payload.s3_secret_key = s3SecretKey;
-
-      const data = await api.put('/backup/s3', payload);
-      const cleared = describeCleared(data?.cleared);
-
-      toastSuccess(cleared || 'S3 settings saved');
-      s3AccessKey = '';
-      s3SecretKey = '';
-      clearingS3 = { s3_access_key: false, s3_secret_key: false };
-      await fetchS3Config();
-    } catch (err) {
-      // Includes the clear-specific 400s ("Not a clearable secret", "Cannot
-      // clear and set the same field") and the 409 env guard — api.js lifts the
-      // server's `error` into err.message, so nothing is swallowed silently.
-      toastError('Failed to save S3 settings: ' + (err.message || 'Unknown error'));
-    }
-    savingS3 = false;
-  }
-
   async function uploadToS3(id) {
     uploadingS3 = id;
     try {
@@ -282,26 +149,6 @@
       toastError('S3 upload failed: ' + (err.message || 'Unknown error'));
     }
     uploadingS3 = null;
-  }
-
-  // ============================================
-  // Formatters
-  // ============================================
-  function formatBytes(bytes) {
-    if (!bytes || bytes === 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
-  }
-
-  function formatDate(dateStr) {
-    if (!dateStr) return '—';
-    try {
-      const d = new Date(dateStr);
-      return d.toLocaleString();
-    } catch {
-      return dateStr;
-    }
   }
 </script>
 
@@ -329,12 +176,12 @@
           placeholder="Backup name (optional, auto-generated if empty)"
           size="sm"
           fullWidth
-          on:enter={createBackup}
+          onenter={createBackup}
         />
         <Button
           variant="primary"
           loading={creating}
-          on:click={createBackup}
+          onclick={createBackup}
         >
           Create Backup
         </Button>
@@ -343,218 +190,13 @@
     </div>
   </Card>
 
-  <!-- Scheduled Backups -->
-  <Card padding="none">
-    <div class="group-header">
-      <span class="group-title">Scheduled Backups</span>
-    </div>
-    <div class="schedule-form">
-      {#if loadingSchedule}
-        <LoadingSpinner size="sm" label="Loading schedule..." />
-      {:else}
-        <Toggle
-          bind:checked={schedule.enabled}
-          label="Enable scheduled backups"
-          description="Automatically create backups at a regular interval"
-          disabled={schedule.from_env || isEnvLocked(scheduleEnv, 'schedule_enabled')}
-        />
-
-        {#if schedule.enabled}
-          <div class="schedule-fields">
-            <div class="field-row">
-              <label class="field-label" for="backup-interval">
-                Backup interval (hours)
-                <EnvBadge locked={isEnvLocked(scheduleEnv, 'schedule_interval_hours')} />
-              </label>
-              <input
-                id="backup-interval"
-                type="number"
-                class="field-input"
-                bind:value={schedule.interval_hours}
-                min="1"
-                max="168"
-                disabled={schedule.from_env || isEnvLocked(scheduleEnv, 'schedule_interval_hours')}
-              />
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="backup-retention">
-                Auto-delete backups older than (days)
-                <EnvBadge locked={isEnvLocked(scheduleEnv, 'retention_days')} />
-              </label>
-              <input
-                id="backup-retention"
-                type="number"
-                class="field-input"
-                bind:value={schedule.retention_days}
-                min="1"
-                max="365"
-                disabled={schedule.from_env || isEnvLocked(scheduleEnv, 'retention_days')}
-              />
-            </div>
-          </div>
-        {/if}
-
-        <div class="schedule-actions">
-          <Button
-            variant="primary"
-            size="sm"
-            loading={savingSchedule}
-            disabled={schedule.from_env}
-            on:click={saveSchedule}
-          >
-            Save Schedule
-          </Button>
-          <EnvBadge locked={schedule.from_env} label="Configured via ENV" />
-        </div>
-        <p class="create-hint">Changes require a server restart to take effect</p>
-      {/if}
-    </div>
-  </Card>
-
-  <!-- S3 Remote Storage -->
-  <Card padding="none">
-    <div class="group-header">
-      <span class="group-title">S3 Remote Storage</span>
-    </div>
-    <div class="schedule-form">
-      {#if loadingS3}
-        <LoadingSpinner size="sm" label="Loading S3 config..." />
-      {:else}
-        <Toggle
-          bind:checked={s3Config.enabled}
-          label="Enable S3 upload"
-          description="Upload backup archives to Amazon S3 or S3-compatible storage (MinIO)"
-          disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_enabled')}
-        />
-
-        {#if s3Config.enabled}
-          <div class="schedule-fields">
-            <div class="field-row">
-              <label class="field-label" for="s3-bucket">
-                S3 Bucket
-                <EnvBadge locked={isEnvLocked(s3Env, 's3_bucket')} />
-              </label>
-              <input
-                id="s3-bucket"
-                type="text"
-                class="field-input field-input-wide"
-                bind:value={s3Config.bucket}
-                placeholder="my-backups-bucket"
-                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_bucket')}
-              />
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="s3-region">
-                Region
-                <EnvBadge locked={isEnvLocked(s3Env, 's3_region')} />
-              </label>
-              <input
-                id="s3-region"
-                type="text"
-                class="field-input"
-                bind:value={s3Config.region}
-                placeholder="us-east-1"
-                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_region')}
-              />
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="s3-prefix">
-                Key Prefix
-                <EnvBadge locked={isEnvLocked(s3Env, 's3_prefix')} />
-              </label>
-              <input
-                id="s3-prefix"
-                type="text"
-                class="field-input"
-                bind:value={s3Config.prefix}
-                placeholder="purl-backups/"
-                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_prefix')}
-              />
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="s3-endpoint">
-                Custom Endpoint (optional)
-                <EnvBadge locked={isEnvLocked(s3Env, 's3_endpoint')} />
-              </label>
-              <input
-                id="s3-endpoint"
-                type="text"
-                class="field-input field-input-wide"
-                bind:value={s3Config.endpoint}
-                placeholder="https://minio.example.com"
-                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_endpoint')}
-              />
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="s3-access-key">
-                Access Key ID
-                <EnvBadge locked={isEnvLocked(s3Env, 's3_access_key')} />
-              </label>
-              <input
-                id="s3-access-key"
-                type="text"
-                class="field-input"
-                bind:value={s3AccessKey}
-                placeholder={clearingS3.s3_access_key ? 'Removed on save' : (s3Config.has_credentials ? '••••••••' : 'AKIA...')}
-                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_access_key') || clearingS3.s3_access_key}
-              />
-            </div>
-            <div class="field-row clear-row">
-              <ClearSecretToggle
-                secret="s3_access_key"
-                stored={s3Config.has_credentials}
-                envLocked={isEnvLocked(s3Env, 's3_access_key')}
-                disabled={s3Config.from_env}
-                bind:armed={clearingS3.s3_access_key}
-              />
-            </div>
-            <div class="field-row">
-              <label class="field-label" for="s3-secret-key">
-                Secret Access Key
-                <EnvBadge locked={isEnvLocked(s3Env, 's3_secret_key')} />
-              </label>
-              <input
-                id="s3-secret-key"
-                type="password"
-                class="field-input field-input-wide"
-                bind:value={s3SecretKey}
-                placeholder={clearingS3.s3_secret_key ? 'Removed on save' : (s3Config.has_credentials ? '••••••••' : 'Secret key')}
-                disabled={s3Config.from_env || isEnvLocked(s3Env, 's3_secret_key') || clearingS3.s3_secret_key}
-              />
-            </div>
-            <div class="field-row clear-row">
-              <ClearSecretToggle
-                secret="s3_secret_key"
-                stored={s3Config.has_credentials}
-                envLocked={isEnvLocked(s3Env, 's3_secret_key')}
-                disabled={s3Config.from_env}
-                bind:armed={clearingS3.s3_secret_key}
-              />
-            </div>
-          </div>
-        {/if}
-
-        <div class="schedule-actions">
-          <Button
-            variant="primary"
-            size="sm"
-            loading={savingS3}
-            disabled={s3Config.from_env}
-            on:click={requestSaveS3}
-          >
-            Save S3 Settings
-          </Button>
-          <EnvBadge locked={s3Config.from_env} label="Configured via ENV" />
-        </div>
-      {/if}
-    </div>
-  </Card>
+  <BackupConfig bind:s3Config />
 
   <!-- Backup History -->
   <Card padding="none">
     <div class="group-header">
       <span class="group-title">Backup History</span>
-      <Button variant="ghost" size="sm" on:click={fetchBackups}>Refresh</Button>
+      <Button variant="ghost" size="sm" onclick={fetchBackups}>Refresh</Button>
     </div>
 
     {#if loading}
@@ -564,70 +206,18 @@
     {:else}
       <div class="backup-list">
         {#each backups as backup}
-          <div class="backup-item">
-            <div class="backup-info">
-              <div class="backup-name">{backup.name}</div>
-              <div class="backup-meta">
-                <span class="badge" class:completed={backup.status === 'completed'}
-                      class:running={backup.status === 'running'}
-                      class:failed={backup.status === 'failed'}>
-                  {backup.status}
-                </span>
-                {#if backup.target_type === 's3'}
-                  <span class="badge s3">S3</span>
-                {/if}
-                <span>{formatDate(backup.created_at)}</span>
-                <span>{formatBytes(backup.size_bytes)}</span>
-                {#if backup.rows_total > 0}
-                  <span>{backup.rows_total.toLocaleString()} rows</span>
-                {/if}
-              </div>
-              {#if backup.tables_backed_up}
-                <div class="backup-tables">Tables: {backup.tables_backed_up}</div>
-              {/if}
-              {#if backup.error}
-                <div class="backup-error">{backup.error}</div>
-              {/if}
-            </div>
-            <div class="backup-actions">
-              {#if backup.status === 'completed'}
-                <Button
-                  variant="default"
-                  size="sm"
-                  loading={downloading === backup.id}
-                  on:click={() => downloadBackup(backup.id, backup.name)}
-                >
-                  Download
-                </Button>
-                {#if s3Config.enabled}
-                  <Button
-                    variant="default"
-                    size="sm"
-                    loading={uploadingS3 === backup.id}
-                    on:click={() => uploadToS3(backup.id)}
-                  >
-                    {backup.target_type === 's3' ? 'Re-upload S3' : 'Upload S3'}
-                  </Button>
-                {/if}
-                <Button
-                  variant="default"
-                  size="sm"
-                  loading={restoring === backup.id}
-                  on:click={() => confirmRestore = backup}
-                >
-                  Restore
-                </Button>
-              {/if}
-              <Button
-                variant="danger"
-                size="sm"
-                loading={deleting === backup.id}
-                on:click={() => confirmDelete = backup}
-              >
-                Delete
-              </Button>
-            </div>
-          </div>
+          <BackupItem
+            {backup}
+            s3Enabled={s3Config.enabled}
+            downloading={downloading === backup.id}
+            uploading={uploadingS3 === backup.id}
+            restoring={restoring === backup.id}
+            deleting={deleting === backup.id}
+            ondownload={(b) => downloadBackup(b.id, b.name)}
+            onuploads3={(b) => uploadToS3(b.id)}
+            onrestore={(b) => { confirmRestore = b; }}
+            ondelete={(b) => { confirmDelete = b; }}
+          />
         {/each}
       </div>
     {/if}
@@ -639,10 +229,10 @@
   <Modal bind:open={confirmRestore} title="Confirm Restore" size="sm">
     <p>Are you sure you want to restore from backup <strong>{confirmRestore.name}</strong>?</p>
     <p class="warning-text">This will import data into existing tables. Existing data will not be deleted, but duplicates may occur.</p>
-    <svelte:fragment slot="footer">
-      <Button variant="default" on:click={() => confirmRestore = null}>Cancel</Button>
-      <Button variant="primary" on:click={() => restoreBackup(confirmRestore.id)}>Restore</Button>
-    </svelte:fragment>
+    {#snippet footer()}
+      <Button variant="default" onclick={() => confirmRestore = null}>Cancel</Button>
+      <Button variant="primary" onclick={() => restoreBackup(confirmRestore.id)}>Restore</Button>
+    {/snippet}
   </Modal>
 {/if}
 
@@ -651,15 +241,12 @@
   <Modal bind:open={confirmDelete} title="Confirm Delete" size="sm">
     <p>Are you sure you want to delete backup <strong>{confirmDelete.name}</strong>?</p>
     <p class="warning-text">This action cannot be undone. Backup files will be permanently removed.</p>
-    <svelte:fragment slot="footer">
-      <Button variant="default" on:click={() => confirmDelete = null}>Cancel</Button>
-      <Button variant="danger" on:click={() => deleteBackup(confirmDelete.id)}>Delete</Button>
-    </svelte:fragment>
+    {#snippet footer()}
+      <Button variant="default" onclick={() => confirmDelete = null}>Cancel</Button>
+      <Button variant="danger" onclick={() => deleteBackup(confirmDelete.id)}>Delete</Button>
+    {/snippet}
   </Modal>
 {/if}
-
-<!-- Second step of the guard around erasing a stored S3 credential -->
-<ClearSecretConfirm bind:request={clearRequest} />
 
 <style>
   .settings-section {
@@ -717,74 +304,9 @@
     color: var(--text-muted);
     margin: 8px 0 0;
   }
-
-  .schedule-form {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .schedule-fields {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding-left: 48px;
-  }
-
-  .field-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .field-label {
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-    min-width: 260px;
-    flex-shrink: 0;
-  }
-
   /* Sits under the credential input it belongs to, aligned with the input
      column rather than the 260px label column. */
-  .clear-row {
-    padding-left: 272px;
-  }
-
   /* Nothing stored => the toggle renders nothing => no blank row. */
-  .clear-row:empty {
-    display: none;
-  }
-
-  .field-input {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-primary);
-    padding: 6px 10px;
-    font-size: 0.85rem;
-    width: 140px;
-  }
-
-  .field-input-wide {
-    width: 280px;
-  }
-
-  .field-input:focus {
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
-  }
-
-  .field-input:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .schedule-actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
 
   .empty-state {
     padding: 32px 16px;
@@ -796,88 +318,6 @@
   .backup-list {
     display: flex;
     flex-direction: column;
-  }
-
-  .backup-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-muted);
-    gap: 16px;
-  }
-
-  .backup-item:last-child {
-    border-bottom: none;
-  }
-
-  .backup-info {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .backup-name {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--text-primary);
-  }
-
-  .backup-meta {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    flex-wrap: wrap;
-  }
-
-  .backup-tables {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-  }
-
-  .backup-error {
-    font-size: 0.75rem;
-    color: var(--color-error);
-  }
-
-  .badge {
-    display: inline-block;
-    padding: 1px 8px;
-    border-radius: 9999px;
-    font-size: 0.7rem;
-    font-weight: 500;
-    text-transform: uppercase;
-  }
-
-  .badge.completed {
-    background: rgba(63, 185, 80, 0.15);
-    color: #3fb950;
-  }
-
-  .badge.running {
-    background: rgba(88, 166, 255, 0.15);
-    color: #58a6ff;
-  }
-
-  .badge.failed {
-    background: rgba(248, 81, 73, 0.15);
-    color: #f85149;
-  }
-
-  .badge.s3 {
-    background: rgba(255, 153, 0, 0.15);
-    color: #ff9900;
-  }
-
-  .backup-actions {
-    display: flex;
-    gap: 8px;
-    flex-shrink: 0;
-    flex-wrap: wrap;
   }
 
   .result-box {

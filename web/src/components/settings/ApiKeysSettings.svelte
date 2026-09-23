@@ -16,30 +16,29 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { currentUser } from '../../stores/auth.js';
   import { api } from '../../utils/api.js';
-  import Icon from '../ui/Icon.svelte';
-  import EmptyState from '../ui/EmptyState.svelte';
   import IngestSnippet from '../onboarding/IngestSnippet.svelte';
-  import { check, copy, key as keyIcon, shield } from '../ui/icons.js';
+  import CreatedKeyBanner from './apikeys/CreatedKeyBanner.svelte';
+  import ApiKeysTable from './apikeys/ApiKeysTable.svelte';
 
-  let keys = [];
-  let loading = true;
-  let error = '';
-  let fromEnv = false;
+  let keys = $state([]);
+  let loading = $state(true);
+  let error = $state('');
+  let fromEnv = $state(false);
 
-  $: isAdmin = $currentUser?.role === 'admin';
+  const isAdmin = $derived($currentUser?.role === 'admin');
 
   // Create key form
-  let showCreateForm = false;
-  let newKeyName = '';
-  let creating = false;
+  let showCreateForm = $state(false);
+  let newKeyName = $state('');
+  let creating = $state(false);
 
   // Newly created key (shown once)
-  let createdKey = null;
-  let copied = false;
+  let createdKey = $state(null);
+  let copied = $state(false);
 
   // Revoke confirmation
-  let showRevokeConfirm = false;
-  let revokingKey = null;
+  let showRevokeConfirm = $state(false);
+  let revokingKey = $state(null);
 
   onMount(() => {
     fetchKeys();
@@ -109,27 +108,6 @@
     createdKey = null;
     copied = false;
   }
-
-  function formatKeyPrefix(key) {
-    if (!key) return '';
-    return key.substring(0, 8) + '...';
-  }
-
-  function formatDate(dateStr) {
-    if (!dateStr) return '';
-    try {
-      const date = new Date(dateStr);
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    } catch {
-      return dateStr;
-    }
-  }
 </script>
 
 <section class="settings-section">
@@ -148,28 +126,7 @@
     {/if}
 
     {#if createdKey}
-      <div class="created-key-banner">
-        <div class="created-key-header">
-          <Icon icon={shield} size={16} />
-          <strong>New API Key Created</strong>
-        </div>
-        <p class="created-key-warning">
-          Copy this key now. You will not be able to see it again.
-        </p>
-        <div class="created-key-value">
-          <code>{createdKey.key}</code>
-          <button
-            type="button"
-            class="copy-btn"
-            on:click={() => copyToClipboard(createdKey.key)}
-            title="Copy to clipboard"
-            aria-label={copied ? 'API key copied to clipboard' : 'Copy API key to clipboard'}
-          >
-            <Icon icon={copied ? check : copy} size={16} />
-          </button>
-        </div>
-        <Button variant="ghost" size="sm" on:click={dismissCreatedKey}>Dismiss</Button>
-      </div>
+      <CreatedKeyBanner {createdKey} {copied} oncopy={copyToClipboard} ondismiss={dismissCreatedKey} />
     {/if}
 
     <Card padding="md">
@@ -179,7 +136,7 @@
           <EnvBadge locked={fromEnv} />
         </span>
         {#if !fromEnv && isAdmin}
-          <Button variant="primary" size="sm" on:click={() => { showCreateForm = !showCreateForm; }}>
+          <Button variant="primary" size="sm" onclick={() => { showCreateForm = !showCreateForm; }}>
             {showCreateForm ? 'Cancel' : 'Create Key'}
           </Button>
         {:else if fromEnv}
@@ -194,12 +151,12 @@
             placeholder="Key name (e.g. production-ingest)"
             label="Key Name"
             fullWidth
-            on:enter={handleCreateKey}
+            onenter={handleCreateKey}
           />
           <Button
             variant="success"
             size="sm"
-            on:click={handleCreateKey}
+            onclick={handleCreateKey}
             loading={creating}
             disabled={!newKeyName.trim()}
           >
@@ -208,48 +165,7 @@
         </div>
       {/if}
 
-      <div class="keys-table">
-        <div class="table-header">
-          <span class="col-name">Name</span>
-          <span class="col-key">Key</span>
-          <span class="col-created">Created</span>
-          <span class="col-status">Status</span>
-          <span class="col-actions"></span>
-        </div>
-
-        <div class="keys-list">
-          {#each keys as key}
-            <div class="key-row">
-              <div class="col-name">
-                <Icon icon={keyIcon} size={16} />
-                <span class="key-name">{key.label || key.id}</span>
-              </div>
-              <div class="col-key">
-                <code class="key-prefix">{key.masked_key || formatKeyPrefix(key.id)}</code>
-              </div>
-              <div class="col-created">
-                <span class="key-date">{formatDate(key.created_at)}</span>
-              </div>
-              <div class="col-status">
-                <span class="status-badge status-active">Active</span>
-              </div>
-              <div class="col-actions">
-                {#if !fromEnv && isAdmin}
-                  <Button variant="ghost" size="sm" on:click={() => confirmRevoke(key)}>
-                    Revoke
-                  </Button>
-                {/if}
-              </div>
-            </div>
-          {/each}
-
-          {#if keys.length === 0}
-            <EmptyState icon={keyIcon} title="No API keys configured" size="sm">
-              Create one to start ingesting logs.
-            </EmptyState>
-          {/if}
-        </div>
-      </div>
+      <ApiKeysTable {keys} canRevoke={!fromEnv && isAdmin} onrevoke={confirmRevoke} />
     </Card>
 
     <Card padding="md">
@@ -307,72 +223,6 @@
     font-size: 0.8125rem;
   }
 
-  /* Created key banner */
-  .created-key-banner {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 16px;
-    background: rgba(56, 139, 253, 0.1);
-    border: 1px solid rgba(56, 139, 253, 0.4);
-    border-radius: 8px;
-  }
-
-  .created-key-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: #58a6ff;
-    font-size: 0.875rem;
-  }
-
-  .created-key-warning {
-    margin: 0;
-    font-size: 0.8125rem;
-    color: var(--text-secondary);
-  }
-
-  .created-key-value {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-
-  .created-key-value code {
-    flex: 1;
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    color: #3fb950;
-    word-break: break-all;
-    user-select: all;
-  }
-
-  .copy-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: all 0.15s ease;
-  }
-
-  .copy-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
-  }
-
   /* Keys header */
   .keys-header {
     display: flex;
@@ -405,113 +255,6 @@
     background: var(--bg-tertiary);
     border-radius: 6px;
     flex-wrap: wrap;
-  }
-
-  /* Table layout */
-  .keys-table {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .table-header {
-    display: grid;
-    grid-template-columns: 1fr 120px 150px 80px auto;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--border-color);
-    margin-bottom: 4px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .keys-list {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .key-row {
-    display: grid;
-    grid-template-columns: 1fr 120px 150px 80px auto;
-    align-items: center;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border-muted);
-  }
-
-  .key-row:last-child {
-    border-bottom: none;
-  }
-
-  .col-name {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-  }
-
-  .col-name :global(svg) {
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-
-  .key-name {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .col-key {
-    display: flex;
-    align-items: center;
-  }
-
-  .key-prefix {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    background: var(--bg-tertiary);
-    padding: 2px 6px;
-    border-radius: 4px;
-  }
-
-  .col-created {
-    display: flex;
-    align-items: center;
-  }
-
-  .key-date {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-  }
-
-  .col-status {
-    display: flex;
-    align-items: center;
-  }
-
-  .status-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 8px;
-    border-radius: 9999px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-  }
-
-  .status-active {
-    background: rgba(63, 185, 80, 0.15);
-    color: #3fb950;
-  }
-
-  .col-actions {
-    display: flex;
-    gap: 4px;
-    justify-content: flex-end;
   }
 
   /* Info card */

@@ -6,35 +6,26 @@
   import EmptyState from '../ui/EmptyState.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
-  import Icon from '../ui/Icon.svelte';
-  import { close } from '../ui/icons.js';
+  import PipelineCreateModal from './pipeline/PipelineCreateModal.svelte';
 
-  let pipelines = [];
-  let loading = false;
-  let showCreateModal = false;
-  let showTestModal = false;
+  let pipelines = $state([]);
+  let loading = $state(false);
+  let showCreateModal = $state(false);
+  let showTestModal = $state(false);
 
   // New pipeline form
-  let newPipeline = {
+  let newPipeline = $state({
     name: '',
     description: '',
     filter_service: '',
     enabled: true,
     rules: [],
-  };
+  });
 
   // Test state
-  let testSample = '{"level":"ERROR","message":"Connection timeout to db-01","service":"api"}';
-  let testResults = null;
+  let testSample = $state('{"level":"ERROR","message":"Connection timeout to db-01","service":"api"}');
+  let testResults = $state(null);
   let testPipeline = null;
-
-  const ruleTypes = [
-    { value: 'regex', label: 'Regex Extract' },
-    { value: 'json_extract', label: 'JSON Extract' },
-    { value: 'grok', label: 'Grok Pattern' },
-    { value: 'drop', label: 'Drop' },
-    { value: 'mutate', label: 'Mutate' },
-  ];
 
   onMount(fetchPipelines);
 
@@ -82,14 +73,6 @@
     }
   }
 
-  function addRule() {
-    newPipeline.rules = [...newPipeline.rules, { type: 'regex', source_field: 'message', pattern: '', enabled: true }];
-  }
-
-  function removeRule(index) {
-    newPipeline.rules = newPipeline.rules.filter((_, i) => i !== index);
-  }
-
   async function openTest(pipeline) {
     testPipeline = pipeline;
     testResults = null;
@@ -114,7 +97,7 @@
   </div>
 
   <div class="pipeline-actions">
-    <Button on:click={() => showCreateModal = true}>Create Pipeline</Button>
+    <Button onclick={() => showCreateModal = true}>Create Pipeline</Button>
   </div>
 
   {#if loading}
@@ -145,11 +128,11 @@
             </div>
           </div>
           <div class="pipeline-actions-row">
-            <button class="btn-sm" on:click={() => toggleEnabled(pipeline)}>
+            <button class="btn-sm" onclick={() => toggleEnabled(pipeline)}>
               {pipeline.enabled ? 'Disable' : 'Enable'}
             </button>
-            <button class="btn-sm" on:click={() => openTest(pipeline)}>Test</button>
-            <button class="btn-sm btn-danger" on:click={() => deletePipeline(pipeline.id)}>Delete</button>
+            <button class="btn-sm" onclick={() => openTest(pipeline)}>Test</button>
+            <button class="btn-sm btn-danger" onclick={() => deletePipeline(pipeline.id)}>Delete</button>
           </div>
         </div>
       </Card>
@@ -158,55 +141,7 @@
 </section>
 
 {#if showCreateModal}
-  <Modal bind:open={showCreateModal} title="Create Pipeline" size="lg">
-    <div class="form-group">
-      <label for="pipeline-name">Name</label>
-      <input id="pipeline-name" type="text" bind:value={newPipeline.name} placeholder="My Pipeline" />
-    </div>
-    <div class="form-group">
-      <label for="pipeline-desc">Description</label>
-      <input id="pipeline-desc" type="text" bind:value={newPipeline.description} placeholder="Parse nginx access logs" />
-    </div>
-    <div class="form-group">
-      <label for="pipeline-filter">Service Filter (regex, empty = all)</label>
-      <input id="pipeline-filter" type="text" bind:value={newPipeline.filter_service} placeholder="nginx|apache" />
-    </div>
-
-    <div class="rules-section">
-      <div class="rules-header">
-        <h4>Rules</h4>
-        <button class="btn-sm" on:click={addRule}>+ Add Rule</button>
-      </div>
-
-      {#each newPipeline.rules as rule, i}
-        <div class="rule-card">
-          <div class="rule-row">
-            <select bind:value={rule.type}>
-              {#each ruleTypes as rt}
-                <option value={rt.value}>{rt.label}</option>
-              {/each}
-            </select>
-            <input type="text" bind:value={rule.source_field} placeholder="Source field" />
-            <button
-              class="btn-sm btn-danger btn-icon"
-              on:click={() => removeRule(i)}
-              aria-label={`Remove rule ${i + 1} (${rule.type})`}
-            >
-              <Icon icon={close} size={12} strokeWidth={3} />
-            </button>
-          </div>
-          {#if rule.type === 'regex' || rule.type === 'grok' || rule.type === 'drop'}
-            <input type="text" bind:value={rule.pattern} placeholder="Pattern..." class="rule-pattern" />
-          {/if}
-        </div>
-      {/each}
-    </div>
-
-    <svelte:fragment slot="footer">
-      <Button on:click={() => showCreateModal = false}>Cancel</Button>
-      <Button variant="primary" on:click={handleCreate} disabled={!newPipeline.name.trim()}>Create</Button>
-    </svelte:fragment>
-  </Modal>
+  <PipelineCreateModal bind:open={showCreateModal} bind:pipeline={newPipeline} oncreate={handleCreate} />
 {/if}
 
 {#if showTestModal}
@@ -215,7 +150,7 @@
       <label for="test-sample">Sample Log (JSON)</label>
       <textarea id="test-sample" bind:value={testSample} rows="4" class="code-input"></textarea>
     </div>
-    <Button on:click={runTest}>Run Test</Button>
+    <Button onclick={runTest}>Run Test</Button>
 
     {#if testResults}
       <div class="test-results">
@@ -228,9 +163,9 @@
       </div>
     {/if}
 
-    <svelte:fragment slot="footer">
-      <Button on:click={() => showTestModal = false}>Close</Button>
-    </svelte:fragment>
+    {#snippet footer()}
+      <Button onclick={() => showTestModal = false}>Close</Button>
+    {/snippet}
   </Modal>
 {/if}
 
@@ -333,17 +268,6 @@
     background: rgba(248, 81, 73, 0.1);
   }
 
-  /* Icon-only variant of .btn-sm — keeps the square hit area the glyph needs. */
-  .btn-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    width: 26px;
-    height: 26px;
-    flex-shrink: 0;
-  }
-
   .loading-text {
     text-align: center;
     color: #8b949e;
@@ -362,7 +286,7 @@
     margin-bottom: 4px;
   }
 
-  .form-group input, .form-group textarea {
+  .form-group textarea {
     width: 100%;
     padding: 8px 12px;
     background: #0d1117;
@@ -374,69 +298,8 @@
 
   /* Border-color is the resting cue; the global :focus-visible ring is left
      intact so keyboard users keep a visible focus indicator. */
-  .form-group input:focus, .form-group textarea:focus {
+  .form-group textarea:focus {
     border-color: #58a6ff;
-  }
-
-  .rules-section {
-    margin-top: 16px;
-  }
-
-  .rules-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
-  }
-
-  .rules-header h4 {
-    font-size: 14px;
-    color: #f0f6fc;
-  }
-
-  .rule-card {
-    background: #0d1117;
-    border: 1px solid #21262d;
-    border-radius: 6px;
-    padding: 10px;
-    margin-bottom: 8px;
-  }
-
-  .rule-row {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .rule-row select {
-    padding: 6px 8px;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    color: #c9d1d9;
-    font-size: 12px;
-  }
-
-  .rule-row input {
-    flex: 1;
-    padding: 6px 8px;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    color: #c9d1d9;
-    font-size: 12px;
-  }
-
-  .rule-pattern {
-    width: 100%;
-    padding: 6px 8px;
-    margin-top: 8px;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 4px;
-    color: #c9d1d9;
-    font-size: 12px;
-    font-family: var(--font-mono);
   }
 
   .code-input {

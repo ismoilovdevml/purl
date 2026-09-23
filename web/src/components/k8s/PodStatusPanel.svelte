@@ -4,6 +4,7 @@
   with color-coded badges and auto-refresh.
 -->
 <script>
+  import { formatShortDateTime } from '../../utils/format.js';
   import { onMount, onDestroy } from 'svelte';
   import Badge from '../ui/Badge.svelte';
   import Card from '../ui/Card.svelte';
@@ -19,11 +20,12 @@
     fetchPodHealth,
   } from '../../stores/k8sHealth.js';
 
-  /** Lookback window in hours */
-  export let hours = 1;
-
-  /** Auto-refresh interval in seconds (0 to disable) */
-  export let refreshInterval = 30;
+  let {
+    /** Lookback window in hours */
+    hours = 1,
+    /** Auto-refresh interval in seconds (0 to disable) */
+    refreshInterval = 30,
+  } = $props();
 
   // Error type to color mapping
   const ERROR_COLORS = {
@@ -45,38 +47,21 @@
     return info ? info.variant : 'error';
   }
 
-  function formatTimestamp(ts) {
-    if (!ts) return '-';
-    try {
-      const d = new Date(ts);
-      return d.toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
-    } catch {
-      return ts;
-    }
-  }
 
   // No-data signal: backend reports has_data false/0 when no K8s audit records
   // exist. Distinct from a genuine all-clear so we don't show "All Pods Healthy".
   // Absent field (older backend) keeps today's behavior.
-  $: noK8sData = $healthSummary.has_data === false || $healthSummary.has_data === 0;
+  const noK8sData = $derived($healthSummary.has_data === false || $healthSummary.has_data === 0);
 
   // Summary cards derived from store
-  let summaryCards = [];
-  $: {
-    const s = $healthSummary.summary || {};
-    summaryCards = Object.entries(s).map(([type, data]) => ({
+  const summaryCards = $derived(
+    Object.entries($healthSummary.summary || {}).map(([type, data]) => ({
       type,
       podCount: data.pod_count || 0,
       totalErrors: data.total_errors || 0,
       style: getErrorStyle(type),
-    }));
-  }
+    }))
+  );
 
   onMount(() => {
     if (refreshInterval > 0) {
@@ -93,10 +78,10 @@
 
 <div class="pod-status-panel">
   <Card title="Pod Health" subtitle="Log-based detection of unhealthy K8s pods">
-    <svelte:fragment slot="actions">
+    {#snippet actions()}
       <button
         class="refresh-btn"
-        on:click={() => fetchPodHealth(hours)}
+        onclick={() => fetchPodHealth(hours)}
         disabled={$healthLoading}
         aria-label="Refresh pod health"
       >
@@ -106,7 +91,7 @@
           <Icon icon={refresh} size={14} />
         {/if}
       </button>
-    </svelte:fragment>
+    {/snippet}
 
     {#if $healthError}
       <div class="health-error">
@@ -172,7 +157,7 @@
                     </Badge>
                   </td>
                   <td class="error-count">{pod.count}</td>
-                  <td class="timestamp">{formatTimestamp(pod.last_seen)}</td>
+                  <td class="timestamp">{formatShortDateTime(pod.last_seen)}</td>
                 </tr>
               {/each}
             </tbody>

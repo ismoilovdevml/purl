@@ -3,30 +3,23 @@
   Column configuration menu with search, presets, drag-drop reordering
 
   Usage:
-  <ColumnPicker bind:columns bind:open on:change={saveConfig} />
+  <ColumnPicker bind:columns bind:open onchange={({ columns }) => saveConfig(columns)} />
 -->
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { clickOutside } from '../../utils/dom.js';
+  import { defaultColumns } from '../../utils/columns.js';
   import Icon from '../ui/Icon.svelte';
-  import { checkCircle, grip, layers, pinAngle, refresh, search, table, textLines } from '../ui/icons.js';
+  import { refresh, search, textLines } from '../ui/icons.js';
+  import ColumnPickerGroups from './ColumnPickerGroups.svelte';
 
-  export let columns = [];
-  export let open = false;
+  let {
+    columns = $bindable([]),
+    open = $bindable(false),
+    /** ({ columns }) after any visibility/pin/order change */
+    onchange,
+  } = $props();
 
-  const dispatch = createEventDispatcher();
-
-  let columnSearch = '';
-  let draggedColumn = null;
-  let dragOverColumn = null;
-
-  // Column groups for organization. `icon` holds the imported glyph itself —
-  // never raw path data — so icons.js stays tree-shakeable.
-  const columnGroups = {
-    core: { label: 'Core Fields', icon: table },
-    kubernetes: { label: 'Kubernetes', icon: layers },
-    tracing: { label: 'Tracing', icon: checkCircle }
-  };
+  let columnSearch = $state('');
 
   // Presets for quick configuration
   const presets = [
@@ -46,14 +39,14 @@
     columns = columns.map(c =>
       c.id === colId ? { ...c, visible: !c.visible } : c
     );
-    dispatch('change', { columns });
+    onchange?.({ columns });
   }
 
   function togglePin(colId) {
     columns = columns.map(c =>
       c.id === colId ? { ...c, pinned: !c.pinned } : c
     );
-    dispatch('change', { columns });
+    onchange?.({ columns });
   }
 
   function applyPreset(preset) {
@@ -73,61 +66,26 @@
       }
     });
     columns = orderedColumns;
-    dispatch('change', { columns });
+    onchange?.({ columns });
   }
 
   function resetColumns() {
-    columns = [
-      { id: 'time', label: 'Time', visible: true, width: 90, minWidth: 60, group: 'core', pinned: false },
-      { id: 'level', label: 'Level', visible: true, width: 100, minWidth: 60, group: 'core', pinned: false },
-      { id: 'service', label: 'Service', visible: true, width: 150, minWidth: 80, group: 'core', pinned: false },
-      { id: 'host', label: 'Host', visible: false, width: 120, minWidth: 80, group: 'core', pinned: false },
-      { id: 'namespace', label: 'Namespace', visible: false, width: 120, minWidth: 80, meta: true, group: 'kubernetes', pinned: false },
-      { id: 'pod', label: 'Pod', visible: false, width: 180, minWidth: 100, meta: true, group: 'kubernetes', pinned: false },
-      { id: 'node', label: 'Node', visible: false, width: 150, minWidth: 100, meta: true, group: 'kubernetes', pinned: false },
-      { id: 'message', label: 'Message', visible: true, width: null, minWidth: 200, group: 'core', pinned: false }
-    ];
-    dispatch('change', { columns });
+    columns = defaultColumns();
+    onchange?.({ columns });
   }
 
-  // Drag and drop handlers
-  function handleDragStart(event, colId) {
-    draggedColumn = colId;
-    event.dataTransfer.effectAllowed = 'move';
-  }
+  // Move the dragged column to the drop target's position
+  function moveColumn(draggedId, targetId) {
+    const dragIdx = columns.findIndex(c => c.id === draggedId);
+    const targetIdx = columns.findIndex(c => c.id === targetId);
 
-  function handleDragOver(event, colId) {
-    event.preventDefault();
-    if (draggedColumn && draggedColumn !== colId) {
-      dragOverColumn = colId;
+    if (dragIdx !== -1 && targetIdx !== -1) {
+      const newColumns = [...columns];
+      const [removed] = newColumns.splice(dragIdx, 1);
+      newColumns.splice(targetIdx, 0, removed);
+      columns = newColumns;
+      onchange?.({ columns });
     }
-  }
-
-  function handleDragLeave() {
-    dragOverColumn = null;
-  }
-
-  function handleDrop(event, targetId) {
-    event.preventDefault();
-    if (draggedColumn && draggedColumn !== targetId) {
-      const dragIdx = columns.findIndex(c => c.id === draggedColumn);
-      const targetIdx = columns.findIndex(c => c.id === targetId);
-
-      if (dragIdx !== -1 && targetIdx !== -1) {
-        const newColumns = [...columns];
-        const [removed] = newColumns.splice(dragIdx, 1);
-        newColumns.splice(targetIdx, 0, removed);
-        columns = newColumns;
-        dispatch('change', { columns });
-      }
-    }
-    draggedColumn = null;
-    dragOverColumn = null;
-  }
-
-  function handleDragEnd() {
-    draggedColumn = null;
-    dragOverColumn = null;
   }
 
   // Get current preset name if matches
@@ -140,22 +98,18 @@
   }
 
   // Filter columns by search
-  $: filteredColumns = columnSearch
-    ? columns.filter(c => c.label.toLowerCase().includes(columnSearch.toLowerCase()))
-    : columns;
+  const filteredColumns = $derived(
+    columnSearch
+      ? columns.filter(c => c.label.toLowerCase().includes(columnSearch.toLowerCase()))
+      : columns
+  );
 
-  // Group columns for display
-  $: groupedColumns = Object.keys(columnGroups).reduce((acc, group) => {
-    acc[group] = filteredColumns.filter(c => c.group === group);
-    return acc;
-  }, {});
-
-  $: visibleColumns = columns.filter(c => c.visible);
-  $: currentPreset = getCurrentPreset();
+  const visibleColumns = $derived(columns.filter(c => c.visible));
+  const currentPreset = $derived(getCurrentPreset());
 </script>
 
 <div class="column-picker">
-  <button class="picker-trigger" on:click|stopPropagation={() => open = !open}>
+  <button class="picker-trigger" onclick={(e) => { e.stopPropagation(); open = !open; }}>
     <Icon icon={textLines} size={14} strokeWidth={2.5} />
     <span>Columns</span>
     {#if currentPreset}
@@ -183,7 +137,7 @@
             <button
               class="preset-chip"
               class:active={currentPreset === preset.name}
-              on:click={() => applyPreset(preset)}
+              onclick={() => applyPreset(preset)}
               title={preset.columns.join(', ')}
             >
               {preset.name}
@@ -195,64 +149,15 @@
       <div class="picker-divider"></div>
 
       <!-- Grouped columns -->
-      <div class="picker-groups">
-        {#each Object.entries(groupedColumns) as [groupKey, groupCols]}
-          {#if groupCols.length > 0}
-            <div class="column-group">
-              <div class="group-header">
-                <Icon icon={columnGroups[groupKey].icon} size={12} strokeWidth={3} class="group-icon" />
-                <span>{columnGroups[groupKey].label}</span>
-                <span class="group-count">{groupCols.filter(c => c.visible).length}/{groupCols.length}</span>
-              </div>
-              <div class="group-columns">
-                {#each groupCols as col (col.id)}
-                  <div
-                    class="column-item"
-                    class:visible={col.visible}
-                    class:dragging={draggedColumn === col.id}
-                    class:drag-over={dragOverColumn === col.id}
-                    draggable="true"
-                    on:dragstart={(e) => handleDragStart(e, col.id)}
-                    on:dragover={(e) => handleDragOver(e, col.id)}
-                    on:dragleave={handleDragLeave}
-                    on:drop={(e) => handleDrop(e, col.id)}
-                    on:dragend={handleDragEnd}
-                    role="listitem"
-                  >
-                    <div class="drag-handle" title="Drag to reorder">
-                      <Icon icon={grip} size={10} />
-                    </div>
-                    <label class="column-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={col.visible}
-                        on:change={() => toggleColumn(col.id)}
-                      />
-                      <span class="checkmark"></span>
-                    </label>
-                    <span class="column-label">{col.label}</span>
-                    {#if col.visible}
-                      <button
-                        class="pin-btn"
-                        class:pinned={col.pinned}
-                        on:click|stopPropagation={() => togglePin(col.id)}
-                        title={col.pinned ? 'Unpin column' : 'Pin column to left'}
-                        aria-label={col.pinned ? `Unpin ${col.label} column` : `Pin ${col.label} column to left`}
-                        aria-pressed={col.pinned}
-                      >
-                        <Icon icon={pinAngle} size={12} />
-                      </button>
-                    {/if}
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/if}
-        {/each}
-      </div>
+      <ColumnPickerGroups
+        columns={filteredColumns}
+        ontoggle={toggleColumn}
+        onpin={togglePin}
+        onreorder={moveColumn}
+      />
 
       <div class="picker-footer">
-        <button class="reset-btn" on:click={resetColumns}>
+        <button class="reset-btn" onclick={resetColumns}>
           <Icon icon={refresh} size={12} strokeWidth={3} />
           Reset to Default
         </button>
@@ -385,163 +290,6 @@
   .picker-divider {
     height: 1px;
     background: var(--border-color);
-  }
-
-  .picker-groups {
-    flex: 1;
-    overflow-y: auto;
-    padding: 8px 0;
-  }
-
-  .column-group {
-    margin-bottom: 4px;
-  }
-
-  .group-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-  }
-
-  .group-header :global(.group-icon) {
-    opacity: 0.7;
-  }
-
-  .group-count {
-    margin-left: auto;
-    font-size: 10px;
-    color: var(--text-muted);
-    font-weight: 500;
-  }
-
-  .group-columns {
-    padding: 0 4px;
-  }
-
-  .column-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px;
-    margin: 2px 0;
-    border-radius: var(--radius-md);
-    cursor: grab;
-    transition: var(--transition-fast);
-  }
-
-  .column-item:hover {
-    background: var(--bg-tertiary);
-  }
-
-  .column-item.visible {
-    background: rgba(33, 38, 45, 0.4);
-  }
-
-  .column-item.dragging {
-    opacity: 0.5;
-    background: var(--bg-hover);
-  }
-
-  .column-item.drag-over {
-    border-top: 2px solid var(--color-primary);
-    margin-top: 0;
-    padding-top: 6px;
-  }
-
-  .drag-handle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px;
-    color: var(--text-muted);
-    opacity: 0.5;
-    cursor: grab;
-  }
-
-  .column-item:hover .drag-handle {
-    opacity: 1;
-  }
-
-  .column-checkbox {
-    position: relative;
-    display: flex;
-    align-items: center;
-    cursor: pointer;
-  }
-
-  .column-checkbox input {
-    position: absolute;
-    opacity: 0;
-    cursor: pointer;
-    height: 0;
-    width: 0;
-  }
-
-  .checkmark {
-    width: 16px;
-    height: 16px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: var(--transition-fast);
-  }
-
-  .column-checkbox input:checked ~ .checkmark {
-    background: var(--color-success-solid);
-    border-color: var(--color-success-solid);
-  }
-
-  .column-checkbox input:checked ~ .checkmark::after {
-    content: '';
-    width: 4px;
-    height: 8px;
-    border: solid white;
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-    margin-bottom: 2px;
-  }
-
-  .column-label {
-    flex: 1;
-    font-size: var(--text-base);
-    color: var(--text-primary);
-  }
-
-  .pin-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px;
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    border-radius: var(--radius-sm);
-    opacity: 0;
-    transition: var(--transition-fast);
-  }
-
-  .column-item:hover .pin-btn {
-    opacity: 1;
-  }
-
-  .pin-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .pin-btn.pinned {
-    opacity: 1;
-    color: var(--color-primary);
   }
 
   .picker-footer {

@@ -9,30 +9,29 @@
   <Badge count={42} />
 -->
 <script>
-  /** Badge variant */
-  export let variant = 'default'; // default, primary, success, warning, error, info
+  let {
+    /** Badge variant: default, primary, success, warning, error, info */
+    variant = 'default',
+    /** Size: sm, md, lg */
+    size = 'md',
+    /** Show dot indicator */
+    dot = false,
+    /** Count to display (overrides children) */
+    count = null,
+    /** Max count before showing + */
+    maxCount = 99,
+    /** Pill shape (more rounded) */
+    pill = false,
+    /** Outline style */
+    outline = false,
+    children,
+  } = $props();
 
-  /** Size */
-  export let size = 'md'; // sm, md, lg
-
-  /** Show dot indicator */
-  export let dot = false;
-
-  /** Count to display (overrides slot) */
-  export let count = null;
-
-  /** Max count before showing + */
-  export let maxCount = 99;
-
-  /** Pill shape (more rounded) */
-  export let pill = false;
-
-  /** Outline style */
-  export let outline = false;
-
-  $: displayCount = count !== null
-    ? (count > maxCount ? `${maxCount}+` : count)
-    : null;
+  const displayCount = $derived(
+    count !== null
+      ? (count > maxCount ? `${maxCount}+` : count)
+      : null
+  );
 </script>
 
 <span
@@ -47,7 +46,7 @@
   class:size-lg={size === 'lg'}
   class:pill
   class:outline
-  class:dot-only={dot && !$$slots.default && count === null}
+  class:dot-only={dot && !children && count === null}
 >
   {#if dot}
     <span class="badge-dot"></span>
@@ -55,7 +54,7 @@
   {#if displayCount !== null}
     {displayCount}
   {:else}
-    <slot />
+    {@render children?.()}
   {/if}
 </span>
 

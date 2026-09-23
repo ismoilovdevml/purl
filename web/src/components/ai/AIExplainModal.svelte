@@ -1,4 +1,5 @@
 <script>
+  import { untrack } from 'svelte';
   import Modal from '../ui/Modal.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import Button from '../ui/Button.svelte';
@@ -9,8 +10,7 @@
     aiExplainResult, aiExplainLoading, aiExplainError, explainLog
   } from '../../stores/ai.js';
 
-  export let open = false;
-  export let log = null;
+  let { open = $bindable(), log = null } = $props();
 
   // The explain stores are module-level, so they outlive this modal. Two ways
   // that bites: (1) a run can end without `handleClose` ever firing — a 401
@@ -22,10 +22,13 @@
   // runs on mount (null -> id) and on every swap.
   //
   // Declared before the run guard so it clears in the same flush, ahead of it.
-  // Its only tracked dependency is `log`; the writes it makes are read nowhere
-  // in this statement, so it cannot re-trigger itself.
+  // Its only tracked dependency is `log`; the store writes happen untracked,
+  // so it cannot re-trigger itself.
   let explainTargetKey;
-  $: syncExplainTarget(log);
+  $effect.pre(() => {
+    const target = log;
+    untrack(() => syncExplainTarget(target));
+  });
 
   function syncExplainTarget(target) {
     const key = target ? (target.id ?? null) : null;
@@ -35,21 +38,23 @@
     aiExplainError.set(null);
   }
 
-  $: result = $aiExplainResult;
-  $: loading = $aiExplainLoading;
+  const result = $derived($aiExplainResult);
+  const loading = $derived($aiExplainLoading);
   // explainLog() never rejects — it reports failure through this store. The
   // guard below MUST honour it, otherwise a failed run leaves result=null and
   // loading=false and the condition immediately re-fires (unbounded POSTs).
-  $: error = $aiExplainError;
+  const error = $derived($aiExplainError);
 
   function runExplain() {
     aiExplainError.set(null);
     explainLog(log);
   }
 
-  $: if (open && log && !result && !loading && !error) {
-    runExplain();
-  }
+  $effect.pre(() => {
+    if (open && log && !result && !loading && !error) {
+      untrack(runExplain);
+    }
+  });
 
   function handleClose() {
     open = false;
@@ -63,7 +68,7 @@
   }
 </script>
 
-<Modal bind:open title="Explain Log Entry" size="lg" on:close={handleClose}>
+<Modal bind:open title="Explain Log Entry" size="lg" onclose={handleClose}>
   <div class="explain-panel">
     {#if log}
       <div class="log-preview">
@@ -82,10 +87,10 @@
 
     {:else if error}
       <EmptyState icon={alertCircle} title="Could not explain this log" tone="error" size="sm">
-        <span slot="description">{error}</span>
-        <svelte:fragment slot="actions">
-          <Button size="sm" on:click={handleRetry}>Retry</Button>
-        </svelte:fragment>
+        {#snippet description()}<span>{error}</span>{/snippet}
+        {#snippet actions()}
+          <Button size="sm" onclick={handleRetry}>Retry</Button>
+        {/snippet}
       </EmptyState>
 
     {:else if result}
@@ -142,9 +147,9 @@
     {/if}
   </div>
 
-  <svelte:fragment slot="footer">
-    <button class="btn-primary" on:click={handleClose}>Close</button>
-  </svelte:fragment>
+  {#snippet footer()}
+    <button class="btn-primary" onclick={handleClose}>Close</button>
+  {/snippet}
 </Modal>
 
 <style>

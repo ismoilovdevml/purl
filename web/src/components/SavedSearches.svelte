@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { onMount } from 'svelte';
   import Button from './ui/Button.svelte';
   import Input from './ui/Input.svelte';
   import Select from './ui/Select.svelte';
@@ -9,20 +9,22 @@
   import Icon from './ui/Icon.svelte';
   import { caretRight, plus, close, save } from './ui/icons.js';
   import { api } from '../utils/api.js';
+  import { stopPropagation } from '../utils/dom.js';
 
-  const dispatch = createEventDispatcher();
+  /** @type {{ onapply?: (e: { query: string, timeRange: string }) => void }} */
+  let { onapply } = $props();
 
-  let searches = [];
-  let showModal = false;
-  let expanded = false;
-  let newName = '';
-  let newQuery = '';
-  let newTimeRange = '15m';
-  let loadError = '';
-  let saving = false;
+  let searches = $state([]);
+  let showModal = $state(false);
+  let expanded = $state(false);
+  let newName = $state('');
+  let newQuery = $state('');
+  let newTimeRange = $state('15m');
+  let loadError = $state('');
+  let saving = $state(false);
 
   // Confirm dialog state
-  let showDeleteConfirm = false;
+  let showDeleteConfirm = $state(false);
   let deleteTargetId = null;
 
   const timeRangeOptions = [
@@ -84,12 +86,14 @@
   }
 
   function applySearch(search) {
-    dispatch('apply', { query: search.query, timeRange: search.time_range });
+    onapply?.({ query: search.query, timeRange: search.time_range });
   }
 
+  // Called by the parent through bind:this. `?? ''` / `|| '15m'` keep an
+  // undefined argument from reaching the bound Input/Select values.
   export function openSaveModal(query, timeRange) {
-    newQuery = query;
-    newTimeRange = timeRange;
+    newQuery = query ?? '';
+    newTimeRange = timeRange || '15m';
     showModal = true;
   }
 
@@ -102,20 +106,22 @@
 </script>
 
 <div class="saved-searches">
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="header" role="button" tabindex="0" on:click={() => expanded = !expanded} on:keydown={handleHeaderKeydown}>
+  <div class="header" role="button" tabindex="0" onclick={() => expanded = !expanded} onkeydown={handleHeaderKeydown}>
     <Icon icon={caretRight} size={12} class="chevron {expanded ? 'expanded' : ''}" />
     <h3>Saved Searches</h3>
     {#if searches.length > 0}
       <span class="count">{searches.length}</span>
     {/if}
-    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-    <span class="header-actions" on:click|stopPropagation>
+    <!-- Two stacked ignores, not one comma list: the compiler accepts
+         `a, b` but eslint-plugin-svelte 2.x reads it as one bogus code (#73). -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <span class="header-actions" onclick={stopPropagation()}>
       <Button
         icon
         size="sm"
         variant="ghost"
-        on:click={() => showModal = true}
+        onclick={() => showModal = true}
         title="Save current search"
         aria-label="Save current search"
       >
@@ -129,7 +135,7 @@
       {#if loadError}
         <div class="error-state">
           <span>{loadError}</span>
-          <button class="retry-btn" on:click={loadSearches}>Retry</button>
+          <button class="retry-btn" onclick={loadSearches}>Retry</button>
         </div>
       {:else if searches.length === 0}
         <EmptyState icon={save} title="No saved searches" size="sm">
@@ -137,9 +143,9 @@
         </EmptyState>
       {:else}
         <ul>
-          {#each searches as search}
+          {#each searches as search (search.id)}
             <li>
-              <button class="search-item" on:click={() => applySearch(search)}>
+              <button class="search-item" onclick={() => applySearch(search)}>
                 <span class="name">{search.name}</span>
                 <span class="query">{search.query}</span>
               </button>
@@ -147,7 +153,7 @@
                 icon
                 size="sm"
                 variant="ghost"
-                on:click={() => requestDeleteSearch(search.id)}
+                onclick={() => requestDeleteSearch(search.id)}
                 title="Delete saved search"
                 aria-label="Delete saved search {search.name}"
                 class="delete-btn"
@@ -184,10 +190,10 @@
     />
   </div>
 
-  <svelte:fragment slot="footer">
-    <Button variant="default" on:click={() => showModal = false}>Cancel</Button>
-    <Button variant="success" on:click={saveSearch} loading={saving}>{saving ? 'Saving...' : 'Save'}</Button>
-  </svelte:fragment>
+  {#snippet footer()}
+    <Button variant="default" onclick={() => showModal = false}>Cancel</Button>
+    <Button variant="success" onclick={saveSearch} loading={saving}>{saving ? 'Saving...' : 'Save'}</Button>
+  {/snippet}
 </Modal>
 
 <ConfirmDialog

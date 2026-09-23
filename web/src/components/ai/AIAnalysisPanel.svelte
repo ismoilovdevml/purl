@@ -1,4 +1,5 @@
 <script>
+  import { untrack } from 'svelte';
   import Modal from '../ui/Modal.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import Button from '../ui/Button.svelte';
@@ -9,8 +10,7 @@
     aiAnalysisResult, aiAnalysisLoading, aiAnalysisError, analyzeSelectedLogs
   } from '../../stores/ai.js';
 
-  export let open = false;
-  export let selectedLogs = [];
+  let { open = $bindable(), selectedLogs = [] } = $props();
 
   // The analysis stores are module-level and outlive this panel, which is
   // mounted inside an {#if} and can be torn down without `handleClose` running
@@ -18,17 +18,17 @@
   // the last run left behind would then be the first thing the next mount
   // shows: a stale "Session expired." that also stops the guard below from
   // sending the request, or an old result rendered as the answer for a
-  // different selection. This runs during init, before any reactive statement.
+  // different selection. This runs during init, before any effect.
   aiAnalysisResult.set(null);
   aiAnalysisError.set(null);
 
-  $: result = $aiAnalysisResult;
-  $: loading = $aiAnalysisLoading;
+  const result = $derived($aiAnalysisResult);
+  const loading = $derived($aiAnalysisLoading);
   // analyzeSelectedLogs() never rejects — it reports failure through this
   // store. The guard below MUST honour it, otherwise a failed run leaves
   // result=null and loading=false and the condition immediately re-fires
   // (unbounded POSTs for as long as the panel stays open).
-  $: error = $aiAnalysisError;
+  const error = $derived($aiAnalysisError);
 
   const SEVERITY_COLOR = {
     low:      '#3fb950',
@@ -43,9 +43,11 @@
     await analyzeSelectedLogs(selectedLogs);
   }
 
-  $: if (open && selectedLogs.length > 0 && !result && !loading && !error) {
-    runAnalysis();
-  }
+  $effect.pre(() => {
+    if (open && selectedLogs.length > 0 && !result && !loading && !error) {
+      untrack(runAnalysis);
+    }
+  });
 
   function handleClose() {
     open = false;
@@ -54,7 +56,7 @@
   }
 </script>
 
-<Modal bind:open title="AI Log Analysis" size="lg" on:close={handleClose}>
+<Modal bind:open title="AI Log Analysis" size="lg" onclose={handleClose}>
   <div class="analysis-panel">
     {#if loading}
       <div class="loading-state">
@@ -64,10 +66,10 @@
 
     {:else if error}
       <EmptyState icon={alertCircle} title="Could not analyze these logs" tone="error" size="sm">
-        <span slot="description">{error}</span>
-        <svelte:fragment slot="actions">
-          <Button size="sm" on:click={runAnalysis}>Retry</Button>
-        </svelte:fragment>
+        {#snippet description()}<span>{error}</span>{/snippet}
+        {#snippet actions()}
+          <Button size="sm" onclick={runAnalysis}>Retry</Button>
+        {/snippet}
       </EmptyState>
 
     {:else if result}
@@ -138,12 +140,12 @@
     {/if}
   </div>
 
-  <svelte:fragment slot="footer">
+  {#snippet footer()}
     {#if result}
-      <button class="btn-secondary" on:click={runAnalysis} disabled={loading}>Re-analyze</button>
+      <button class="btn-secondary" onclick={runAnalysis} disabled={loading}>Re-analyze</button>
     {/if}
-    <button class="btn-primary" on:click={handleClose}>Close</button>
-  </svelte:fragment>
+    <button class="btn-primary" onclick={handleClose}>Close</button>
+  {/snippet}
 </Modal>
 
 <style>

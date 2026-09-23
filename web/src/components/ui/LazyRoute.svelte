@@ -41,7 +41,7 @@
   } = $props();
 
   // Reassignable $derived: recomputes when `loader` changes, but retry() can
-  // override it in place — the same contract the old `$: promise = ...` had.
+  // override it in place — the same contract the old reactive `promise` statement had.
   let promise = $derived(load(loader));
 
   function retry() {

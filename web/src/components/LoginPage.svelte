@@ -3,10 +3,9 @@
   Dashboard sign-in page (local/LDAP credentials, optional SSO)
 
   Usage:
-  <LoginPage on:login />
+  <LoginPage onlogin={() => ...} />
 -->
 <script>
-  import { createEventDispatcher } from 'svelte';
   import Button from './ui/Button.svelte';
   import Input from './ui/Input.svelte';
   import Icon from './ui/Icon.svelte';
@@ -14,19 +13,23 @@
   import { login, changePassword, passwordChangeRequired } from '../stores/auth.js';
   import api from '../utils/api.js';
 
-  const dispatch = createEventDispatcher();
+  /**
+   * Optional: App reacts to the session store instead, so it passes nothing.
+   * @type {{ onlogin?: () => void }}
+   */
+  let { onlogin } = $props();
 
-  let username = '';
-  let password = '';
-  let error = '';
-  let loading = false;
+  let username = $state('');
+  let password = $state('');
+  let error = $state('');
+  let loading = $state(false);
 
   // Password change state
-  let currentPassword = '';
-  let newPassword = '';
-  let confirmPassword = '';
+  let currentPassword = $state('');
+  let newPassword = $state('');
+  let confirmPassword = $state('');
 
-  let ssoAvailable = false;
+  let ssoAvailable = $state(false);
 
   // Check if SSO is configured (public GET /auth/sso/status).
   // Runs before the user is authenticated, so a 401/404/network failure here is
@@ -49,7 +52,7 @@
       if (data.password_change_required) {
         // Stay on login page, show password change form
       } else {
-        dispatch('login');
+        onlogin?.();
       }
     } catch (err) {
       error = err.message;
@@ -76,7 +79,7 @@
     error = '';
     try {
       await changePassword(currentPassword, newPassword);
-      dispatch('login');
+      onlogin?.();
     } catch (err) {
       error = err.message;
     } finally {
@@ -85,7 +88,7 @@
   }
 
   function handleKeydown(e) {
-    if (e.detail?.key === 'Enter' || e.key === 'Enter') {
+    if (e?.key === 'Enter') {
       if ($passwordChangeRequired) {
         handleChangePassword();
       } else {
@@ -134,7 +137,7 @@
           type="password"
           fullWidth
           autocomplete="current-password"
-          on:keydown={handleKeydown}
+          onkeydown={handleKeydown}
         />
 
         <Input
@@ -144,7 +147,7 @@
           type="password"
           fullWidth
           autocomplete="new-password"
-          on:keydown={handleKeydown}
+          onkeydown={handleKeydown}
         />
 
         <Input
@@ -154,14 +157,14 @@
           type="password"
           fullWidth
           autocomplete="new-password"
-          on:keydown={handleKeydown}
+          onkeydown={handleKeydown}
         />
 
         <Button
           variant="primary"
           fullWidth
           size="lg"
-          on:click={handleChangePassword}
+          onclick={handleChangePassword}
           {loading}
           disabled={!currentPassword.trim() || !newPassword.trim() || !confirmPassword.trim()}
         >
@@ -182,7 +185,7 @@
           placeholder="Enter username"
           fullWidth
           autocomplete="username"
-          on:keydown={handleKeydown}
+          onkeydown={handleKeydown}
         />
 
         <Input
@@ -192,14 +195,14 @@
           type="password"
           fullWidth
           autocomplete="current-password"
-          on:keydown={handleKeydown}
+          onkeydown={handleKeydown}
         />
 
         <Button
           variant="primary"
           fullWidth
           size="lg"
-          on:click={handleLogin}
+          onclick={handleLogin}
           {loading}
           disabled={!username.trim() || !password.trim()}
         >

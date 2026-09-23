@@ -1,52 +1,42 @@
 <script>
-  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { levelStats, serviceStats, hostStats, connectWebSocket, isLive } from '../stores/logs.js';
   import Button from './ui/Button.svelte';
   import Icon from './ui/Icon.svelte';
-  import { search as searchIcon, close, textLines, plus, dot, clock, sparkleSolid } from './ui/icons.js';
+  import { search as searchIcon, close, clock } from './ui/icons.js';
   import { debounce } from '../utils/dom.js';
+  import { buildSuggestions, applySuggestionToQuery } from '../utils/searchSuggestions.js';
   import { aiConfigured, aiSuggestions, fetchSuggestions } from '../stores/ai.js';
   import AIQueryBar from './ai/AIQueryBar.svelte';
+  import SearchDropdown from './search/SearchDropdown.svelte';
 
-  export let value = '';
-
-  const dispatch = createEventDispatcher();
+  /**
+   * @type {{
+   *   value?: string,
+   *   onsearch?: () => void,
+   *   onaiapply?: (detail: { sql: string, results: any }) => void,
+   * }}
+   */
+  let { value = $bindable(''), onsearch, onaiapply } = $props();
 
   // AI mode
-  let aiMode = false;
+  let aiMode = $state(false);
 
   // Autocomplete state
-  let showSuggestions = false;
-  let suggestions = [];
-  let selectedIndex = -1;
-  let inputEl;
-  let suggestionContainer;
+  let showSuggestions = $state(false);
+  let suggestions = $state.raw([]);
+  let selectedIndex = $state(-1);
+  let inputEl = $state(null);
+  let suggestionContainer = $state(null);
 
   // Search history
-  let searchHistory = [];
-  let showHistory = false;
+  let searchHistory = $state.raw([]);
+  let showHistory = $state(false);
   const MAX_HISTORY = 10;
 
   // Live mode
   let ws = null;
   let unsub = null;
-
-  // KQL operators and fields
-  const OPERATORS = ['AND', 'OR', 'NOT'];
-  const FIELDS = ['level', 'service', 'host', 'message', 'timestamp'];
-  const META_FIELDS = [
-    { field: 'meta.namespace', label: 'Namespace', group: 'Metadata' },
-    { field: 'meta.pod', label: 'Pod', group: 'Metadata' },
-    { field: 'meta.container', label: 'Container', group: 'Metadata' },
-    { field: 'meta.node', label: 'Node', group: 'Metadata' },
-    { field: 'meta.cluster', label: 'Cluster', group: 'Metadata' },
-    { field: 'meta.deployment', label: 'Deployment', group: 'Metadata' },
-    { field: 'meta.team', label: 'Team', group: 'Metadata' },
-    { field: 'meta.environment', label: 'Environment', group: 'Metadata' },
-    { field: 'meta.region', label: 'Region', group: 'Metadata' },
-    { field: 'meta.version', label: 'Version', group: 'Metadata' },
-    { field: 'meta.app', label: 'App', group: 'Metadata' },
-  ];
 
   onMount(() => {
     const saved = localStorage.getItem('purl_search_history');
@@ -82,7 +72,7 @@
       // Clear current search when going live
       if (value) {
         value = '';
-        dispatch('search');
+        onsearch?.();
       }
     }
   }
@@ -127,7 +117,7 @@
       showSuggestions = false;
       showHistory = false;
       saveToHistory(value);
-      dispatch('search');
+      onsearch?.();
     }
   }
 
@@ -157,96 +147,17 @@
   function updateSuggestions() {
     showHistory = false;
     const cursorPos = inputEl?.selectionStart || value.length;
-    const textBeforeCursor = value.substring(0, cursorPos);
-
-    // Get the current token being typed
-    const tokens = textBeforeCursor.split(/\s+/);
-    const currentToken = tokens[tokens.length - 1] || '';
-
-    if (!currentToken) {
-      showSuggestions = false;
-      return;
-    }
-
-    suggestions = [];
-
-    // Check if typing field:value
-    if (currentToken.includes(':')) {
-      const [field, partial] = currentToken.split(':');
-      const fieldLower = field.toLowerCase();
-
-      // Get values for this field
-      let values = [];
-      if (fieldLower === 'level') {
-        values = $levelStats.map(s => s.value);
-      } else if (fieldLower === 'service') {
-        values = $serviceStats.map(s => s.value);
-      } else if (fieldLower === 'host') {
-        values = $hostStats.map(s => s.value);
-      }
-
-      // Filter by partial match
-      const partialLower = (partial || '').toLowerCase();
-      suggestions = values
-        .filter(v => v.toLowerCase().includes(partialLower))
-        .slice(0, 8)
-        .map(v => ({
-          type: 'value',
-          text: `${field}:${v}`,
-          display: v,
-          field: field
-        }));
-    } else {
-      // Suggest fields or operators
-      const tokenLower = currentToken.toLowerCase();
-
-      // Core field suggestions
-      const fieldSuggestions = FIELDS
-        .filter(f => f.toLowerCase().startsWith(tokenLower))
-        .map(f => ({
-          type: 'field',
-          text: `${f}:`,
-          display: f,
-          hint: 'field'
-        }));
-
-      // Metadata field suggestions
-      const metaSuggestions = META_FIELDS
-        .filter(m => m.field.toLowerCase().startsWith(tokenLower) || m.label.toLowerCase().startsWith(tokenLower))
-        .map(m => ({
-          type: 'field',
-          text: `${m.field}:`,
-          display: m.field,
-          hint: 'metadata',
-          group: m.group
-        }));
-
-      // Operator suggestions (only after space)
-      const opSuggestions = tokens.length > 1 ? OPERATORS
-        .filter(op => op.toLowerCase().startsWith(tokenLower))
-        .map(op => ({
-          type: 'operator',
-          text: op,
-          display: op,
-          hint: 'operator'
-        })) : [];
-
-      suggestions = [...fieldSuggestions, ...metaSuggestions, ...opSuggestions].slice(0, 12);
-    }
-
+    suggestions = buildSuggestions(value.substring(0, cursorPos), {
+      level: $levelStats.map(s => s.value),
+      service: $serviceStats.map(s => s.value),
+      host: $hostStats.map(s => s.value),
+    });
     showSuggestions = suggestions.length > 0;
   }
 
   function applySuggestion(suggestion) {
     const cursorPos = inputEl?.selectionStart || value.length;
-    const textBeforeCursor = value.substring(0, cursorPos);
-    const textAfterCursor = value.substring(cursorPos);
-
-    // Find the start of current token
-    const lastSpace = textBeforeCursor.lastIndexOf(' ');
-    const beforeToken = textBeforeCursor.substring(0, lastSpace + 1);
-
-    value = beforeToken + suggestion.text + (suggestion.type === 'field' ? '' : ' ') + textAfterCursor.trimStart();
+    value = applySuggestionToQuery(value, cursorPos, suggestion);
     showSuggestions = false;
     selectedIndex = -1;
 
@@ -257,14 +168,14 @@
   function applyHistory(query) {
     value = query;
     showHistory = false;
-    dispatch('search');
+    onsearch?.();
   }
 
   function applyAiSuggestion(query) {
     value = query;
     showHistory = false;
     saveToHistory(query);
-    dispatch('search');
+    onsearch?.();
   }
 
   function clearHistory() {
@@ -275,29 +186,25 @@
 
   function handleClear() {
     value = '';
-    dispatch('search');
+    onsearch?.();
   }
-
-  // Derive whether suggestions contain any metadata group items
-  $: hasMetaSuggestions = suggestions.some(s => s.group === 'Metadata');
-  $: hasCoreSuggestions = suggestions.some(s => !s.group && s.type === 'field');
 </script>
 
 <div class="search-bar-wrapper">
 {#if aiMode && $aiConfigured}
   <div class="ai-bar-wrap">
-    <button class="mode-toggle-btn active-kql" on:click={() => { aiMode = false; }} title="Switch to KQL mode">
+    <button class="mode-toggle-btn active-kql" onclick={() => { aiMode = false; }} title="Switch to KQL mode">
       <Icon icon={searchIcon} size={14} strokeWidth={2.5} />
       KQL
     </button>
-    <AIQueryBar on:apply={(e) => { aiMode = false; dispatch('ai-apply', e.detail); }} />
+    <AIQueryBar onapply={(detail) => { aiMode = false; onaiapply?.(detail); }} />
   </div>
 {:else}
 
 <div class="search-bar" role="search">
   <Button
     variant={$isLive ? 'success' : 'default'}
-    on:click={toggleLive}
+    onclick={toggleLive}
     title="Toggle Live Mode"
     class="live-btn"
   >
@@ -312,10 +219,10 @@
     bind:this={inputEl}
     type="text"
     bind:value
-    on:keydown={handleKeydown}
-    on:input={handleInput}
-    on:focus={handleFocus}
-    on:blur={handleBlur}
+    onkeydown={handleKeydown}
+    oninput={handleInput}
+    onfocus={handleFocus}
+    onblur={handleBlur}
     placeholder="Search logs... level:ERROR AND service:api*"
     autocomplete="off"
     aria-label="Search logs"
@@ -324,141 +231,29 @@
   />
 
   {#if value}
-    <Button icon size="sm" variant="ghost" on:click={handleClear} title="Clear search" aria-label="Clear search" class="clear-btn">
+    <Button icon size="sm" variant="ghost" onclick={handleClear} title="Clear search" aria-label="Clear search" class="clear-btn">
       <Icon icon={close} size={14} strokeWidth={3} />
     </Button>
   {/if}
 
-  <!-- Autocomplete dropdown -->
-  {#if showSuggestions && suggestions.length > 0}
-    <div class="suggestions" id="search-suggestions" role="listbox" aria-label="Search suggestions" bind:this={suggestionContainer}>
-      {#if hasCoreSuggestions}
-        {#each suggestions.filter(s => !s.group && s.type === 'field') as suggestion}
-          <button
-            class="suggestion-item"
-            class:selected={suggestions.indexOf(suggestion) === selectedIndex}
-            on:mousedown|preventDefault={() => applySuggestion(suggestion)}
-            role="option"
-            aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
-          >
-            <span class="suggestion-icon">
-              <Icon icon={textLines} size={12} strokeWidth={3} />
-            </span>
-            <span class="suggestion-text">{suggestion.display}</span>
-            {#if suggestion.hint}
-              <span class="suggestion-hint">{suggestion.hint}</span>
-            {/if}
-          </button>
-        {/each}
-      {/if}
-
-      {#if hasMetaSuggestions}
-        {#if hasCoreSuggestions}
-          <div class="suggestion-group-divider">Metadata</div>
-        {:else}
-          <div class="suggestion-group-divider">Metadata</div>
-        {/if}
-        {#each suggestions.filter(s => s.group === 'Metadata') as suggestion}
-          <button
-            class="suggestion-item"
-            class:selected={suggestions.indexOf(suggestion) === selectedIndex}
-            on:mousedown|preventDefault={() => applySuggestion(suggestion)}
-            role="option"
-            aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
-          >
-            <span class="suggestion-icon">
-              <Icon icon={textLines} size={12} strokeWidth={3} />
-            </span>
-            <span class="suggestion-text">{suggestion.display}</span>
-            <span class="suggestion-hint">{suggestion.hint}</span>
-          </button>
-        {/each}
-      {/if}
-
-      {#each suggestions.filter(s => s.type === 'operator') as suggestion}
-        <button
-          class="suggestion-item"
-          class:selected={suggestions.indexOf(suggestion) === selectedIndex}
-          on:mousedown|preventDefault={() => applySuggestion(suggestion)}
-          role="option"
-          aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
-        >
-          <span class="suggestion-icon">
-            <Icon icon={plus} size={12} strokeWidth={3} />
-          </span>
-          <span class="suggestion-text">{suggestion.display}</span>
-          {#if suggestion.hint}
-            <span class="suggestion-hint">{suggestion.hint}</span>
-          {/if}
-        </button>
-      {/each}
-
-      {#each suggestions.filter(s => s.type === 'value') as suggestion}
-        <button
-          class="suggestion-item"
-          class:selected={suggestions.indexOf(suggestion) === selectedIndex}
-          on:mousedown|preventDefault={() => applySuggestion(suggestion)}
-          role="option"
-          aria-selected={suggestions.indexOf(suggestion) === selectedIndex}
-        >
-          <span class="suggestion-icon">
-            <Icon icon={dot} size={12} />
-          </span>
-          <span class="suggestion-text">{suggestion.display}</span>
-          {#if suggestion.field}
-            <span class="suggestion-field">{suggestion.field}</span>
-          {/if}
-        </button>
-      {/each}
-    </div>
-  {/if}
-
-  {#if showHistory && (searchHistory.length > 0 || ($aiConfigured && $aiSuggestions.length > 0))}
-    <div class="suggestions history" bind:this={suggestionContainer}>
-      {#if searchHistory.length > 0}
-        <div class="history-header">
-          <span>Recent searches</span>
-          <button class="history-clear" on:mousedown|preventDefault={clearHistory}>Clear</button>
-        </div>
-        {#each searchHistory as query}
-          <button
-            class="suggestion-item"
-            on:mousedown|preventDefault={() => applyHistory(query)}
-          >
-            <span class="suggestion-icon">
-              <Icon icon={clock} size={12} strokeWidth={3} />
-            </span>
-            <span class="suggestion-text history-query">{query}</span>
-          </button>
-        {/each}
-      {/if}
-
-      {#if $aiConfigured && $aiSuggestions.length > 0}
-        <div class="suggestion-group-divider ai-divider">
-          <span class="ai-badge">AI</span>
-          Suggested queries
-        </div>
-        {#each $aiSuggestions as query}
-          <button
-            class="suggestion-item"
-            on:mousedown|preventDefault={() => applyAiSuggestion(query)}
-          >
-            <span class="suggestion-icon ai-icon">
-              <Icon icon={sparkleSolid} size={12} />
-            </span>
-            <span class="suggestion-text">{query}</span>
-            <span class="suggestion-hint ai-hint">AI</span>
-          </button>
-        {/each}
-      {/if}
-    </div>
-  {/if}
+  <SearchDropdown
+    {showSuggestions}
+    {showHistory}
+    {suggestions}
+    {selectedIndex}
+    history={searchHistory}
+    bind:container={suggestionContainer}
+    onapplysuggestion={applySuggestion}
+    onapplyhistory={applyHistory}
+    onapplyai={applyAiSuggestion}
+    onclearhistory={clearHistory}
+  />
   </div>
 
   {#if $aiConfigured}
     <button
       class="ai-toggle-btn"
-      on:click={() => { aiMode = true; }}
+      onclick={() => { aiMode = true; }}
       title="Ask AI"
     >
       <Icon icon={clock} size={14} strokeWidth={2.5} />
@@ -593,137 +388,5 @@
     position: absolute !important;
     right: 8px;
     z-index: 1;
-  }
-
-  .suggestions {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    margin-top: 4px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    z-index: 100;
-    overflow: hidden;
-  }
-
-  .suggestion-group-divider {
-    padding: 4px 12px;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-muted);
-    background: var(--bg-tertiary);
-    border-top: 1px solid var(--border-color);
-  }
-
-  .history-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border-color);
-    font-size: 11px;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-  }
-
-  .history-clear {
-    background: none;
-    border: none;
-    color: var(--color-primary);
-    cursor: pointer;
-    font-size: 11px;
-    text-transform: uppercase;
-  }
-
-  .history-clear:hover {
-    text-decoration: underline;
-  }
-
-  .suggestion-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 8px 12px;
-    background: none;
-    border: none;
-    color: var(--text-primary);
-    text-align: left;
-    cursor: pointer;
-    font-size: 13px;
-  }
-
-  .suggestion-item:hover,
-  .suggestion-item.selected {
-    background: var(--bg-tertiary);
-  }
-
-  .suggestion-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    color: var(--text-secondary);
-  }
-
-  .suggestion-text {
-    flex: 1;
-    font-family: var(--font-mono);
-  }
-
-  .history-query {
-    color: var(--color-primary);
-  }
-
-  .suggestion-hint {
-    font-size: 11px;
-    color: var(--text-muted);
-    padding: 2px 6px;
-    background: var(--bg-tertiary);
-    border-radius: 4px;
-  }
-
-  .suggestion-field {
-    font-size: 11px;
-    color: var(--text-secondary);
-  }
-
-  .ai-divider {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .ai-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 1px 5px;
-    border-radius: 3px;
-    background: rgba(88, 166, 255, 0.15);
-    color: #58a6ff;
-    letter-spacing: 0.3px;
-  }
-
-  .ai-icon {
-    color: #58a6ff;
-  }
-
-  .ai-hint {
-    font-size: 11px;
-    font-weight: 700;
-    background: rgba(88, 166, 255, 0.15);
-    color: #58a6ff;
-    padding: 1px 5px;
-    border-radius: 3px;
-    letter-spacing: 0.3px;
   }
 </style>

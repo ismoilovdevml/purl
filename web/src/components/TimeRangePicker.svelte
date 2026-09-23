@@ -1,13 +1,21 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
   import Icon from './ui/Icon.svelte';
+  import CustomRangeForm from './timerange/CustomRangeForm.svelte';
   import { clock, caretDown, calendar } from './ui/icons.js';
+  import { stopPropagation } from '../utils/dom.js';
 
-  export let value = '15m';
-  export let customFrom = null;
-  export let customTo = null;
-
-  const dispatch = createEventDispatcher();
+  /**
+   * `value` / `customFrom` / `customTo` are reassigned locally when the user
+   * picks a range; the parent learns about it through `onchange` and passes the
+   * new value back down.
+   * @type {{
+   *   value?: string,
+   *   customFrom?: string | null,
+   *   customTo?: string | null,
+   *   onchange?: (e: { range: string, from: string | null, to: string | null }) => void,
+   * }}
+   */
+  let { value = '15m', customFrom = null, customTo = null, onchange } = $props();
 
   const ranges = [
     { value: '5m', label: 'Last 5 minutes' },
@@ -21,13 +29,8 @@
     { value: '30d', label: 'Last 30 days' },
   ];
 
-  let showDropdown = false;
-  let showCustom = false;
-  let fromDate = '';
-  let fromTime = '';
-  let toDate = '';
-  let toTime = '';
-  let validationError = '';
+  let showDropdown = $state(false);
+  let showCustom = $state(false);
 
   function selectRange(range) {
     value = range;
@@ -35,64 +38,37 @@
     customTo = null;
     showDropdown = false;
     showCustom = false;
-    dispatch('change', { range, from: null, to: null });
+    onchange?.({ range, from: null, to: null });
   }
 
   function openCustom() {
     showCustom = true;
-    validationError = '';
-    // Set default to last hour
-    const now = new Date();
-    const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-
-    toDate = now.toISOString().split('T')[0];
-    toTime = now.toTimeString().slice(0, 5);
-    fromDate = hourAgo.toISOString().split('T')[0];
-    fromTime = hourAgo.toTimeString().slice(0, 5);
   }
 
-  function applyCustom() {
-    if (!fromDate || !fromTime || !toDate || !toTime) return;
-
-    const from = new Date(`${fromDate}T${fromTime}`);
-    const to = new Date(`${toDate}T${toTime}`);
-
-    if (from >= to) {
-      validationError = 'Start time must be before end time';
-      return;
-    }
-
-    validationError = '';
-    customFrom = from.toISOString();
-    customTo = to.toISOString();
+  function applyCustom(from, to) {
+    customFrom = from;
+    customTo = to;
     value = 'custom';
     showDropdown = false;
     showCustom = false;
-    dispatch('change', { range: 'custom', from: customFrom, to: customTo });
+    onchange?.({ range: 'custom', from: customFrom, to: customTo });
   }
 
   function cancelCustom() {
     showCustom = false;
-    validationError = '';
   }
 
   function toggleDropdown() {
     showDropdown = !showDropdown;
     if (!showDropdown) {
       showCustom = false;
-      validationError = '';
     }
-  }
-
-  function handleInputChange() {
-    validationError = '';
   }
 
   function handleKeydown(event) {
     if (event.key === 'Escape') {
       showDropdown = false;
       showCustom = false;
-      validationError = '';
     } else if (event.key === 'Enter' || event.key === ' ') {
       if (!showDropdown) {
         event.preventDefault();
@@ -110,7 +86,6 @@
     if (!event.target.closest('.time-picker')) {
       showDropdown = false;
       showCustom = false;
-      validationError = '';
     }
   }
 
@@ -122,18 +97,18 @@
     return `${from.toLocaleDateString('en-US', opts)} - ${to.toLocaleDateString('en-US', opts)}`;
   }
 
-  $: currentLabel = value === 'custom'
+  const currentLabel = $derived(value === 'custom'
     ? formatCustomLabel()
-    : (ranges.find(r => r.value === value)?.label || value);
+    : (ranges.find(r => r.value === value)?.label || value));
 </script>
 
-<svelte:window on:click={handleClickOutside} />
+<svelte:window onclick={handleClickOutside} />
 
 <div class="time-picker" role="group" aria-label="Time range selector">
   <button
     class="picker-btn"
-    on:click|stopPropagation={toggleDropdown}
-    on:keydown={handleKeydown}
+    onclick={stopPropagation(toggleDropdown)}
+    onkeydown={handleKeydown}
     aria-haspopup="listbox"
     aria-expanded={showDropdown}
     aria-label="Select time range: {currentLabel}"
@@ -146,43 +121,14 @@
   {#if showDropdown}
     <div class="dropdown" role="listbox" aria-label="Time range options">
       {#if showCustom}
-        <div class="custom-range">
-          <div class="custom-header">
-            <span>Custom Time Range</span>
-          </div>
-
-          <div class="datetime-group">
-            <label for="from-date">From</label>
-            <div class="datetime-inputs">
-              <input id="from-date" type="date" bind:value={fromDate} on:change={handleInputChange} />
-              <input id="from-time" type="time" bind:value={fromTime} aria-label="From time" on:change={handleInputChange} />
-            </div>
-          </div>
-
-          <div class="datetime-group">
-            <label for="to-date">To</label>
-            <div class="datetime-inputs">
-              <input id="to-date" type="date" bind:value={toDate} on:change={handleInputChange} />
-              <input id="to-time" type="time" bind:value={toTime} aria-label="To time" on:change={handleInputChange} />
-            </div>
-          </div>
-
-          {#if validationError}
-            <div class="validation-error" role="alert">{validationError}</div>
-          {/if}
-
-          <div class="custom-actions">
-            <button class="btn-cancel" on:click|stopPropagation={cancelCustom}>Cancel</button>
-            <button class="btn-apply" on:click|stopPropagation={applyCustom}>Apply</button>
-          </div>
-        </div>
+        <CustomRangeForm onapply={applyCustom} oncancel={cancelCustom} />
       {:else}
         <div class="quick-ranges">
-          {#each ranges as range}
+          {#each ranges as range (range.value)}
             <button
               class="dropdown-item"
               class:active={value === range.value}
-              on:click={() => selectRange(range.value)}
+              onclick={() => selectRange(range.value)}
               role="option"
               aria-selected={value === range.value}
             >
@@ -191,7 +137,7 @@
           {/each}
         </div>
         <div class="dropdown-divider"></div>
-        <button class="dropdown-item custom-btn" on:click|stopPropagation={openCustom}>
+        <button class="dropdown-item custom-btn" onclick={stopPropagation(openCustom)}>
           <Icon icon={calendar} size={14} strokeWidth={2.5} />
           Custom range...
         </button>
@@ -289,111 +235,5 @@
 
   .custom-btn :global(svg) {
     opacity: 0.8;
-  }
-
-  .custom-range {
-    padding: 16px;
-  }
-
-  .custom-header {
-    font-size: 13px;
-    font-weight: 600;
-    color: #c9d1d9;
-    margin-bottom: 16px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid #30363d;
-  }
-
-  .datetime-group {
-    margin-bottom: 12px;
-  }
-
-  .datetime-group label {
-    display: block;
-    font-size: 12px;
-    color: #8b949e;
-    margin-bottom: 6px;
-  }
-
-  .datetime-inputs {
-    display: flex;
-    gap: 8px;
-  }
-
-  .datetime-inputs input {
-    flex: 1;
-    padding: 8px 10px;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    font-size: 13px;
-    font-family: inherit;
-  }
-
-  .datetime-inputs input:focus {
-    border-color: #58a6ff;
-  }
-
-  .datetime-inputs input[type="date"] {
-    flex: 1.2;
-  }
-
-  .datetime-inputs input[type="time"] {
-    flex: 0.8;
-  }
-
-  .validation-error {
-    font-size: 12px;
-    color: #f85149;
-    margin-top: 8px;
-    margin-bottom: 4px;
-    padding: 6px 8px;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.3);
-    border-radius: 4px;
-  }
-
-  .custom-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 16px;
-    padding-top: 12px;
-    border-top: 1px solid #30363d;
-  }
-
-  .btn-cancel, .btn-apply {
-    flex: 1;
-    padding: 8px 16px;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    border: none;
-  }
-
-  .btn-cancel {
-    background: #21262d;
-    color: #c9d1d9;
-  }
-
-  .btn-cancel:hover {
-    background: #30363d;
-  }
-
-  .btn-apply {
-    background: #238636;
-    color: #ffffff;
-  }
-
-  .btn-apply:hover {
-    background: #2ea043;
-  }
-
-  /* Dark theme for date/time inputs */
-  input[type="date"]::-webkit-calendar-picker-indicator,
-  input[type="time"]::-webkit-calendar-picker-indicator {
-    filter: invert(0.8);
-    cursor: pointer;
   }
 </style>

@@ -9,18 +9,19 @@
   import { onMount } from 'svelte';
   import Card from '../ui/Card.svelte';
   import Button from '../ui/Button.svelte';
-  import Badge from '../ui/Badge.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
-  import { formatCount, formatRelativeTime } from '../../utils/format.js';
+  import StatTile from '../ui/StatTile.svelte';
+  import SourceRow from './sources/SourceRow.svelte';
+  import { formatCount } from '../../utils/format.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import { box } from '../ui/icons.js';
 
-  let sources = [];
-  let loading = true;
-  let error = '';
-  let refreshing = false;
+  let sources = $state([]);
+  let loading = $state(true);
+  let error = $state('');
+  let refreshing = $state(false);
 
   onMount(() => {
     fetchSources();
@@ -69,37 +70,10 @@
     return 'inactive';
   }
 
-  function statusLabel(status) {
-    if (status === 'active') return 'Active';
-    if (status === 'stale') return 'Stale';
-    return 'Inactive';
-  }
-
-  function statusVariant(status) {
-    if (status === 'active') return 'success';
-    if (status === 'stale') return 'warning';
-    return 'default';
-  }
-
-  function typeBadgeVariant(type) {
-    switch (type) {
-    case 'syslog':
-      return 'info';
-    case 'http':
-      return 'primary';
-    case 'otlp':
-      return 'success';
-    case 'filebeat':
-      return 'warning';
-    default:
-      return 'default';
-    }
-  }
-
   // Computed stats
-  $: totalSources = sources.length;
-  $: activeSources = sources.filter(s => getStatus(s.last_event) === 'active').length;
-  $: totalEvents = sources.reduce((sum, s) => sum + (s.events_count || 0), 0);
+  const totalSources = $derived(sources.length);
+  const activeSources = $derived(sources.filter(s => getStatus(s.last_event) === 'active').length);
+  const totalEvents = $derived(sources.reduce((sum, s) => sum + (s.events_count || 0), 0));
 </script>
 
 <section class="settings-section">
@@ -111,22 +85,13 @@
   <!-- Stats Overview -->
   <div class="stats-row">
     {#if loading}
-      <div class="stat-card">
+      <StatTile>
         <LoadingSpinner size="sm" label="Loading stats..." />
-      </div>
+      </StatTile>
     {:else}
-      <div class="stat-card">
-        <span class="stat-value">{totalSources}</span>
-        <span class="stat-label">Total Sources</span>
-      </div>
-      <div class="stat-card" class:stat-success={activeSources > 0}>
-        <span class="stat-value">{activeSources}</span>
-        <span class="stat-label">Active Sources</span>
-      </div>
-      <div class="stat-card">
-        <span class="stat-value">{formatCount(totalEvents)}</span>
-        <span class="stat-label">Total Events</span>
-      </div>
+      <StatTile value={totalSources} label="Total Sources" />
+      <StatTile value={activeSources} label="Active Sources" tone={activeSources > 0 ? 'success' : null} />
+      <StatTile value={formatCount(totalEvents)} label="Total Events" />
     {/if}
   </div>
 
@@ -139,7 +104,7 @@
           <span class="source-count">({sources.length})</span>
         {/if}
       </span>
-      <Button variant="ghost" size="sm" on:click={handleRefresh} loading={refreshing}>
+      <Button variant="ghost" size="sm" onclick={handleRefresh} loading={refreshing}>
         {refreshing ? 'Refreshing...' : 'Refresh'}
       </Button>
     </div>
@@ -160,39 +125,7 @@
       <div class="sources-list">
         {#each sources as source}
           {@const status = source.status || getStatus(source.last_event)}
-          <div class="source-row">
-            <div class="source-info">
-              <div class="source-name-row">
-                <span class="status-dot status-{status}" title={statusLabel(status)}></span>
-                <span class="source-name">{source.name}</span>
-                <Badge variant={typeBadgeVariant(source.type)} size="sm" pill>
-                  {source.type || 'unknown'}
-                </Badge>
-              </div>
-              <div class="source-meta">
-                {#if source.first_seen}
-                  <span class="meta-item">First seen {formatRelativeTime(source.first_seen)}</span>
-                {/if}
-              </div>
-            </div>
-            <div class="source-stats">
-              <div class="source-stat">
-                <span class="source-stat-value">{formatCount(source.events_count || 0)}</span>
-                <span class="source-stat-label">events</span>
-              </div>
-              <div class="source-stat">
-                <span class="source-stat-value">
-                  {source.last_event ? formatRelativeTime(source.last_event) : 'Never'}
-                </span>
-                <span class="source-stat-label">last event</span>
-              </div>
-              <div class="source-stat source-status-badge">
-                <Badge variant={statusVariant(status)} size="sm" dot>
-                  {statusLabel(status)}
-                </Badge>
-              </div>
-            </div>
-          </div>
+          <SourceRow {source} {status} />
         {/each}
       </div>
     {/if}
@@ -229,36 +162,6 @@
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
-  }
-
-  .stat-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-muted);
-    border-radius: 8px;
-    padding: 16px 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 120px;
-  }
-
-  .stat-card.stat-success .stat-value {
-    color: #3fb950;
-  }
-
-  .stat-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text-bright);
-    line-height: 1;
-  }
-
-  .stat-label {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
   }
 
   /* Group header */
@@ -312,115 +215,5 @@
   .sources-list {
     display: flex;
     flex-direction: column;
-  }
-
-  .source-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-muted);
-    transition: background 0.1s;
-    gap: 16px;
-  }
-
-  .source-row:hover {
-    background: var(--bg-secondary);
-  }
-
-  .source-row:last-child {
-    border-bottom: none;
-  }
-
-  .source-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-    flex: 1;
-  }
-
-  .source-name-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .source-name {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .source-meta {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding-left: 14px;
-  }
-
-  .meta-item {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-  }
-
-  /* Status dot */
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .status-dot.status-active {
-    background: #3fb950;
-    box-shadow: 0 0 4px rgba(63, 185, 80, 0.4);
-  }
-
-  .status-dot.status-stale {
-    background: #d29922;
-    box-shadow: 0 0 4px rgba(210, 153, 34, 0.4);
-  }
-
-  .status-dot.status-inactive {
-    background: var(--text-muted);
-  }
-
-  /* Source stats */
-  .source-stats {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    flex-shrink: 0;
-  }
-
-  .source-stat {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
-  }
-
-  .source-stat-value {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    white-space: nowrap;
-  }
-
-  .source-stat-label {
-    font-size: 0.6875rem;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-
-  .source-status-badge {
-    min-width: 80px;
-    align-items: flex-end;
   }
 </style>

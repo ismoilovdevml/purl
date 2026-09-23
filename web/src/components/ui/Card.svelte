@@ -8,32 +8,37 @@
   </Card>
 
   <Card>
-    <svelte:fragment slot="header">Custom Header</svelte:fragment>
+    {#snippet header()}Custom Header{/snippet}
     Content
-    <svelte:fragment slot="footer">Footer</svelte:fragment>
+    {#snippet footer()}Footer{/snippet}
   </Card>
 -->
 <script>
-  /** Card title */
-  export let title = '';
-
-  /** Card subtitle */
-  export let subtitle = '';
-
-  /** Padding size */
-  export let padding = 'md'; // none, sm, md, lg
-
-  /** No background (transparent) */
-  export let transparent = false;
-
-  /** Hover effect */
-  export let hoverable = false;
-
-  /** Clickable (adds cursor) */
-  export let clickable = false;
-
-  /** Bordered style */
-  export let bordered = true;
+  let {
+    /** Card title */
+    title = '',
+    /** Card subtitle */
+    subtitle = '',
+    /** Padding size: none, sm, md, lg */
+    padding = 'md',
+    /** No background (transparent) */
+    transparent = false,
+    /** Hover effect */
+    hoverable = false,
+    /** Clickable (adds cursor) */
+    clickable = false,
+    /** Bordered style */
+    bordered = true,
+    /** Click callback (native MouseEvent) */
+    onclick,
+    /** Snippet replacing the title/subtitle block */
+    header,
+    /** Snippet rendered on the right of the header */
+    actions,
+    /** Snippet rendered below the body */
+    footer,
+    children,
+  } = $props();
 
   function handleKeydown(event) {
     if (clickable && (event.key === 'Enter' || event.key === ' ')) {
@@ -53,15 +58,15 @@
   class:padding-none={padding === 'none'}
   class:padding-sm={padding === 'sm'}
   class:padding-lg={padding === 'lg'}
-  on:click
-  on:keydown={handleKeydown}
+  {onclick}
+  onkeydown={handleKeydown}
   role={clickable ? 'button' : undefined}
   tabindex={clickable ? 0 : -1}
 >
-  {#if title || subtitle || $$slots.header}
+  {#if title || subtitle || header}
     <div class="card-header">
-      {#if $$slots.header}
-        <slot name="header" />
+      {#if header}
+        {@render header()}
       {:else}
         <div class="card-titles">
           {#if title}
@@ -72,21 +77,21 @@
           {/if}
         </div>
       {/if}
-      {#if $$slots.actions}
+      {#if actions}
         <div class="card-actions">
-          <slot name="actions" />
+          {@render actions()}
         </div>
       {/if}
     </div>
   {/if}
 
   <div class="card-body">
-    <slot />
+    {@render children?.()}
   </div>
 
-  {#if $$slots.footer}
+  {#if footer}
     <div class="card-footer">
-      <slot name="footer" />
+      {@render footer()}
     </div>
   {/if}
 </div>

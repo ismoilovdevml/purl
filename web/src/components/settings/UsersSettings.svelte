@@ -8,40 +8,40 @@
 <script>
   import { onMount } from 'svelte';
   import Card from '../ui/Card.svelte';
-  import Badge from '../ui/Badge.svelte';
   import Button from '../ui/Button.svelte';
-  import Input from '../ui/Input.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import { currentUser } from '../../stores/auth.js';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import Icon from '../ui/Icon.svelte';
-  import { monitor, user as userIcon } from '../ui/icons.js';
+  import { monitor } from '../ui/icons.js';
+  import UserAddForm from './users/UserAddForm.svelte';
+  import UsersTable from './users/UsersTable.svelte';
 
-  let users = [];
-  let loading = true;
-  let error = '';
-  let ldapEnabled = false;
+  let users = $state([]);
+  let loading = $state(true);
+  let error = $state('');
+  let ldapEnabled = $state(false);
 
   // Add user form
-  let showAddForm = false;
-  let newUsername = '';
-  let newPassword = '';
-  let newRole = 'viewer';
-  let addError = '';
-  let adding = false;
+  let showAddForm = $state(false);
+  let newUsername = $state('');
+  let newPassword = $state('');
+  let newRole = $state('viewer');
+  let addError = $state('');
+  let adding = $state(false);
 
   // Change password / role form
-  let changingUser = null;
-  let changePassword = '';
-  let changeRole = '';
-  let changeError = '';
-  let changing = false;
+  let changingUser = $state(null);
+  let changePassword = $state('');
+  let changeRole = $state('');
+  let changeError = $state('');
+  let changing = $state(false);
 
   // Delete confirmation
-  let deletingUser = null;
+  let deletingUser = $state(null);
 
-  $: isAdmin = $currentUser?.role === 'admin';
+  const isAdmin = $derived($currentUser?.role === 'admin');
 
   onMount(() => {
     fetchUsers();
@@ -133,12 +133,6 @@
     changeRole = user.role || 'viewer';
     changeError = '';
   }
-
-  function roleLabel(role) {
-    if (role === 'admin') return 'Admin';
-    if (role === 'operator') return 'Operator';
-    return 'Viewer';
-  }
 </script>
 
 <section class="settings-section">
@@ -169,110 +163,39 @@
           {users.length} user{users.length !== 1 ? 's' : ''}
         </span>
         {#if isAdmin}
-          <Button variant="primary" size="sm" on:click={() => { showAddForm = !showAddForm; addError = ''; }}>
+          <Button variant="primary" size="sm" onclick={() => { showAddForm = !showAddForm; addError = ''; }}>
             {showAddForm ? 'Cancel' : 'Add User'}
           </Button>
         {/if}
       </div>
 
       {#if showAddForm}
-        <div class="add-form">
-          <Input bind:value={newUsername} placeholder="Username" label="Username" fullWidth />
-          <Input bind:value={newPassword} placeholder="Password" label="Password" type="password" fullWidth />
-          <div class="form-field">
-            <label class="form-label" for="new-role-select">Role</label>
-            <select id="new-role-select" class="role-select" bind:value={newRole}>
-              <option value="viewer">Viewer (read-only)</option>
-              <option value="operator">Operator (manage alerts)</option>
-              <option value="admin">Admin (full access)</option>
-            </select>
-          </div>
-          <Button variant="success" size="sm" on:click={handleAddUser} loading={adding} disabled={!newUsername.trim() || !newPassword.trim()}>
-            Create
-          </Button>
-          {#if addError}
-            <p class="form-error">{addError}</p>
-          {/if}
-        </div>
+        <UserAddForm
+          bind:username={newUsername}
+          bind:password={newPassword}
+          bind:role={newRole}
+          {adding}
+          error={addError}
+          oncreate={handleAddUser}
+        />
       {/if}
 
-      <div class="users-table">
-        <div class="table-header">
-          <span class="col-user">User</span>
-          <span class="col-role">Role</span>
-          <span class="col-actions"></span>
-        </div>
-
-        <div class="users-list">
-          {#each users as user}
-            <div class="user-row">
-              <div class="user-info col-user">
-                <Icon icon={userIcon} size={16} strokeWidth={2.25} />
-                <span class="username">{user.username}</span>
-                {#if $currentUser?.username === user.username}
-                  <Badge variant="primary" size="sm">You</Badge>
-                {/if}
-                {#if ldapEnabled}
-                  <Badge variant="secondary" size="sm">LDAP fallback</Badge>
-                {/if}
-              </div>
-              <div class="col-role">
-                <span class="role-badge role-{user.role || 'viewer'}">
-                  {roleLabel(user.role)}
-                </span>
-              </div>
-              <div class="user-actions col-actions">
-                {#if isAdmin}
-                  <Button variant="ghost" size="sm" on:click={() => startChanging(user)}>
-                    Edit
-                  </Button>
-                  {#if $currentUser?.username !== user.username}
-                    {#if deletingUser === user.username}
-                      <Button variant="danger" size="sm" on:click={() => handleDeleteUser(user.username)}>
-                        Confirm
-                      </Button>
-                      <Button variant="ghost" size="sm" on:click={() => deletingUser = null}>
-                        Cancel
-                      </Button>
-                    {:else}
-                      <Button variant="ghost" size="sm" on:click={() => deletingUser = user.username}>
-                        Delete
-                      </Button>
-                    {/if}
-                  {/if}
-                {/if}
-              </div>
-            </div>
-
-            {#if changingUser === user.username}
-              <div class="change-password-form">
-                <Input bind:value={changePassword} placeholder="New password (leave blank to keep)" type="password" fullWidth on:enter={handleChangePassword} />
-                <div class="form-field">
-                  <label class="form-label" for="change-role-{user.username}">Role</label>
-                  <select id="change-role-{user.username}" class="role-select" bind:value={changeRole}>
-                    <option value="viewer">Viewer (read-only)</option>
-                    <option value="operator">Operator (manage alerts)</option>
-                    <option value="admin">Admin (full access)</option>
-                  </select>
-                </div>
-                <Button variant="primary" size="sm" on:click={handleChangePassword} loading={changing} disabled={!changePassword.trim() && changeRole === (user.role || 'viewer')}>
-                  Save
-                </Button>
-                <Button variant="ghost" size="sm" on:click={() => changingUser = null}>
-                  Cancel
-                </Button>
-                {#if changeError}
-                  <p class="form-error">{changeError}</p>
-                {/if}
-              </div>
-            {/if}
-          {/each}
-
-          {#if users.length === 0}
-            <div class="empty">No users configured.</div>
-          {/if}
-        </div>
-      </div>
+      <UsersTable
+        {users}
+        {isAdmin}
+        {ldapEnabled}
+        {deletingUser}
+        {changingUser}
+        bind:changePassword
+        bind:changeRole
+        {changing}
+        {changeError}
+        onedit={startChanging}
+        onconfirmdelete={(username) => { deletingUser = username; }}
+        ondelete={handleDeleteUser}
+        onsave={handleChangePassword}
+        oncanceledit={() => { changingUser = null; }}
+      />
     </Card>
   {/if}
 </section>
@@ -299,12 +222,6 @@
     margin: 0;
   }
 
-  .loading {
-    text-align: center;
-    color: var(--text-secondary);
-    padding: 20px;
-  }
-
   .error-msg {
     padding: 10px 14px;
     margin-bottom: 16px;
@@ -325,166 +242,6 @@
   .user-count {
     font-size: 0.8125rem;
     color: var(--text-secondary);
-  }
-
-
-  .add-form {
-    display: flex;
-    gap: 12px;
-    align-items: flex-end;
-    padding: 12px;
-    margin-bottom: 16px;
-    background: var(--bg-tertiary);
-    border-radius: 6px;
-    flex-wrap: wrap;
-  }
-
-  .form-field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .form-label {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--text-secondary);
-  }
-
-  .role-select {
-    padding: 6px 10px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.8125rem;
-    cursor: pointer;
-    transition: border-color 0.15s;
-    min-width: 180px;
-  }
-
-  /* Border-color is the resting cue; the global :focus-visible ring stays. */
-  .role-select:focus {
-    border-color: #388bfd;
-  }
-
-  /* Table layout */
-  .users-table {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .table-header {
-    display: grid;
-    grid-template-columns: 1fr 120px auto;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--border-color);
-    margin-bottom: 4px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .users-list {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .user-row {
-    display: grid;
-    grid-template-columns: 1fr 120px auto;
-    align-items: center;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border-muted);
-  }
-
-  .user-row:last-child {
-    border-bottom: none;
-  }
-
-  .col-user {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .col-role {
-    display: flex;
-    align-items: center;
-  }
-
-  .col-actions {
-    display: flex;
-    gap: 4px;
-    justify-content: flex-end;
-  }
-
-  .user-info :global(svg) {
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-
-  .username {
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: var(--text-primary);
-  }
-
-  /* Role badge */
-  .role-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 8px;
-    border-radius: 9999px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    text-transform: capitalize;
-  }
-
-  .role-admin {
-    background: rgba(56, 139, 253, 0.15);
-    color: #58a6ff;
-  }
-
-  .role-operator {
-    background: rgba(210, 153, 34, 0.15);
-    color: #d29922;
-  }
-
-  .role-viewer {
-    background: rgba(110, 118, 129, 0.2);
-    color: #8b949e;
-  }
-
-  .user-actions {
-    display: flex;
-    gap: 4px;
-  }
-
-  .change-password-form {
-    display: flex;
-    gap: 8px;
-    align-items: flex-end;
-    padding: 10px 0 10px 24px;
-    flex-wrap: wrap;
-    border-bottom: 1px solid var(--border-muted);
-  }
-
-  .form-error {
-    width: 100%;
-    margin-top: 4px;
-    font-size: 0.75rem;
-    color: var(--color-error);
-  }
-
-  .empty {
-    text-align: center;
-    padding: 20px;
-    color: var(--text-muted);
-    font-size: 0.875rem;
   }
 
   .ldap-banner {

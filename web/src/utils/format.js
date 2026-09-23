@@ -56,6 +56,28 @@ export function formatFullTimestamp(ts) {
 }
 
 /**
+ * Format a timestamp as a short local date-time (e.g. "Sep 23, 08:15:02"),
+ * in the viewer's locale. Returns '-' for an empty value.
+ * @param {string} ts - ISO timestamp
+ * @returns {string} Formatted datetime
+ */
+export function formatShortDateTime(ts) {
+  if (!ts) return '-';
+  try {
+    const d = new Date(ts);
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  } catch {
+    return ts;
+  }
+}
+
+/**
  * Format large numbers with K/M/B suffixes
  * @param {number} num - Number to format
  * @returns {string} Formatted number
@@ -116,4 +138,18 @@ export function formatRelativeTime(date) {
 export function formatNumber(num) {
   if (num === null || num === undefined) return '0';
   return num.toLocaleString();
+}
+
+/**
+ * Format a duration in milliseconds with a unit that fits its size
+ * (us / ms / s / min).
+ * @param {number | null | undefined} ms - Duration in milliseconds
+ * @returns {string} Formatted duration, or '-' when unknown
+ */
+export function formatDuration(ms) {
+  if (ms === null || ms === undefined) return '-';
+  if (ms < 1) return `${(ms * 1000).toFixed(0)}us`;
+  if (ms < 1000) return `${ms.toFixed(1)}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
+  return `${(ms / 60000).toFixed(1)}min`;
 }

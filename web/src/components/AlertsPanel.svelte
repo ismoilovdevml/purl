@@ -1,25 +1,24 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import Button from './ui/Button.svelte';
-  import Input from './ui/Input.svelte';
-  import Select from './ui/Select.svelte';
   import Modal from './ui/Modal.svelte';
   import ConfirmDialog from './ui/ConfirmDialog.svelte';
   import EmptyState from './ui/EmptyState.svelte';
-  import Icon from './ui/Icon.svelte';
-  import { caretRight, refresh, gridSolid, plus, dot, dotOutline, close, bell } from './ui/icons.js';
+  import { bell } from './ui/icons.js';
   import AlertTemplateGallery from './alerts/AlertTemplateGallery.svelte';
+  import AlertsPanelHeader from './alerts/AlertsPanelHeader.svelte';
+  import AlertList from './alerts/AlertList.svelte';
+  import AlertFormModal from './alerts/AlertFormModal.svelte';
   import { k8sMode } from '../stores/auth.js';
   import { error as toastError, success as toastSuccess, warning as toastWarning } from '../stores/toast.js';
   import { api } from '../utils/api.js';
 
   // What GET /alerts last returned.
-  let serverAlerts = [];
+  let serverAlerts = $state([]);
 
   // Rows this panel created locally that the server list has not echoed back
   // yet. POST /alerts answers `{status:'ok'}` with no id, so an optimistic row
   // carries a temporary one and is matched back by its fields.
-  let pendingAlerts = [];
+  let pendingAlerts = $state([]);
   let pendingSeq = 0;
 
   // How long an unconfirmed optimistic row may survive. Long enough to outlast
@@ -29,20 +28,20 @@
 
   // What the panel renders. Keeping this derived means every read path
   // (rendering, the trigger baseline, the 60s poll) sees the same list.
-  $: alerts = [...serverAlerts, ...pendingAlerts];
+  const alerts = $derived([...serverAlerts, ...pendingAlerts]);
 
-  let showModal = false;
-  let editingAlert = null;
-  let expanded = false;
+  let showModal = $state(false);
+  let editingAlert = $state(null);
+  let expanded = $state(false);
 
-  let form = {
+  let form = $state({
     name: '',
     query: '',
     threshold: 10,
     window_minutes: 5,
     notify_type: 'webhook',
     notify_target: ''
-  };
+  });
 
   // "Browser" is deliberately absent: the backend coerces every notify_type
   // outside telegram|slack|webhook into `webhook`, so an alert saved as
@@ -69,11 +68,11 @@
   let checkInterval;
 
   // Confirm dialog state
-  let showDeleteConfirm = false;
+  let showDeleteConfirm = $state(false);
   let deleteTargetId = null;
 
   // Template gallery state
-  let showTemplateGallery = false;
+  let showTemplateGallery = $state(false);
 
   onMount(async () => {
     await loadAlerts();
@@ -193,50 +192,14 @@
     await loadAlerts();
   }
 
-  /**
-   * Feedback for an explicit "Check now": the evaluation the operator just
-   * asked for is reported in the browser as well as through the alert's own
-   * channel. There is deliberately no passive notify-on-poll path — it keyed
-   * off `notify_type === 'browser'`, which the backend never persists
-   * (issue #38), so it was dead code pretending to be a delivery channel.
-   *
-   * Nothing in the app ever called Notification.requestPermission(), so the
-   * default 'default' permission made this return early every time and the
-   * whole path was dead code. The ask now happens in handleCheckNow, where a
-   * click is what triggers it — browsers reject the prompt outside a user
-   * gesture, and prompting on page load is what gets a site permanently
-   * blocked.
-   */
-  async function requestNotificationPermission() {
-    if (!('Notification' in window)) return;
-    if (Notification.permission !== 'default') return;
-    try {
-      await Notification.requestPermission();
-    } catch {
-      // Older browsers expose only the callback form, and a rejected prompt is
-      // not an error worth surfacing. Either way notifications stay off.
-    }
-  }
-
-  function showNotification(alert) {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-
-    // `count` is only present on a POST /alerts/check result. When the trigger
-    // is observed via GET /alerts we know it fired but not by how much.
-    const body =
-      alert.count == null
-        ? `Threshold of ${alert.threshold} reached for "${alert.query}"`
-        : `${alert.count} logs matched "${alert.query}"`;
-
-    new Notification(`Alert: ${alert.name}`, { body, icon: '/favicon.ico' });
-  }
-
   function openModal(alert = null) {
     if (alert) {
       editingAlert = alert;
       form = {
-        name: alert.name,
-        query: alert.query,
+        // `?? ''`: these feed bind:value on Input, whose $bindable fallback
+        // throws if handed undefined (#85).
+        name: alert.name ?? '',
+        query: alert.query ?? '',
         threshold: alert.threshold,
         window_minutes: alert.window_minutes,
         notify_type: normalizeNotifyType(alert.notify_type),
@@ -326,47 +289,12 @@
     deleteTargetId = null;
   }
 
-  let checking = false;
-
-  // Explicit user action, so a real evaluation (and its fan-out) is what the
-  // operator asked for. Unlike the timer above, this cannot duplicate messages
-  // at scale — it only runs when someone clicks.
-  async function handleCheckNow() {
-    checking = true;
-    // Asked for here and nowhere else: this is the only click that can produce
-    // a browser notification, and the prompt needs a user gesture. Awaited
-    // before the check so a first-time "Allow" still applies to this run's
-    // results. Failure is silent — a denied or dismissed prompt just means
-    // showNotification() stays a no-op, which is its documented behaviour.
-    await requestNotificationPermission();
-    try {
-      const data = await api.post('/alerts/check');
-      for (const alert of data.triggered || []) {
-        showNotification(alert);
-      }
-      await loadAlerts();
-    } catch (err) {
-      console.error('Alert check failed:', err);
-      toastError(err.message || 'Alert check failed');
-    } finally {
-      checking = false;
-    }
-  }
-
-  function handleHeaderKeydown(e) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      expanded = !expanded;
-    }
-  }
-
-  function handleUseTemplate(event) {
-    const template = event.detail;
+  function handleUseTemplate(template) {
     showTemplateGallery = false;
     editingAlert = null;
     form = {
-      name: template.name,
-      query: template.query,
+      name: template.name ?? '',
+      query: template.query ?? '',
       threshold: template.threshold,
       window_minutes: template.window_minutes,
       notify_type: 'webhook',
@@ -377,43 +305,14 @@
 </script>
 
 <div class="alerts-panel">
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="header" role="button" tabindex="0" on:click={() => expanded = !expanded} on:keydown={handleHeaderKeydown}>
-    <Icon icon={caretRight} size={12} class="chevron {expanded ? 'expanded' : ''}" />
-    <h3>Alerts</h3>
-    {#if alerts.length > 0}
-      <span class="count">{alerts.length}</span>
-    {/if}
-    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-    <span class="header-actions" on:click|stopPropagation>
-      <Button
-        icon
-        size="sm"
-        variant="ghost"
-        on:click={handleCheckNow}
-        title="Check alerts now"
-        aria-label="Check alerts now"
-        disabled={checking}
-      >
-        <Icon icon={refresh} size={14} strokeWidth={2.5} spin={checking} />
-      </Button>
-      {#if $k8sMode}
-        <Button
-          icon
-          size="sm"
-          variant="ghost"
-          on:click={() => showTemplateGallery = true}
-          title="Browse K8s Templates"
-          aria-label="Browse K8s alert templates"
-        >
-          <Icon icon={gridSolid} size={14} />
-        </Button>
-      {/if}
-      <Button icon size="sm" variant="ghost" on:click={() => openModal()} title="Create alert" aria-label="Create alert">
-        <Icon icon={plus} size={14} strokeWidth={2.5} />
-      </Button>
-    </span>
-  </div>
+  <AlertsPanelHeader
+    {expanded}
+    count={alerts.length}
+    ontoggle={() => expanded = !expanded}
+    oncreate={() => openModal()}
+    onbrowsetemplates={() => showTemplateGallery = true}
+    onchecked={loadAlerts}
+  />
 
   {#if expanded}
     <div class="content">
@@ -422,120 +321,24 @@
           Create an alert to get notified when a query crosses a threshold.
         </EmptyState>
       {:else}
-        <ul>
-          {#each alerts as alert (alert.id)}
-            <!-- A pending row is shown for feedback but carries a placeholder
-                 id, so every action that needs the real one stays disabled
-                 until the server list confirms it. -->
-            <li class:disabled={!alert.enabled} class:pending={alert.pending}>
-              <button class="alert-info" on:click={() => openModal(alert)} disabled={alert.pending}>
-                <span class="name">{alert.name}</span>
-                <span class="details">
-                  {alert.query || 'All logs'} >= {alert.threshold} in {alert.window_minutes}m
-                </span>
-              </button>
-              <Button
-                icon
-                size="sm"
-                variant="ghost"
-                on:click={() => toggleAlert(alert)}
-                title={alert.enabled ? 'Disable' : 'Enable'}
-                aria-label="{alert.enabled ? 'Disable' : 'Enable'} alert {alert.name}"
-                disabled={alert.pending}
-              >
-                {#if alert.enabled}
-                  <Icon icon={dot} size={14} color="#3fb950" />
-                {:else}
-                  <Icon icon={dotOutline} size={14} strokeWidth={2.5} color="#848d97" />
-                {/if}
-              </Button>
-              <Button
-                icon
-                size="sm"
-                variant="ghost"
-                on:click={() => requestDeleteAlert(alert.id)}
-                title="Delete alert"
-                aria-label="Delete alert {alert.name}"
-                class="delete-btn"
-                disabled={alert.pending}
-              >
-                <Icon icon={close} size={12} strokeWidth={3} />
-              </Button>
-            </li>
-          {/each}
-        </ul>
+        <AlertList
+          {alerts}
+          onedit={openModal}
+          ontoggle={toggleAlert}
+          ondelete={requestDeleteAlert}
+        />
       {/if}
     </div>
   {/if}
 </div>
 
-<Modal bind:open={showModal} title={editingAlert ? 'Edit Alert' : 'Create Alert'} size="md">
-  <div class="form-content">
-    <Input
-      label="Name"
-      bind:value={form.name}
-      placeholder="High error rate"
-      fullWidth
-    />
-
-    <Input
-      label="Query (optional)"
-      bind:value={form.query}
-      placeholder="level:ERROR"
-      fullWidth
-    />
-
-    <div class="row">
-      <Input
-        label="Threshold"
-        type="number"
-        bind:value={form.threshold}
-        min={1}
-      />
-      <Input
-        label="Window (minutes)"
-        type="number"
-        bind:value={form.window_minutes}
-        min={1}
-      />
-    </div>
-
-    <Select
-      label="Notification Type"
-      bind:value={form.notify_type}
-      options={notifyOptions}
-      fullWidth
-    />
-
-    {#if form.notify_type === 'webhook'}
-      <Input
-        label="Webhook URL"
-        type="url"
-        bind:value={form.notify_target}
-        placeholder="https://..."
-        fullWidth
-      />
-    {:else if form.notify_type === 'slack'}
-      <Input
-        label="Slack Webhook URL"
-        type="url"
-        bind:value={form.notify_target}
-        placeholder="https://hooks.slack.com/services/..."
-        fullWidth
-      />
-    {:else if form.notify_type === 'telegram'}
-      <div class="notify-info">
-        Telegram bot token and chat ID are configured via server environment variables
-        (<code>PURL_TELEGRAM_BOT_TOKEN</code>, <code>PURL_TELEGRAM_CHAT_ID</code>).
-      </div>
-    {/if}
-  </div>
-
-  <svelte:fragment slot="footer">
-    <Button variant="default" on:click={() => showModal = false}>Cancel</Button>
-    <Button variant="success" on:click={saveAlert}>Save</Button>
-  </svelte:fragment>
-</Modal>
+<AlertFormModal
+  bind:open={showModal}
+  bind:form
+  editing={!!editingAlert}
+  {notifyOptions}
+  onsave={saveAlert}
+/>
 
 <ConfirmDialog
   bind:show={showDeleteConfirm}
@@ -548,7 +351,7 @@
 
 {#if $k8sMode}
   <Modal bind:open={showTemplateGallery} title="K8s Alert Templates" size="lg">
-    <AlertTemplateGallery on:use-template={handleUseTemplate} />
+    <AlertTemplateGallery onusetemplate={handleUseTemplate} />
   </Modal>
 {/if}
 
@@ -559,148 +362,7 @@
     border-top: 1px solid var(--border-color);
   }
 
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 8px 0;
-    background: none;
-    border: none;
-    cursor: pointer;
-    text-align: left;
-    user-select: none;
-  }
-
-  .header-actions {
-    display: flex;
-    align-items: center;
-  }
-
-  .header:hover h3 {
-    color: var(--text-primary);
-  }
-
-  /* :global — the class is forwarded onto the SVG that Icon renders. */
-  .header :global(.chevron) {
-    color: var(--text-secondary);
-    transition: transform 0.15s ease;
-  }
-
-  .header :global(.chevron.expanded) {
-    transform: rotate(90deg);
-  }
-
-  h3 {
-    flex: 1;
-    font-size: 11px;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-    font-weight: 600;
-    margin: 0;
-    transition: color 0.15s;
-  }
-
-  .count {
-    font-size: 10px;
-    color: var(--text-muted);
-    background: var(--bg-tertiary);
-    padding: 2px 6px;
-    border-radius: 10px;
-  }
-
   .content {
     padding-left: 20px;
-  }
-
-  ul {
-    list-style: none;
-  }
-
-  li {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-bottom: 4px;
-  }
-
-  li.disabled {
-    opacity: 0.5;
-  }
-
-  /* Optimistic row: visible immediately, but visibly not settled yet. */
-  li.pending .alert-info {
-    border-style: dashed;
-    border-color: var(--color-primary);
-    cursor: default;
-  }
-
-  li.pending {
-    opacity: 0.7;
-  }
-
-  .alert-info {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    padding: 8px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .alert-info:hover {
-    border-color: var(--color-primary);
-  }
-
-  .name {
-    color: var(--text-primary);
-    font-size: 13px;
-    font-weight: 500;
-  }
-
-  .details {
-    color: var(--text-secondary);
-    font-size: 11px;
-  }
-
-  :global(.delete-btn):hover {
-    color: var(--color-error) !important;
-  }
-
-  .form-content {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .row {
-    display: flex;
-    gap: 12px;
-  }
-
-  .row > :global(*) {
-    flex: 1;
-  }
-
-  .notify-info {
-    padding: 10px 12px;
-    background: rgba(88, 166, 255, 0.08);
-    border: 1px solid rgba(88, 166, 255, 0.2);
-    border-radius: 6px;
-    font-size: 12px;
-    color: var(--text-secondary);
-    line-height: 1.5;
-  }
-
-  .notify-info code {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--color-primary);
-    background: rgba(88, 166, 255, 0.1);
-    padding: 1px 4px;
-    border-radius: 3px;
   }
 </style>

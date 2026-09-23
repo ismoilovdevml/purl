@@ -1,17 +1,19 @@
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { aiLoading, aiError, aiQueryResult, aiQuerySQL, queryAI, aiSuggestions, fetchSuggestions, aiProvider } from '../../stores/ai.js';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
   import Icon from '../ui/Icon.svelte';
   import { clock, check, send, alertCircleSolid } from '../ui/icons.js';
 
-  const dispatch = createEventDispatcher();
+  let {
+    /** ({ sql, results }) when the user applies the generated SQL as a search */
+    onapply,
+  } = $props();
 
-  let question = '';
-  let showSuggestions = false;
+  let question = $state('');
+  let showSuggestions = $state(false);
 
-  $: result = $aiQueryResult;
-  $: sql = $aiQuerySQL;
+  const result = $derived($aiQueryResult);
+  const sql = $derived($aiQuerySQL);
 
   function handleKeydown(e) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -30,7 +32,7 @@
 
   function applyQuery() {
     if (sql) {
-      dispatch('apply', { sql, results: result?.results });
+      onapply?.({ sql, results: result?.results });
     }
   }
 
@@ -56,11 +58,11 @@
   </div>
 
   <div class="input-row">
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="input-wrapper" on:focusin={handleFocus} on:focusout={() => setTimeout(() => { showSuggestions = false; }, 200)}>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="input-wrapper" onfocusin={handleFocus} onfocusout={() => setTimeout(() => { showSuggestions = false; }, 200)}>
       <textarea
         bind:value={question}
-        on:keydown={handleKeydown}
+        onkeydown={handleKeydown}
         placeholder="Ask anything: Show me all errors from the last hour..."
         rows="2"
         disabled={$aiLoading}
@@ -70,8 +72,8 @@
       {#if showSuggestions && $aiSuggestions.length > 0 && !question}
         <div class="suggestions-dropdown">
           {#each $aiSuggestions as s}
-            <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <div class="suggestion-item" on:click={() => useSuggestion(s)}>
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <div class="suggestion-item" onclick={() => useSuggestion(s)}>
               <Icon icon={check} size={12} strokeWidth={3} />
               {s}
             </div>
@@ -82,7 +84,7 @@
 
     <button
       class="send-btn"
-      on:click={submit}
+      onclick={submit}
       disabled={$aiLoading || !question.trim()}
       title="Send (Ctrl+Enter)"
       aria-label="Send question to AI"
@@ -106,7 +108,7 @@
     <div class="ai-result">
       <div class="result-header">
         <span class="result-label">Generated SQL</span>
-        <button class="apply-btn" on:click={applyQuery}>
+        <button class="apply-btn" onclick={applyQuery}>
           Apply as search
         </button>
       </div>

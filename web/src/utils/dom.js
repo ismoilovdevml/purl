@@ -111,6 +111,48 @@ export function debounce(fn, delay = 300) {
 }
 
 /**
+ * Event-handler wrapper that calls preventDefault() first — the Svelte 5
+ * replacement for the removed `on:event|preventDefault` modifier.
+ * @param {Function} [fn] - Handler to run after preventDefault
+ * @returns {(event: Event) => void}
+ */
+export function preventDefault(fn) {
+  return function (event) {
+    event.preventDefault();
+    fn?.call(this, event);
+  };
+}
+
+/**
+ * Event-handler wrapper that calls stopPropagation() first — the Svelte 5
+ * replacement for the removed `on:event|stopPropagation` modifier.
+ * @param {Function} [fn] - Handler to run after stopPropagation
+ * @returns {(event: Event) => void}
+ */
+export function stopPropagation(fn) {
+  return function (event) {
+    event.stopPropagation();
+    fn?.call(this, event);
+  };
+}
+
+/**
+ * Save a Blob to the user's disk under `filename` via a temporary <a download>.
+ * @param {Blob} blob - Content to save
+ * @param {string} filename - Suggested file name
+ */
+export function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
  * Svelte action: portal — moves element to document.body (or custom target).
  * Fixes modals rendered inside overflow containers where event handling breaks.
  * @param {HTMLElement} node - DOM node to teleport

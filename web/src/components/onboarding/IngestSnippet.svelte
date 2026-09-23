@@ -18,20 +18,22 @@
   import { check, copy } from '../ui/icons.js';
   import { copyToClipboard } from '../../utils/dom.js';
 
-  /** Substituted into the header when known; otherwise a placeholder is shown. */
-  export let apiKey = null;
+  let {
+    /** Substituted into the header when known; otherwise a placeholder is shown. */
+    apiKey = null,
+  } = $props();
 
-  let copied = false;
+  let copied = $state(false);
   let copyTimer = null;
 
-  $: origin = typeof window !== 'undefined' ? window.location.origin : 'https://your-purl-server';
-  $: key = apiKey || 'YOUR_API_KEY';
-  $: command = [
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://your-purl-server';
+  const key = $derived(apiKey || 'YOUR_API_KEY');
+  const command = $derived([
     `curl -X POST ${origin}/api/v1/logs \\`,
     `  -H 'X-API-Key: ${key}' \\`,
     "  -H 'Content-Type: application/json' \\",
     '  -d \'{"level": "info", "message": "Hello Purl"}\'',
-  ];
+  ]);
 
   async function handleCopy() {
     const ok = await copyToClipboard(command.join('\n'));
@@ -47,7 +49,7 @@
   <button
     type="button"
     class="copy-btn"
-    on:click={handleCopy}
+    onclick={handleCopy}
     aria-label={copied ? 'Command copied' : 'Copy command'}
   >
     <Icon icon={copied ? check : copy} size={14} />

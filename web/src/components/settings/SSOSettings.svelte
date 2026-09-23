@@ -7,15 +7,15 @@
 -->
 <script>
   import Card from '../ui/Card.svelte';
-  import Button from '../ui/Button.svelte';
   import Input from '../ui/Input.svelte';
   import Select from '../ui/Select.svelte';
-  import Toggle from '../ui/Toggle.svelte';
-  import EnvBadge from '../ui/EnvBadge.svelte';
+  import EnvToggleRow from '../ui/EnvToggleRow.svelte';
+  import AdvancedDisclosure from '../ui/AdvancedDisclosure.svelte';
+  import ConnectionTestFooter from '../ui/ConnectionTestFooter.svelte';
+  import SsoMetadataCard from './sso/SsoMetadataCard.svelte';
   import { api } from '../../utils/api.js';
   import { isEnvLocked } from '../../utils/envLock.js';
-  import Icon from '../ui/Icon.svelte';
-  import { caretDown, check, copy, close } from '../ui/icons.js';
+  import { runConnectionTest } from '../../utils/connectionTest.js';
 
   // ── Page state ─────────────────────────────────────────────────────────────
   let loading = $state(true);
@@ -27,12 +27,6 @@
   let testing = $state(false);
   let testResult = $state(null); // null | { ok: boolean, message: string }
 
-  // ── Advanced section toggle ────────────────────────────────────────────────
-  let showAdvanced = $state(false);
-
-  // ── Copy state ─────────────────────────────────────────────────────────────
-  let copied = $state(false);
-
   /*
    * Which saml.* keys the environment owns: { idp_sso_url: 1, acs_url: 0, ... }.
    * GET /settings/sso has always sent this map (as `from_env`); this page
@@ -41,30 +35,36 @@
    */
   let fromEnv = $state({});
 
-  // ── Form fields ────────────────────────────────────────────────────────────
-  let enabled = $state(false);
+  /*
+   * Form fields, keyed by the saml.* config keys, NOT prettier aliases. This
+   * page used to read idp_certificate / sp_entity_id / sp_certificate /
+   * sp_private_key, none of which the API sends or accepts (they are
+   * idp_cert / entity_id / sp_cert / sp_key), so every one of those four
+   * fields loaded blank and never saved — and with entity_id missing, the
+   * server rejected any attempt to enable SSO at all.
+   *
+   * Grouped as on screen (IdP, SP, attribute mapping); the order is the
+   * order of the PUT / test payload.
+   */
+  const DEFAULTS = {
+    enabled: false,
+    idp_entity_id: '',
+    idp_sso_url: '',
+    idp_slo_url: '',
+    idp_cert: '',
+    entity_id: '',
+    acs_url: '',
+    name_id_format: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
+    sign_requests: false,
+    sp_cert: '',
+    sp_key: '',
+    username_attr: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name',
+    groups_attr: 'http://schemas.xmlsoap.org/claims/Group',
+    allowed_groups: '',
+    force_authn: false,
+  };
 
-  // Identity Provider
-  let idpEntityId = $state('');
-  let idpSsoUrl = $state('');
-  let idpSloUrl = $state('');
-  let idpCertificate = $state('');
-
-  // Service Provider
-  let spEntityId = $state('');
-  let acsUrl = $state('');
-  let nameIdFormat = $state('urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress');
-  let signRequests = $state(false);
-  let spCertificate = $state('');
-  let spPrivateKey = $state('');
-
-  // Attribute mapping
-  let usernameAttr = $state('http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name');
-  let groupsAttr = $state('http://schemas.xmlsoap.org/claims/Group');
-  let allowedGroups = $state('');
-
-  // Force authentication
-  let forceAuthn = $state(false);
+  let form = $state({ ...DEFAULTS });
 
   // ── Select options ─────────────────────────────────────────────────────────
   const nameIdFormatOptions = [
@@ -73,13 +73,6 @@
     { value: 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient', label: 'Transient' },
     { value: 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified', label: 'Unspecified' },
   ];
-
-  // ── Derived: SP Metadata URL ──────────────────────────────────────────────
-  const metadataUrl = $derived(
-    spEntityId
-      ? `${window.location.origin}/api/auth/saml/metadata`
-      : ''
-  );
 
   // ── On mount: fetch settings ──────────────────────────────────────────────
   $effect(() => {
@@ -91,30 +84,10 @@
     try {
       const data = await api.get('/settings/sso');
       const cfg = data.config ?? {};
-      fromEnv        = data.from_env       ?? {};
-      /*
-       * Key names are the saml.* config keys, NOT prettier aliases. This page
-       * used to read idp_certificate / sp_entity_id / sp_certificate /
-       * sp_private_key, none of which the API sends or accepts (they are
-       * idp_cert / entity_id / sp_cert / sp_key), so every one of those four
-       * fields loaded blank and never saved — and with entity_id missing, the
-       * server rejected any attempt to enable SSO at all.
-       */
-      enabled        = cfg.enabled         ?? false;
-      idpEntityId    = cfg.idp_entity_id   ?? '';
-      idpSsoUrl      = cfg.idp_sso_url     ?? '';
-      idpSloUrl      = cfg.idp_slo_url     ?? '';
-      idpCertificate = cfg.idp_cert        ?? '';
-      spEntityId     = cfg.entity_id       ?? '';
-      acsUrl         = cfg.acs_url         ?? '';
-      nameIdFormat   = cfg.name_id_format  ?? 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress';
-      signRequests   = cfg.sign_requests   ?? false;
-      spCertificate  = cfg.sp_cert         ?? '';
-      spPrivateKey   = cfg.sp_key          ?? '';
-      usernameAttr   = cfg.username_attr   ?? 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name';
-      groupsAttr     = cfg.groups_attr     ?? 'http://schemas.xmlsoap.org/claims/Group';
-      allowedGroups  = cfg.allowed_groups  ?? '';
-      forceAuthn     = cfg.force_authn     ?? false;
+      fromEnv = data.from_env ?? {};
+      for (const [key, fallback] of Object.entries(DEFAULTS)) {
+        form[key] = cfg[key] ?? fallback;
+      }
     } catch {
       // leave defaults
     } finally {
@@ -122,47 +95,16 @@
     }
   }
 
-  function buildPayload() {
-    return {
-      enabled,
-      idp_entity_id:  idpEntityId,
-      idp_sso_url:    idpSsoUrl,
-      idp_slo_url:    idpSloUrl,
-      idp_cert:       idpCertificate,
-      entity_id:      spEntityId,
-      acs_url:        acsUrl,
-      name_id_format: nameIdFormat,
-      sign_requests:  signRequests,
-      sp_cert:        spCertificate,
-      sp_key:         spPrivateKey,
-      username_attr:  usernameAttr,
-      groups_attr:    groupsAttr,
-      allowed_groups: allowedGroups,
-      force_authn:    forceAuthn,
-    };
-  }
+  const buildPayload = () => ({ ...form });
 
   async function handleTest() {
     testing = true;
     testResult = null;
-    try {
-      const data = await api.post('/settings/sso/test', buildPayload());
-      if (data.success) {
-        testResult = {
-          ok: true,
-          message: data.message || 'SSO configuration is valid',
-        };
-      } else {
-        testResult = {
-          ok: false,
-          message: data.error || data.message || 'Configuration validation failed',
-        };
-      }
-    } catch (err) {
-      testResult = { ok: false, message: err.message || 'Request failed' };
-    } finally {
-      testing = false;
-    }
+    testResult = await runConnectionTest('/settings/sso/test', buildPayload(), {
+      ok: () => 'SSO configuration is valid',
+      fail: 'Configuration validation failed',
+    });
+    testing = false;
   }
 
   async function handleSave() {
@@ -177,14 +119,6 @@
     } finally {
       saving = false;
     }
-  }
-
-  function copyMetadataUrl() {
-    if (!metadataUrl) return;
-    navigator.clipboard.writeText(metadataUrl).then(() => {
-      copied = true;
-      setTimeout(() => { copied = false; }, 2000);
-    });
   }
 </script>
 
@@ -201,15 +135,13 @@
   {:else}
     <!-- ── Section 1: Enable/Disable ──────────────────────────────────────── -->
     <Card padding="md">
-      <div class="toggle-row">
-        <Toggle
-          bind:checked={enabled}
-          label="Enable SAML SSO"
-          description="Let users sign in through your SAML 2.0 identity provider"
-          disabled={isEnvLocked(fromEnv, 'enabled')}
-        />
-        <EnvBadge locked={isEnvLocked(fromEnv, 'enabled')} />
-      </div>
+      <EnvToggleRow
+        bind:checked={form.enabled}
+        label="Enable SAML SSO"
+        description="Let users sign in through your SAML 2.0 identity provider"
+        disabled={isEnvLocked(fromEnv, 'enabled')}
+        locked={isEnvLocked(fromEnv, 'enabled')}
+      />
     </Card>
 
     <!-- ── Section 2: Identity Provider ───────────────────────────────────── -->
@@ -217,42 +149,42 @@
       <div class="card-section-title">Identity Provider</div>
       <div class="form-group">
         <Input
-          bind:value={idpEntityId}
+          bind:value={form.idp_entity_id}
           label="IdP Entity ID"
           placeholder="https://idp.example.com/metadata"
           fullWidth
-          disabled={!enabled}
+          disabled={!form.enabled}
           envLocked={isEnvLocked(fromEnv, 'idp_entity_id')}
         />
       </div>
       <div class="form-group">
         <Input
-          bind:value={idpSsoUrl}
+          bind:value={form.idp_sso_url}
           label="IdP SSO URL"
           placeholder="https://idp.example.com/sso/saml"
           fullWidth
-          disabled={!enabled}
+          disabled={!form.enabled}
           envLocked={isEnvLocked(fromEnv, 'idp_sso_url')}
         />
       </div>
       <div class="form-group">
         <Input
-          bind:value={idpSloUrl}
+          bind:value={form.idp_slo_url}
           label="IdP SLO URL (optional)"
           placeholder="https://idp.example.com/slo/saml"
           fullWidth
-          disabled={!enabled}
+          disabled={!form.enabled}
           envLocked={isEnvLocked(fromEnv, 'idp_slo_url')}
         />
       </div>
       <div class="form-group">
         <Input
-          bind:value={idpCertificate}
+          bind:value={form.idp_cert}
           label="IdP Certificate (PEM)"
           type="textarea"
           placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
           fullWidth
-          disabled={!enabled}
+          disabled={!form.enabled}
           envLocked={isEnvLocked(fromEnv, 'idp_cert')}
         />
       </div>
@@ -263,194 +195,134 @@
       <div class="card-section-title">Service Provider</div>
       <div class="form-group">
         <Input
-          bind:value={spEntityId}
+          bind:value={form.entity_id}
           label="SP Entity ID"
           placeholder="https://purl.example.com"
           fullWidth
-          disabled={!enabled}
+          disabled={!form.enabled}
           envLocked={isEnvLocked(fromEnv, 'entity_id')}
         />
       </div>
       <div class="form-group">
         <Input
-          bind:value={acsUrl}
+          bind:value={form.acs_url}
           label="Assertion Consumer Service (ACS) URL"
           placeholder="https://purl.example.com/api/auth/saml/acs"
           fullWidth
-          disabled={!enabled}
+          disabled={!form.enabled}
           envLocked={isEnvLocked(fromEnv, 'acs_url')}
         />
       </div>
       <div class="form-row">
         <div class="form-group form-group--nameid">
           <Select
-            bind:value={nameIdFormat}
+            bind:value={form.name_id_format}
             label="NameID Format"
             options={nameIdFormatOptions}
-            disabled={!enabled}
+            disabled={!form.enabled}
             envLocked={isEnvLocked(fromEnv, 'name_id_format')}
             fullWidth
           />
         </div>
       </div>
-      <div class="toggle-row toggle-row--inline">
-        <Toggle
-          bind:checked={signRequests}
-          label="Sign Authentication Requests"
-          size="sm"
-          disabled={!enabled || isEnvLocked(fromEnv, 'sign_requests')}
-        />
-        <EnvBadge locked={isEnvLocked(fromEnv, 'sign_requests')} />
-      </div>
-      <div class="toggle-row toggle-row--inline">
-        <Toggle
-          bind:checked={forceAuthn}
-          label="Force Authentication"
-          size="sm"
-          disabled={!enabled || isEnvLocked(fromEnv, 'force_authn')}
-        />
-        <EnvBadge locked={isEnvLocked(fromEnv, 'force_authn')} />
-      </div>
+      <EnvToggleRow
+        bind:checked={form.sign_requests}
+        label="Sign Authentication Requests"
+        size="sm"
+        inline
+        disabled={!form.enabled || isEnvLocked(fromEnv, 'sign_requests')}
+        locked={isEnvLocked(fromEnv, 'sign_requests')}
+      />
+      <EnvToggleRow
+        bind:checked={form.force_authn}
+        label="Force Authentication"
+        size="sm"
+        inline
+        disabled={!form.enabled || isEnvLocked(fromEnv, 'force_authn')}
+        locked={isEnvLocked(fromEnv, 'force_authn')}
+      />
     </Card>
 
     <!-- ── Section 4: SP Metadata URL ─────────────────────────────────────── -->
-    {#if metadataUrl}
-      <Card padding="md">
-        <div class="card-section-title">SP Metadata</div>
-        <div class="metadata-row">
-          <code class="metadata-url">{metadataUrl}</code>
-          <button
-            type="button"
-            class="copy-btn"
-            onclick={copyMetadataUrl}
-            title="Copy metadata URL"
-            aria-label="Copy SP metadata URL"
-          >
-            {#if copied}
-              <Icon icon={check} size={14} strokeWidth={2.5} />
-            {:else}
-              <Icon icon={copy} size={14} strokeWidth={2.5} />
-            {/if}
-          </button>
-        </div>
-        <p class="metadata-hint">Provide this URL to your identity provider for automatic SP configuration.</p>
-      </Card>
-    {/if}
+    <SsoMetadataCard spEntityId={form.entity_id} />
 
     <!-- ── Section 5: Advanced (collapsible) ─────────────────────────────── -->
     <Card padding="md">
-      <button
-        type="button"
-        class="advanced-toggle"
-        onclick={() => showAdvanced = !showAdvanced}
-      >
-        <Icon icon={caretDown} size={12} class="chevron {showAdvanced ? 'open' : ''}" />
-        <span>Advanced — Attribute Mapping &amp; SP Certificates</span>
-      </button>
-
-      {#if showAdvanced}
-        <div class="advanced-body">
-          <div class="form-row form-row--three">
-            <div class="form-group">
-              <Input
-                bind:value={usernameAttr}
-                label="Username Attribute"
-                placeholder="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
-                fullWidth
-                disabled={!enabled}
-                envLocked={isEnvLocked(fromEnv, 'username_attr')}
-              />
-            </div>
-            <div class="form-group">
-              <Input
-                bind:value={groupsAttr}
-                label="Groups Attribute"
-                placeholder="http://schemas.xmlsoap.org/claims/Group"
-                fullWidth
-                disabled={!enabled}
-                envLocked={isEnvLocked(fromEnv, 'groups_attr')}
-              />
-            </div>
-          </div>
+      <AdvancedDisclosure label="Advanced — Attribute Mapping & SP Certificates">
+        <div class="form-row form-row--three">
           <div class="form-group">
             <Input
-              bind:value={allowedGroups}
-              label="Allowed Groups"
-              placeholder="Comma-separated group names (leave empty for all)"
+              bind:value={form.username_attr}
+              label="Username Attribute"
+              placeholder="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
               fullWidth
-              disabled={!enabled}
-              envLocked={isEnvLocked(fromEnv, 'allowed_groups')}
-              helper="Only users in these groups will be allowed to log in. Leave empty to allow all."
+              disabled={!form.enabled}
+              envLocked={isEnvLocked(fromEnv, 'username_attr')}
             />
           </div>
           <div class="form-group">
             <Input
-              bind:value={spCertificate}
-              label="SP Certificate (PEM, optional)"
-              type="textarea"
-              placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+              bind:value={form.groups_attr}
+              label="Groups Attribute"
+              placeholder="http://schemas.xmlsoap.org/claims/Group"
               fullWidth
-              disabled={!enabled}
-              envLocked={isEnvLocked(fromEnv, 'sp_cert')}
-              helper="Required if Sign Requests is enabled."
-            />
-          </div>
-          <div class="form-group">
-            <Input
-              bind:value={spPrivateKey}
-              label="SP Private Key (PEM, optional)"
-              type="textarea"
-              placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
-              fullWidth
-              disabled={!enabled}
-              envLocked={isEnvLocked(fromEnv, 'sp_key')}
-              helper="Required if Sign Requests is enabled. Stored securely on server."
+              disabled={!form.enabled}
+              envLocked={isEnvLocked(fromEnv, 'groups_attr')}
             />
           </div>
         </div>
-      {/if}
+        <div class="form-group">
+          <Input
+            bind:value={form.allowed_groups}
+            label="Allowed Groups"
+            placeholder="Comma-separated group names (leave empty for all)"
+            fullWidth
+            disabled={!form.enabled}
+            envLocked={isEnvLocked(fromEnv, 'allowed_groups')}
+            helper="Only users in these groups will be allowed to log in. Leave empty to allow all."
+          />
+        </div>
+        <div class="form-group">
+          <Input
+            bind:value={form.sp_cert}
+            label="SP Certificate (PEM, optional)"
+            type="textarea"
+            placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+            fullWidth
+            disabled={!form.enabled}
+            envLocked={isEnvLocked(fromEnv, 'sp_cert')}
+            helper="Required if Sign Requests is enabled."
+          />
+        </div>
+        <div class="form-group">
+          <Input
+            bind:value={form.sp_key}
+            label="SP Private Key (PEM, optional)"
+            type="textarea"
+            placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+            fullWidth
+            disabled={!form.enabled}
+            envLocked={isEnvLocked(fromEnv, 'sp_key')}
+            helper="Required if Sign Requests is enabled. Stored securely on server."
+          />
+        </div>
+      </AdvancedDisclosure>
     </Card>
 
-    <!-- ── Test result ─────────────────────────────────────────────────────── -->
-    {#if testResult !== null}
-      <div class="test-result" class:test-ok={testResult.ok} class:test-fail={!testResult.ok}>
-        {#if testResult.ok}
-          <Icon icon={check} size={14} strokeWidth={2.5} />
-          Valid — {testResult.message}
-        {:else}
-          <Icon icon={close} size={14} strokeWidth={2.5} />
-          Validation failed: {testResult.message}
-        {/if}
-      </div>
-    {/if}
-
-    <!-- ── Save feedback ───────────────────────────────────────────────────── -->
-    {#if saveMsg}
-      <div class="save-msg">{saveMsg}</div>
-    {/if}
-    {#if saveError}
-      <div class="error-msg">{saveError}</div>
-    {/if}
-
-    <!-- ── Actions row ─────────────────────────────────────────────────────── -->
-    <div class="actions-row">
-      <Button
-        variant="default"
-        on:click={handleTest}
-        loading={testing}
-        disabled={!enabled || saving}
-      >
-        Test Configuration
-      </Button>
-      <Button
-        variant="primary"
-        on:click={handleSave}
-        loading={saving}
-        disabled={testing}
-      >
-        Save Settings
-      </Button>
-    </div>
+    <!-- ── Test result, save feedback, actions ─────────────────────────────── -->
+    <ConnectionTestFooter
+      {testResult}
+      {testing}
+      {saving}
+      {saveMsg}
+      {saveError}
+      enabled={form.enabled}
+      testLabel="Test Configuration"
+      okPrefix="Valid"
+      failPrefix="Validation failed"
+      ontest={handleTest}
+      onsave={handleSave}
+    />
   {/if}
 </section>
 
@@ -523,148 +395,5 @@
 
   .form-group--nameid {
     flex: 1;
-  }
-
-  /* ── Toggle rows ─────────────────────────────────────────────────────────── */
-  .toggle-row {
-    padding: 4px 0;
-  }
-
-  .toggle-row--inline {
-    margin-top: 10px;
-  }
-
-  /* ── SP Metadata URL ─────────────────────────────────────────────────────── */
-  .metadata-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .metadata-url {
-    flex: 1;
-    min-width: 0;
-    padding: 8px 12px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    font-size: 0.8125rem;
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .copy-btn {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .copy-btn:hover {
-    color: var(--text-primary);
-    border-color: var(--text-secondary);
-  }
-
-  .metadata-hint {
-    margin: 0;
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    line-height: 1.5;
-  }
-
-  /* ── Advanced collapsible ────────────────────────────────────────────────── */
-  .advanced-toggle {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    font-size: 0.8125rem;
-    font-weight: 500;
-    cursor: pointer;
-    padding: 0;
-    transition: color 0.15s ease;
-  }
-
-  .advanced-toggle:hover {
-    color: var(--text-primary);
-  }
-
-  .advanced-toggle :global(.chevron) {
-    flex-shrink: 0;
-    transition: transform 0.2s ease;
-  }
-
-  .advanced-toggle :global(.chevron.open) {
-    transform: rotate(180deg);
-  }
-
-  .advanced-body {
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border-color);
-  }
-
-  /* ── Test result banner ──────────────────────────────────────────────────── */
-  .test-result {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    border-radius: 6px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-  }
-
-  .test-ok {
-    background: rgba(35, 134, 54, 0.12);
-    border: 1px solid rgba(35, 134, 54, 0.4);
-    color: var(--color-success);
-  }
-
-  .test-fail {
-    background: rgba(248, 81, 73, 0.10);
-    border: 1px solid var(--color-error);
-    color: var(--color-error);
-  }
-
-  /* ── Save messages ───────────────────────────────────────────────────────── */
-  .save-msg {
-    padding: 10px 14px;
-    background: rgba(35, 134, 54, 0.10);
-    border: 1px solid rgba(35, 134, 54, 0.35);
-    border-radius: 6px;
-    color: var(--color-success);
-    font-size: 0.8125rem;
-  }
-
-  .error-msg {
-    padding: 10px 14px;
-    background: rgba(248, 81, 73, 0.10);
-    border: 1px solid var(--color-error);
-    border-radius: 6px;
-    color: var(--color-error);
-    font-size: 0.8125rem;
-  }
-
-  /* ── Actions row ─────────────────────────────────────────────────────────── */
-  .actions-row {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding-top: 4px;
   }
 </style>

@@ -36,20 +36,22 @@
     fileText, info, integrations, key, lock, monitor, pipeline, server, upload, users,
   } from '../ui/icons.js';
 
-  let activeSection = 'database';
+  let activeSection = $state('database');
 
   /** Section id requested by the URL hash, or null for a plain `#settings`. */
-  let requestedSection = null;
+  let requestedSection = $state(null);
 
-  $: userRole = $currentUser?.role || 'viewer';
-  $: isAdmin = userRole === 'admin';
+  const userRole = $derived($currentUser?.role || 'viewer');
+  const isAdmin = $derived(userRole === 'admin');
 
   // Non-admin users can't access admin-only sections; redirect to 'about'
-  $: if (!isAdmin && activeSection === 'database') {
-    activeSection = 'about';
-  }
+  $effect(() => {
+    if (!isAdmin && activeSection === 'database') {
+      activeSection = 'about';
+    }
+  });
 
-  $: sections = [
+  const sections = $derived([
     { id: 'database', label: 'Database', icon: server, locked: !isAdmin },
     { id: 'notifications', label: 'Notifications', icon: bell, locked: !isAdmin },
     { id: 'display', label: 'Display', icon: monitor },
@@ -67,7 +69,7 @@
     { id: 'integrations', label: 'Integrations', icon: integrations },
     { id: 'redis', label: 'Redis', icon: databaseTwoTier, locked: !isAdmin },
     { id: 'about', label: 'About', icon: info },
-  ];
+  ]);
 
   /**
    * Re-run whenever the hash OR the section list changes. The second dependency
@@ -75,7 +77,9 @@
    * admin section is momentarily `locked` and a deep link to it would be
    * dropped. Once the role arrives `sections` is rebuilt and the link resolves.
    */
-  $: applyRequestedSection(requestedSection, sections);
+  $effect(() => {
+    applyRequestedSection(requestedSection, sections);
+  });
 
   function applyRequestedSection(id, list) {
     if (!id) return; // plain `#settings` — keep whatever is active
@@ -115,7 +119,7 @@
           class="nav-item"
           class:active={activeSection === section.id}
           class:locked={section.locked}
-          on:click={() => selectSection(section)}
+          onclick={() => selectSection(section)}
           title={section.locked ? 'Admin access required' : ''}
         >
           <Icon icon={section.icon} size={16} />

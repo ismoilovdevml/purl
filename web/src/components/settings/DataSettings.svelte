@@ -11,7 +11,7 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
 
-  let clearingCache = false;
+  let clearingCache = $state(false);
 
   async function clearCache() {
     clearingCache = true;
@@ -44,7 +44,7 @@
         <span class="setting-label">Clear Query Cache</span>
         <span class="setting-hint">Clear server-side query cache</span>
       </div>
-      <Button variant="danger" on:click={clearCache} loading={clearingCache}>Clear Cache</Button>
+      <Button variant="danger" onclick={clearCache} loading={clearingCache}>Clear Cache</Button>
     </div>
 
     <div class="setting-item">
@@ -52,7 +52,7 @@
         <span class="setting-label">Clear Local Storage</span>
         <span class="setting-hint">Reset all client-side settings</span>
       </div>
-      <Button variant="danger" on:click={clearLocalStorage}>Reset</Button>
+      <Button variant="danger" onclick={clearLocalStorage}>Reset</Button>
     </div>
   </Card>
 </section>

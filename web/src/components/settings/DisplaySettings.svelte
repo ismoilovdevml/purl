@@ -13,10 +13,7 @@
   import { settings } from '../../stores/settings.js';
   import { success as toastSuccess } from '../../stores/toast.js';
 
-  let localSettings;
-
-  // Subscribe to store
-  $: localSettings = $settings;
+  const localSettings = $derived($settings);
 
   const timeRangeOptions = [
     { value: '5m', label: '5 minutes' },
@@ -39,15 +36,14 @@
   // corrected value flows straight back into `localSettings`, so the field
   // visibly snaps to the clamped number.
   //
-  // Every handler below reads `e.detail.value`. <Input>/<Select> are Svelte
-  // components, not DOM nodes: they re-dispatch `change` through
-  // createEventDispatcher with `{ value }` as the detail. That CustomEvent is
-  // handed straight to the callbacks and never dispatched on an element, so
-  // `e.target` is null — the two number fields read `e.target.value` and blew
-  // up before the store was ever touched, which is why maxResults and
-  // refreshInterval never persisted. The two selects had the mirror-image bug:
-  // `e.detail || e.target.value` short-circuits on the truthy detail OBJECT and
-  // stored `{"value":"5m"}` in localStorage, matching no <option> on reload.
+  // Every handler below reads `.value` off the `{ value }` object that
+  // <Input>/<Select> hand their `onchange` callback. They are Svelte
+  // components, not DOM nodes: there is no event and no `target` — the two
+  // number fields once read `e.target.value` and blew up before the store was
+  // ever touched, which is why maxResults and refreshInterval never persisted.
+  // The two selects had the mirror-image bug: `e.detail || e.target.value`
+  // short-circuited on the truthy detail OBJECT and stored `{"value":"5m"}` in
+  // localStorage, matching no <option> on reload.
   function updateSetting(key, value) {
     settings.setSetting(key, value);
     toastSuccess('Settings saved');
@@ -69,7 +65,7 @@
       <Select
         value={localSettings.defaultTimeRange}
         options={timeRangeOptions}
-        on:change={(e) => updateSetting('defaultTimeRange', e.detail.value)}
+        onchange={(d) => updateSetting('defaultTimeRange', d.value)}
       />
     </div>
 
@@ -83,7 +79,7 @@
         min={0}
         max={300}
         value={localSettings.refreshInterval}
-        on:change={(e) => updateSetting('refreshInterval', e.detail.value)}
+        onchange={(d) => updateSetting('refreshInterval', d.value)}
       />
     </div>
 
@@ -97,7 +93,7 @@
         min={50}
         max={5000}
         value={localSettings.maxResults}
-        on:change={(e) => updateSetting('maxResults', e.detail.value)}
+        onchange={(d) => updateSetting('maxResults', d.value)}
       />
     </div>
 
@@ -107,7 +103,7 @@
         label="Compact Mode"
         description="Reduce spacing in log list"
         labelPosition="left"
-        on:change={() => updateSetting('compactMode', !localSettings.compactMode)}
+        onchange={() => updateSetting('compactMode', !localSettings.compactMode)}
       />
     </div>
 
@@ -117,7 +113,7 @@
         label="Line Wrap"
         description="Wrap long log messages"
         labelPosition="left"
-        on:change={() => updateSetting('lineWrap', !localSettings.lineWrap)}
+        onchange={() => updateSetting('lineWrap', !localSettings.lineWrap)}
       />
     </div>
   </Card>
@@ -134,7 +130,7 @@
         label="Show Host Column"
         description="Display host information in log list"
         labelPosition="left"
-        on:change={() => updateSetting('showHost', !localSettings.showHost)}
+        onchange={() => updateSetting('showHost', !localSettings.showHost)}
       />
     </div>
 
@@ -144,7 +140,7 @@
         label="Show Raw Messages"
         description="Display raw log data by default"
         labelPosition="left"
-        on:change={() => updateSetting('showRaw', !localSettings.showRaw)}
+        onchange={() => updateSetting('showRaw', !localSettings.showRaw)}
       />
     </div>
 
@@ -154,7 +150,7 @@
         label="Highlight Errors"
         description="Highlight ERROR and FATAL logs"
         labelPosition="left"
-        on:change={() => updateSetting('highlightErrors', !localSettings.highlightErrors)}
+        onchange={() => updateSetting('highlightErrors', !localSettings.highlightErrors)}
       />
     </div>
 
@@ -164,7 +160,7 @@
         label="Auto Scroll"
         description="Auto-scroll to new logs in live mode"
         labelPosition="left"
-        on:change={() => updateSetting('autoScroll', !localSettings.autoScroll)}
+        onchange={() => updateSetting('autoScroll', !localSettings.autoScroll)}
       />
     </div>
 
@@ -176,7 +172,7 @@
       <Select
         value={localSettings.timestampFormat}
         options={timestampOptions}
-        on:change={(e) => updateSetting('timestampFormat', e.detail.value)}
+        onchange={(d) => updateSetting('timestampFormat', d.value)}
       />
     </div>
   </Card>

@@ -14,9 +14,9 @@
   import { activity, barChart, database, logo } from '../ui/icons.js';
   import { api } from '../../utils/api.js';
 
-  let systemInfo = null;
-  let metricsInfo = null;
-  let loadingInfo = true;
+  let systemInfo = $state(null);
+  let metricsInfo = $state(null);
+  let loadingInfo = $state(true);
 
   onMount(async () => {
     await Promise.all([fetchSystemInfo(), fetchMetrics()]);

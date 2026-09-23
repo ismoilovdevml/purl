@@ -6,42 +6,40 @@
   <Button>Default</Button>
   <Button variant="primary">Primary</Button>
   <Button variant="danger" size="sm">Delete</Button>
-  <Button icon aria-label="Delete"><Icon icon={trash} /></Button>
+  <Button icon aria-label="Delete" onclick={remove}><Icon icon={trash} /></Button>
   <Button loading>Saving...</Button>
 -->
 <script>
-  import { createEventDispatcher } from 'svelte';
-
-  /** @type {'default' | 'primary' | 'success' | 'danger' | 'ghost' | 'link'} */
-  export let variant = 'default';
-
-  /** @type {'sm' | 'md' | 'lg'} */
-  export let size = 'md';
-
-  /** Button type attribute */
-  export let type = 'button';
-
-  /** Whether button only contains an icon */
-  export let icon = false;
-
-  /** Disabled state */
-  export let disabled = false;
-
-  /** Loading state */
-  export let loading = false;
-
-  /** Full width button */
-  export let fullWidth = false;
-
-  /** Additional CSS class */
-  let className = '';
-  export { className as class };
-
-  const dispatch = createEventDispatcher();
+  // Rest props are the point of this primitive (aria-*, title, on* handlers
+  // pass straight through to <button>); it is never built as a custom element.
+  // svelte-ignore custom_element_props_identifier
+  let {
+    /** @type {'default' | 'primary' | 'success' | 'danger' | 'ghost' | 'link'} */
+    variant = 'default',
+    /** @type {'sm' | 'md' | 'lg'} */
+    size = 'md',
+    /** Button type attribute */
+    type = 'button',
+    /** Whether button only contains an icon */
+    icon = false,
+    /** Disabled state */
+    disabled = false,
+    /** Loading state */
+    loading = false,
+    /** Full width button */
+    fullWidth = false,
+    /** Additional CSS class */
+    class: className = '',
+    /** Click callback — receives the native MouseEvent; suppressed while disabled/loading */
+    onclick,
+    children,
+    /* Everything else (aria-*, title, onmouseenter, onfocus, ...) lands on <button>. */
+    ...rest
+  } = $props();
 
   function handleClick(event) {
     if (!disabled && !loading) {
-      dispatch('click', event);
+      onclick?.(event);
     }
   }
 </script>
@@ -54,18 +52,14 @@
   class:btn-full={fullWidth}
   class:disabled={disabled || loading}
   disabled={disabled || loading}
-  on:click={handleClick}
-  on:mouseenter
-  on:mouseleave
-  on:focus
-  on:blur
-  {...$$restProps}
+  {...rest}
+  onclick={handleClick}
 >
   {#if loading}
     <span class="spinner"></span>
   {/if}
   <span class="btn-content" class:invisible={loading && !icon}>
-    <slot />
+    {@render children?.()}
   </span>
 </button>
 

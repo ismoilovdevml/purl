@@ -3,25 +3,25 @@
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { aiProviders } from '../../stores/ai.js';
   import { api } from '../../utils/api.js';
-  import Icon from '../ui/Icon.svelte';
   import EnvBadge from '../ui/EnvBadge.svelte';
-  import { alertCircle, check } from '../ui/icons.js';
+  import AIProviderStatus from './ai/AIProviderStatus.svelte';
+  import AIFormActions from './ai/AIFormActions.svelte';
 
-  let config = {
+  let config = $state({
     provider: 'openai',
     api_key: '',
     model: '',
     base_url: '',
     enabled: true,
-  };
-  let fromEnv = {};
-  let loading = false;
-  let testing = false;
-  let testResult = null;
-  let showKey = false;
-  let providers = [];
-  let activeProvider = null;
-  let providersLoading = false;
+  });
+  let fromEnv = $state({});
+  let loading = $state(false);
+  let testing = $state(false);
+  let testResult = $state(null);
+  let showKey = $state(false);
+  let providers = $state([]);
+  let activeProvider = $state(null);
+  let providersLoading = $state(false);
 
   const PROVIDERS = [
     {
@@ -42,7 +42,7 @@
     },
   ];
 
-  $: currentProvider = PROVIDERS.find(p => p.id === config.provider) || PROVIDERS[0];
+  const currentProvider = $derived(PROVIDERS.find(p => p.id === config.provider) || PROVIDERS[0]);
 
   onMount(async () => {
     await Promise.all([loadConfig(), loadProviders()]);
@@ -52,9 +52,11 @@
     providersLoading = true;
     try {
       const data = await api.get('/ai/providers');
-      providers = data.providers || [];
+      const list = data.providers || [];
+      providers = list;
       activeProvider = data.current || null;
-      aiProviders.set(providers);
+      // The raw array, not the $state proxy: the store is shared app-wide.
+      aiProviders.set(list);
     } catch {
       // non-fatal — providers status is informational
     } finally {
@@ -121,38 +123,7 @@
   </div>
 
   <!-- Provider Status Card -->
-  {#if providersLoading}
-    <div class="provider-status-card">
-      <div class="provider-status-header">Provider Status</div>
-      <div class="loading-placeholder">Loading providers…</div>
-    </div>
-  {:else if providers.length > 0}
-    <div class="provider-status-card">
-      <div class="provider-status-header">Provider Status</div>
-      <div class="provider-list">
-        {#each providers as p}
-          <div class="provider-item" class:active={p.id === activeProvider}>
-            <div class="provider-left">
-              <span class="status-dot" class:configured={p.configured} class:not-configured={!p.configured}></span>
-              <span class="provider-name">{p.name}</span>
-              {#if p.id === activeProvider}
-                <span class="active-badge">Active</span>
-              {/if}
-            </div>
-            <div class="provider-right">
-              {#if p.model}
-                <span class="provider-model">{p.model}</span>
-              {:else if p.configured}
-                <span class="provider-model default">Default model</span>
-              {:else}
-                <span class="provider-model not-set">Not configured</span>
-              {/if}
-            </div>
-          </div>
-        {/each}
-      </div>
-    </div>
-  {/if}
+  <AIProviderStatus loading={providersLoading} {providers} {activeProvider} />
 
   {#if loading && !config.provider}
     <div class="loading-placeholder">Loading…</div>
@@ -184,7 +155,7 @@
           bind:value={config.provider}
           disabled={fromEnv.provider || !config.enabled}
           class="field-select"
-          on:change={clearModel}
+          onchange={clearModel}
         >
           {#each PROVIDERS as p}
             <option value={p.id}>{p.label}</option>
@@ -208,7 +179,7 @@
               placeholder={currentProvider.placeholder || 'Enter API key…'}
               class="field-input"
             />
-            <button type="button" class="toggle-btn" on:click={() => showKey = !showKey}>
+            <button type="button" class="toggle-btn" onclick={() => showKey = !showKey}>
               {showKey ? 'Hide' : 'Show'}
             </button>
           </div>
@@ -252,23 +223,7 @@
         <p class="field-hint">Leave empty to use the provider's recommended model.</p>
       </div>
 
-      <!-- Test result -->
-      {#if testResult}
-        <div class="test-result" class:success={testResult.status === 'ok'} class:error={testResult.status === 'error'}>
-          <Icon icon={testResult.status === 'ok' ? check : alertCircle} size={14} strokeWidth={2.5} />
-          {testResult.message}
-          {#if testResult.model}<span class="model-name"> ({testResult.model})</span>{/if}
-        </div>
-      {/if}
-
-      <div class="actions">
-        <button class="btn-test" on:click={testConnection} disabled={testing || loading}>
-          {testing ? 'Testing…' : 'Test Connection'}
-        </button>
-        <button class="btn-save" on:click={save} disabled={loading}>
-          {loading ? 'Saving…' : 'Save'}
-        </button>
-      </div>
+      <AIFormActions {testResult} {testing} {loading} ontest={testConnection} onsave={save} />
     </div>
   {/if}
 </div>
@@ -375,66 +330,6 @@
     color: var(--text-primary);
   }
 
-  .test-result {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    padding: 8px 12px;
-    border-radius: 6px;
-  }
-
-  .test-result.success {
-    color: #3fb950;
-    background: rgba(63, 185, 80, 0.1);
-    border: 1px solid rgba(63, 185, 80, 0.3);
-  }
-
-  .test-result.error {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.3);
-  }
-
-  .model-name { color: var(--text-secondary); }
-
-  .actions {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-  }
-
-  .btn-save {
-    background: #238636;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    padding: 7px 20px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: background 0.15s;
-  }
-
-  .btn-save:hover:not(:disabled) { background: #2ea043; }
-  .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .btn-test {
-    background: transparent;
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    padding: 7px 16px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .btn-test:hover:not(:disabled) {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-  }
-
-  .btn-test:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .toggle-field {
     padding: 12px;
@@ -490,103 +385,5 @@
   .toggle input:checked + .toggle-track::after {
     transform: translateX(16px);
     background: #3fb950;
-  }
-
-  /* Provider Status Card */
-  .provider-status-card {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    padding: 12px;
-  }
-
-  .provider-status-header {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 10px;
-  }
-
-  .provider-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .provider-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 10px;
-    border-radius: 6px;
-    background: var(--bg-secondary);
-    border: 1px solid transparent;
-    transition: border-color 0.15s, background 0.15s;
-  }
-
-  .provider-item.active {
-    border-color: rgba(88, 166, 255, 0.3);
-    background: rgba(88, 166, 255, 0.05);
-  }
-
-  .provider-left {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .status-dot.configured {
-    background: #3fb950;
-    box-shadow: 0 0 6px rgba(63, 185, 80, 0.4);
-  }
-
-  .status-dot.not-configured {
-    background: var(--text-disabled);
-  }
-
-  .provider-name {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-primary);
-  }
-
-  .active-badge {
-    font-size: 10px;
-    font-weight: 700;
-    background: rgba(88, 166, 255, 0.15);
-    color: #58a6ff;
-    border: 1px solid rgba(88, 166, 255, 0.3);
-    border-radius: 4px;
-    padding: 1px 5px;
-  }
-
-  .provider-right {
-    display: flex;
-    align-items: center;
-  }
-
-  .provider-model {
-    font-size: 12px;
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-  }
-
-  .provider-model.default {
-    font-style: italic;
-    font-family: inherit;
-  }
-
-  .provider-model.not-set {
-    color: var(--text-disabled);
-    font-family: inherit;
   }
 </style>

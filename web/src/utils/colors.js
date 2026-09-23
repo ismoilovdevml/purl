@@ -50,3 +50,44 @@ export function getLevelBgColor(level, alpha = 0.15) {
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
+
+/**
+ * Badge variant for a log level (Badge.svelte's `variant` prop).
+ * @param {string} level - Log level
+ * @returns {'error' | 'warning' | 'primary' | 'default'}
+ */
+export function getLevelVariant(level) {
+  const l = (level || '').toLowerCase();
+  if (l === 'error' || l === 'fatal' || l === 'critical') return 'error';
+  if (l === 'warn' || l === 'warning') return 'warning';
+  if (l === 'info') return 'primary';
+  return 'default';
+}
+
+/** Palette cycled through when services need distinguishable colours. */
+const SERVICE_COLORS = [
+  '#58a6ff', '#3fb950', '#d29922', '#f78166', '#a371f7',
+  '#79c0ff', '#7ee787', '#e3b341', '#ffa657', '#d2a8ff',
+  '#56d4dd', '#f0883e', '#bc8cff', '#39d353', '#db6d28',
+];
+
+/**
+ * Build a colour picker that hands each new service the next palette colour
+ * and returns the same colour for it on every later call.
+ *
+ * The memo is a plain object on purpose: the picker is called during render,
+ * and a reactive ($state) map written from the template would throw
+ * state_unsafe_mutation.
+ * @returns {(service: string) => string}
+ */
+export function createServiceColorer() {
+  const assigned = {};
+  let next = 0;
+  return (service) => {
+    if (!assigned[service]) {
+      assigned[service] = SERVICE_COLORS[next % SERVICE_COLORS.length];
+      next += 1;
+    }
+    return assigned[service];
+  };
+}

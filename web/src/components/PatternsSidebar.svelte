@@ -1,19 +1,19 @@
 <script>
-  import { onMount } from 'svelte';
-  import { patterns, patternsLoading, patternsError, fetchPatterns, fetchPatternLogs, highlightPattern, logs, timeRange, query, total } from '../stores/logs.js';
-  import { getLevelColor } from '../utils/colors.js';
+  import { onMount, untrack } from 'svelte';
+  import { patterns, patternsLoading, patternsError, fetchPatterns, fetchPatternLogs, logs, timeRange, query, total } from '../stores/logs.js';
   import LoadingSpinner from './ui/LoadingSpinner.svelte';
   import EmptyState from './ui/EmptyState.svelte';
   import Icon from './ui/Icon.svelte';
+  import PatternItem from './patterns/PatternItem.svelte';
   import { caretRight, refresh, layers } from './ui/icons.js';
   import { api } from '../utils/api.js';
 
-  let selectedPattern = null;
+  let selectedPattern = $state(null);
   let patternLogs = null;
-  let patternLogsLoading = false;
-  let expanded = true;
+  let patternLogsLoading = $state(false);
+  let expanded = $state(true);
 
-  let patternStats = null;
+  let patternStats = $state(null);
 
   // Track previous time range to avoid cascade fetches
   let previousTimeRange = null;
@@ -33,13 +33,19 @@
   });
 
   // Refetch when time range changes - only if actually changed
-  $: if ($timeRange && previousTimeRange !== null && previousTimeRange !== $timeRange) {
-    previousTimeRange = $timeRange;
-    fetchPatterns();
-    fetchPatternStats();
-    selectedPattern = null;
-    patternLogs = null;
-  }
+  // `previousTimeRange` is a plain let, so `$timeRange` is the only dependency;
+  // the fetches run untracked so store reads inside them cannot re-arm it.
+  $effect(() => {
+    const range = $timeRange;
+    if (!range || previousTimeRange === null || previousTimeRange === range) return;
+    previousTimeRange = range;
+    untrack(() => {
+      fetchPatterns();
+      fetchPatternStats();
+      selectedPattern = null;
+      patternLogs = null;
+    });
+  });
 
   async function selectPattern(pattern) {
     if (selectedPattern?.pattern_hash === pattern.pattern_hash) {
@@ -84,7 +90,7 @@
   <div class="sidebar-header">
     <button
       class="expand-btn"
-      on:click={toggleExpand}
+      onclick={toggleExpand}
       title={expanded ? 'Collapse' : 'Expand'}
       aria-label={expanded ? 'Collapse patterns sidebar' : 'Expand patterns sidebar'}
       aria-expanded={expanded}
@@ -94,7 +100,7 @@
     <h3>Patterns</h3>
     <button
       class="refresh-btn"
-      on:click={fetchPatterns}
+      onclick={fetchPatterns}
       disabled={$patternsLoading}
       title="Refresh patterns"
       aria-label="Refresh patterns"
@@ -108,7 +114,7 @@
       {#if $patternsError}
         <div class="error-state">
           <span>{$patternsError}</span>
-          <button class="retry-btn" on:click={fetchPatterns}>Retry</button>
+          <button class="retry-btn" onclick={fetchPatterns}>Retry</button>
         </div>
       {:else if $patternsLoading && $patterns.length === 0}
         <div class="loading-state">
@@ -135,23 +141,12 @@
         {/if}
         <div class="patterns-list">
           {#each $patterns as pattern}
-            <button
-              class="pattern-item"
-              class:selected={selectedPattern?.pattern_hash === pattern.pattern_hash}
-              on:click={() => selectPattern(pattern)}
-            >
-              <div class="pattern-header">
-                <span class="pattern-level" style="color: {getLevelColor(pattern.level)}">
-                  {pattern.level}
-                </span>
-                <span class="pattern-service">{pattern.service}</span>
-                <span class="pattern-count">{formatCount(pattern.count)}</span>
-              </div>
-              <div class="pattern-text">
-                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                {@html highlightPattern(pattern.pattern)}
-              </div>
-            </button>
+            <PatternItem
+              {pattern}
+              countLabel={formatCount(pattern.count)}
+              selected={selectedPattern?.pattern_hash === pattern.pattern_hash}
+              onselect={() => selectPattern(pattern)}
+            />
           {/each}
         </div>
       {/if}
@@ -296,103 +291,6 @@
   .patterns-list {
     display: flex;
     flex-direction: column;
-  }
-
-  .pattern-item {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 10px 12px;
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid #21262d;
-    cursor: pointer;
-    text-align: left;
-    transition: background 0.1s;
-    width: 100%;
-  }
-
-  .pattern-item:hover {
-    background: #1c2128;
-  }
-
-  .pattern-item.selected {
-    background: #388bfd15;
-    border-left: 3px solid #58a6ff;
-  }
-
-  .pattern-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 11px;
-  }
-
-  .pattern-level {
-    font-weight: 600;
-    text-transform: uppercase;
-  }
-
-  .pattern-service {
-    color: #58a6ff;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .pattern-count {
-    color: #8b949e;
-    background: #21262d;
-    padding: 2px 6px;
-    border-radius: 10px;
-    font-weight: 500;
-  }
-
-  .pattern-text {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: #c9d1d9;
-    line-height: 1.4;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    word-break: break-all;
-  }
-
-  /* Placeholder highlighting */
-  :global(.placeholder) {
-    padding: 1px 4px;
-    border-radius: 3px;
-    font-weight: 600;
-    font-size: 10px;
-  }
-
-  :global(.placeholder.uuid) {
-    background: #a371f720;
-    color: #a371f7;
-  }
-
-  :global(.placeholder.ip) {
-    background: #3fb95020;
-    color: #3fb950;
-  }
-
-  :global(.placeholder.num) {
-    background: #58a6ff20;
-    color: #58a6ff;
-  }
-
-  :global(.placeholder.datetime) {
-    background: #d2992220;
-    color: #d29922;
-  }
-
-  :global(.placeholder.hex) {
-    background: #f8514920;
-    color: #f85149;
   }
 
   .pattern-detail {

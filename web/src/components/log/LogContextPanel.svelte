@@ -3,25 +3,27 @@
   Shows surrounding logs before and after the selected log
 
   Usage:
-  <LogContextPanel {currentLog} {beforeLogs} {afterLogs} on:close />
+  <LogContextPanel {currentLog} {beforeLogs} {afterLogs} onclose={hide} />
 -->
 <script>
-  import { createEventDispatcher } from 'svelte';
   import { formatTimestamp } from '../../utils/format.js';
   import { getLevelColor } from '../../utils/colors.js';
   import Icon from '../ui/Icon.svelte';
   import { arrowLeft } from '../ui/icons.js';
 
-  export let currentLog;
-  export let beforeLogs = [];
-  export let afterLogs = [];
-  export let beforeCount = 0;
-  export let afterCount = 0;
+  let {
+    currentLog,
+    beforeLogs = [],
+    afterLogs = [],
+    beforeCount = 0,
+    afterCount = 0,
+    /** () => void */
+    onclose,
+  } = $props();
 
-  const dispatch = createEventDispatcher();
-
-  function handleClose() {
-    dispatch('close');
+  function handleClose(event) {
+    event.stopPropagation();
+    onclose?.();
   }
 </script>
 
@@ -30,7 +32,7 @@
     <span class="context-title">
       Context: {beforeCount} before, {afterCount} after
     </span>
-    <button class="context-close" on:click|stopPropagation={handleClose}>
+    <button class="context-close" onclick={handleClose}>
       Close
     </button>
   </div>

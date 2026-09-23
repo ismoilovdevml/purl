@@ -3,49 +3,62 @@
   Reusable modal dialog with overlay
 
   Usage:
-  <Modal bind:open title="Confirm">
+  <Modal bind:open title="Confirm" onclose={() => reset()}>
     <p>Are you sure?</p>
-    <svelte:fragment slot="footer">
-      <Button on:click={() => open = false}>Cancel</Button>
+    {#snippet footer()}
+      <Button onclick={() => open = false}>Cancel</Button>
       <Button variant="primary">Confirm</Button>
-    </svelte:fragment>
+    {/snippet}
   </Modal>
+
+  `open` is only tested for truthiness, so a parent may bind a null|object
+  (e.g. "the item being confirmed"); the modal never writes a coerced boolean
+  back except `false` on close.
 -->
 <script>
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { fade, scale } from 'svelte/transition';
   import { trapFocus, FOCUSABLE_SELECTOR, lockScroll, unlockScroll } from '../../utils/dom.js';
   import Icon from './Icon.svelte';
   import { close as closeIcon } from './icons.js';
 
-  /** Whether modal is open */
-  export let open = false;
+  let {
+    /**
+     * Whether modal is open (truthy/falsy). No fallback on purpose: a runes
+     * $bindable with a default throws when a parent binds `undefined`.
+     */
+    open = $bindable(),
+    /** Modal title */
+    title = '',
+    /** @type {'sm' | 'md' | 'lg' | 'xl' | 'full'} */
+    size = 'md',
+    /** Close on overlay click */
+    closeOnOverlay = true,
+    /** Close on Escape key */
+    closeOnEscape = true,
+    /** Show close button */
+    showClose = true,
+    /** Called after the modal closes itself (close button, overlay, Escape) */
+    onclose,
+    /** Footer snippet */
+    footer,
+    children,
+  } = $props();
 
-  /** Modal title */
-  export let title = '';
+  let modalElement = $state(null);
 
-  /** @type {'sm' | 'md' | 'lg' | 'xl' | 'full'} */
-  export let size = 'md';
-
-  /** Close on overlay click */
-  export let closeOnOverlay = true;
-
-  /** Close on Escape key */
-  export let closeOnEscape = true;
-
-  /** Show close button */
-  export let showClose = true;
-
-  const dispatch = createEventDispatcher();
-
-  let modalElement;
+  /*
+   * Deliberately plain `let`, not $state: these are written from inside the
+   * focus/scroll effect below, and making them reactive would feed that
+   * effect its own writes and trip effect_update_depth_exceeded.
+   */
   let previousActiveElement;
   let cleanupTrapFocus;
   let isScrollLocked = false;
 
   function close() {
     open = false;
-    dispatch('close');
+    onclose?.();
   }
 
   function handleOverlayClick(event) {
@@ -61,32 +74,41 @@
     }
   }
 
-  $: if (open) {
-    previousActiveElement = document.activeElement;
-    if (!isScrollLocked) { lockScroll(); isScrollLocked = true; }
+  // Only the open/closed transition matters, not which truthy value `open`
+  // holds, so an object swapped for another object must not re-run this.
+  const isOpen = $derived(!!open);
 
-    // Setup focus trap after DOM updates
-    setTimeout(() => {
-      if (modalElement) {
-        cleanupTrapFocus = trapFocus(modalElement);
-        // Don't steal focus if user already focused something inside the modal
-        if (!modalElement.contains(document.activeElement)) {
-          // Prefer inputs/textareas over buttons for initial focus
-          const firstInput = modalElement.querySelector('input:not([disabled]), textarea:not([disabled]), select:not([disabled])');
-          const target = firstInput || modalElement.querySelector(FOCUSABLE_SELECTOR);
-          if (target) {
-            target.focus();
-          } else {
-            modalElement.focus();
+  // $effect.pre (not $effect) keeps the old reactive-statement ordering: the
+  // scroll lock and the saved focus target are settled before the dialog
+  // markup is committed.
+  $effect.pre(() => {
+    if (isOpen) {
+      previousActiveElement = document.activeElement;
+      if (!isScrollLocked) { lockScroll(); isScrollLocked = true; }
+
+      // Setup focus trap after DOM updates
+      setTimeout(() => {
+        if (modalElement) {
+          cleanupTrapFocus = trapFocus(modalElement);
+          // Don't steal focus if user already focused something inside the modal
+          if (!modalElement.contains(document.activeElement)) {
+            // Prefer inputs/textareas over buttons for initial focus
+            const firstInput = modalElement.querySelector('input:not([disabled]), textarea:not([disabled]), select:not([disabled])');
+            const target = firstInput || modalElement.querySelector(FOCUSABLE_SELECTOR);
+            if (target) {
+              target.focus();
+            } else {
+              modalElement.focus();
+            }
           }
         }
-      }
-    }, 0);
-  } else {
-    if (isScrollLocked) { unlockScroll(); isScrollLocked = false; }
-    cleanupTrapFocus?.();
-    previousActiveElement?.focus();
-  }
+      }, 0);
+    } else {
+      if (isScrollLocked) { unlockScroll(); isScrollLocked = false; }
+      cleanupTrapFocus?.();
+      previousActiveElement?.focus();
+    }
+  });
 
   onDestroy(() => {
     if (isScrollLocked) unlockScroll();
@@ -94,14 +116,22 @@
   });
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 {#if open}
-  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+  <!--
+    Two single-code ignores, not one comma-separated list: Svelte 5 runes mode
+    needs a comma between codes (a space silently drops all but the first,
+    #73), while eslint-plugin-svelte 2.x reads the comma as part of the code
+    name and reports the ignore as unused. Separate comments satisfy both.
+    Escape is handled on <svelte:window> above; the overlay is a backdrop.
+  -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="modal-overlay"
     transition:fade={{ duration: 150 }}
-    on:click={handleOverlayClick}
+    onclick={handleOverlayClick}
   >
     <div
       class="modal modal-{size}"
@@ -123,7 +153,7 @@
             <button
               type="button"
               class="modal-close"
-              on:click={close}
+              onclick={close}
               aria-label="Close modal"
             >
               <Icon icon={closeIcon} size={16} />
@@ -133,12 +163,12 @@
       {/if}
 
       <div class="modal-body">
-        <slot />
+        {@render children?.()}
       </div>
 
-      {#if $$slots.footer}
+      {#if footer}
         <div class="modal-footer">
-          <slot name="footer" />
+          {@render footer()}
         </div>
       {/if}
     </div>

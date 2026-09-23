@@ -6,12 +6,12 @@
   import EnvBadge from '../ui/EnvBadge.svelte';
   import { info } from '../ui/icons.js';
 
-  let config = {
+  let config = $state({
     url:  '',
     mode: 'auto',
-  };
-  let fromEnv = {};
-  let loading = false;
+  });
+  let fromEnv = $state({});
+  let loading = $state(false);
 
   onMount(async () => {
     await loadConfig();
@@ -117,7 +117,7 @@
       {/if}
 
       <div class="actions">
-        <button class="btn-save" on:click={save} disabled={loading}>
+        <button class="btn-save" onclick={save} disabled={loading}>
           {loading ? 'Saving…' : 'Save'}
         </button>
       </div>

@@ -7,29 +7,25 @@
 -->
 <script>
   import { onMount } from 'svelte';
-  import Input from '../ui/Input.svelte';
-  import Button from '../ui/Button.svelte';
-  import Card from '../ui/Card.svelte';
-  import Badge from '../ui/Badge.svelte';
   import LoadingSpinner from '../ui/LoadingSpinner.svelte';
-  import EnvBadge from '../ui/EnvBadge.svelte';
-  import ClearSecretToggle from '../ui/ClearSecretToggle.svelte';
   import ClearSecretConfirm from '../ui/ClearSecretConfirm.svelte';
+  import NotificationChannelCard from './notifications/NotificationChannelCard.svelte';
+  import NotificationFieldRow from './notifications/NotificationFieldRow.svelte';
+  import NotificationStorageInfo from './notifications/NotificationStorageInfo.svelte';
   import { success as toastSuccess, error as toastError } from '../../stores/toast.js';
   import { api } from '../../utils/api.js';
   import { isEnvLocked } from '../../utils/envLock.js';
   import { clearFlags, describeCleared } from '../../utils/clearSecret.js';
-  import Icon from '../ui/Icon.svelte';
   import { telegram, slack, link } from '../ui/icons.js';
 
-  let serverSettings = null;
-  let loadingSettings = true;
+  let serverSettings = $state(null);
+  let loadingSettings = $state(true);
 
-  let notifications = {
+  let notifications = $state({
     telegram: { enabled: false, bot_token: '', chat_id: '', thread_id: '' },
     slack: { enabled: false, webhook_url: '', channel: '' },
     webhook: { enabled: false, url: '', auth_token: '' }
-  };
+  });
 
   /*
    * Per-key truth, keyed by the dotted name inside the notifications section
@@ -40,7 +36,7 @@
    * rendered editable and 409'd on save. Both are consulted; neither replaces
    * the other.
    */
-  $: envKeys = serverSettings?.notifications?.from_env_keys;
+  const envKeys = $derived(serverSettings?.notifications?.from_env_keys);
 
   /*
    * The write-only secrets of each channel, and how GET /settings reports that
@@ -71,7 +67,7 @@
     };
   }
 
-  $: storedSecrets = storedSecretsFrom(serverSettings);
+  const storedSecrets = $derived(storedSecretsFrom(serverSettings));
 
   /**
    * Fill the form from what the server actually holds.
@@ -113,17 +109,17 @@
    * receives `undefined` — which crashed the whole panel the moment a channel
    * was switched on and its toggles mounted.
    */
-  let clearing = Object.fromEntries(
+  let clearing = $state(Object.fromEntries(
     Object.entries(CHANNEL_SECRETS).flatMap(([type, fields]) =>
       fields.map((field) => [`${type}.${field}`, false])
     )
-  );
-  let clearRequest = null;
+  ));
+  let clearRequest = $state(null);
 
-  let savingNotification = null;
-  let notificationMessage = {};
-  let testingNotification = null;
-  let notificationTestResult = {};
+  let savingNotification = $state(null);
+  let notificationMessage = $state({});
+  let testingNotification = $state(null);
+  let notificationTestResult = $state({});
 
   onMount(() => {
     fetchServerSettings();
@@ -249,276 +245,128 @@
     <LoadingSpinner centered label="Loading notification settings..." />
   {:else}
   <!-- Telegram -->
-  <Card padding="none" class="notification-card">
-    <div class="notification-header">
-      <div class="notification-icon telegram">
-        <Icon icon={telegram} size={24} />
-      </div>
-      <div class="notification-info">
-        <h4>Telegram</h4>
-        <p>Receive alerts via Telegram bot</p>
-      </div>
-      <div class="notification-toggle">
-        <label class="toggle">
-          <input type="checkbox" bind:checked={notifications.telegram.enabled} disabled={serverSettings?.notifications?.telegram?.from_env} />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      {#if serverSettings?.notifications?.telegram?.from_env}
-        <Badge variant="warning" size="sm">From Environment</Badge>
-      {/if}
-    </div>
-
-    {#if notifications.telegram.enabled || serverSettings?.notifications?.telegram?.enabled}
-    <div class="notification-form">
-      <div class="form-row">
-        <span class="form-label">
-          Bot Token
-          <EnvBadge locked={isEnvLocked(envKeys, 'telegram.bot_token')} />
-        </span>
-        <Input
-          type="password"
-          bind:value={notifications.telegram.bot_token}
-          placeholder={clearing['telegram.bot_token'] ? 'Will be removed on save' : '123456:ABC-DEF...'}
-          disabled={serverSettings?.notifications?.telegram?.from_env || isEnvLocked(envKeys, 'telegram.bot_token') || clearing['telegram.bot_token']}
-          fullWidth
-        />
-        <div class="clear-slot">
-          <ClearSecretToggle
-            secret="telegram.bot_token"
-            stored={storedSecrets['telegram.bot_token']}
-            envLocked={isEnvLocked(envKeys, 'telegram.bot_token')}
-            disabled={serverSettings?.notifications?.telegram?.from_env}
-            bind:armed={clearing['telegram.bot_token']}
-          />
-        </div>
-      </div>
-      <div class="form-row">
-        <span class="form-label">
-          Chat ID
-          <EnvBadge locked={isEnvLocked(envKeys, 'telegram.chat_id')} />
-        </span>
-        <Input
-          bind:value={notifications.telegram.chat_id}
-          placeholder={clearing['telegram.chat_id'] ? 'Will be removed on save' : '-1001234567890'}
-          disabled={serverSettings?.notifications?.telegram?.from_env || isEnvLocked(envKeys, 'telegram.chat_id') || clearing['telegram.chat_id']}
-          fullWidth
-        />
-        <div class="clear-slot">
-          <ClearSecretToggle
-            secret="telegram.chat_id"
-            stored={storedSecrets['telegram.chat_id']}
-            envLocked={isEnvLocked(envKeys, 'telegram.chat_id')}
-            disabled={serverSettings?.notifications?.telegram?.from_env}
-            bind:armed={clearing['telegram.chat_id']}
-          />
-        </div>
-      </div>
-      <div class="form-row">
-        <span class="form-label">Thread ID</span>
-        <Input
-          bind:value={notifications.telegram.thread_id}
-          placeholder="123 (optional, for topics)"
-          disabled={serverSettings?.notifications?.telegram?.from_env}
-          fullWidth
-        />
-        <span class="form-hint">For supergroups with topics enabled</span>
-      </div>
-      <div class="form-actions">
-        <Button variant="default" on:click={() => testNotification('telegram')} loading={testingNotification === 'telegram'}>
-          {testingNotification === 'telegram' ? 'Testing...' : 'Test'}
-        </Button>
-        <Button variant="success" on:click={() => requestSaveNotification('telegram')} loading={savingNotification === 'telegram'} disabled={serverSettings?.notifications?.telegram?.from_env}>
-          {savingNotification === 'telegram' ? 'Saving...' : 'Save'}
-        </Button>
-      </div>
-      {#if notificationTestResult.telegram}
-        <div class="result-box" class:success={notificationTestResult.telegram.success}>
-          {notificationTestResult.telegram.success ? notificationTestResult.telegram.message : notificationTestResult.telegram.error}
-        </div>
-      {/if}
-      {#if notificationMessage.telegram}
-        <div class="result-box" class:success={notificationMessage.telegram.success}>
-          {notificationMessage.telegram.text}
-        </div>
-      {/if}
-    </div>
-    {/if}
-  </Card>
+  <NotificationChannelCard
+    type="telegram"
+    icon={telegram}
+    title="Telegram"
+    description="Receive alerts via Telegram bot"
+    bind:enabled={notifications.telegram.enabled}
+    fromEnv={serverSettings?.notifications?.telegram?.from_env}
+    open={notifications.telegram.enabled || serverSettings?.notifications?.telegram?.enabled}
+    testing={testingNotification === 'telegram'}
+    saving={savingNotification === 'telegram'}
+    testResult={notificationTestResult.telegram}
+    message={notificationMessage.telegram}
+    ontest={() => testNotification('telegram')}
+    onsave={() => requestSaveNotification('telegram')}
+  >
+    <NotificationFieldRow
+      label="Bot Token"
+      type="password"
+      bind:value={notifications.telegram.bot_token}
+      placeholder="123456:ABC-DEF..."
+      disabled={serverSettings?.notifications?.telegram?.from_env}
+      envLocked={isEnvLocked(envKeys, 'telegram.bot_token')}
+      secret="telegram.bot_token"
+      stored={storedSecrets['telegram.bot_token']}
+      bind:armed={clearing['telegram.bot_token']}
+    />
+    <NotificationFieldRow
+      label="Chat ID"
+      bind:value={notifications.telegram.chat_id}
+      placeholder="-1001234567890"
+      disabled={serverSettings?.notifications?.telegram?.from_env}
+      envLocked={isEnvLocked(envKeys, 'telegram.chat_id')}
+      secret="telegram.chat_id"
+      stored={storedSecrets['telegram.chat_id']}
+      bind:armed={clearing['telegram.chat_id']}
+    />
+    <NotificationFieldRow
+      label="Thread ID"
+      bind:value={notifications.telegram.thread_id}
+      placeholder="123 (optional, for topics)"
+      disabled={serverSettings?.notifications?.telegram?.from_env}
+      hint="For supergroups with topics enabled"
+    />
+  </NotificationChannelCard>
 
   <!-- Slack -->
-  <Card padding="none" class="notification-card">
-    <div class="notification-header">
-      <div class="notification-icon slack">
-        <Icon icon={slack} size={24} />
-      </div>
-      <div class="notification-info">
-        <h4>Slack</h4>
-        <p>Post alerts to Slack channel</p>
-      </div>
-      <div class="notification-toggle">
-        <label class="toggle">
-          <input type="checkbox" bind:checked={notifications.slack.enabled} disabled={serverSettings?.notifications?.slack?.from_env} />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      {#if serverSettings?.notifications?.slack?.from_env}
-        <Badge variant="warning" size="sm">From Environment</Badge>
-      {/if}
-    </div>
-
-    {#if notifications.slack.enabled || serverSettings?.notifications?.slack?.enabled}
-    <div class="notification-form">
-      <div class="form-row">
-        <span class="form-label">
-          Webhook URL
-          <EnvBadge locked={isEnvLocked(envKeys, 'slack.webhook_url')} />
-        </span>
-        <Input
-          type="password"
-          bind:value={notifications.slack.webhook_url}
-          placeholder={clearing['slack.webhook_url'] ? 'Will be removed on save' : 'https://hooks.slack.com/services/...'}
-          disabled={serverSettings?.notifications?.slack?.from_env || isEnvLocked(envKeys, 'slack.webhook_url') || clearing['slack.webhook_url']}
-          fullWidth
-        />
-        <div class="clear-slot">
-          <ClearSecretToggle
-            secret="slack.webhook_url"
-            stored={storedSecrets['slack.webhook_url']}
-            envLocked={isEnvLocked(envKeys, 'slack.webhook_url')}
-            disabled={serverSettings?.notifications?.slack?.from_env}
-            bind:armed={clearing['slack.webhook_url']}
-          />
-        </div>
-      </div>
-      <div class="form-row">
-        <span class="form-label">
-          Channel (optional)
-          <EnvBadge locked={isEnvLocked(envKeys, 'slack.channel')} />
-        </span>
-        <Input
-          bind:value={notifications.slack.channel}
-          placeholder="#alerts"
-          disabled={serverSettings?.notifications?.slack?.from_env || isEnvLocked(envKeys, 'slack.channel')}
-          fullWidth
-        />
-      </div>
-      <div class="form-actions">
-        <Button variant="default" on:click={() => testNotification('slack')} loading={testingNotification === 'slack'}>
-          {testingNotification === 'slack' ? 'Testing...' : 'Test'}
-        </Button>
-        <Button variant="success" on:click={() => requestSaveNotification('slack')} loading={savingNotification === 'slack'} disabled={serverSettings?.notifications?.slack?.from_env}>
-          {savingNotification === 'slack' ? 'Saving...' : 'Save'}
-        </Button>
-      </div>
-      {#if notificationTestResult.slack}
-        <div class="result-box" class:success={notificationTestResult.slack.success}>
-          {notificationTestResult.slack.success ? notificationTestResult.slack.message : notificationTestResult.slack.error}
-        </div>
-      {/if}
-      {#if notificationMessage.slack}
-        <div class="result-box" class:success={notificationMessage.slack.success}>
-          {notificationMessage.slack.text}
-        </div>
-      {/if}
-    </div>
-    {/if}
-  </Card>
+  <NotificationChannelCard
+    type="slack"
+    icon={slack}
+    title="Slack"
+    description="Post alerts to Slack channel"
+    bind:enabled={notifications.slack.enabled}
+    fromEnv={serverSettings?.notifications?.slack?.from_env}
+    open={notifications.slack.enabled || serverSettings?.notifications?.slack?.enabled}
+    testing={testingNotification === 'slack'}
+    saving={savingNotification === 'slack'}
+    testResult={notificationTestResult.slack}
+    message={notificationMessage.slack}
+    ontest={() => testNotification('slack')}
+    onsave={() => requestSaveNotification('slack')}
+  >
+    <NotificationFieldRow
+      label="Webhook URL"
+      type="password"
+      bind:value={notifications.slack.webhook_url}
+      placeholder="https://hooks.slack.com/services/..."
+      disabled={serverSettings?.notifications?.slack?.from_env}
+      envLocked={isEnvLocked(envKeys, 'slack.webhook_url')}
+      secret="slack.webhook_url"
+      stored={storedSecrets['slack.webhook_url']}
+      bind:armed={clearing['slack.webhook_url']}
+    />
+    <NotificationFieldRow
+      label="Channel (optional)"
+      bind:value={notifications.slack.channel}
+      placeholder="#alerts"
+      disabled={serverSettings?.notifications?.slack?.from_env}
+      envLocked={isEnvLocked(envKeys, 'slack.channel')}
+    />
+  </NotificationChannelCard>
 
   <!-- Webhook -->
-  <Card padding="none" class="notification-card">
-    <div class="notification-header">
-      <div class="notification-icon webhook">
-        <Icon icon={link} size={24} />
-      </div>
-      <div class="notification-info">
-        <h4>Webhook</h4>
-        <p>Send to custom HTTP endpoint</p>
-      </div>
-      <div class="notification-toggle">
-        <label class="toggle">
-          <input type="checkbox" bind:checked={notifications.webhook.enabled} disabled={serverSettings?.notifications?.webhook?.from_env} />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      {#if serverSettings?.notifications?.webhook?.from_env}
-        <Badge variant="warning" size="sm">From Environment</Badge>
-      {/if}
-    </div>
+  <NotificationChannelCard
+    type="webhook"
+    icon={link}
+    title="Webhook"
+    description="Send to custom HTTP endpoint"
+    bind:enabled={notifications.webhook.enabled}
+    fromEnv={serverSettings?.notifications?.webhook?.from_env}
+    open={notifications.webhook.enabled || serverSettings?.notifications?.webhook?.enabled}
+    testing={testingNotification === 'webhook'}
+    saving={savingNotification === 'webhook'}
+    testResult={notificationTestResult.webhook}
+    message={notificationMessage.webhook}
+    ontest={() => testNotification('webhook')}
+    onsave={() => requestSaveNotification('webhook')}
+  >
+    <NotificationFieldRow
+      label="Webhook URL"
+      bind:value={notifications.webhook.url}
+      placeholder="https://your-server.com/webhook"
+      disabled={serverSettings?.notifications?.webhook?.from_env}
+      envLocked={isEnvLocked(envKeys, 'webhook.url')}
+      secret="webhook.url"
+      stored={storedSecrets['webhook.url']}
+      bind:armed={clearing['webhook.url']}
+    />
+    <!-- Its removal toggle stays hidden until GET /settings reports webhook.auth_token_set. -->
+    <NotificationFieldRow
+      label="Auth Token (optional)"
+      type="password"
+      bind:value={notifications.webhook.auth_token}
+      placeholder="Bearer token"
+      disabled={serverSettings?.notifications?.webhook?.from_env}
+      envLocked={isEnvLocked(envKeys, 'webhook.auth_token')}
+      secret="webhook.auth_token"
+      stored={storedSecrets['webhook.auth_token']}
+      bind:armed={clearing['webhook.auth_token']}
+    />
+  </NotificationChannelCard>
 
-    {#if notifications.webhook.enabled || serverSettings?.notifications?.webhook?.enabled}
-    <div class="notification-form">
-      <div class="form-row">
-        <span class="form-label">
-          Webhook URL
-          <EnvBadge locked={isEnvLocked(envKeys, 'webhook.url')} />
-        </span>
-        <Input
-          bind:value={notifications.webhook.url}
-          placeholder={clearing['webhook.url'] ? 'Will be removed on save' : 'https://your-server.com/webhook'}
-          disabled={serverSettings?.notifications?.webhook?.from_env || isEnvLocked(envKeys, 'webhook.url') || clearing['webhook.url']}
-          fullWidth
-        />
-        <div class="clear-slot">
-          <ClearSecretToggle
-            secret="webhook.url"
-            stored={storedSecrets['webhook.url']}
-            envLocked={isEnvLocked(envKeys, 'webhook.url')}
-            disabled={serverSettings?.notifications?.webhook?.from_env}
-            bind:armed={clearing['webhook.url']}
-          />
-        </div>
-      </div>
-      <div class="form-row">
-        <span class="form-label">
-          Auth Token (optional)
-          <EnvBadge locked={isEnvLocked(envKeys, 'webhook.auth_token')} />
-        </span>
-        <Input
-          type="password"
-          bind:value={notifications.webhook.auth_token}
-          placeholder={clearing['webhook.auth_token'] ? 'Will be removed on save' : 'Bearer token'}
-          disabled={serverSettings?.notifications?.webhook?.from_env || isEnvLocked(envKeys, 'webhook.auth_token') || clearing['webhook.auth_token']}
-          fullWidth
-        />
-        <div class="clear-slot">
-          <!-- Hidden until GET /settings reports webhook.auth_token_set. -->
-          <ClearSecretToggle
-            secret="webhook.auth_token"
-            stored={storedSecrets['webhook.auth_token']}
-            envLocked={isEnvLocked(envKeys, 'webhook.auth_token')}
-            disabled={serverSettings?.notifications?.webhook?.from_env}
-            bind:armed={clearing['webhook.auth_token']}
-          />
-        </div>
-      </div>
-      <div class="form-actions">
-        <Button variant="default" on:click={() => testNotification('webhook')} loading={testingNotification === 'webhook'}>
-          {testingNotification === 'webhook' ? 'Testing...' : 'Test'}
-        </Button>
-        <Button variant="success" on:click={() => requestSaveNotification('webhook')} loading={savingNotification === 'webhook'} disabled={serverSettings?.notifications?.webhook?.from_env}>
-          {savingNotification === 'webhook' ? 'Saving...' : 'Save'}
-        </Button>
-      </div>
-      {#if notificationTestResult.webhook}
-        <div class="result-box" class:success={notificationTestResult.webhook.success}>
-          {notificationTestResult.webhook.success ? notificationTestResult.webhook.message : notificationTestResult.webhook.error}
-        </div>
-      {/if}
-      {#if notificationMessage.webhook}
-        <div class="result-box" class:success={notificationMessage.webhook.success}>
-          {notificationMessage.webhook.text}
-        </div>
-      {/if}
-    </div>
-    {/if}
-  </Card>
-
-  <Card padding="md" class="auth-info-card">
-    <h4>Settings Storage</h4>
-    <p>Notification settings are saved to <code>/app/config/settings.json</code> on the server.</p>
-    <p>Environment variables take precedence over UI settings and cannot be modified here.</p>
-  </Card>
+  <NotificationStorageInfo />
   {/if}
 </section>
 
@@ -544,203 +392,5 @@
     font-size: 0.875rem;
     color: var(--text-secondary);
     margin: 0;
-  }
-
-  :global(.notification-card) {
-    margin-bottom: 16px;
-  }
-
-  .notification-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 16px;
-    border-bottom: 1px solid var(--border-muted);
-  }
-
-  .notification-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .notification-icon.telegram {
-    background: rgba(0, 136, 204, 0.15);
-    color: #0088cc;
-  }
-
-  .notification-icon.slack {
-    background: rgba(74, 21, 75, 0.15);
-    color: #e01e5a;
-  }
-
-  .notification-icon.webhook {
-    background: rgba(88, 166, 255, 0.15);
-    color: var(--color-primary);
-  }
-
-  .notification-info {
-    flex: 1;
-  }
-
-  .notification-info h4 {
-    margin: 0;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--text-bright);
-  }
-
-  .notification-info p {
-    margin: 2px 0 0;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-  }
-
-  .notification-form {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .form-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .form-label {
-    width: 140px;
-    flex-shrink: 0;
-    font-size: 0.8125rem;
-    color: var(--text-secondary);
-  }
-
-  .form-actions {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-  }
-
-  .result-box {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    font-size: 0.8125rem;
-    color: var(--color-error);
-    background: rgba(248, 81, 73, 0.1);
-    border-radius: 6px;
-  }
-
-  .result-box.success {
-    color: var(--color-success);
-    background: rgba(63, 185, 80, 0.1);
-  }
-
-  .notification-toggle {
-    margin-left: auto;
-  }
-
-  .toggle {
-    position: relative;
-    display: inline-block;
-    width: 44px;
-    height: 24px;
-  }
-
-  .toggle input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-  }
-
-  .toggle-slider {
-    position: absolute;
-    cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: var(--bg-tertiary);
-    border-radius: 24px;
-    transition: 0.2s;
-  }
-
-  .toggle-slider:before {
-    position: absolute;
-    content: "";
-    height: 18px;
-    width: 18px;
-    left: 3px;
-    bottom: 3px;
-    background-color: #8b949e;
-    border-radius: 50%;
-    transition: 0.2s;
-  }
-
-  .toggle input:checked + .toggle-slider {
-    background-color: var(--color-success-solid);
-  }
-
-  .toggle input:checked + .toggle-slider:before {
-    transform: translateX(20px);
-    background-color: #fff;
-  }
-
-  .toggle input:disabled + .toggle-slider {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .form-hint {
-    font-size: 0.6875rem;
-    color: var(--text-muted);
-    margin-left: 8px;
-  }
-
-  /* Own line under the input it belongs to (.form-row wraps), aligned with the
-     input rather than with the 140px label column. */
-  .clear-slot {
-    flex-basis: 100%;
-    padding-left: 152px;
-  }
-
-  /* No stored secret => the toggle renders nothing => no blank row. */
-  .clear-slot:empty {
-    display: none;
-  }
-
-  .form-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-
-  :global(.auth-info-card) {
-    margin-top: 24px;
-  }
-
-  :global(.auth-info-card) h4 {
-    margin: 0 0 8px;
-    font-size: 0.875rem;
-    color: var(--text-bright);
-  }
-
-  :global(.auth-info-card) p {
-    margin: 8px 0;
-    font-size: 0.8125rem;
-    color: var(--text-secondary);
-  }
-
-  :global(.auth-info-card) code {
-    background: var(--bg-tertiary);
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-family: var(--font-mono);
   }
 </style>

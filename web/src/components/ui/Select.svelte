@@ -9,45 +9,42 @@
   ]} />
 -->
 <script>
-  import { createEventDispatcher } from 'svelte';
   import Icon from './Icon.svelte';
   import EnvBadge from './EnvBadge.svelte';
   import { chevronDown } from './icons.js';
 
-  /** Selected value */
-  export let value = '';
+  let {
+    /**
+     * Selected value. No fallback on purpose: a runes $bindable with a default
+     * throws when a parent binds `undefined`; `undefined` renders as the
+     * placeholder, exactly like the old '' default did.
+     */
+    value = $bindable(),
+    /** Options array: { value, label, disabled? } */
+    options = [],
+    /** Label text */
+    label = '',
+    /** Placeholder text */
+    placeholder = 'Select...',
+    /** Disabled state */
+    disabled = false,
+    /** Size: sm, md, lg */
+    size = 'md',
+    /** Full width */
+    fullWidth = false,
+    /** Error message */
+    error = '',
+    /** Field is pinned by a server environment variable — see Input.svelte */
+    envLocked = false,
+    /** ({ value }) after the user picks an option and `value` is updated */
+    onchange,
+  } = $props();
 
-  /** Options array */
-  export let options = []; // { value, label, disabled? }
-
-  /** Label text */
-  export let label = '';
-
-  /** Placeholder text */
-  export let placeholder = 'Select...';
-
-  /** Disabled state */
-  export let disabled = false;
-
-  /** Size */
-  export let size = 'md'; // sm, md, lg
-
-  /** Full width */
-  export let fullWidth = false;
-
-  /** Error message */
-  export let error = '';
-
-  /** Field is pinned by a server environment variable — see Input.svelte */
-  export let envLocked = false;
-
-  $: isDisabled = disabled || envLocked;
-
-  const dispatch = createEventDispatcher();
+  const isDisabled = $derived(disabled || envLocked);
 
   function handleChange(event) {
     value = event.target.value;
-    dispatch('change', { value });
+    onchange?.({ value });
   }
 </script>
 
@@ -60,11 +57,15 @@
   {/if}
 
   <div class="select-container" class:has-error={error} class:disabled={isDisabled} class:size-sm={size === 'sm'} class:size-lg={size === 'lg'}>
+    <!--
+      One-way `value` + onchange rather than bind:value: a bound <select>
+      whose value is undefined writes its first option back into the parent.
+    -->
     <select
       class="select-field"
       disabled={isDisabled}
-      bind:value
-      on:change={handleChange}
+      value={value ?? ''}
+      onchange={handleChange}
     >
       {#if placeholder}
         <option value="" disabled>{placeholder}</option>

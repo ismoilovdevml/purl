@@ -82,7 +82,7 @@
     }
   }
 
-  // $effect.pre (not $effect) keeps the old `$:` ordering: the scroll lock and
+  // $effect.pre (not $effect) keeps the old reactive-statement ordering: the scroll lock and
   // the saved focus target are settled before the dialog markup is committed.
   $effect.pre(() => {
     if (show) {
