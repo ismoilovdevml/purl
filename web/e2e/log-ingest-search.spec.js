@@ -98,8 +98,13 @@ test.describe('Ingest then search', () => {
     await search.fill(marker);
     await search.press('Enter');
 
-    const row = page.locator('table.log-table tbody tr.log-row').first();
-    await expect(row).toBeVisible();
+    // Wait for the filtered result, not just "a row": the Logs tab first
+    // renders the default recent-logs view (which holds other specs' rows),
+    // and clicking .first() before the search lands expands the wrong log.
+    const rows = page.locator('table.log-table tbody tr.log-row');
+    await expect(rows).toHaveCount(1);
+    const row = rows.first();
+    await expect(row).toContainText(marker);
     await row.click();
 
     const detail = page.locator('table.log-table tbody tr.detail-row');

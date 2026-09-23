@@ -111,7 +111,9 @@ test.describe('Modal input interaction', () => {
     await threshold.fill('42');
     await expect(threshold).toHaveValue('42');
 
-    await modal.locator('select.select-field').selectOption('browser');
+    // 'browser' was dropped from the options in #38; pick a real non-default
+    // channel (the default is webhook) so the select actually changes value.
+    await modal.locator('select.select-field').selectOption('telegram');
     await expect(modal, 'using the select must not dismiss the modal').toBeVisible();
 
     await modal.locator('.modal-footer button.btn-default').click();
