@@ -27,11 +27,12 @@ use Mojo::JSON qw(encode_json decode_json);
 
 use PurlTest::SessionApp qw(
     config_dir build_app app csrf login cookie_of replay forge_cookie admin_call
-    in_child
+    in_child with_csrf
 );
 use Test::Mojo;
 use Purl::Config;
 use Purl::API::Controller::Auth;
+use Purl::API::Controller::SSO;
 use Purl::Util::Session;
 
 my $DIR = config_dir();
@@ -53,7 +54,7 @@ subtest 'a cookie captured before logout is dead after it' => sub {
     is $me, 1,   'before logout: replay authenticates';
     is $st, 200, 'before logout: protected route 200';
 
-    $t->post_ok('/api/auth/logout')->status_is(200);
+    $t->post_ok('/api/auth/logout', with_csrf())->status_is(200);
 
     ($me, $st) = replay($cookie);
     is $me, 0,   'after logout: /api/auth/me authenticated 0';
@@ -84,7 +85,7 @@ subtest 'an in-flight request re-setting the cookie after logout does not resurr
     my ($resigned) = grep { $_->name eq 'mojolicious' } @{ $inflight->tx->res->cookies };
     ok $resigned, 'the in-flight response carried a re-signed cookie';
 
-    $t->post_ok('/api/auth/logout')->status_is(200);
+    $t->post_ok('/api/auth/logout', with_csrf())->status_is(200);
 
     my ($me, $st) = replay('mojolicious=' . $resigned->value);
     is $me, 0,   'the re-signed cookie is not authenticated';
@@ -138,7 +139,7 @@ for my $mode (qw(prefork replica)) {
         my $cookie = cookie_of($t);
 
         my ($before, $after) = in_other_process($mode, $cookie, 2, sub {
-            $t->post_ok('/api/auth/logout')->status_is(200);
+            $t->post_ok('/api/auth/logout', with_csrf())->status_is(200);
         });
 
         isnt $before->[0], $$, 'the replay really ran in another process';
@@ -157,7 +158,7 @@ subtest 'logout on another replica kills the cookie here' => sub {
     # A replica built from scratch in its own process handles the logout.
     my $code = in_child(sub {
         return { code => Test::Mojo->new(build_app())
-              ->post_ok('/api/auth/logout', { Cookie => $cookie })->tx->res->code };
+              ->post_ok('/api/auth/logout', with_csrf(Cookie => $cookie))->tx->res->code };
     })->{code};
     is $code, 200, 'the other replica logged the session out';
 
@@ -278,7 +279,8 @@ subtest 'max age: ENV, then session.max_age, then 7 days' => sub {
 # resulting signed cookie.
 sub external_login {
     my ($action, %mw) = @_;
-    my $ctrl = Purl::API::Controller::Auth->new(
+    my $class = $action eq 'login' ? 'Purl::API::Controller::Auth' : 'Purl::API::Controller::SSO';
+    my $ctrl = $class->new(
         storage  => PurlTest::SessionApp::storage(),
         settings => Purl::Config->new(config_file => "$DIR/settings.json"), %mw);
     my $c = $app->build_controller;
@@ -311,7 +313,7 @@ for my $case (
         $t->get_ok('/api/auth/me', { Cookie => $cookie })
           ->json_is('/authenticated' => 1)->json_is('/auth_method' => $method);
 
-        $t->post_ok('/api/auth/logout', { Cookie => $cookie })->status_is(200);
+        $t->post_ok('/api/auth/logout', with_csrf(Cookie => $cookie))->status_is(200);
         is_deeply [ replay($cookie) ], [ 0, 401 ],
             "$label user (no local account) is revoked by logout too";
     };
@@ -323,7 +325,7 @@ subtest 'a cookie from a replica whose clock runs ahead still dies at logout' =>
         role => 'admin', sid => 'd' x 32, iat => time + 30);
     is_deeply [ replay($ahead) ], [ 1, 200 ], 'accepted while live';
 
-    Test::Mojo->new($app)->post_ok('/api/auth/logout', { Cookie => $ahead })->status_is(200);
+    Test::Mojo->new($app)->post_ok('/api/auth/logout', with_csrf(Cookie => $ahead))->status_is(200);
     is_deeply [ replay($ahead) ], [ 0, 401 ],
         'its own logout revokes it although its iat is later than this clock';
 };
@@ -331,7 +333,7 @@ subtest 'a cookie from a replica whose clock runs ahead still dies at logout' =>
 subtest 'logout with a dead cookie cannot revoke someone else' => sub {
     my $t = login('alice', 'AlicePass12345');
     my $forged = forge_cookie(username => 'alice', logged_in => 1);   # no sid/iat
-    Test::Mojo->new($app)->post_ok('/api/auth/logout', { Cookie => $forged })->status_is(200);
+    Test::Mojo->new($app)->post_ok('/api/auth/logout', with_csrf(Cookie => $forged))->status_is(200);
     $t->get_ok('/api/auth/me')->json_is('/authenticated' => 1,
         'alice is still signed in: only a valid session can trigger revocation');
 };

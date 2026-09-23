@@ -63,6 +63,7 @@ sub update_redis {
         }
 
         if ($self->settings->set_section('redis', $current)) {
+            $c->audit_event(action => 'update_settings', resource_type => 'settings', resource_id => 'redis');
             $c->render(json => { status => 'ok', message => 'Redis settings updated.' });
         } else {
             $self->render_error($c, 'Failed to save Redis settings', 500);

@@ -74,6 +74,7 @@ sub update_ai {
         }
 
         if ($self->settings->set_section('ai', $current)) {
+            $c->audit_event(action => 'update_settings', resource_type => 'settings', resource_id => 'ai');
             $c->render(json => { status => 'ok', message => 'AI settings updated.' });
         } else {
             $self->render_error($c, 'Failed to save AI settings', 500);

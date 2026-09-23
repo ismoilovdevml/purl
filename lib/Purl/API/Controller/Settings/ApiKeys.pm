@@ -128,6 +128,9 @@ sub generate_api_key {
         if ($saved) {
             # Reload keys in auth middleware
             $self->auth_middleware->reload_api_keys() if $self->auth_middleware;
+            # The listing id (first 8 chars), never the key itself.
+            $c->audit_event(action => 'generate_api_key', resource_type => 'api_key',
+                resource_id => substr($new_key, 0, 8), details => $label);
 
             $c->render(json => {
                 status     => 'ok',
@@ -203,6 +206,8 @@ sub revoke_api_key {
         if ($saved) {
             # Reload keys in auth middleware
             $self->auth_middleware->reload_api_keys() if $self->auth_middleware;
+            $c->audit_event(action => 'revoke_api_key', resource_type => 'api_key',
+                resource_id => $key_id);
 
             $c->render(json => {
                 status  => 'ok',

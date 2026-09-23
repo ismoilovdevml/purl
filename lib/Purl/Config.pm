@@ -5,6 +5,7 @@ use 5.024;
 
 use Moo;
 use JSON::XS ();
+use Storable qw(dclone);
 use Purl::Config::Defaults;
 use Purl::Config::EnvMap qw(env_var_for is_write_only is_blank);
 use namespace::clean;
@@ -81,20 +82,30 @@ sub update_section {
     my ($self, $section, $cb) = @_;
 
     return $self->_with_lock(sub {
+        # A deep copy: get_section hands back nested structures (the users
+        # map) BY REFERENCE, so the callback edits the in-memory file config
+        # in place before anything is saved.
+        my $config = $self->_config;
+        my $had    = exists $config->{$section};
+        my $before = $had ? dclone({ v => $config->{$section} })->{v} : undef;
+
         my $data = $self->get_section($section);
 
         my $cancelled = 0;
         $cb->($data, sub { $cancelled = 1 });
-        return 0 if $cancelled;
+        if (!$cancelled) {
+            $config->{$section} = $self->_writable_values($section, $data);
+            return 1 if $self->save();
+        }
 
-        $self->_config->{$section} = $self->_writable_values($section, $data);
-        return 1 if $self->save();
-
-        # Not saved: put memory back in line with disk. Otherwise this worker
-        # alone would act on a change the caller was told failed (a password
-        # that "failed" to change would work here and nowhere else).
-        # _last_save_error is kept for the caller.
-        $self->load();
+        # Not saved (or cancelled after the callback already touched a nested
+        # map): put memory back to the pre-write snapshot. Otherwise this
+        # worker alone would act on a change the caller was told failed (a
+        # password that "failed" to change would work here and nowhere else).
+        # Restored from the snapshot, not reloaded: with no settings.json yet
+        # there is nothing on disk to reload. _last_save_error is kept.
+        if ($had) { $config->{$section} = $before }
+        else      { delete $config->{$section} }
         return 0;
     });
 }

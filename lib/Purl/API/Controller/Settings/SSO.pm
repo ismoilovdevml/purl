@@ -102,6 +102,7 @@ sub update_sso {
 
         if ($self->settings->set_section('saml', $current)) {
             $self->rebuild_saml->();
+            $c->audit_event(action => 'update_settings', resource_type => 'settings', resource_id => 'saml');
             $c->render(json => { status => 'ok', message => 'SSO settings updated.' });
         } else {
             $self->render_error($c, 'Failed to save SSO settings', 500);

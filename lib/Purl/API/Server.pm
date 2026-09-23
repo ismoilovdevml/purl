@@ -28,6 +28,8 @@ use Purl::API::Controller::Traces;
 use Purl::API::Controller::System;
 use Purl::API::Controller::Analytics;
 use Purl::API::Controller::Auth;
+use Purl::API::Controller::Password;
+use Purl::API::Controller::SSO;
 use Purl::API::Controller::SSOStatus;
 use Purl::API::Controller::Stats;
 use Purl::API::Controller::Patterns;
@@ -234,6 +236,7 @@ sub setup_routes {
         metrics          => \%metrics,
         auth_middleware  => sub { $auth_middleware },
         metrics_counters => sub { $metrics_counters },
+        storage          => sub { $storage },
     );
 
     Purl::API::Routes::register(app,
@@ -263,8 +266,17 @@ sub _build_controllers {
         %c_args,
         auth_middleware    => $auth_middleware,
         ldap_middleware    => $ldap_middleware,
-        saml_middleware    => $saml_middleware,
         settings           => $settings,
+    );
+    $ctl{password} = Purl::API::Controller::Password->new(
+        %c_args,
+        auth_middleware => $auth_middleware,
+        settings        => $settings,
+    );
+    $ctl{sso} = Purl::API::Controller::SSO->new(
+        %c_args,
+        saml_middleware => $saml_middleware,
+        settings        => $settings,
     );
     $ctl{sso_status} = Purl::API::Controller::SSOStatus->new(
         %c_args,
@@ -311,7 +323,7 @@ sub _build_controllers {
         rebuild_saml    => sub {
             $saml_middleware = Purl::API::Server::Builders::build_saml_middleware($settings);
             $ctl{settings_sso}->saml_middleware($saml_middleware) if $ctl{settings_sso};
-            $ctl{auth}->saml_middleware($saml_middleware)         if $ctl{auth};
+            $ctl{sso}->saml_middleware($saml_middleware)          if $ctl{sso};
             $ctl{sso_status}->saml_middleware($saml_middleware);
         },
     );

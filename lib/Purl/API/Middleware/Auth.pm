@@ -96,10 +96,14 @@ sub check_auth {
         return 1;
     }
 
-    # Basic auth always works
-    if (my $user = $self->_check_basic_auth($c, $auth_config)) {
+    # Basic auth always works. `defined`, not truth: "0" is a valid username.
+    # The stored hash is kept on the principal so a long-lived connection (the
+    # live-tail socket) can later tell that the password changed.
+    my ($user, $stored, $pass) = $self->_check_basic_auth($c, $auth_config);
+    if (defined $user) {
         $c->stash(current_user => 'api');
-        set_principal($c, via => 'basic', username => $user);
+        set_principal($c, via => 'basic', username => $user, password_hash => $stored,
+            must_change_password => $self->password_change_required($user, $pass));
         return 1;
     }
 
@@ -211,27 +215,44 @@ sub _check_basic_auth {
     my ($self, $c, $auth_config) = @_;
 
     my $auth_header = $c->req->headers->authorization // '';
-    return 0 unless $auth_header =~ /^Basic\s+(.+)$/;
+    return unless $auth_header =~ /^Basic\s+(.+)$/;
 
     my $decoded = decode_base64($1);
     my ($user, $pass) = split /:/, $decoded, 2;
-    return 0 unless defined $user && defined $pass;
+    return unless defined $user && defined $pass;
 
-    my $users = $auth_config->{users} // {};
-    return 0 unless exists $users->{$user};
-
-    my $entry = $users->{$user};
-    my $stored = ref $entry eq 'HASH' ? $entry->{password} : $entry;
+    my $stored = $self->_stored_password_hash($auth_config, $user);
+    return unless defined $stored && length $stored;
 
     # Bcrypt or legacy SHA256 hash
-    if ($stored && ($stored =~ /^\$2[aby]\$/ || $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/)) {
-        my ($valid, $new_hash) = $self->verify_password($pass, $stored);
+    my $valid;
+    if ($stored =~ /^\$2[aby]\$/ || $stored =~ /^[a-zA-Z0-9]+\$[a-f0-9]+$/) {
         # Auto-migrate hash if needed (basic auth won't save, but login will)
-        return $valid ? $user : 0;
+        ($valid) = $self->verify_password($pass, $stored);
+    } else {
+        $valid = $stored eq $pass;    # legacy plaintext
     }
+    return $valid ? ($user, $stored, $pass) : ();
+}
 
-    # Legacy plaintext (log warning in caller)
-    return $stored eq $pass ? $user : 0;
+# The stored password (hash) of a local user, or undef when there is none.
+sub _stored_password_hash {
+    my ($self, $auth_config, $user) = @_;
+    my $users = ref $auth_config->{users} eq 'HASH' ? $auth_config->{users} : {};
+    return unless defined $user && exists $users->{$user};
+    my $entry = $users->{$user};
+    return ref $entry eq 'HASH' ? $entry->{password} : $entry;
+}
+
+# Is a Basic credential accepted at a connection's start still good? The user
+# must still exist with the very password hash that was verified then — a
+# password change, reset or deletion ends it. For long-lived connections
+# (live tail), which check_auth saw only once.
+sub basic_still_valid {
+    my ($self, $username, $stored) = @_;
+    return 0 unless defined $stored;
+    my $now = $self->_stored_password_hash($self->_auth_config, $username);
+    return defined $now && $now eq $stored ? 1 : 0;
 }
 
 # ============================================

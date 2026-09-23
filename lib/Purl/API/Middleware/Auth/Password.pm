@@ -29,6 +29,13 @@ sub hash_password {
     return '$2b$12$' . $salt . en_base64($hash);
 }
 
+# The one rule for "this credential is the factory default and must be changed
+# before anything else": the session login and Basic auth both apply it.
+sub password_change_required {
+    my ($self, $username, $password) = @_;
+    return (($username // '') eq 'admin' && ($password // '') eq 'admin') ? 1 : 0;
+}
+
 sub verify_password {
     my ($self, $password, $stored) = @_;
     return (0, undef) unless defined $password && length($password);

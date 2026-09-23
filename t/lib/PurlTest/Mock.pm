@@ -38,6 +38,9 @@ our @EXPORT_OK = qw(mock_ctx mock_storage mock_auth_ctx mock_server_storage);
     sub warn  { return }
     sub param { return $_[0]->{params}{ $_[1] } }
     sub render   { my ($s, %a) = @_; $s->{rendered} = \%a; return }
+    # The audit_event helper, recorded (#101: every settings write audits).
+    sub audit_event  { my ($s, %e) = @_; push @{ $s->{audit} }, \%e; return }
+    sub audit_events { return $_[0]->{audit} // [] }
     sub rendered { return $_[0]->{rendered} }
     sub stash {
         my ($s, $k) = @_;

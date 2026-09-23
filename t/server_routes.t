@@ -111,7 +111,7 @@ $walk = sub {
 $walk->($_, '') for @{ $app->routes->children };
 
 my @want = grep { length } map { s/^\s+|\s+$//gr } split /\n/, <<'ROUTES';
-    POST /api/auth/change-password [auth] => Purl::API::Controller::Auth::change_password
+    POST /api/auth/change-password [auth] => Purl::API::Controller::Password::change_password
     GET /api/logs [auth] => Purl::API::Controller::Logs::search
     POST /api/logs [auth] => Purl::API::Controller::Logs::ingest
     GET /api/logs/:id/context [auth] => Purl::API::Controller::Logs::context
@@ -223,9 +223,9 @@ my @want = grep { length } map { s/^\s+|\s+$//gr } split /\n/, <<'ROUTES';
     POST /api/auth/login => Purl::API::Controller::Auth::login
     POST /api/auth/logout => Purl::API::Controller::Auth::logout
     GET /api/auth/me => Purl::API::Controller::Auth::me
-    GET /api/auth/sso/login => Purl::API::Controller::Auth::sso_login
-    POST /api/auth/sso/callback => Purl::API::Controller::Auth::sso_callback
-    GET /api/auth/sso/metadata => Purl::API::Controller::Auth::sso_metadata
+    GET /api/auth/sso/login => Purl::API::Controller::SSO::sso_login
+    POST /api/auth/sso/callback => Purl::API::Controller::SSO::sso_callback
+    GET /api/auth/sso/metadata => Purl::API::Controller::SSO::sso_metadata
     GET /api/auth/sso/status => Purl::API::Controller::SSOStatus::status
     ANY /api/*api_path => inline
     GET /*catchall => inline

@@ -62,6 +62,7 @@ sub create {
         return unless $self->_apply_query($c, \%probe, $body->{query});
 
         $self->storage->create_alert(%$body);
+        $c->audit_event(action => 'create_alert', resource_type => 'alert', resource_id => $body->{name});
         $c->render(json => { status => 'ok' });
     });
 }
@@ -93,6 +94,7 @@ sub update {
         }
 
         $self->storage->update_alert($id, %$body);
+        $c->audit_event(action => 'update_alert', resource_type => 'alert', resource_id => $id);
         $c->render(json => { status => 'ok' });
     });
 }
@@ -111,6 +113,7 @@ sub remove {
         }
 
         $self->storage->delete_alert($id);
+        $c->audit_event(action => 'delete_alert', resource_type => 'alert', resource_id => $id);
         $c->render(json => { status => 'ok' });
     });
 }

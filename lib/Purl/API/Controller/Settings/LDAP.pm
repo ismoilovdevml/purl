@@ -112,6 +112,7 @@ sub update_ldap {
 
         if ($self->settings->set_section('ldap', $current)) {
             $self->rebuild_ldap->();
+            $c->audit_event(action => 'update_settings', resource_type => 'settings', resource_id => 'ldap');
             $c->render(json => { status => 'ok', message => 'LDAP settings updated.' });
         } else {
             $self->render_error($c, 'Failed to save LDAP settings', 500);

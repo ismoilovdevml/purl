@@ -90,6 +90,9 @@ sub create_user {
         });
         return $self->_render_failure($c, 'create user', $status, $error) if $status;
 
+        $c->audit_event(action => 'create_user', resource_type => 'user',
+            resource_id => $username, details => "role=$role");
+
         $c->render(json => { status => 'ok', username => $username });
     });
 }
@@ -153,6 +156,9 @@ sub update_user {
         });
         return $self->_render_failure($c, 'update user', $status, $error) if $status;
 
+        $c->audit_event(action => 'update_user', resource_type => 'user', resource_id => $username,
+            details => join(' ', ($new_hash ? 'password' : ()), ($requested_role ? "role=$requested_role" : ())));
+
         $c->render(json => { status => 'ok', message => 'User updated' });
     });
 }
@@ -182,6 +188,8 @@ sub delete_user {
             return;
         });
         return $self->_render_failure($c, 'delete user', $status, $error) if $status;
+
+        $c->audit_event(action => 'delete_user', resource_type => 'user', resource_id => $username);
 
         $c->render(json => { status => 'ok' });
     });

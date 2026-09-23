@@ -25,7 +25,7 @@ use lib "$Bin/../lib", "$Bin/lib";
 
 use PurlTest::SessionApp qw(
     config_dir storage build_app app csrf login cookie_of replay forge_cookie
-    admin_call in_child
+    admin_call in_child with_csrf
 );
 use Test::Mojo;
 use Purl::Config;
@@ -65,7 +65,7 @@ subtest 'PoC: a logged-out clock-ahead cookie stays dead after an admin password
         role => 'viewer', sid => 'c' x 32, iat => time + 30);
     is_deeply [ replay($ahead) ], [ 1, 200 ], 'accepted while live';
 
-    Test::Mojo->new(app())->post_ok('/api/auth/logout', { Cookie => $ahead })->status_is(200);
+    Test::Mojo->new(app())->post_ok('/api/auth/logout', with_csrf(Cookie => $ahead))->status_is(200);
     is_deeply [ replay($ahead) ], [ 0, 401 ], 'dead after its logout';
 
     # While the stamp is ahead of this clock, a fresh login is issued just past
@@ -156,7 +156,7 @@ subtest 'logout: revocation not persisted => 500, audited, cookie still dropped'
     {
         no warnings 'redefine';
         local *Purl::Config::save = sub { $_[0]{_last_save_error} = 'disk full'; return 0 };
-        $t->post_ok('/api/auth/logout')->status_is(500)
+        $t->post_ok('/api/auth/logout', with_csrf())->status_is(500)
           ->json_like('/error' => qr/could not be revoked/);
     }
     my ($set) = grep { $_->name eq 'mojolicious' } @{ $t->tx->res->cookies };
@@ -167,7 +167,7 @@ subtest 'logout: revocation not persisted => 500, audited, cookie still dropped'
 
     # Honest about the consequence: the copied cookie is still valid.
     is +(replay($cookie))[0], 1, 'the unrevoked copy still works (why this is a 500)';
-    Test::Mojo->new(app())->post_ok('/api/auth/logout', { Cookie => $cookie })->status_is(200);
+    Test::Mojo->new(app())->post_ok('/api/auth/logout', with_csrf(Cookie => $cookie))->status_is(200);
 };
 
 subtest 'change_password: not persisted => 500, nothing claimed' => sub {

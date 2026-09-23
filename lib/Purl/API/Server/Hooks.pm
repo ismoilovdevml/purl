@@ -12,13 +12,16 @@ use Purl::Util::Principal qw(principal_user);
 #   metrics           hashref of the per-worker request metrics (mutated)
 #   auth_middleware   coderef returning the CURRENT Purl::API::Middleware::Auth
 #   metrics_counters  coderef returning the CURRENT Purl::Metrics::Counters
-# The two coderefs are read per request, not captured once, so the hooks always
-# see what setup_routes() last installed.
+#   storage           coderef returning the CURRENT storage (audit_event)
+# The coderefs are read per request, not captured once, so the hooks always
+# see what setup_routes() last installed — and, for storage, what a settings
+# change last rebuilt (rebuild_storage replaces the object, not its contents).
 sub install {
     my ($app, %args) = @_;
     my $metrics = $args{metrics};
     my $auth    = $args{auth_middleware};
     my $shared  = $args{metrics_counters};
+    my $storage = $args{storage};
 
     # Security headers and CORS
     $app->hook(before_dispatch => sub {
@@ -141,12 +144,16 @@ sub install {
         }
     });
 
-    # Audit event helper — fire-and-forget, never breaks the app
+    # Audit event helper — fire-and-forget, never breaks the app. A failure is
+    # logged, not swallowed: an audit trail that silently records nothing is
+    # what #101 was.
     $app->helper(audit_event => sub {
         my ($c, %event) = @_;
-        eval {
+        my $ok = eval {
             my $auth_middleware = $auth->();
-            $c->app->storage->log_audit_event({
+            my $store = $storage ? $storage->() : undef;
+            die "no storage wired\n" unless $store;
+            $store->log_audit_event({
                 actor         => $event{actor} // principal_user($c) // 'system',
                 action        => $event{action},
                 resource_type => $event{resource_type} // '',
@@ -155,7 +162,11 @@ sub install {
                 ip_address    => ($auth_middleware ? $auth_middleware->client_ip($c) : $c->tx->remote_address) // '',
                 status        => $event{status}         // 'success',
             });
+            1;
         };
+        $c->app->log->warn('audit_event(' . ($event{action} // '?') . ") not recorded: $@")
+            unless $ok;
+        return;
     });
 
     return;

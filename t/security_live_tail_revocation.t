@@ -18,8 +18,9 @@ use lib "$Bin/../lib", "$Bin/lib";
 # with 4401 when the session is no longer valid.
 # ============================================
 
-use PurlTest::SessionApp qw(app login cookie_of admin_call);
+use PurlTest::SessionApp qw(app login cookie_of admin_call with_csrf);
 use Test::Mojo;
+use MIME::Base64 qw(encode_base64);
 use Mojo::IOLoop;
 use Purl::API::Routes::LiveTail;
 
@@ -56,7 +57,7 @@ subtest 'a session socket is closed with 4401 after its logout' => sub {
 
     my $other = Test::Mojo->new(app());
     $other->ua->cookie_jar->ignore(sub { 1 });
-    $other->post_ok('/api/auth/logout', { Cookie => $cookie })->status_is(200);
+    $other->post_ok('/api/auth/logout', with_csrf(Cookie => $cookie))->status_is(200);
 
     $t->finished_ok(4401, 'closed with 4401 once the logout is seen');
 };
@@ -67,6 +68,18 @@ subtest 'a password change elsewhere closes it too' => sub {
 
     admin_call(put => '/api/settings/users/alice', { password => 'AliceNewPass123' });
     $t->finished_ok(4401, 'closed after the admin reset');
+    admin_call(put => '/api/settings/users/alice', { password => 'AlicePass12345' });
+};
+
+subtest 'a Basic-auth socket is closed with 4401 once the password changes' => sub {
+    my $t = Test::Mojo->new(app());
+    $t->websocket_ok('/api/logs/stream' =>
+        { Authorization => 'Basic ' . encode_base64('alice:AlicePass12345', '') })->message_ok;
+    run_loop_for(0.5);
+    still_open($t, 'Basic, before the change');
+
+    admin_call(put => '/api/settings/users/alice', { password => 'AliceNewPass123' });
+    $t->finished_ok(4401, 'closed after the reset: Basic sockets are re-checked too');
     admin_call(put => '/api/settings/users/alice', { password => 'AlicePass12345' });
 };
 

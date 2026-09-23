@@ -107,6 +107,8 @@ sub update_notifications {
         if ($saved) {
             # Rebuild notifiers
             $self->rebuild_notifiers->();
+            $c->audit_event(action => 'update_settings', resource_type => 'settings',
+                resource_id => "notifications.$type");
 
             $c->render(json => {
                 status  => 'ok',

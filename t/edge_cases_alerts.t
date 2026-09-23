@@ -58,6 +58,7 @@ use Purl::API::Controller::Alerts;
         $self->{rendered} = \%args;
     }
     sub rendered { $_[0]->{rendered} }
+    sub audit_event { my ($s, %e) = @_; push @{ $s->{audit} }, \%e; return }
     sub stash {
         my ($self, $key, $val) = @_;
         # The principal check_auth records for a signed-in user

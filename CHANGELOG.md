@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GET /api/auth/me` includes `k8s_mode`.
 - Per-user rate limit on AI endpoints (`PURL_AI_RATE_LIMIT`, default 20 per
   minute); over the limit returns 429.
+- `POST /api/ai/query` also returns `query`: the question's filter in
+  search-bar syntax (issue #98). It is only included when the search parser
+  accepts it, so it can be applied to the search bar as is.
 
 ### Changed
 
@@ -60,6 +63,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings reads, now require the admin role. They were previously readable
   by any authenticated caller, including ingest API keys, on licensed installs.
 - AI endpoints now require a signed-in user.
+- The audit log records events (issue #101). Nothing was ever written to it
+  before, so Settings > Audit Logs was always empty. It now records logins,
+  logouts, password changes, user management, settings changes, API key
+  generation/revocation, alert changes and backups.
+- A password change that races an admin password reset or a revocation is
+  refused with 409 instead of undoing the reset.
+- `POST /api/auth/logout` of a live session requires the CSRF token, like
+  every other cookie-authenticated write.
+- Basic auth: `admin:admin` is held to the forced password change (403 until
+  it is changed), and an open live-tail stream authenticated with Basic auth is
+  closed (4401) when that user's password changes or the user is deleted.
 
 ## [1.2.0] - 2025-12-15
 

@@ -20,7 +20,7 @@ use Mojo::JSON qw(encode_json decode_json);
 
 our @EXPORT_OK = qw(
     config_dir storage build_app app csrf login cookie_of replay forge_cookie
-    admin_call in_child
+    admin_call in_child with_csrf
 );
 
 my $DIR;
@@ -56,17 +56,11 @@ sub config_dir { return $DIR }
 sub storage    { return $STORAGE }
 
 # One app = one worker/replica: its own Purl::Config, its own middleware.
-#
-# The audit_event helper (Server/Hooks.pm) writes through $c->app->storage, but
-# the real server defines no `storage` helper, so in production every audit
-# write dies inside the helper's eval and nothing is recorded (pre-existing,
-# reported separately). The harness supplies the helper so tests can see what
-# WOULD be audited.
+# Audit events reach $STORAGE through the server's own wiring (#101): the
+# harness deliberately adds no helper of its own.
 sub build_app {
     my $server = Purl::API::Server->create(config => { auth => { enabled => 1 } });
-    my $app = $server->setup_routes;
-    $app->helper(storage => sub { $STORAGE }) unless $app->renderer->helpers->{storage};
-    return $app;
+    return $server->setup_routes;
 }
 
 my $APP;
@@ -114,6 +108,17 @@ sub forge_cookie {
     app()->sessions->store($c);
     my ($ck) = grep { $_->name eq 'mojolicious' } @{ $c->res->cookies };
     return $ck->name . '=' . $ck->value;
+}
+
+# Request headers carrying a valid CSRF token, plus any given. For a request
+# that has no Test::Mojo of its own to fetch one (a replayed cookie, a child
+# process). The token is signed with the shared session secret, as every
+# worker and replica signs it.
+sub with_csrf {
+    my (%h) = @_;
+    require Purl::API::Middleware::Auth;
+    $h{'X-CSRF-Token'} = Purl::API::Middleware::Auth->new(config => {})->generate_csrf_token;
+    return \%h;
 }
 
 # Sign in as admin and make one CSRF-protected call; returns the Test::Mojo.

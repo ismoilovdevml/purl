@@ -118,6 +118,8 @@ sub update_clickhouse {
         if ($self->settings->set_section('clickhouse', $current)) {
             # Rebuild storage with new settings
             $self->rebuild_storage->();
+            $c->audit_event(action => 'update_settings', resource_type => 'settings',
+                resource_id => 'clickhouse');
 
             $c->render(json => {
                 status  => 'ok',
@@ -156,6 +158,8 @@ sub update_retention {
             if ($@) {
                 $c->app->log->warn("Failed to update ClickHouse retention TTL: $@");
             }
+            $c->audit_event(action => 'update_settings', resource_type => 'settings',
+                resource_id => 'retention', details => "days=$days");
 
             $c->render(json => {
                 status         => 'ok',

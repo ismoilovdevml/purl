@@ -6,7 +6,7 @@ use 5.024;
 use Mojo::IOLoop;
 use Mojo::JSON qw(decode_json);
 use Purl::API::LiveTail qw(send_connected send_logs handle_client_message);
-use Purl::Util::Principal qw(principal_via);
+use Purl::Util::Principal qw(principal principal_via);
 
 # How often an open socket re-checks the session that opened it. check_auth
 # runs once, at the handshake; without this a socket opened before a logout,
@@ -96,17 +96,30 @@ sub register {
     return;
 }
 
-# Only a socket opened by a session cookie is re-checked: an API-key socket
-# carries no session, and its key is not revocable per connection here.
+# A socket opened by a session cookie or a Basic credential is re-checked on
+# a timer: the session must still be valid, the Basic user must still exist
+# with the password that was verified at the handshake. An API-key socket is
+# not: its key is not revocable per connection here.
 # Returns the IOLoop timer id, or undef.
 sub _watch_session {
     my ($c, $ws, $auth) = @_;
-    return unless $auth && principal_via($c) eq 'session';
+    return unless $auth;
 
-    my %session = %{ $c->session };    # what the handshake was accepted on
+    my $still_valid;
+    my $via = principal_via($c);
+    if ($via eq 'session') {
+        my %session = %{ $c->session };    # what the handshake was accepted on
+        $still_valid = sub { $_[0]->session_still_valid(\%session) };
+    } elsif ($via eq 'basic') {
+        my ($user, $hash) = @{ principal($c) }{qw(username password_hash)};
+        $still_valid = sub { $_[0]->basic_still_valid($user, $hash) };
+    } else {
+        return;
+    }
+
     return Mojo::IOLoop->recurring($SESSION_RECHECK_SECONDS => sub {
         my $mw = $auth->();
-        return if $mw && $mw->session_still_valid(\%session);
+        return if $mw && $still_valid->($mw);
         $ws->finish($WS_SESSION_REVOKED, 'Session revoked');
     });
 }

@@ -11,6 +11,8 @@ sub register {
     my $ctl        = $deps{controllers};
     my $sys        = $ctl->{system};
     my $auth       = $ctl->{auth};
+    my $password   = $ctl->{password};
+    my $sso        = $ctl->{sso};
     my $sso_status = $ctl->{sso_status};
 
     # ============================================
@@ -32,12 +34,12 @@ sub register {
     $api->get('/auth/me' => sub { my ($c) = @_; $auth->me($c) });
 
     # Password change (requires auth — protected route)
-    $protected->post('/auth/change-password' => sub { my ($c) = @_; $auth->change_password($c) });
+    $protected->post('/auth/change-password' => sub { my ($c) = @_; $password->change_password($c) });
 
     # SSO/SAML 2.0 endpoints (public — no auth required)
-    $api->get('/auth/sso/login'     => sub { my ($c) = @_; $auth->sso_login($c) });
-    $api->post('/auth/sso/callback' => sub { my ($c) = @_; $auth->sso_callback($c) });
-    $api->get('/auth/sso/metadata'  => sub { my ($c) = @_; $auth->sso_metadata($c) });
+    $api->get('/auth/sso/login'     => sub { my ($c) = @_; $sso->sso_login($c) });
+    $api->post('/auth/sso/callback' => sub { my ($c) = @_; $sso->sso_callback($c) });
+    $api->get('/auth/sso/metadata'  => sub { my ($c) = @_; $sso->sso_metadata($c) });
     # Is SSO on? The login page uses this to show the SSO button.
     $api->get('/auth/sso/status'    => sub { my ($c) = @_; $sso_status->status($c) });
 

@@ -27,7 +27,7 @@ use MIME::Base64 qw(encode_base64);
 # which is what they always had without a cookie.
 # ============================================
 
-use PurlTest::SessionApp qw(app storage login cookie_of forge_cookie admin_call csrf);
+use PurlTest::SessionApp qw(app storage login cookie_of forge_cookie admin_call csrf with_csrf);
 use Test::Mojo;
 use Mojo::JSON ();
 use Purl::Util::Principal qw(set_principal);
@@ -43,7 +43,7 @@ admin_call(post => '/api/settings/users',
 my $revoked_admin = do {
     my $t = login('admin', 'StrongAdminPass123');
     my $ck = cookie_of($t);
-    $t->post_ok('/api/auth/logout')->status_is(200);
+    $t->post_ok('/api/auth/logout', with_csrf())->status_is(200);
     $ck;
 };
 my $live_admin = cookie_of(login('admin', 'StrongAdminPass123'));

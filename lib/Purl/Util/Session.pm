@@ -11,7 +11,7 @@ use Purl::Util::Principal qw(set_principal clear_principal);
 
 our @EXPORT_OK = qw(
     start_session session_is_valid check_session end_session
-    revoke_sessions mark_revoked session_max_age
+    revoke_sessions mark_revoked session_max_age auth_section
 );
 
 # ============================================
@@ -42,6 +42,14 @@ our @EXPORT_OK = qw(
 
 my $DEFAULT_MAX_AGE = 7 * 24 * 3600;
 my $IDLE_EXPIRATION = 86_400;    # sliding idle expiry, unchanged from before
+
+# The auth section (users + sessions_valid_after) of a Purl::Config, read live
+# so every worker sees another worker's logout or user change. Always a hash.
+sub auth_section {
+    my ($settings) = @_;
+    my $section = $settings ? $settings->get_section('auth') : undef;
+    return ref $section eq 'HASH' ? $section : {};
+}
 
 # Overridable in tests to move the clock.
 sub _now { return Time::HiRes::time() }

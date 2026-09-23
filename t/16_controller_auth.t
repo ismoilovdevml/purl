@@ -9,6 +9,7 @@ use lib "$Bin/../lib";
 
 use Mojo::JSON qw(encode_json);
 use Purl::API::Controller::Auth;
+use Purl::API::Controller::SSO;
 
 # ============================================
 # Mock objects
@@ -87,6 +88,8 @@ use Purl::API::Controller::Auth;
         return $pass eq 'correctpassword' ? (1, undef) : (0, undef);
     }
     sub hash_password { '$2b$12$' . ('a' x 53) }
+    # Mirrors the real middleware's single default-password rule.
+    sub password_change_required { ($_[1] // '') eq 'admin' && ($_[2] // '') eq 'admin' ? 1 : 0 }
     # Mirrors the real middleware: one resolver for "is auth on".
     sub auth_enabled { $_[0]->{auth_enabled} ? 1 : 0 }
     # Per-username lockout stubs mirroring the real middleware contract:
@@ -340,7 +343,7 @@ subtest 'me falls back to settings when no middleware is wired' => sub {
 # sso_login — SAML redirect
 # ============================================
 subtest 'sso_login without SAML middleware returns 503' => sub {
-    my $ctrl = Purl::API::Controller::Auth->new(storage => MockStorage->new);
+    my $ctrl = Purl::API::Controller::SSO->new(storage => MockStorage->new);
     my $c = MockAuthCtrl->new;
 
     $ctrl->sso_login($c);
@@ -351,7 +354,7 @@ subtest 'sso_login with unavailable SAML returns 503' => sub {
     my $mock_saml = bless {}, 'MockSAMLUnavail';
     no warnings 'once';
     *MockSAMLUnavail::is_available = sub { 0 };
-    my $ctrl = Purl::API::Controller::Auth->new(
+    my $ctrl = Purl::API::Controller::SSO->new(
         storage         => MockStorage->new,
         saml_middleware => $mock_saml,
     );
@@ -365,7 +368,7 @@ subtest 'sso_login with unavailable SAML returns 503' => sub {
 # sso_callback — SAML assertion
 # ============================================
 subtest 'sso_callback without SAML middleware returns 503' => sub {
-    my $ctrl = Purl::API::Controller::Auth->new(storage => MockStorage->new);
+    my $ctrl = Purl::API::Controller::SSO->new(storage => MockStorage->new);
     my $c = MockAuthCtrl->new;
 
     $ctrl->sso_callback($c);
@@ -376,7 +379,7 @@ subtest 'sso_callback without SAMLResponse returns 400' => sub {
     my $mock_saml = bless {}, 'MockSAMLCB';
     no warnings 'once';
     *MockSAMLCB::is_available = sub { 1 };
-    my $ctrl = Purl::API::Controller::Auth->new(
+    my $ctrl = Purl::API::Controller::SSO->new(
         storage         => MockStorage->new,
         saml_middleware => $mock_saml,
     );
@@ -390,7 +393,7 @@ subtest 'sso_callback without SAMLResponse returns 400' => sub {
 # sso_metadata
 # ============================================
 subtest 'sso_metadata without SAML returns 404' => sub {
-    my $ctrl = Purl::API::Controller::Auth->new(storage => MockStorage->new);
+    my $ctrl = Purl::API::Controller::SSO->new(storage => MockStorage->new);
     my $c = MockAuthCtrl->new;
 
     $ctrl->sso_metadata($c);

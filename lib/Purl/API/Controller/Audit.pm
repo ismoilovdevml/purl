@@ -4,28 +4,18 @@ use warnings;
 use 5.024;
 
 use Moo;
-use Purl::Util::Principal qw(principal_via principal_user);
 use namespace::clean;
 
 extends 'Purl::API::Controller::Base';
 
-# A signed-in user or an API key (the credentials that reached this before);
-# the admin check that follows decides the rest.
-sub _authenticated {
-    my ($c) = @_;
-    my $via = principal_via($c);
-    return $via eq 'api_key' || ($via eq 'session' && defined principal_user($c));
-}
+# Both routes hang off $protected, so check_auth has already authenticated the
+# caller; only the role decides. (A separate "is anyone signed in" check here
+# let an API key through to a role check it could never pass.)
 
 sub list {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        unless (_authenticated($c)) {
-            $self->render_error($c, 'Unauthorized', 401);
-            return;
-        }
-
         # Audit records every login, source IP and admin action — the exact
         # material an attacker uses for recon, and a privacy exposure for
         # other users. Admin only; a viewer must not see it.
@@ -67,11 +57,6 @@ sub stats {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
-        unless (_authenticated($c)) {
-            $self->render_error($c, 'Unauthorized', 401);
-            return;
-        }
-
         # Audit records every login, source IP and admin action — the exact
         # material an attacker uses for recon, and a privacy exposure for
         # other users. Admin only; a viewer must not see it.

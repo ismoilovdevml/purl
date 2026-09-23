@@ -46,6 +46,7 @@ my $file = File::Spec->catfile($dir, 'settings.json');
     sub param { $_[0]->{params}{$_[1]} }
     sub render { my ($s, %a) = @_; $s->{rendered} = \%a }
     sub rendered { $_[0]->{rendered} }
+    sub audit_event { my ($s, %e) = @_; push @{ $s->{audit} }, \%e; return }
     # A signed-in admin, as check_auth records it (Purl::Util::Principal).
     sub stash {
         my ($s, $k) = @_;

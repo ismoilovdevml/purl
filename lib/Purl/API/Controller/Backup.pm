@@ -48,6 +48,8 @@ sub create {
             name       => $name,
             backup_dir => $backup_dir,
         );
+        $c->audit_event(action => 'create_backup', resource_type => 'backup',
+            resource_id => (ref $result eq 'HASH' ? $result->{id} : undef) // $name // '');
 
         $c->render(json => {
             status => 'ok',
@@ -86,6 +88,8 @@ sub restore {
             mode      => $mode,
             s3_config => $self->_s3_config,
         );
+        $c->audit_event(action => 'restore_backup', resource_type => 'backup',
+            resource_id => $id, details => "mode=$mode");
 
         $c->render(json => {
             status  => 'ok',
@@ -110,6 +114,7 @@ sub remove {
         # s3_config so the remote object is deleted too — otherwise removing a
         # backup only drops the metadata row and the bucket grows forever.
         my $result = $self->storage->delete_backup($id, s3_config => $self->_s3_config);
+        $c->audit_event(action => 'delete_backup', resource_type => 'backup', resource_id => $id);
 
         $c->render(json => { status => 'ok' });
     });
