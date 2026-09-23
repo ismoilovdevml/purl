@@ -8,6 +8,8 @@ use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
 use Mojo::JSON qw(encode_json decode_json);
+use IO::Socket::INET;
+use Time::HiRes qw(time);
 
 # ============================================
 # Check if Mojo::Redis is available
@@ -87,19 +89,49 @@ subtest 'multiple subscribers local fallback' => sub {
 };
 
 # ============================================
-# is_connected reflects Redis state
+# is_connected is truthful and fails fast (issue #89)
 # ============================================
-subtest 'is_connected reflects state' => sub {
-    my $bc = Purl::Broadcast::Redis->new(redis_url => 'redis://invalid-host-xxx:9999');
+SKIP: {
+    skip 'Mojo::Redis not installed', 3 unless $has_mojo_redis;
 
-    # Force the lazy builder to run
-    $bc->_redis;
+    subtest 'is_connected false for a refused port, quickly' => sub {
+        my $bc = Purl::Broadcast::Redis->new(redis_url => 'redis://127.0.0.1:1');
+        my $t0 = time;
+        my $connected;
+        { local $SIG{__WARN__} = sub { }; $connected = $bc->is_connected; }
+        my $took = time - $t0;
+        ok !$connected, 'unreachable Redis => not connected';
+        cmp_ok $took, '<', 2, sprintf('failed fast (%.3fs)', $took);
+    };
 
-    # Without a real Redis, should report not connected
-    # (Mojo::Redis might create an object even for invalid host, but
-    #  connection errors surface on actual operations)
-    ok defined $bc, 'broadcaster exists';
-};
+    subtest 'is_connected false when the peer never answers PING' => sub {
+        # A listening socket that is never accept()ed: TCP connects via the
+        # backlog, but no Redis reply ever comes. Must hit connect_timeout.
+        my $srv = IO::Socket::INET->new(
+            LocalAddr => '127.0.0.1', LocalPort => 0, Listen => 1, Proto => 'tcp',
+        ) or die "listen: $!";
+        my $bc = Purl::Broadcast::Redis->new(
+            redis_url       => 'redis://127.0.0.1:' . $srv->sockport,
+            connect_timeout => 0.5,
+        );
+        my $t0 = time;
+        my $connected;
+        { local $SIG{__WARN__} = sub { }; $connected = $bc->is_connected; }
+        my $took = time - $t0;
+        ok !$connected, 'silent peer => not connected';
+        cmp_ok $took, '<', 2, sprintf('bounded by connect_timeout (%.3fs)', $took);
+    };
+
+    subtest 'publish/subscribe fall back to local when unreachable' => sub {
+        my $bc = Purl::Broadcast::Redis->new(redis_url => 'redis://127.0.0.1:1');
+        my @got;
+        local $SIG{__WARN__} = sub { };
+        $bc->subscribe('ch', sub { push @got, $_[0] });
+        $bc->publish('ch', { a => 1 });
+        is scalar @got, 1, 'delivered locally';
+        ok !$bc->is_connected, 'still reports not connected';
+    };
+}
 
 # ============================================
 # Publish array of logs (typical use case)

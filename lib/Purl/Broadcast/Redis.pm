@@ -6,6 +6,7 @@ use 5.024;
 use Moo;
 use namespace::clean;
 use Mojo::JSON qw(encode_json decode_json);
+use Time::HiRes ();
 
 with 'Purl::Broadcast';
 
@@ -15,11 +16,20 @@ has 'redis_url' => (
     required => 1,
 );
 
-# Mojo::Redis instance (lazy, created on first use)
+# Mojo::Redis instance (lazy; built and PING-verified on first use). undef when
+# Redis is unreachable or Mojo::Redis is not installed.
 has '_redis' => (
     is      => 'rw',
     lazy    => 1,
     builder => '_build_redis',
+);
+
+# Upper bound (seconds, fractional allowed) for the startup PING, so an
+# unreachable or blackholed Redis fails fast instead of Mojo::Redis's 10s
+# connect timeout (or forever, if a peer accepts TCP but never answers).
+has 'connect_timeout' => (
+    is      => 'ro',
+    default => sub { 2 },
 );
 
 # Local fallback for when Redis is unavailable
@@ -60,19 +70,43 @@ sub _build_redis {
     my ($self) = @_;
 
     my $redis;
-    eval {
+    my $ok = eval {
         require Mojo::Redis;
+        $self->_ping_once;
         $redis = Mojo::Redis->new($self->redis_url);
-        # Test connection by pinging
-        $self->_redis_available(1);
+        1;
     };
-    if ($@) {
-        warn "Broadcast::Redis: Mojo::Redis not available or connection failed: $@";
+    if (!$ok) {
+        my $err = $@ || 'unknown error';
+        warn "Broadcast::Redis: Redis unavailable at @{[ $self->redis_url ]}: $err";
         $self->_redis_available(0);
         return undef;
     }
 
+    $self->_redis_available(1);
     return $redis;
+}
+
+# Real round-trip on a throwaway client, bounded by connect_timeout. A separate
+# client keeps the long-lived one free of the blocking connection, and it is
+# closed here, before Server.pm's prefork workers are forked.
+sub _ping_once {
+    my ($self) = @_;
+    my $probe = Mojo::Redis->new($self->redis_url);
+    local $SIG{ALRM} = sub { die "PING timed out after @{[ $self->connect_timeout ]}s\n" };
+    Time::HiRes::alarm($self->connect_timeout);
+    my $ok = eval { $probe->db->ping; 1 };
+    my $err = $@;
+    Time::HiRes::alarm(0);
+    die $err unless $ok;
+    return 1;
+}
+
+# True when Redis is built, PING-verified, and has not failed at runtime.
+# Touching _redis runs the lazy builder, so the first call does the PING.
+sub _use_redis {
+    my ($self) = @_;
+    return defined $self->_redis && $self->_redis_available ? 1 : 0;
 }
 
 sub publish {
@@ -82,7 +116,7 @@ sub publish {
     # When Redis is connected, publish to Redis only.
     # The Redis PubSub listener handles local delivery on ALL instances
     # (including this one), avoiding double delivery.
-    if ($self->_redis_available && $self->_redis) {
+    if ($self->_use_redis) {
         eval {
             $self->_redis->pubsub->notify($channel => $json);
         };
@@ -109,7 +143,7 @@ sub subscribe {
     $self->_subscribers->{$channel}{$id} = $callback;
 
     # Set up Redis PubSub listener for this channel (once per channel)
-    if ($self->_redis_available && $self->_redis
+    if ($self->_use_redis
         && !$self->_pubsub_handles->{$channel}) {
         eval {
             my $ps = $self->_redis->pubsub;
@@ -137,7 +171,7 @@ sub unsubscribe {
         # If no more local subscribers for this channel, unlisten from Redis
         if (!keys %{$self->_subscribers->{$channel}}) {
             delete $self->_subscribers->{$channel};
-            if ($self->_redis_available && $self->_redis
+            if ($self->_use_redis
                 && $self->_pubsub_handles->{$channel}) {
                 eval {
                     $self->_redis->pubsub->unlisten($channel);
@@ -151,7 +185,7 @@ sub unsubscribe {
 
 sub is_connected {
     my ($self) = @_;
-    return $self->_redis_available && defined $self->_redis;
+    return $self->_use_redis;
 }
 
 # Deliver message to local subscribers only (called from both publish and Redis listener)
@@ -186,8 +220,12 @@ Purl::Broadcast::Redis - Redis Pub/Sub broadcast for multi-replica deployments
 Uses Redis Pub/Sub to broadcast log messages across multiple Purl instances,
 enabling live-tail WebSocket to work in multi-replica Kubernetes deployments.
 
-When Redis is unavailable (Mojo::Redis not installed, connection failed),
-falls back to local-only delivery gracefully.
+The first use (normally C<is_connected> at server startup) builds the client
+and sends a real C<PING>, bounded by C<connect_timeout> (default 2s).
+C<is_connected> is true only if that PING succeeded and no later publish or
+subscribe has failed. When Redis is unavailable (Mojo::Redis not installed,
+unreachable, timed out, or failing at runtime), it falls back to local-only
+delivery.
 
 =head1 CONFIGURATION
 
