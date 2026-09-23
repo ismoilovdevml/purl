@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { levelStats, serviceStats, hostStats, connectWebSocket, isLive } from '../stores/logs.js';
+  import { levelStats, serviceStats, hostStats, namespaceStats, podStats, containerStats, connectWebSocket, isLive } from '../stores/logs.js';
   import Button from './ui/Button.svelte';
   import Icon from './ui/Icon.svelte';
   import { search as searchIcon, close, sparkles } from './ui/icons.js';
@@ -151,6 +151,9 @@
       level: $levelStats.map(s => s.value),
       service: $serviceStats.map(s => s.value),
       host: $hostStats.map(s => s.value),
+      namespace: $namespaceStats.map(s => s.value),
+      pod: $podStats.map(s => s.value),
+      container: $containerStats.map(s => s.value),
     });
     showSuggestions = suggestions.length > 0;
   }
@@ -265,9 +268,12 @@
 </div>
 
 <style>
+  /* A flex item of the header's toolbar row: 320px is the width below which
+     the actions wrap to their own line instead of squeezing the query. */
   .search-bar-wrapper {
-    flex: 1;
-    max-width: 600px;
+    flex: 1 1 320px;
+    min-width: 0;
+    max-width: 720px;
   }
 
   .ai-bar-wrap {
@@ -324,7 +330,7 @@
 
   .search-bar {
     flex: 1;
-    max-width: 600px;
+    min-width: 0;
     position: relative;
     display: flex;
     align-items: center;
@@ -333,6 +339,7 @@
 
   .search-con {
     flex: 1;
+    min-width: 0;
     position: relative;
     display: flex;
     align-items: center;

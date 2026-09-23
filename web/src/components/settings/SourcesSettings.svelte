@@ -38,7 +38,7 @@
     } catch (err) {
       // Keep the server's own wording when it sends one; anything else
       // (network failure, unparsable body) falls back to the generic message.
-      error = err.body?.error || 'Failed to load sources';
+      error = err.userMessage || 'Failed to load sources';
       // A request that never reached the server stays silent, as before.
       if (!err.isNetworkError) toastError(error);
     } finally {

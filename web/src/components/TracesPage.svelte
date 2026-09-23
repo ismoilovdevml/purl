@@ -60,7 +60,7 @@
    * Keep the server's own message when it sent one.
    */
   function traceLookupError(err, label) {
-    const fromServer = err?.body?.error;
+    const fromServer = err?.userMessage;
     if (fromServer) return new Error(fromServer);
     return new Error(err?.status ? `${label} (${err.status})` : (err?.message || label));
   }

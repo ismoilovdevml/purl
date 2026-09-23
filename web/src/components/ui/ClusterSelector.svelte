@@ -20,7 +20,7 @@
   }
 </script>
 
-<div class="cluster-selector" title="Filter logs by cluster">
+<div class="cluster-selector focus-shell" title="Filter logs by cluster">
   <Icon icon={globe} size={16} />
   <select
     class="cluster-select"

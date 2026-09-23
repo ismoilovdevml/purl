@@ -36,6 +36,9 @@
           <Icon icon={TOAST_ICON[toast.type] ?? info} size={16} />
         </span>
         <span class="toast-message">{toast.message}</span>
+        {#if toast.count > 1}
+          <span class="toast-count" aria-label="shown {toast.count} times">×{toast.count}</span>
+        {/if}
         <button
           class="toast-close"
           onclick={() => removeToast(toast.id)}
@@ -119,6 +122,16 @@
     flex: 1;
     line-height: 1.4;
     word-break: break-word;
+  }
+
+  .toast-count {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #8b949e;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
   }
 
   .toast-close {

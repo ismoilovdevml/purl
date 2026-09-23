@@ -86,7 +86,7 @@
     } catch (err) {
       // Same wording as before: the server's own message when it sends one,
       // otherwise the generic line (also used for network failures).
-      error = err?.body?.error || 'Failed to load audit logs';
+      error = err?.userMessage || 'Failed to load audit logs';
     }
     loading = false;
     searching = false;

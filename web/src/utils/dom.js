@@ -170,6 +170,51 @@ export function portal(node, target = document.body) {
   };
 }
 
+/**
+ * Svelte action: keep an absolutely positioned popup (dropdown menu, picker
+ * panel) horizontally inside the viewport. The popup keeps its CSS anchoring
+ * (e.g. `right: 0` under its trigger); when that would push it past either
+ * edge — a trigger that wrapped to the left of a narrow header, or one flush
+ * with the right edge — it is shifted back in with a translateX, and it is
+ * never wider than the viewport. Re-measured on window resize and whenever
+ * the popup's own size changes (e.g. the time picker swapping to its wider
+ * custom-range form).
+ *
+ * Use on an element that exists only while open (`{#if open}`), so the first
+ * measurement sees its real box.
+ * Usage: <div class="dropdown" use:fitToViewport>
+ * @param {HTMLElement} node - The popup element
+ * @returns {object} Svelte action object
+ */
+export function fitToViewport(node) {
+  const GUTTER = 8;
+  node.style.maxWidth = `calc(100vw - ${GUTTER * 2}px)`;
+
+  function place() {
+    node.style.translate = '';
+    const rect = node.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const viewport = document.documentElement.clientWidth;
+    let shift = 0;
+    if (rect.right > viewport - GUTTER) shift = viewport - GUTTER - rect.right;
+    if (rect.left + shift < GUTTER) shift = GUTTER - rect.left;
+    if (shift !== 0) node.style.translate = `${Math.round(shift)}px 0`;
+  }
+
+  place();
+  window.addEventListener('resize', place);
+  // `translate` does not change the observed box size, so this cannot loop.
+  const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(place) : null;
+  observer?.observe(node);
+
+  return {
+    destroy() {
+      window.removeEventListener('resize', place);
+      observer?.disconnect();
+    },
+  };
+}
+
 /** Selector for all focusable elements (excludes disabled) */
 export const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';

@@ -20,6 +20,7 @@
 
 import { clearSession, markAuthRequired } from '../stores/auth.js';
 import { error as toastError } from '../stores/toast.js';
+import { describeApiError, parseRetryAfter } from './apiErrors.js';
 
 const API_BASE = '/api';
 
@@ -37,12 +38,34 @@ const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  * cancelled in-flight requests.
  */
 export class ApiError extends Error {
-  constructor(message, { status = 0, body = null, cause = null } = {}) {
+  /**
+   * `message` is always safe to show (see utils/apiErrors.js, #107).
+   * `userMessage` is the same text when it says something specific, or null
+   * when all we have is "Request failed (HTTP n)" — call sites with better
+   * wording of their own use `err.userMessage || 'Failed to …'`.
+   * `code` is the server's stable error code: branch on it, never on text.
+   * `body` is the raw server body: never render it.
+   */
+  constructor(message, { status = 0, body = null, cause = null, userMessage = null, code = null, requestId = null, retryAfter = null } = {}) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
     this.cause = cause;
+    this.userMessage = userMessage;
+    this.code = code;
+    this.requestId = requestId;
+    /** Seconds the server asked us to wait before retrying (503/429), or null. */
+    this.retryAfter = retryAfter;
+  }
+
+  /**
+   * The server (or the path to it) is failing, as opposed to rejecting this
+   * particular request: 5xx or unreachable. One outage fails every panel at
+   * once, so callers use this to report it once instead of per panel.
+   */
+  get isServerError() {
+    return this.status === 0 || this.status >= 500;
   }
 
   /** True when the server was never reached. */
@@ -213,15 +236,17 @@ async function parseBody(res) {
   return text;
 }
 
-function errorMessageFrom(body, status) {
-  if (body && typeof body === 'object') {
-    if (body.error) return body.error;
-    if (body.message) return body.message;
-  }
-  if (typeof body === 'string' && body.trim() && body.length < 200) {
-    return body.trim();
-  }
-  return `Request failed (HTTP ${status})`;
+/** Build the ApiError for a non-2xx response; never carries raw server text. */
+function apiErrorFrom(res, parsed) {
+  const { message, code, requestId, retryAfter } = describeApiError(res.status, parsed);
+  return new ApiError(message || `Request failed (HTTP ${res.status})`, {
+    status: res.status,
+    body: parsed,
+    userMessage: message,
+    code,
+    requestId: requestId || res.headers.get('x-request-id') || null,
+    retryAfter: retryAfter ?? parseRetryAfter(res.headers.get('retry-after')),
+  });
 }
 
 /**
@@ -286,10 +311,7 @@ async function request(path, options = {}, _isCsrfRetry = false) {
     handleSessionExpiry(path);
   }
 
-  throw new ApiError(errorMessageFrom(parsed, res.status), {
-    status: res.status,
-    body: parsed,
-  });
+  throw apiErrorFrom(res, parsed);
 }
 
 /* ------------------------------------------------------------------ *

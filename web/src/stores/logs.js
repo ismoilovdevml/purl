@@ -5,12 +5,17 @@ import { uniqueId } from '../utils/id.js';
 import { settings, clampMaxResults } from './settings.js';
 import { passwordChangeRequired, endRevokedSession, WS_SESSION_REVOKED } from './auth.js';
 import { error as toastError } from './toast.js';
+import { kqlClause } from '../utils/kql.js';
 import { selectedCluster } from './cluster.js';
 
 // State stores
 export const logs = writable([]);
 export const loading = writable(false);
 export const error = writable(null);
+// What the failure state needs besides the message (#107): the support
+// reference (the server log has the detail under it) and, for an outage, how
+// long the server asked us to wait before retrying.
+export const errorDetail = writable({ requestId: null, retryAfter: null });
 export const query = writable('');
 export const timeRange = writable('15m');
 export const customTimeRange = writable({ from: null, to: null });
@@ -21,12 +26,29 @@ export const levelStats = writable([]);
 export const serviceStats = writable([]);
 export const hostStats = writable([]);
 
-// K8s field statistics
+// K8s field statistics. namespace/pod/container are first-class columns the
+// chart's Vector DaemonSet fills (#104); node/deployment/team still live in
+// the `meta` JSON.
 export const namespaceStats = writable([]);
 export const podStats = writable([]);
+export const containerStats = writable([]);
 export const nodeStats = writable([]);
 export const deploymentStats = writable([]);
 export const teamStats = writable([]);
+
+// `/api/stats/fields/<field>` name → the store its values land in. One entry
+// per facet the fields sidebar can show; fetchAllStats() asks for every one.
+const FIELD_STATS_STORES = {
+  level: levelStats,
+  service: serviceStats,
+  host: hostStats,
+  namespace: namespaceStats,
+  pod: podStats,
+  container: containerStats,
+  'meta.node': nodeStats,
+  'meta.deployment': deploymentStats,
+  'meta.team': teamStats,
+};
 
 // Histogram data
 export const histogram = writable([]);
@@ -38,6 +60,20 @@ export const isLive = writable(false);
 // AbortController for request cancellation
 let searchController = null;
 let statsController = null;
+
+/**
+ * The query the server should run: the search bar's text plus the cluster
+ * picker's filter. Shared by the search and the field facets, so a facet's
+ * counts always describe the result set on screen (#104).
+ * @returns {string} empty when there is nothing to filter on
+ */
+function effectiveQuery() {
+  const currentQuery = get(query);
+  const cluster = get(selectedCluster);
+  if (!cluster || cluster === 'all') return currentQuery;
+  const clusterFilter = kqlClause('meta.cluster', cluster);
+  return currentQuery ? `${currentQuery} ${clusterFilter}` : clusterFilter;
+}
 
 // Search logs with proper request cancellation
 export async function searchLogs() {
@@ -54,9 +90,9 @@ export async function searchLogs() {
 
   loading.set(true);
   error.set(null);
+  errorDetail.set({ requestId: null, retryAfter: null });
 
   try {
-    const currentQuery = get(query);
     const currentRange = get(timeRange);
     const currentCustom = get(customTimeRange);
 
@@ -73,14 +109,7 @@ export async function searchLogs() {
       params.set('range', currentRange);
     }
 
-    // Build query with optional cluster filter
-    const cluster = get(selectedCluster);
-    let finalQuery = currentQuery;
-    if (cluster && cluster !== 'all') {
-      const clusterFilter = `meta.cluster:${cluster}`;
-      finalQuery = currentQuery ? `${currentQuery} ${clusterFilter}` : clusterFilter;
-    }
-
+    const finalQuery = effectiveQuery();
     if (finalQuery) {
       params.set('q', finalQuery);
     }
@@ -108,6 +137,9 @@ export async function searchLogs() {
 
     // Fetch stats in parallel (non-blocking) with separate controller
     fetchAllStats();
+    // Recovering from an outage: the patterns panel failed with it and has
+    // no reason of its own to refetch, so bring it back with the search.
+    if (get(patternsError)) fetchPatterns();
 
   } catch (err) {
     // Ignore abort errors - they are expected when cancelling
@@ -124,9 +156,11 @@ export async function searchLogs() {
     logs.set([]);
     total.set(0);
 
+    // err.message is already user-safe (utils/apiErrors.js). No toast: the
+    // table's failure state (with Retry) and the banner say it (#107).
     error.set(err.message);
+    errorDetail.set({ requestId: err.requestId ?? null, retryAfter: err.retryAfter ?? null });
     console.error('Search error:', err);
-    toastError('Search failed: ' + (err.message || 'Unknown error'));
   } finally {
     loading.set(false);
   }
@@ -141,63 +175,46 @@ async function fetchAllStats() {
   statsController = new AbortController();
   const signal = statsController.signal;
 
-  try {
-    await Promise.all([
-      fetchFieldStats('level', signal),
-      fetchFieldStats('service', signal),
-      fetchFieldStats('host', signal),
-      fetchFieldStats('meta.namespace', signal),
-      fetchFieldStats('meta.pod', signal),
-      fetchFieldStats('meta.node', signal),
-      fetchFieldStats('meta.deployment', signal),
-      fetchFieldStats('meta.team', signal),
-      fetchHistogram(signal),
-    ]);
-  } catch (err) {
-    if (err.name !== 'AbortError' && !err.isAuthError) {
-      console.error('Stats fetch error:', err);
-      toastError('Failed to load statistics');
-    }
+  // Each fetcher throws instead of toasting, so one outage failing all ten
+  // requests reports once (#107), not once per facet.
+  const results = await Promise.allSettled([
+    ...Object.keys(FIELD_STATS_STORES).map((field) => fetchFieldStats(field, signal)),
+    fetchHistogram(signal),
+  ]);
+  const failure = results.find(
+    (r) => r.status === 'rejected' && r.reason?.name !== 'AbortError' && !r.reason?.isAuthError
+  );
+  if (failure) {
+    console.error('Stats fetch error:', failure.reason);
+    toastError(failure.reason?.isServerError ? failure.reason.message : 'Failed to load statistics');
   }
 }
 
-// Fetch field statistics with abort signal
+// Fetch field statistics with abort signal. Throws; fetchAllStats reports.
 async function fetchFieldStats(field, signal = null) {
-  try {
-    const currentRange = get(timeRange);
-    const currentCustom = get(customTimeRange);
+  const currentRange = get(timeRange);
+  const currentCustom = get(customTimeRange);
 
-    const params = new URLSearchParams({ limit: 10 });
+  const params = new URLSearchParams({ limit: 10 });
 
-    if (currentRange === 'custom' && currentCustom.from && currentCustom.to) {
-      params.set('from', currentCustom.from);
-      params.set('to', currentCustom.to);
-    } else {
-      params.set('range', currentRange);
-    }
-
-    const data = await api.get(`/stats/fields/${encodeURIComponent(field)}`, {
-      query: params,
-      signal,
-    });
-
-    // Standard fields
-    if (field === 'level') levelStats.set(data.values || []);
-    if (field === 'service') serviceStats.set(data.values || []);
-    if (field === 'host') hostStats.set(data.values || []);
-
-    // K8s meta fields
-    if (field === 'meta.namespace') namespaceStats.set(data.values || []);
-    if (field === 'meta.pod') podStats.set(data.values || []);
-    if (field === 'meta.node') nodeStats.set(data.values || []);
-    if (field === 'meta.deployment') deploymentStats.set(data.values || []);
-    if (field === 'meta.team') teamStats.set(data.values || []);
-  } catch (err) {
-    if (err.name !== 'AbortError' && !err.isAuthError) {
-      console.error(`Failed to fetch ${field} stats:`, err);
-      toastError(`Failed to load ${field} statistics`);
-    }
+  if (currentRange === 'custom' && currentCustom.from && currentCustom.to) {
+    params.set('from', currentCustom.from);
+    params.set('to', currentCustom.to);
+  } else {
+    params.set('range', currentRange);
   }
+
+  // Narrow the facet to the current search (#104); the endpoint takes `q`
+  // for every field.
+  const finalQuery = effectiveQuery();
+  if (finalQuery) params.set('q', finalQuery);
+
+  const data = await api.get(`/stats/fields/${encodeURIComponent(field)}`, {
+    query: params,
+    signal,
+  });
+
+  FIELD_STATS_STORES[field].set(data.values || []);
 }
 
 // Calculate interval based on time range duration
@@ -219,31 +236,24 @@ function getIntervalForRange(range, customFrom, customTo) {
   return '1 hour';
 }
 
-// Fetch histogram with abort signal
+// Fetch histogram with abort signal. Throws; fetchAllStats reports.
 async function fetchHistogram(signal = null) {
-  try {
-    const currentRange = get(timeRange);
-    const currentCustom = get(customTimeRange);
+  const currentRange = get(timeRange);
+  const currentCustom = get(customTimeRange);
 
-    const interval = getIntervalForRange(currentRange, currentCustom.from, currentCustom.to);
-    const params = new URLSearchParams({ interval });
+  const interval = getIntervalForRange(currentRange, currentCustom.from, currentCustom.to);
+  const params = new URLSearchParams({ interval });
 
-    if (currentRange === 'custom' && currentCustom.from && currentCustom.to) {
-      params.set('from', currentCustom.from);
-      params.set('to', currentCustom.to);
-    } else {
-      params.set('range', currentRange);
-    }
-
-    const data = await api.get('/stats/histogram', { query: params, signal });
-
-    histogram.set(data.buckets || []);
-  } catch (err) {
-    if (err.name !== 'AbortError' && !err.isAuthError) {
-      console.error('Failed to fetch histogram:', err);
-      toastError('Failed to load histogram data');
-    }
+  if (currentRange === 'custom' && currentCustom.from && currentCustom.to) {
+    params.set('from', currentCustom.from);
+    params.set('to', currentCustom.to);
+  } else {
+    params.set('range', currentRange);
   }
+
+  const data = await api.get('/stats/histogram', { query: params, signal });
+
+  histogram.set(data.buckets || []);
 }
 
 // Fetch previous period histogram for comparison
@@ -645,9 +655,9 @@ export async function fetchPatterns() {
     patterns.set(data.patterns || []);
   } catch (err) {
     if (err.name !== 'AbortError' && !err.isAuthError) {
+      // The panel shows this inline with Retry; no toast on top (#107).
       patternsError.set(err.message);
       console.error('Failed to fetch patterns:', err);
-      toastError('Failed to load patterns: ' + (err.message || 'Unknown error'));
     }
   } finally {
     patternsLoading.set(false);

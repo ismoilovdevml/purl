@@ -87,6 +87,9 @@
   }
 
   function drawHistogram() {
+    // A stats response or resize callback can land after the Logs page was
+    // left (the canvas is gone): nothing to draw, and no page error.
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const dims = getBarDimensions();
     if (!dims) return;

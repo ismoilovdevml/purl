@@ -2,6 +2,12 @@
   AppHeader
   The sticky top bar: mobile menu toggle, logo, page tabs, the signed-in user,
   and — on the logs page only — the logs toolbar.
+
+  Layout (#103): the first row is logo + tabs + user; the logs toolbar always
+  takes a full row of its own and wraps inside itself, so nothing is ever
+  pushed past the right edge. Tabs drop to icons below 1100px and move to
+  their own row below 560px; the label stays in the DOM (screen readers,
+  e2e `:has-text`) and in the tooltip.
 -->
 <script>
   import Icon from '../ui/Icon.svelte';
@@ -75,9 +81,10 @@
       <button
         class:active={currentPage === page.id}
         onclick={() => onnavigate(page.id)}
+        title={page.label}
       >
         <Icon icon={TAB_ICONS[page.id]} size={16} />
-        {page.label}
+        <span class="tab-label">{page.label}</span>
       </button>
     {/each}
   </nav>
@@ -90,15 +97,18 @@
   {/if}
 
   {#if currentPage === 'logs'}
-    <LogsToolbar {selectedLogs} bind:exportStatus {onsavesearch} {onshowhelp} />
+    <div class="header-toolbar">
+      <LogsToolbar {selectedLogs} bind:exportStatus {onsavesearch} {onshowhelp} />
+    </div>
   {/if}
 </header>
 
 <style>
   header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 16px;
+    gap: 10px 16px;
     padding: 12px 20px;
     background: #161b22;
     border-bottom: 1px solid #30363d;
@@ -107,7 +117,17 @@
     z-index: 100;
   }
 
+  .header-toolbar {
+    flex: 1 1 100%;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+  }
+
   .logo {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -134,6 +154,10 @@
   .user-name {
     font-size: 13px;
     color: #8b949e;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* Was `.btn` + `.btn-sm` when App held the toolbar's `.btn` rule too; the
@@ -149,6 +173,7 @@
     border-radius: 6px;
     color: #c9d1d9;
     cursor: pointer;
+    white-space: nowrap;
     transition: all 0.15s;
   }
 
@@ -174,6 +199,7 @@
     border-radius: 6px;
     color: #8b949e;
     font-size: 13px;
+    white-space: nowrap;
     cursor: pointer;
     transition: all 0.2s;
   }
@@ -219,18 +245,39 @@
     transition: transform 0.2s;
   }
 
+  /* Icon-only tabs: the label is visually hidden, not removed. */
+  @media (max-width: 1100px) {
+    .nav-tabs button {
+      padding: 8px 10px;
+    }
+
+    .tab-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+  }
+
   @media (max-width: 768px) {
     .hamburger {
       display: flex;
     }
+  }
 
-    .nav-tabs button {
-      padding: 8px 10px;
-      font-size: 12px;
+  /* Phones: tabs get a full row of their own under logo + user. */
+  @media (max-width: 560px) {
+    .nav-tabs {
+      order: 1;
+      flex: 1 1 100%;
+      justify-content: space-between;
     }
 
-    .nav-tabs button :global(svg) {
-      display: none;
+    .header-toolbar {
+      order: 2;
     }
   }
 

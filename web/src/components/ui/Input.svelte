@@ -115,7 +115,7 @@
     </label>
   {/if}
 
-  <div class="input-container" class:has-error={error} class:disabled={isDisabled} class:size-sm={size === 'sm'} class:size-lg={size === 'lg'}>
+  <div class="input-container focus-shell" class:has-error={error} class:disabled={isDisabled} class:size-sm={size === 'sm'} class:size-lg={size === 'lg'}>
     {#if icon}
       <span class="input-icon">
         {@render icon()}
@@ -221,6 +221,11 @@
     box-shadow: 0 0 0 2px var(--color-error-bg);
   }
 
+  /* The shell's focus ring (focus.css) follows the error state. */
+  .input-container.has-error:has(> .input-field:focus-visible) {
+    outline-color: var(--color-error);
+  }
+
   .input-container.disabled {
     opacity: 0.5;
     cursor: not-allowed;
@@ -246,8 +251,9 @@
     min-width: 0;
     background: transparent;
     border: none;
-    /* No `outline: none` here: the global :focus-visible rule in
-       styles/focus.css is what gives keyboard users a visible ring. */
+    /* No `outline: none` here: .focus-shell (styles/focus.css) moves the
+       keyboard ring from this field onto .input-container, so there is
+       exactly one ring, on the visible border. */
     font-size: var(--text-base);
     color: var(--text-primary);
     font-family: inherit;

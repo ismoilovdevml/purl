@@ -14,21 +14,16 @@
 <svelte:options runes />
 
 <script>
-  import { error as searchError, searchLogs } from '../../stores/logs.js';
+  import { error as searchError } from '../../stores/logs.js';
   import { hasEverIngested } from '../../stores/ingest.js';
   import EmptyState from '../ui/EmptyState.svelte';
-  import Button from '../ui/Button.svelte';
   import IngestSnippet from '../onboarding/IngestSnippet.svelte';
-  import { alertCircle, box, search } from '../ui/icons.js';
+  import SearchFailedState from './SearchFailedState.svelte';
+  import { box, search } from '../ui/icons.js';
 </script>
 
 {#if $searchError}
-  <EmptyState icon={alertCircle} title="Search failed" tone="error">
-    {#snippet description()}<span>{$searchError}</span>{/snippet}
-    {#snippet actions()}
-      <Button size="sm" onclick={searchLogs}>Retry search</Button>
-    {/snippet}
-  </EmptyState>
+  <SearchFailedState />
 {:else if $hasEverIngested === false}
   <EmptyState icon={box} title="No logs yet" tone="accent">
     {#snippet description()}

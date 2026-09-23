@@ -4,13 +4,13 @@
  * query. Pure functions — the caller supplies the known field values.
  */
 
+import { kqlClause } from './kql.js';
+
 // KQL operators and fields
 const OPERATORS = ['AND', 'OR', 'NOT'];
-const FIELDS = ['level', 'service', 'host', 'message', 'timestamp'];
+// namespace/pod/container are real columns (#104), not meta.* keys.
+const FIELDS = ['level', 'service', 'host', 'namespace', 'pod', 'container', 'message', 'timestamp'];
 const META_FIELDS = [
-  { field: 'meta.namespace', label: 'Namespace', group: 'Metadata' },
-  { field: 'meta.pod', label: 'Pod', group: 'Metadata' },
-  { field: 'meta.container', label: 'Container', group: 'Metadata' },
   { field: 'meta.node', label: 'Node', group: 'Metadata' },
   { field: 'meta.cluster', label: 'Cluster', group: 'Metadata' },
   { field: 'meta.deployment', label: 'Deployment', group: 'Metadata' },
@@ -25,7 +25,7 @@ const META_FIELDS = [
  * Suggestions for the token being typed at the end of `textBeforeCursor`.
  * @param {string} textBeforeCursor - query text up to the caret
  * @param {Record<string, string[]>} fieldValues - known values keyed by
- *   lower-case field name (level/service/host)
+ *   lower-case field name (level/service/host/namespace/pod/container)
  * @returns {Array<{ type: 'field'|'value'|'operator', text: string, display: string, hint?: string, field?: string, group?: string }>}
  *   empty when there is no current token
  */
@@ -50,7 +50,7 @@ export function buildSuggestions(textBeforeCursor, fieldValues) {
       .slice(0, 8)
       .map(v => ({
         type: 'value',
-        text: `${field}:${v}`,
+        text: kqlClause(field, v),
         display: v,
         field: field
       }));

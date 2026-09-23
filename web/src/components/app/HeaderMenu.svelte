@@ -16,6 +16,7 @@
 <script>
   import Icon from '../ui/Icon.svelte';
   import { chevronDown } from '../ui/icons.js';
+  import { fitToViewport } from '../../utils/dom.js';
 
   /**
    * @type {{
@@ -61,9 +62,13 @@
     {@render label()}
     <Icon icon={chevronDown} size={12} strokeWidth={3} />
   </button>
-  <div class="dropdown-menu" class:open>
-    {@render children(close)}
-  </div>
+  <!-- Rendered only while open so fitToViewport measures the real box and can
+       pull the menu back inside a narrow viewport (#103). -->
+  {#if open}
+    <div class="dropdown-menu open" use:fitToViewport>
+      {@render children(close)}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -75,6 +80,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    white-space: nowrap;
     padding: 8px 16px;
     background: #21262d;
     border: 1px solid #30363d;
@@ -108,7 +114,6 @@
   }
 
   .dropdown-menu {
-    display: none;
     position: absolute;
     top: 100%;
     right: 0;
@@ -121,10 +126,6 @@
     min-width: 160px;
     overflow: hidden;
     padding: 4px 0;
-  }
-
-  .dropdown-menu.open {
-    display: block;
   }
 
   /* :global — the items come from the caller's snippet, so they carry the

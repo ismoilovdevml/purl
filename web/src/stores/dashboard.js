@@ -59,7 +59,7 @@ export async function createDashboard(dashboard) {
     return true;
   } catch (err) {
     if (err.isUnauthorized) return false;
-    toastError(err.body?.error || 'Failed to create dashboard');
+    toastError(err.userMessage || 'Failed to create dashboard');
     return false;
   }
 }
@@ -111,7 +111,7 @@ export async function createFromTemplate(templateId, name) {
     return true;
   } catch (err) {
     if (err.isUnauthorized) return false;
-    toastError(err.body?.error || 'Failed to create from template');
+    toastError(err.userMessage || 'Failed to create from template');
     return false;
   }
 }

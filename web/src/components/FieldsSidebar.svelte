@@ -1,5 +1,5 @@
 <script>
-  import { levelStats, serviceStats, hostStats, namespaceStats, podStats, nodeStats, deploymentStats, teamStats } from '../stores/logs.js';
+  import { levelStats, serviceStats, hostStats, namespaceStats, podStats, containerStats, nodeStats, deploymentStats, teamStats } from '../stores/logs.js';
   import { getLevelColor } from '../utils/colors.js';
   import Button from './ui/Button.svelte';
   import Badge from './ui/Badge.svelte';
@@ -7,6 +7,7 @@
   import Icon from './ui/Icon.svelte';
   import { caretDown, caretRight, caretUp, close, search } from './ui/icons.js';
   import { formatCount } from '../utils/format.js';
+  import { kqlClause } from '../utils/kql.js';
 
   /** @type {{ loading?: boolean, onfilter?: (e: { field: string, value: string }) => void }} */
   let { loading = false, onfilter } = $props();
@@ -15,14 +16,16 @@
    * One entry per field section, in render order. `key` names the section,
    * `field` is what goes into the query, `color` paints the value dot (a
    * function for level, whose colour depends on the value), and `k8s` marks
-   * the sections that sit under the "Kubernetes" divider.
+   * the sections that sit under the "Kubernetes" divider. A section with no
+   * values (every k8s one on a non-k8s install) is not rendered at all.
    */
   const SECTIONS = [
     { key: 'level', field: 'level', store: levelStats, color: (v) => getLevelColor(v), open: true },
     { key: 'service', field: 'service', store: serviceStats, color: 'var(--color-primary)', open: true },
     { key: 'host', field: 'host', store: hostStats, color: 'var(--color-purple)', open: true },
-    { key: 'namespace', field: 'meta.namespace', store: namespaceStats, color: 'var(--color-orange)', k8s: true },
-    { key: 'pod', field: 'meta.pod', store: podStats, color: 'var(--color-success)', k8s: true },
+    { key: 'namespace', field: 'namespace', store: namespaceStats, color: 'var(--color-orange)', k8s: true, open: true },
+    { key: 'pod', field: 'pod', store: podStats, color: 'var(--color-success)', k8s: true, open: true },
+    { key: 'container', field: 'container', store: containerStats, color: 'var(--color-primary)', k8s: true },
     { key: 'node', field: 'meta.node', store: nodeStats, color: '#bc8cff', k8s: true },
     { key: 'deployment', field: 'meta.deployment', store: deploymentStats, color: 'var(--color-success)', k8s: true },
     { key: 'team', field: 'meta.team', store: teamStats, color: 'var(--color-orange)', k8s: true },
@@ -40,12 +43,15 @@
     host: $hostStats,
     namespace: $namespaceStats,
     pod: $podStats,
+    container: $containerStats,
     node: $nodeStats,
     deployment: $deploymentStats,
     team: $teamStats,
   });
 
-  const hasK8sData = $derived(SECTIONS.some((s) => s.k8s && statsByKey[s.key].length > 0));
+  // The "Kubernetes" divider sits above the first k8s section that renders,
+  // which is not always namespace (e.g. meta-only node/team data).
+  const firstK8sKey = $derived(SECTIONS.find((s) => s.k8s && statsByKey[s.key].length > 0)?.key);
 
   function toggleSection(section) {
     expandedSections[section] = !expandedSections[section];
@@ -57,7 +63,7 @@
 
   function handleFilter(field, value, exclude = false) {
     const prefix = exclude ? 'NOT ' : '';
-    onfilter?.({ field, value: `${prefix}${field}:${value}` });
+    onfilter?.({ field, value: `${prefix}${kqlClause(field, value)}` });
   }
 
   function getPercentage(count, stats) {
@@ -91,7 +97,7 @@
     </div>
   </div>
 
-  <div class="field-search">
+  <div class="field-search focus-shell">
     <Icon icon={search} size={12} strokeWidth={3} class="search-icon" />
     <input type="text" bind:value={fieldFilter} placeholder="Filter fields..." aria-label="Filter fields" />
   </div>
@@ -106,7 +112,7 @@
 
   {#each SECTIONS as section (section.key)}
     {@const stats = statsByKey[section.key]}
-    {#if section.key === 'namespace' && hasK8sData}
+    {#if section.key === firstK8sKey}
       <div class="section-divider">
         <span>Kubernetes</span>
       </div>

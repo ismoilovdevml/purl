@@ -31,3 +31,20 @@ select:focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
   outline-offset: 0;
 }
+
+/*
+ * Focus shell: a bordered box that wraps a borderless control (ui/Input's
+ * .input-container, the field filter, the cluster picker). The rule above
+ * would draw the ring on the inner control, i.e. a second rectangle around
+ * the text area inside the shell's own border (#102). Move the one ring to
+ * the shell instead. Direct children only, so a focused suffix button inside
+ * the shell keeps its own ring and does not light up the whole box.
+ */
+.focus-shell > :is(input, textarea, select):focus-visible {
+  outline: none;
+}
+
+.focus-shell:has(> :is(input, textarea, select):focus-visible) {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: 0;
+}

@@ -2,7 +2,10 @@
   LogsToolbar
   The logs page's part of the app header: query bar, syntax-help button,
   cluster / time-range pickers, export menus and Refresh. Renders several
-  root nodes on purpose — they are flex items of the header itself.
+  root nodes on purpose — they are flex items of AppHeader's wrapping
+  .header-toolbar row: the query bar takes what is left, and .header-actions
+  drops to its own right-aligned line (and wraps inside itself) when the row
+  is too narrow (#103).
 -->
 <script>
   import SearchBar from '../SearchBar.svelte';
@@ -136,8 +139,12 @@
 <style>
   .header-actions {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
     gap: 8px;
     margin-left: auto;
+    min-width: 0;
   }
 
   .btn {
@@ -151,6 +158,7 @@
     color: #c9d1d9;
     cursor: pointer;
     font-size: 14px;
+    white-space: nowrap;
     transition: all 0.2s;
   }
 

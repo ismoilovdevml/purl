@@ -1,6 +1,6 @@
 <script>
   import { onMount, untrack } from 'svelte';
-  import { patterns, patternsLoading, patternsError, fetchPatterns, fetchPatternLogs, logs, timeRange, query, total } from '../stores/logs.js';
+  import { patterns, patternsLoading, patternsError, fetchPatterns, fetchPatternLogs, logs, timeRange, query, total, error as searchError } from '../stores/logs.js';
   import LoadingSpinner from './ui/LoadingSpinner.svelte';
   import EmptyState from './ui/EmptyState.svelte';
   import Icon from './ui/Icon.svelte';
@@ -101,7 +101,11 @@
 
   {#if expanded}
     <div class="patterns-content">
-      {#if $patternsError}
+      {#if $patternsError && $searchError}
+        <!-- Same outage as the failed search: the log table already states it
+             with Retry, and a successful retry refetches patterns (#107). -->
+        <p class="muted-state">Patterns are unavailable until search recovers.</p>
+      {:else if $patternsError}
         <div class="error-state">
           <span>{$patternsError}</span>
           <button class="retry-btn" onclick={fetchPatterns}>Retry</button>
@@ -249,6 +253,7 @@
   }
 
   .loading-state,
+  .muted-state,
   .error-state {
     padding: 20px;
     text-align: center;

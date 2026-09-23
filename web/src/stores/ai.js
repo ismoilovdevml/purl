@@ -90,7 +90,7 @@ export async function queryAI(question, execute = true) {
     }
     const msg = err.isNetworkError
       ? 'Failed to connect to AI service'
-      : (err.body?.error || 'AI query failed');
+      : (err.userMessage || 'AI query failed');
     aiError.set(msg);
     toastError(msg);
     return null;
@@ -132,7 +132,7 @@ export async function analyzeSelectedLogs(logs) {
     }
     const msg = err.isNetworkError
       ? 'Failed to connect to AI service'
-      : (err.body?.error || 'Analysis failed');
+      : (err.userMessage || 'Analysis failed');
     aiAnalysisError.set(msg);
     toastError(msg);
     return null;
@@ -174,7 +174,7 @@ export async function explainLog(log) {
     }
     const msg = err.isNetworkError
       ? 'Failed to connect to AI service'
-      : (err.body?.error || 'Explanation failed');
+      : (err.userMessage || 'Explanation failed');
     aiExplainError.set(msg);
     toastError(msg);
     return null;

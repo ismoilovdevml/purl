@@ -2,7 +2,7 @@
   import Icon from './ui/Icon.svelte';
   import CustomRangeForm from './timerange/CustomRangeForm.svelte';
   import { clock, caretDown, calendar } from './ui/icons.js';
-  import { stopPropagation } from '../utils/dom.js';
+  import { stopPropagation, fitToViewport } from '../utils/dom.js';
 
   /**
    * `value` / `customFrom` / `customTo` are reassigned locally when the user
@@ -119,7 +119,7 @@
   </button>
 
   {#if showDropdown}
-    <div class="dropdown" role="listbox" aria-label="Time range options">
+    <div class="dropdown" role="listbox" aria-label="Time range options" use:fitToViewport>
       {#if showCustom}
         <CustomRangeForm onapply={applyCustom} oncancel={cancelCustom} />
       {:else}
@@ -162,6 +162,7 @@
     color: #c9d1d9;
     cursor: pointer;
     font-size: 14px;
+    white-space: nowrap;
   }
 
   .picker-btn:hover {
@@ -170,6 +171,7 @@
 
   .label-text {
     max-width: 200px;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -235,5 +237,11 @@
 
   .custom-btn :global(svg) {
     opacity: 0.8;
+  }
+
+  @media (max-width: 600px) {
+    .label-text {
+      max-width: 110px;
+    }
   }
 </style>
