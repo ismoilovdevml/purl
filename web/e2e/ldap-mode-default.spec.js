@@ -32,7 +32,7 @@ const BASE_CONFIG = {
 function modeSelect(page) {
   return page
     .locator('.settings-section .select-wrapper')
-    .filter({ has: page.locator('.select-label', { hasText: /^\s*Mode\s*$/ }) })
+    .filter({ has: page.locator('.select-label', { hasText: /^\s*Mode(\s+ENV)?\s*$/ }) })
     .locator('select');
 }
 

@@ -34,7 +34,7 @@ const BASE_CONFIG = {
 function nameIdSelect(page) {
   return page
     .locator('.settings-section .select-wrapper')
-    .filter({ has: page.locator('.select-label', { hasText: /^\s*NameID Format\s*$/ }) })
+    .filter({ has: page.locator('.select-label', { hasText: /^\s*NameID Format(\s+ENV)?\s*$/ }) })
     .locator('select');
 }
 
