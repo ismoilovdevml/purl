@@ -1,0 +1,171 @@
+name: Chart Release
+
+# Publishes chart/ to the Helm repo served by GitHub Pages:
+#   https://ismoilovdevml.github.io/purl   (index.yaml on the gh-pages branch)
+# Each chart version becomes a GitHub Release `purl-<version>` whose asset is
+# the packaged .tgz; index.yaml on gh-pages points at those assets.
+#
+# Triggers:
+#   * push to main that touches chart/Chart.yaml (the version bump), and
+#   * a successful CI/CD run for a release tag (vX.Y.Z) — the image named by
+#     appVersion only exists AFTER that run, so a release commit that bumps
+#     appVersion is published here, not on the main push, and
+#   * manual workflow_dispatch (re-run after a failure).
+#
+# Every trigger ends in the same idempotent gate: a version already listed in
+# the gh-pages index.yaml is never republished, so extra runs are no-ops.
+on:
+  push:
+    branches: [main]
+    paths: ['chart/Chart.yaml']
+  workflow_run:
+    workflows: ['CI/CD']
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two runs racing on the same gh-pages commit would make one push fail.
+concurrency:
+  group: chart-release
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ismoilovdev/purl
+  PAGES_BRANCH: gh-pages
+
+jobs:
+  release:
+    name: Release Helm chart
+    runs-on: ubuntu-latest
+    # workflow_run fires for every CI/CD run (dev, PRs, ...). Only a green run
+    # for a release tag can have published a new appVersion image.
+    if: >-
+      github.event_name != 'workflow_run' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        startsWith(github.event.workflow_run.head_branch, 'v'))
+    permissions:
+      contents: write # create the GitHub Release + push index.yaml to gh-pages
+    steps:
+      # Always the tip of main (workflow_run/dispatch default to the default
+      # branch; push is main by the trigger filter). The chart is released
+      # from main only.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          # chart-releaser needs origin/gh-pages to build a worktree.
+          fetch-depth: 0
+
+      - name: Read chart version
+        id: chart
+        run: |
+          set -euo pipefail
+          VERSION="$(awk '$1 == "version:" {gsub(/"/, "", $2); print $2}' chart/Chart.yaml)"
+          APP_VERSION="$(awk '$1 == "appVersion:" {gsub(/"/, "", $2); print $2}' chart/Chart.yaml)"
+          echo "chart version: ${VERSION}  appVersion: ${APP_VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+
+      # gh-pages must exist before the first run (see docs/RELEASE.md,
+      # "One-time GitHub Pages setup"). Checked BEFORE the release is created,
+      # otherwise a missing branch would leave a Release with no index entry.
+      - name: Decide whether this version needs publishing
+        id: gate
+        env:
+          VERSION: ${{ steps.chart.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet "origin/${PAGES_BRANCH}" >/dev/null; then
+            echo "::error::Branch ${PAGES_BRANCH} does not exist. Run the one-time setup in docs/RELEASE.md."
+            exit 1
+          fi
+          if git show "origin/${PAGES_BRANCH}:index.yaml" 2>/dev/null | grep -q "/purl-${VERSION}\.tgz"; then
+            echo "::notice::Chart purl-${VERSION} is already in the ${PAGES_BRANCH} index — nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The chart's image.tag defaults to appVersion. Publishing a chart whose
+      # image does not exist makes every `helm install` ImagePullBackOff, so
+      # wait for the release-tag build instead: that run re-triggers this
+      # workflow (workflow_run) once the image is on Docker Hub.
+      - name: Image for appVersion must exist
+        id: image
+        if: steps.gate.outputs.publish == 'true'
+        env:
+          APP_VERSION: ${{ steps.chart.outputs.app_version }}
+        run: |
+          set -euo pipefail
+          if docker manifest inspect "docker.io/${IMAGE_NAME}:${APP_VERSION}" >/dev/null 2>&1; then
+            echo "image ${IMAGE_NAME}:${APP_VERSION} exists"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::${IMAGE_NAME}:${APP_VERSION} is not on Docker Hub yet — chart not published."
+            echo "::warning::Push tag v${APP_VERSION}; its CI/CD run re-triggers this workflow."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Same pin as the Helm 3 leg of ci.yml k8s-validate: most public installs
+      # run Helm 3, so the published package is built and linted with it.
+      - name: Install Helm
+        if: steps.image.outputs.ready == 'true'
+        uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78 # v4
+        with:
+          version: v3.16.4
+
+      - name: Lint and render the chart
+        if: steps.image.outputs.ready == 'true'
+        run: make helm-lint
+
+      # Packaged here, not by chart-releaser's change detection: that diffs
+      # chart/ against the latest git tag of ANY kind, so a release tag pushed
+      # after the chart bump would make it silently find "no changes".
+      - name: Package chart
+        if: steps.image.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          rm -rf .cr-release-packages
+          helm package chart/ -d .cr-release-packages
+          ls -l .cr-release-packages
+
+      - name: Configure git identity
+        if: steps.image.outputs.ready == 'true'
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Publish release and update index
+        if: steps.image.outputs.ready == 'true'
+        uses: helm/chart-releaser-action@cae68fefc6b5f367a0275617c9f83181ba54714f # v1.7.0
+        with:
+          skip_packaging: true
+          # A re-run after a failed index push finds the Release already there.
+          skip_existing: true
+          # The repo's "Latest" release is the app release (vX.Y.Z), not a chart.
+          mark_as_latest: false
+          pages_branch: ${{ env.PAGES_BRANCH }}
+        env:
+          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Workaround for v1.7.0 cr.sh: with skip_packaging it ends with
+          # `echo "chart_version=${latest_tag}"` under `set -o nounset`, and
+          # latest_tag is only declared on the packaging path — so the step
+          # fails with "unbound variable" AFTER the release and index push.
+          # Fixed upstream in helm/chart-releaser-action#202 (after v1.7.0).
+          # Drop this when bumping past v1.7.0.
+          latest_tag: ''
+
+      - name: Summary
+        if: steps.image.outputs.ready == 'true'
+        env:
+          VERSION: ${{ steps.chart.outputs.version }}
+        run: |
+          {
+            echo "### Published chart purl-${VERSION}"
+            echo '```'
+            echo "helm repo add purl https://ismoilovdevml.github.io/purl"
+            echo "helm repo update && helm search repo purl/purl --versions"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

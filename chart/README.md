@@ -4,10 +4,15 @@ Self-hosted log aggregation: a Purl deployment, ClickHouse, an optional Vector
 DaemonSet for node log collection, and an optional S3 backup CronJob.
 
 ```bash
-helm repo add purl https://charts.purlogs.com
+helm repo add purl https://ismoilovdevml.github.io/purl
 helm repo update
 helm install purl purl/purl -n purl --create-namespace
 ```
+
+The repo is served from GitHub Pages; every chart version is also a GitHub
+Release (`purl-<version>`) carrying the `.tgz`. It replaces
+`https://charts.purlogs.com` — if you added that URL, run
+`helm repo remove purl` and add the one above.
 
 `helm show values purl/purl` is the full reference — every key in
 `values.yaml` carries its rationale inline. This file covers the things a

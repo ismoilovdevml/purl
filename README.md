@@ -131,9 +131,17 @@ starting up quietly wrong.
 ### Install
 
 ```bash
-helm repo add purl https://charts.purlogs.com
+helm repo add purl https://ismoilovdevml.github.io/purl
 helm repo update
 helm install purl purl/purl -n purl --create-namespace
+```
+
+The chart repo moved from `https://charts.purlogs.com` to GitHub Pages. If you
+added the old URL, re-point it (release names and values are unaffected):
+
+```bash
+helm repo remove purl
+helm repo add purl https://ismoilovdevml.github.io/purl
 ```
 
 That is the whole command — no flags needed. The chart mints the ClickHouse

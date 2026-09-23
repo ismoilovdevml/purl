@@ -1,4 +1,4 @@
-.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint chart-publish release e2e-k8s e2e-docker
+.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint chart-publish chart-publish-vercel release e2e-k8s e2e-docker
 
 # Variables
 # Perl deps are installed with local::lib into ~/perl5 (same layout as CI).
@@ -31,7 +31,8 @@ help:
 	@echo ""
 	@echo "Helm chart:"
 	@echo "  helm-lint     Lint + template-render the chart"
-	@echo "  chart-publish Package chart and publish to charts.purlogs.com"
+	@echo "  chart-publish How the chart is published (CI: .github/workflows/chart-release.yml)"
+	@echo "  chart-publish-vercel  LEGACY manual publish to charts.purlogs.com (frozen)"
 	@echo ""
 	@echo "Release:"
 	@echo "  release VERSION=1.2.1   Verify + print the tag commands (see docs/RELEASE.md)"
@@ -332,15 +333,35 @@ release:
 	@echo "All gates green. To publish:"
 	@echo "  git tag -a v$(VERSION) -m 'Purl v$(VERSION)'"
 	@echo "  git push origin v$(VERSION)      # CI publishes :$(VERSION), :$$(echo $(VERSION) | cut -d. -f1-2) and :latest-equivalent SHA tags"
-	@echo "  make chart-publish               # after bumping chart/Chart.yaml version"
+	@echo "  # chart: CI publishes chart/Chart.yaml version to https://ismoilovdevml.github.io/purl"
+	@echo "  #        once :$(VERSION) is on Docker Hub (Chart Release workflow)"
 
-# Helm chart release to https://charts.purlogs.com (Vercel static project
-# "purl-charts"). Manual only — not wired into CI. The site dir is stable
-# and accumulates all published .tgz versions so the index always lists
-# every release. Bump chart/Chart.yaml version BEFORE publishing.
+# Helm chart publishing is done by CI, not from a laptop:
+# .github/workflows/chart-release.yml packages chart/ on a push to main that
+# changes chart/Chart.yaml (and after each release-tag build), creates the
+# GitHub Release purl-<version> with the .tgz, and adds it to index.yaml on the
+# gh-pages branch, served at https://ismoilovdevml.github.io/purl.
+# See docs/RELEASE.md. This target only explains that and shows what is live.
+CHART_REPO_URL := https://ismoilovdevml.github.io/purl
+
+chart-publish:
+	@echo "The chart is published by CI (.github/workflows/chart-release.yml)."
+	@echo "Bump chart/Chart.yaml version, merge to main; to re-run by hand:"
+	@echo "  gh workflow run chart-release.yml"
+	@echo ""
+	@echo "Published versions at $(CHART_REPO_URL):"
+	@IDX=$$(curl -fsSL $(CHART_REPO_URL)/index.yaml 2>/dev/null) \
+		&& printf '%s\n' "$$IDX" | awk '$$1 == "version:" {print "  " $$2}' \
+		|| echo "  (index not reachable — has the one-time gh-pages setup in docs/RELEASE.md been done?)"
+
+# LEGACY — https://charts.purlogs.com (Vercel static project "purl-charts").
+# Superseded by the GitHub Pages repo above and kept only until the Vercel
+# project is retired. Do NOT use it for new releases: it would publish a
+# version the GitHub Pages index does not have. Manual only.
 CHART_SITE := $(HOME)/.purl-charts-site
 
-chart-publish: helm-lint
+chart-publish-vercel: helm-lint
+	@echo "WARNING: legacy target — charts are published to $(CHART_REPO_URL) by CI."
 	@mkdir -p $(CHART_SITE)
 	@echo "Syncing published releases from https://charts.purlogs.com..."
 	@if curl -fsSL https://charts.purlogs.com/index.yaml -o $(CHART_SITE)/.remote-index.yaml; then \

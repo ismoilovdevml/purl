@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Helm chart repo moved** to GitHub Pages: `helm repo add purl
+  https://ismoilovdevml.github.io/purl`. Each chart version is also a GitHub
+  Release (`purl-<version>`). CI publishes it (`chart-release.yml`) when
+  `chart/Chart.yaml`'s version changes on `main`, and only once the image
+  named by `appVersion` is on Docker Hub. Chart versions 1.0.0 to 1.0.2 are
+  carried over. `https://charts.purlogs.com` is frozen at 1.0.2; if you added
+  it, run `helm repo remove purl` and add the new URL.
+- Docker image base: Perl 5.42 (was 5.40) and Node 24 LTS for the web build
+  (was Node 20, now end-of-life). CI builds the frontend on Node 24 too.
 - `GET /api/agents` no longer returns `limit`.
 - Unknown `/api/*` routes return a JSON 404 instead of the dashboard HTML.
 - **BREAKING** The chart no longer invents `PURL_CLICKHOUSE_PASSWORD`,
