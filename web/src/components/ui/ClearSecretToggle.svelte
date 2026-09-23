@@ -49,9 +49,15 @@
    * $effect.pre (not $effect) so the reset lands in the same flush as the
    * change that caused it, the way the old `$:` statement did — a plain
    * $effect would let one frame render with the stale armed state.
+   *
+   * Only writes when there is something to reset. `armed` is bound into
+   * legacy-mode panels (`bind:armed={clearing[key]}`), where every write —
+   * even false over false — invalidates the parent's whole object and
+   * re-runs this effect: an unconditional write froze the tab in an endless
+   * update loop for any toggle with nothing stored (#85).
    */
   $effect.pre(() => {
-    if (locked || !stored) armed = false;
+    if (armed && (locked || !stored)) armed = false;
   });
 </script>
 

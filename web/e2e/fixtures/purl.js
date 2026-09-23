@@ -179,3 +179,15 @@ export async function waitForIngested(request, marker, { range = '15m', timeout 
     `Ingested marker "${marker}" never became searchable within ${timeout}ms. Last response: ${JSON.stringify(last)}`
   );
 }
+
+/**
+ * Fulfil a route with the REAL response, after `mutate` edits its JSON body.
+ * Used to inject one contract field (from_env_keys, *_set flags) without
+ * discarding everything else the server answered.
+ */
+export async function patchJson(route, mutate) {
+  const response = await route.fetch();
+  const body = await response.json();
+  mutate(body);
+  await route.fulfill({ response, json: body });
+}

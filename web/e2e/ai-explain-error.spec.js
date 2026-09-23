@@ -78,10 +78,31 @@ test.describe('AI explain error handling', () => {
       async (route) => {
         explainCalls += 1;
         if (mode === 'ok') {
+          // The real contract: Purl::AI::Explainer's hash, rendered as-is by
+          // Controller/AI.pm — { summary, possible_causes, suggested_fixes,
+          // related_topics }. An earlier `{ explanation }` mock matched no
+          // field the modal reads, so it rendered an empty "What happened".
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({ explanation: 'The upstream peer closed the socket.' }),
+            body: JSON.stringify({
+              summary: 'The upstream peer closed the socket.',
+              possible_causes: ['Upstream restarted mid-request'],
+              suggested_fixes: ['Retry with backoff'],
+              related_topics: ['TCP RST'],
+            }),
+          });
+        }
+        if (mode === 'rate-limited') {
+          // Server.pm's per-user AI limiter: one 429 shape for every limiter.
+          return route.fulfill({
+            status: 429,
+            contentType: 'application/json',
+            headers: { 'Retry-After': '42' },
+            body: JSON.stringify({
+              error: 'AI rate limit exceeded: at most 20 AI requests per 60s',
+              retry_after: 42,
+            }),
           });
         }
         return route.fulfill({
@@ -129,6 +150,19 @@ test.describe('AI explain error handling', () => {
     ).toBe(1);
   });
 
+  test('a 429 from the per-user AI rate limit shows the server message and is not retried', async ({ page }) => {
+    mode = 'rate-limited';
+    const modal = await openExplain(page);
+
+    const empty = modal.locator('.empty-state');
+    await expect(empty.locator('.empty-title')).toHaveText('Could not explain this log');
+    await expect(empty).toContainText('AI rate limit exceeded: at most 20 AI requests per 60s');
+
+    // Re-requesting on its own would only burn more of the user's window.
+    await page.waitForTimeout(500);
+    expect(explainCalls, 'a rate-limited explanation must be requested exactly once').toBe(1);
+  });
+
   test('Retry issues exactly one more request and can succeed', async ({ page }) => {
     const modal = await openExplain(page);
     await expect(modal.locator('.empty-state .empty-title')).toHaveText('Could not explain this log');
@@ -137,7 +171,11 @@ test.describe('AI explain error handling', () => {
     mode = 'ok';
     await modal.locator('.empty-state button:has-text("Retry")').click();
 
-    await expect(modal).toContainText('The upstream peer closed the socket.');
+    // Pin the text to the section it belongs in, not just anywhere in the modal.
+    const summary = modal.locator('.explain-section', { hasText: 'What happened' });
+    await expect(summary.locator('.section-text')).toHaveText('The upstream peer closed the socket.');
+    await expect(modal).toContainText('Upstream restarted mid-request');
+    await expect(modal).toContainText('Retry with backoff');
     await expect(modal.locator('.empty-state')).toHaveCount(0);
     expect(explainCalls, 'Retry is one more call, not a new stream of them').toBe(2);
 

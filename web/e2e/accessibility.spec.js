@@ -122,8 +122,11 @@ test.describe('Accessibility', () => {
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
     await trigger.click();
     await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('.dropdown-menu.open')).toHaveCount(1);
     await page.keyboard.press('Escape');
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // The attribute must describe reality: the menu itself is closed too.
+    await expect(page.locator('.dropdown-menu.open')).toHaveCount(0);
   });
 
   test('the error banner is announced with role="alert" and has a labelled dismiss button', async ({ page }) => {

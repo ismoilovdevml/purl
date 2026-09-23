@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login, openSettingsSection } from './fixtures/purl.js';
+import { login, openSettingsSection, patchJson } from './fixtures/purl.js';
 
 /**
  * Fields the environment owns must render disabled — and say why.
@@ -15,14 +15,6 @@ import { login, openSettingsSection } from './fixtures/purl.js';
  * environment: the suite must not require restarting the container with extra
  * variables, and the point under test is the UI's reaction to the contract.
  */
-
-/** Merge extra fields into a JSON response without discarding the real one. */
-async function patchJson(route, mutate) {
-  const response = await route.fetch();
-  const body = await response.json();
-  mutate(body);
-  await route.fulfill({ response, json: body });
-}
 
 test.describe('ENV-pinned settings fields', () => {
   test.beforeEach(async ({ page }) => {

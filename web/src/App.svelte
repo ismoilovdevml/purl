@@ -260,6 +260,7 @@
     checkMobile();
     window.addEventListener('resize', checkMobile);
     window.addEventListener('click', handleClickOutside, true);
+    window.addEventListener('keydown', handleMenuEscape);
 
     // Last: flipping to 'ready' is what lets the shell paint, and `syncShellData`
     // picks up the initial fetch from here. `currentPage` must already be
@@ -270,6 +271,7 @@
       window.removeEventListener('hashchange', handleHashChange);
       window.removeEventListener('resize', checkMobile);
       window.removeEventListener('click', handleClickOutside, true);
+      window.removeEventListener('keydown', handleMenuEscape);
     };
   });
 
@@ -441,6 +443,30 @@
     }
     if (selectionMenuOpen && selectionMenuEl && !selectionMenuEl.contains(target)) {
       selectionMenuOpen = false;
+    }
+  }
+
+  /*
+   * Escape closes an open header menu. Without it the only way out was a click
+   * elsewhere, and the trigger kept announcing aria-expanded="true" for a menu
+   * keyboard users could not dismiss. Focus goes back to the trigger when it
+   * was inside the menu, so it does not fall to <body> with the hidden items.
+   */
+  function handleMenuEscape(event) {
+    if (event.key !== 'Escape') return;
+    if (actionsMenuOpen) {
+      actionsMenuOpen = false;
+      refocusTrigger(actionsMenuEl);
+    }
+    if (selectionMenuOpen) {
+      selectionMenuOpen = false;
+      refocusTrigger(selectionMenuEl);
+    }
+  }
+
+  function refocusTrigger(menuEl) {
+    if (menuEl && menuEl.contains(document.activeElement)) {
+      menuEl.querySelector('.dropdown-trigger')?.focus();
     }
   }
 

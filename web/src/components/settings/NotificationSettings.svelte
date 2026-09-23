@@ -104,8 +104,20 @@
     notifications.webhook.enabled = !!n.webhook?.enabled;
   }
 
-  /** Armed removals, keyed the same way: { 'telegram.bot_token': true }. */
-  let clearing = {};
+  /**
+   * Armed removals, keyed the same way: { 'telegram.bot_token': true }.
+   *
+   * Every key starts at `false`, never missing: each one is passed to
+   * <ClearSecretToggle bind:armed>, whose prop falls back to `false`, and
+   * Svelte 5 throws props_invalid_value when a bound prop with a fallback
+   * receives `undefined` — which crashed the whole panel the moment a channel
+   * was switched on and its toggles mounted.
+   */
+  let clearing = Object.fromEntries(
+    Object.entries(CHANNEL_SECRETS).flatMap(([type, fields]) =>
+      fields.map((field) => [`${type}.${field}`, false])
+    )
+  );
   let clearRequest = null;
 
   let savingNotification = null;
