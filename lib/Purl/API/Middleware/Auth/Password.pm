@@ -6,6 +6,7 @@ use 5.024;
 use Moo::Role;
 use Digest::SHA qw(sha256_hex);
 use Crypt::Eksblowfish::Bcrypt qw(bcrypt_hash en_base64 de_base64);
+use Purl::Util::Random qw(random_bytes);
 use namespace::clean;
 
 # ============================================
@@ -13,14 +14,7 @@ use namespace::clean;
 # ============================================
 
 sub _generate_bcrypt_salt {
-    my $bytes = '';
-    if (open(my $fh, '<:raw', '/dev/urandom')) {
-        read($fh, $bytes, 16);
-        close($fh);
-    } else {
-        $bytes = pack('C*', map { int(rand(256)) } 1..16);
-    }
-    return en_base64($bytes);
+    return en_base64(random_bytes(16));
 }
 
 sub hash_password {

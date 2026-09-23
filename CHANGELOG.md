@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Logout now ends the session on the server. Previously a copy of the
+  session cookie kept working after logout and its expiry slid forward on
+  every request. Password changes, role changes and user deletion also end
+  that user's sessions, and sessions have an absolute lifetime
+  (`PURL_SESSION_MAX_AGE`, default 7 days). Everyone is signed out once on
+  upgrade.
 - Backup list, download, schedule and S3 config, and the LDAP and SSO
   settings reads, now require the admin role. They were previously readable
   by any authenticated caller, including ingest API keys, on licensed installs.

@@ -7,6 +7,7 @@ use Moo;
 use MIME::Base64 qw(decode_base64);
 use Purl::Util::ClientIP qw(resolve_client_ip);
 use Purl::Util::IngestRoutes qw(is_ingest_request);
+use Purl::Util::Session qw(check_session session_max_age);
 use namespace::clean;
 
 # Cross-cutting concerns live in roles; this class is request authentication
@@ -102,16 +103,15 @@ sub check_auth {
     return 0;
 }
 
+# A signed cookie alone is not enough: it must also be unrevoked and inside
+# its absolute lifetime (see Purl::Util::Session, #91). The auth section is
+# read through the live Purl::Config, so a logout on any worker or replica is
+# honoured here on the next request.
 sub _check_session {
     my ($self, $c) = @_;
-    my $username = $c->session->{username};
-    my $logged_in = $c->session->{logged_in};
-
-    if ($logged_in && $username) {
-        $c->stash(current_user => $username);
-        return 1;
-    }
-    return 0;
+    return 0 unless check_session($c, $self->_auth_config, session_max_age($self->settings));
+    $c->stash(current_user => $c->session->{username});
+    return 1;
 }
 
 sub _check_api_key {

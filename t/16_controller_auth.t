@@ -249,11 +249,18 @@ subtest 'logout clears session' => sub {
 # me — current user info
 # ============================================
 subtest 'me when logged in' => sub {
-    my $ctrl = Purl::API::Controller::Auth->new(storage => MockStorage->new);
+    # A session is only honoured when it was issued by start_session (sid +
+    # iat) for a user that still exists — see t/security_session_revocation.t.
+    my $ctrl = Purl::API::Controller::Auth->new(
+        storage  => MockStorage->new,
+        settings => MockSettings->new({ auth => { users => { admin => 'x' } } }),
+    );
     my $c = MockAuthCtrl->new(session => {
         username    => 'admin',
         logged_in   => 1,
         auth_method => 'local',
+        sid         => 'a' x 32,
+        iat         => time,
     });
 
     $ctrl->me($c);

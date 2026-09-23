@@ -6,6 +6,7 @@ use 5.024;
 use Moo;
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
+use Purl::Util::Session qw(revoke_sessions);
 
 extends 'Purl::API::Controller::Base';
 
@@ -155,6 +156,11 @@ sub update_user {
         $users->{$username} = { password => $new_hash, role => $new_role };
 
         if ($self->settings->save()) {
+            # A new password or a changed role must not leave sessions that
+            # were issued under the old ones (#91) — including a demoted
+            # admin's cookie that still says role=admin.
+            revoke_sessions($self->settings, $username)
+                if $new_hash ne ($current_hash // '') || $new_role ne $current_role;
             $c->render(json => { status => 'ok', message => 'User updated' });
         } else {
             # Rollback in-memory state on save failure
@@ -197,6 +203,9 @@ sub delete_user {
         my $old_entry = delete $users->{$username};
 
         if ($self->settings->save()) {
+            # The record is gone, which already refuses its local sessions; the
+            # stamp also covers a same-name account created later (#91).
+            revoke_sessions($self->settings, $username);
             $c->render(json => { status => 'ok' });
         } else {
             # Rollback in-memory state on save failure

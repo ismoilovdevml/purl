@@ -6,6 +6,9 @@ use 5.024;
 use Moo;
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
+use Purl::Util::Session qw(
+    start_session check_session end_session revoke_sessions session_max_age
+);
 
 extends 'Purl::API::Controller::Base';
 
@@ -32,6 +35,14 @@ has 'settings' => (
     is      => 'ro',
     default => sub { undef },
 );
+
+# The auth section (users + sessions_valid_after), read through the live
+# Purl::Config so every worker sees another worker's logout or user change.
+sub _auth_section {
+    my ($self) = @_;
+    my $section = $self->settings ? $self->settings->get_section('auth') : undef;
+    return ref $section eq 'HASH' ? $section : {};
+}
 
 # CSRF tokens are owned by the single implementation in
 # Purl::API::Middleware::Auth (one HMAC secret shared for issue + verify).
@@ -90,22 +101,19 @@ sub login {
             } elsif ($result->{success}) {
                 # LDAP login successful
                 my @ldap_groups = @{ $result->{groups} // [] };
-                $c->session->{username}    = $username;
-                $c->session->{logged_in}   = 1;
-                $c->session->{auth_method} = 'ldap';
-                $c->session->{ldap_groups} = \@ldap_groups;
 
                 # Detect admin role from LDAP groups
                 my $ldap_cfg = $self->ldap_middleware->config // {};
                 my $admin_group = $ldap_cfg->{admin_group} // 'admins';
-                if (grep { lc($_) eq lc($admin_group) } @ldap_groups) {
-                    $c->session->{is_admin} = 1;
-                    $c->session->{role} = 'admin';
-                } else {
-                    $c->session->{role} = 'viewer';
-                }
+                my $is_admin = grep { lc($_) eq lc($admin_group) } @ldap_groups;
 
-                $c->session(expiration => 86400);
+                start_session($c, $self->_auth_section,
+                    username    => $username,
+                    auth_method => 'ldap',
+                    ldap_groups => \@ldap_groups,
+                    role        => $is_admin ? 'admin' : 'viewer',
+                    ($is_admin ? (is_admin => 1) : ()),
+                );
 
                 $auth_mw->reset_failed_login($username) if $auth_mw;
                 $c->audit_event(action => 'login', status => 'success');
@@ -182,16 +190,12 @@ sub login {
         }
 
         # Force password change before granting full access
-        if ($password_change_required) {
-            $c->session->{must_change_password} = 1;
-        }
-
-        # Set session
-        $c->session->{username}    = $username;
-        $c->session->{logged_in}   = 1;
-        $c->session->{auth_method} = 'local';
-        $c->session->{role}        = $user_role;
-        $c->session(expiration => 86400);  # 24 hours
+        start_session($c, $auth_config,
+            username    => $username,
+            auth_method => 'local',
+            role        => $user_role,
+            ($password_change_required ? (must_change_password => 1) : ()),
+        );
 
         $c->audit_event(action => 'login', status => 'success');
         my $response = {
@@ -210,7 +214,19 @@ sub logout {
 
     $self->safe_execute($c, sub {
         $c->audit_event(action => 'logout');
-        $c->session(expires => 1);
+
+        # Server-side revocation (#91): expiring the cookie only asks the
+        # browser to forget it. Moving the user's sessions_valid_after stamp
+        # kills every copy of every cookie issued so far, on every worker and
+        # replica — including one an in-flight request re-sets after this.
+        # Only a genuinely valid session may revoke, so a dead or forged-name
+        # cookie cannot be used to log someone else out.
+        my $username = $c->session->{username};
+        if (defined $username
+            && check_session($c, $self->_auth_section, session_max_age($self->settings))) {
+            revoke_sessions($self->settings, $username, $c->session->{iat});
+        }
+        end_session($c);
         $c->render(json => { status => 'ok' });
     });
 }
@@ -232,8 +248,10 @@ sub me {
     my ($self, $c) = @_;
 
     $self->safe_execute($c, sub {
+        # A signed cookie that was revoked, outlived session.max_age or predates
+        # sid/iat is reported as signed out, and the browser is told to drop it.
+        my $valid = check_session($c, $self->_auth_section, session_max_age($self->settings));
         my $username = $c->session->{username};
-        my $logged_in = $c->session->{logged_in};
 
         # JSON boolean, not 0/1: the frontend tests `data.auth_required`
         # directly and a stringified "0" would be truthy in JS.
@@ -243,7 +261,7 @@ sub me {
         # like the rest of this response: it reveals only the deployment kind.
         my $k8s_mode = $ENV{KUBERNETES_SERVICE_HOST} ? \1 : \0;
 
-        if ($logged_in && $username) {
+        if ($valid) {
             my $response = {
                 authenticated => 1,
                 auth_required => $auth_required,
@@ -333,9 +351,16 @@ sub change_password {
             $section->{users}{$username} = { password => $new_hash, role => $role };
         });
 
-        # Clear the forced password change flag
-        $c->session->{must_change_password} = 0;
-        $c->session->{password_changed} = 1;
+        # Every other session of this user dies with the old password; this
+        # one is re-issued after the revocation stamp so the caller stays in.
+        my $auth_method = $c->session->{auth_method} // 'local';
+        revoke_sessions($self->settings, $username, $c->session->{iat});
+        start_session($c, $self->_auth_section,
+            username         => $username,
+            auth_method      => $auth_method,
+            role             => $role,
+            password_changed => 1,
+        );
 
         $c->audit_event(action => 'change_password', status => 'success');
         $c->render(json => {
@@ -399,22 +424,19 @@ sub sso_callback {
 
         # Create session — same shape as LDAP session
         my @saml_groups = @{ $result->{groups} // [] };
-        $c->session->{username}    = $result->{username};
-        $c->session->{logged_in}   = 1;
-        $c->session->{auth_method} = 'saml';
-        $c->session->{saml_groups} = \@saml_groups;
 
         # Detect admin role from SAML groups
         my $saml_mw_cfg = $saml_mw->config // {};
         my $admin_group = $saml_mw_cfg->{admin_group} // 'admins';
-        if (grep { lc($_) eq lc($admin_group) } @saml_groups) {
-            $c->session->{is_admin} = 1;
-            $c->session->{role} = 'admin';
-        } else {
-            $c->session->{role} = 'viewer';
-        }
+        my $is_admin = grep { lc($_) eq lc($admin_group) } @saml_groups;
 
-        $c->session(expiration => 86400);
+        start_session($c, $self->_auth_section,
+            username    => $result->{username},
+            auth_method => 'saml',
+            saml_groups => \@saml_groups,
+            role        => $is_admin ? 'admin' : 'viewer',
+            ($is_admin ? (is_admin => 1) : ()),
+        );
 
         # Safe redirect — only allow relative paths
         my $safe_redirect = '/';

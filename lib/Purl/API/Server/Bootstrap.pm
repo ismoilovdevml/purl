@@ -5,6 +5,7 @@ use 5.024;
 
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
+use Purl::Util::Random qw(random_bytes);
 
 # One-time startup steps run by Purl::API::Server::setup_routes() in the
 # prefork manager, before any worker forks: cookie sessions, the initial admin
@@ -36,13 +37,7 @@ sub configure_sessions {
 
 # Generate a high-entropy admin password (never a guessable default).
 sub _generate_admin_password {
-    my $bytes = '';
-    if (open(my $fh, '<:raw', '/dev/urandom')) {
-        read($fh, $bytes, 24);
-        close($fh);
-    } else {
-        $bytes = pack('C*', map { int(rand(256)) } 1..24);
-    }
+    my $bytes = random_bytes(24);
     # Alphanumeric alphabet — ~24 chars of entropy, no shell-hostile symbols.
     my @alpha = ('A'..'Z', 'a'..'z', 0..9);
     my $pw = '';

@@ -6,6 +6,7 @@ use 5.024;
 use Moo::Role;
 use Digest::SHA qw(hmac_sha256_hex);
 use Time::HiRes qw(time);
+use Purl::Util::Random qw(random_hex);
 use namespace::clean;
 
 # CSRF enforcement toggle (security.csrf_enabled). Default on.
@@ -15,13 +16,7 @@ has 'csrf_enabled' => (
 );
 
 sub _generate_secure_token {
-    if (open(my $fh, '<:raw', '/dev/urandom')) {
-        read($fh, my $bytes, 32);
-        close($fh);
-        return unpack('H*', $bytes);
-    }
-    require Digest::SHA;
-    return Digest::SHA::sha256_hex(time() . $$ . rand() . $$);
+    return random_hex(32);
 }
 
 # CSRF token HMAC secret.
