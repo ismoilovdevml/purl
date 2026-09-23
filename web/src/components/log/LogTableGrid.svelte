@@ -103,7 +103,10 @@
       {#if topPadding > 0}
         <tr class="virtual-padding-row"><td colspan={colspanCount} style="height: {topPadding}px; padding: 0; border: none;"></td></tr>
       {/if}
-      {#each visibleItems as log, i (log.id || startIndex + i)}
+      <!-- Keyed on the id alone: every row gets a unique one before it reaches
+           the store (searchLogs, live tail). A positional fallback shifts under
+           every live prepend, and a duplicate key corrupts the reconcile (#117). -->
+      {#each visibleItems as log, i (log.id)}
         <LogTableRow
           {log}
           {columns}

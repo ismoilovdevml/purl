@@ -493,10 +493,12 @@ export function connectWebSocket() {
         if (data.type === 'log') {
           const logWithId = {
             ...data.data,
-            // Streamed logs have no id yet (ClickHouse assigns it on insert).
-            // timestamp+Date.now() collided within a same-timestamp burst and
-            // the duplicate {#each} key froze the table.
-            id: data.data.id || uniqueId('live')
+            // Always a client id, never the frame's own `id`: ClickHouse has
+            // not assigned one yet, and an `id` here is just a field the
+            // sender put in its log, which two lines can share. Rows are keyed
+            // on id, so a duplicate breaks the table's reconcile (#117) --
+            // as did the old timestamp+Date.now() in a same-timestamp burst.
+            id: uniqueId('live')
           };
           logs.update(current => [logWithId, ...current.slice(0, MAX_LIVE_LOGS - 1)]);
         }
