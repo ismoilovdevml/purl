@@ -39,9 +39,13 @@
 
   // "Ask AI" → "Apply as search": the generated query becomes the search
   // query and runs, exactly as if it had been typed into the bar.
-  function applyAIQuery({ sql }) {
-    if (!sql) return;
-    $query = sql;
+  // `query` (#98) is the search-bar syntax the server already validated with
+  // the bar's own parser, so it wins over the raw SQL when present. It never
+  // carries a time range, so the time picker is left alone.
+  function applyAIQuery({ sql, query: searchQuery }) {
+    const next = typeof searchQuery === 'string' && searchQuery.trim() ? searchQuery : sql;
+    if (!next) return;
+    $query = next;
     searchLogs();
   }
 

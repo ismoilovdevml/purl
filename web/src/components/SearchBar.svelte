@@ -14,7 +14,7 @@
    * @type {{
    *   value?: string,
    *   onsearch?: () => void,
-   *   onaiapply?: (detail: { sql: string, results: any }) => void,
+   *   onaiapply?: (detail: { sql: string, query?: string, results: any }) => void,
    * }}
    */
   let { value = $bindable(''), onsearch, onaiapply } = $props();

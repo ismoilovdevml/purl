@@ -5,7 +5,8 @@
   import { sparkles, check, send, alertCircleSolid } from '../ui/icons.js';
 
   let {
-    /** ({ sql, results }) when the user applies the generated SQL as a search */
+    /** ({ sql, query, results }) when the user applies the generated query as a search;
+     `query` is the optional search-bar form of it (#98) */
     onapply,
   } = $props();
 
@@ -32,7 +33,7 @@
 
   function applyQuery() {
     if (sql) {
-      onapply?.({ sql, results: result?.results });
+      onapply?.({ sql, query: result?.query, results: result?.results });
     }
   }
 
