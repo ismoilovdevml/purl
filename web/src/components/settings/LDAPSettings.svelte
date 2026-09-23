@@ -16,6 +16,7 @@
   import { api } from '../../utils/api.js';
   import { isEnvLocked } from '../../utils/envLock.js';
   import { runConnectionTest } from '../../utils/connectionTest.js';
+  import { formFromConfig } from '../../utils/settingsForm.js';
 
   // ── Page state ─────────────────────────────────────────────────────────────
   let loading = $state(true);
@@ -48,9 +49,9 @@
     bind_dn: '',
     bind_password: '',
     search_base: '',
-    mode: 'activedirectory',
+    mode: 'ldap',
     search_filter: '({user_attr}={username})',
-    user_attr: 'sAMAccountName',
+    user_attr: 'uid',
     mail_attr: 'mail',
     group_attr: 'memberOf',
   };
@@ -58,10 +59,36 @@
   let form = $state({ ...DEFAULTS });
 
   // ── Select options ─────────────────────────────────────────────────────────
-  const modeOptions = [
-    { value: 'activedirectory', label: 'Active Directory' },
-    { value: 'openldap', label: 'OpenLDAP' },
+  /*
+   * The values the backend acts on: Middleware/LDAP.pm reads groups the
+   * Active Directory way only for mode 'ad' and treats every other value as
+   * OpenLDAP; 'ldap' is the server default (Config/Defaults.pm). This page
+   * used to offer 'activedirectory', which the backend never recognised, and
+   * loaded an unset mode as 'ldap', which matched no option.
+   */
+  const MODE_OPTIONS = [
+    { value: 'ad', label: 'Active Directory' },
+    { value: 'ldap', label: 'OpenLDAP' },
   ];
+
+  /**
+   * Map a stored mode onto one of MODE_OPTIONS the way the backend reads it.
+   * 'activedirectory' is what this page used to save for "Active Directory".
+   * @param {string | undefined} mode - Stored ldap.mode
+   * @returns {'ad' | 'ldap'}
+   */
+  function normalizeMode(mode) {
+    const m = String(mode ?? '').toLowerCase();
+    return m === 'ad' || m === 'activedirectory' ? 'ad' : 'ldap';
+  }
+
+  // An ENV-pinned mode must be sent back verbatim (any other value is a 409),
+  // so it is shown as-is, with its own option when it is not one of ours.
+  const modeOptions = $derived(
+    MODE_OPTIONS.some((o) => o.value === form.mode)
+      ? MODE_OPTIONS
+      : [...MODE_OPTIONS, { value: form.mode, label: form.mode }]
+  );
 
   // ── Reactive: auto-set TLS when URL scheme changes ─────────────────────────
   $effect(() => {
@@ -72,10 +99,9 @@
   });
 
   // ── Reactive: default attrs when mode changes ──────────────────────────────
-  function handleModeChange(event) {
-    const val = event.detail?.value ?? event.target?.value ?? form.mode;
-    form.mode = val;
-    if (val === 'activedirectory') {
+  function handleModeChange({ value }) {
+    form.mode = value;
+    if (value === 'ad') {
       form.user_attr = 'sAMAccountName';
       form.group_attr = 'memberOf';
     } else {
@@ -93,14 +119,10 @@
     loading = true;
     try {
       const data = await api.get('/settings/ldap');
-      const cfg = data.config ?? {};
       fromEnv = data.from_env ?? {};
-      for (const [key, fallback] of Object.entries(DEFAULTS)) {
-        form[key] = cfg[key] ?? fallback;
-      }
-      form.port = String(cfg.port ?? 389);
-      // An unset mode loads as 'ldap' (not the initial 'activedirectory').
-      form.mode = cfg.mode ?? 'ldap';
+      const loaded = formFromConfig(DEFAULTS, data.config);
+      if (!isEnvLocked(fromEnv, 'mode')) loaded.mode = normalizeMode(loaded.mode);
+      form = loaded;
     } catch {
       // leave defaults
     } finally {

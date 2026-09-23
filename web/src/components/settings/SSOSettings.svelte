@@ -16,6 +16,7 @@
   import { api } from '../../utils/api.js';
   import { isEnvLocked } from '../../utils/envLock.js';
   import { runConnectionTest } from '../../utils/connectionTest.js';
+  import { formFromConfig } from '../../utils/settingsForm.js';
 
   // ── Page state ─────────────────────────────────────────────────────────────
   let loading = $state(true);
@@ -83,11 +84,8 @@
     loading = true;
     try {
       const data = await api.get('/settings/sso');
-      const cfg = data.config ?? {};
       fromEnv = data.from_env ?? {};
-      for (const [key, fallback] of Object.entries(DEFAULTS)) {
-        form[key] = cfg[key] ?? fallback;
-      }
+      form = formFromConfig(DEFAULTS, data.config);
     } catch {
       // leave defaults
     } finally {
