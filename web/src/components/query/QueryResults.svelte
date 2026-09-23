@@ -7,11 +7,13 @@
 <script>
   import Icon from '../ui/Icon.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
-  import { table, code, copy, search } from '../ui/icons.js';
+  import { table, code, search } from '../ui/icons.js';
 
   let {
-    /** POST /query response: { logs, total?, sql? } */
+    /** POST /api/query response: { hits, total } (Controller/Logs.pm::query) */
     results,
+    /** Field names the query asked for; empty = every field of the first row */
+    fields = [],
     /** Seconds the request took, as a fixed-point string, or null */
     executionTime = null,
     /** Show the raw JSON instead of the table */
@@ -20,14 +22,18 @@
     onviewchange,
   } = $props();
 
-  function copySQL() {
-    if (results?.sql) {
-      navigator.clipboard.writeText(results.sql);
-    }
-  }
+  const rows = $derived(results?.hits ?? []);
+  // The API returns whole rows; the Fields option narrows the columns shown.
+  const columns = $derived(
+    fields.length > 0 ? fields : rows.length > 0 ? Object.keys(rows[0]) : [],
+  );
+  const resultCount = $derived(results?.total ?? rows.length);
 
-  const columns = $derived(results?.logs?.length > 0 ? Object.keys(results.logs[0]) : []);
-  const resultCount = $derived(results?.total ?? results?.logs?.length ?? 0);
+  /** A cell's text: objects (e.g. `meta`) as JSON, not "[object Object]". */
+  function cellText(value) {
+    if (value == null) return '';
+    return typeof value === 'object' ? JSON.stringify(value) : String(value);
+  }
 </script>
 
 <div class="results-section">
@@ -61,22 +67,9 @@
     </div>
   </div>
 
-  <!-- SQL Debug Block -->
-  {#if results.sql}
-    <div class="sql-block">
-      <div class="sql-header">
-        <span class="sql-label">Generated SQL</span>
-        <button class="copy-btn" onclick={copySQL} title="Copy SQL" aria-label="Copy generated SQL">
-          <Icon icon={copy} size={14} />
-        </button>
-      </div>
-      <pre class="sql-code">{results.sql}</pre>
-    </div>
-  {/if}
-
   <!-- Table View -->
   {#if !showJson}
-    {#if results.logs && results.logs.length > 0}
+    {#if rows.length > 0}
       <div class="table-wrapper">
         <table class="results-table">
           <thead>
@@ -88,13 +81,13 @@
             </tr>
           </thead>
           <tbody>
-            {#each results.logs as row, i}
+            {#each rows as row, i}
               <tr>
                 <td class="row-num">{i + 1}</td>
                 {#each columns as col}
                   <td>
-                    <span class="cell-value" title={String(row[col] ?? '')}>
-                      {row[col] ?? ''}
+                    <span class="cell-value" title={cellText(row[col])}>
+                      {cellText(row[col])}
                     </span>
                   </td>
                 {/each}
@@ -109,7 +102,7 @@
   {:else}
     <!-- JSON View -->
     <div class="json-wrapper">
-      <pre class="json-code">{JSON.stringify(results.logs, null, 2)}</pre>
+      <pre class="json-code">{JSON.stringify(rows, null, 2)}</pre>
     </div>
   {/if}
 </div>
@@ -176,61 +169,6 @@
   .toggle-btn.active {
     background: #21262d;
     color: #f0f6fc;
-  }
-
-  /* SQL Block */
-  .sql-block {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 8px;
-    margin-bottom: 12px;
-    overflow: hidden;
-  }
-
-  .sql-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
-    border-bottom: 1px solid #21262d;
-  }
-
-  .sql-label {
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: #8b949e;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-  }
-
-  .copy-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px;
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    color: #848d97;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .copy-btn:hover {
-    background: #21262d;
-    color: #c9d1d9;
-  }
-
-  .sql-code {
-    margin: 0;
-    padding: 10px 14px;
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    line-height: 1.5;
-    color: #e6edf3;
-    white-space: pre-wrap;
-    word-break: break-all;
-    overflow-x: auto;
   }
 
   /* Results Table */

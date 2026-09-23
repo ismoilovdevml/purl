@@ -19,6 +19,8 @@
   let results = $state.raw(null);
   let showJson = $state(false);
   let executionTime = $state(null);
+  // The field list of the query that produced `results`, not the live input.
+  let resultFields = $state.raw([]);
 
   // Set default time range: last 24 hours
   onMount(() => {
@@ -63,15 +65,20 @@
         body.from = new Date(fromDate).toISOString();
       }
       if (toDate) {
-        body.to = new Date(toDate).toISOString();
+        // The input has minute precision (and defaults to the minute the page
+        // opened), so `to` covers that whole minute. Taken literally, logs
+        // from the current minute fell outside "the last 24 hours".
+        body.to = new Date(new Date(toDate).getTime() + 59_999).toISOString();
       }
-      if (fields.trim()) {
-        body.fields = fields.split(',').map(f => f.trim()).filter(Boolean);
+      const requestedFields = fields.split(',').map(f => f.trim()).filter(Boolean);
+      if (requestedFields.length > 0) {
+        body.fields = requestedFields;
       }
 
       const data = await api.post('/query', body);
 
       executionTime = ((performance.now() - startTime) / 1000).toFixed(2);
+      resultFields = requestedFields;
       results = data;
     } catch (err) {
       errorMessage = err.message;
@@ -157,6 +164,7 @@
   {#if results}
     <QueryResults
       {results}
+      fields={resultFields}
       {executionTime}
       {showJson}
       onviewchange={(value) => showJson = value}
