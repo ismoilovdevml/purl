@@ -75,7 +75,7 @@ sub _send_with_retry {
                 return $result if $result->{success};
                 my $status = $result->{status};
                 if ($status >= 400 && $status < 500) {
-                    warn "Alert send failed with client error ($status) — not retrying";
+                    warn "Alert send failed with client error ($status) - not retrying";
                     return 0;
                 }
                 warn sprintf("Alert send failed (attempt %d/%d): HTTP %d",

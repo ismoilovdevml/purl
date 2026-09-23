@@ -5,6 +5,7 @@ use 5.024;
 
 use Moo;
 use Purl::Util::Principal qw(principal_via principal_user);
+use Purl::Util::ErrorResponse qw(exception_response);
 use namespace::clean;
 use Mojo::JSON qw(decode_json encode_json);
 use JSON::PP ();
@@ -129,8 +130,12 @@ sub query {
             eval {
                 $query_results = $self->storage->_query_json($sql, no_cache => 1);
             };
-            if ($@) {
-                $c->render(json => { sql => $sql, %search, error => "Query execution failed: $@" });
+            if (my $err = $@) {
+                # 200 with the generated SQL still shown, as before; only the
+                # raw ClickHouse text is replaced by the classified error (#107).
+                my (undef, $error) = exception_response($c, $err, context => 'AI query execution');
+                $c->render(json => { sql => $sql, %search, %$error,
+                    error => "Query execution failed: $error->{error}" });
                 return;
             }
             splice @$query_results, 500 if $query_results && @$query_results > 500;
@@ -240,7 +245,7 @@ sub analyze {
         my $result       = $analyzer->analyze_batch($logs, $max_context);
 
         if ($result->{error}) {
-            $c->render(json => { error => $result->{error} }, status => 500);
+            $self->render_error($c, $result->{error}, 500);
             return;
         }
 
@@ -299,7 +304,7 @@ sub explain {
         my $result    = $explainer->explain($log);
 
         if ($result->{error}) {
-            $c->render(json => { error => $result->{error} }, status => 500);
+            $self->render_error($c, $result->{error}, 500);
             return;
         }
 

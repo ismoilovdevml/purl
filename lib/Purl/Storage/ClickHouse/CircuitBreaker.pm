@@ -42,7 +42,10 @@ sub _circuit_guard {
         $self->_circuit_state('half_open');
         return;
     }
-    die "ClickHouse circuit breaker is open — service unavailable";
+    # Control flow, not a bug: the trailing newline keeps Perl from appending
+    # " at .../CircuitBreaker.pm line N." (#107). Purl::Storage::ClickHouse::Errors
+    # matches this text to answer 503 storage_unavailable.
+    die "ClickHouse circuit breaker is open - service unavailable\n";
 }
 
 # Record the outcome of one ClickHouse round-trip. Shared by every transport
@@ -60,13 +63,13 @@ sub _circuit_record {
         if ($self->_consecutive_failures >= $self->_circuit_failure_threshold) {
             $self->_circuit_state('open');
             $self->_circuit_opened_at(time());
-            warn "ClickHouse circuit breaker OPENED after $self->{_consecutive_failures} consecutive failures";
+            warn "ClickHouse circuit breaker OPENED after $self->{_consecutive_failures} consecutive failures\n";
         }
         return;
     }
 
     if ($self->_circuit_state ne 'closed') {
-        warn "ClickHouse circuit breaker CLOSED — connection recovered";
+        warn "ClickHouse circuit breaker CLOSED - connection recovered\n";
     }
     $self->_consecutive_failures(0);
     $self->_circuit_state('closed');

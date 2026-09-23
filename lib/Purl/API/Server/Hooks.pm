@@ -6,6 +6,7 @@ use 5.024;
 use Time::HiRes qw(time);
 use Purl::Util::IngestRoutes qw(is_ingest_request);
 use Purl::Util::Principal qw(principal_user);
+use Purl::Util::ErrorResponse qw(exception_response);
 
 # App-wide request hooks and helpers: security headers + CORS, request
 # metrics/logging, and the audit_event helper. %args:
@@ -142,6 +143,25 @@ sub install {
             $metrics_counters->record_ingest_bytes($req_size)
                 if is_ingest_request($method, $path);
         }
+    });
+
+    # An exception that escapes a handler (outside safe_execute) under /api is
+    # answered in the API error shape, never Mojolicious's HTML exception page
+    # nor its text (#107). Mojo still logs the exception itself; ours adds the
+    # line carrying the request id the client is given.
+    #
+    # Mojolicious puts the exception in the stash before rendering it, whichever
+    # of its html/json/txt exception pages it picks; in development mode the
+    # json and txt ones carry the raw message, so all three are replaced.
+    $app->hook(before_render => sub {
+        my ($c, $args) = @_;
+        my $e = $c->stash('exception') // return;
+        return unless $c->req->url->path->to_string =~ m{\A/api(?:/|\z)};
+        my ($status, $body) = exception_response($c, $e);
+        delete @$args{qw(template text format handler)};
+        $args->{json}   = $body;
+        $args->{status} = $status;
+        return;
     });
 
     # Audit event helper — fire-and-forget, never breaks the app. A failure is

@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::ErrorResponse qw(strip_location);
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
 use Purl::Alert::Telegram ();   # valid_thread_id — see update_notifications
@@ -150,7 +151,7 @@ sub test_notification {
         if ($@ || !$result) {
             $c->render(json => {
                 success => 0,
-                error   => $@ // 'Test failed',
+                error   => ($@ ? strip_location($@) : q{Test failed}),
             });
         } else {
             $c->render(json => {

@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::ErrorResponse qw(strip_location);
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
 
@@ -129,7 +130,7 @@ sub test_sso {
         if ($@ || !$available) {
             $c->render(json => {
                 success => 0,
-                error   => $@ ? "Configuration error: $@" : 'SSO is not properly configured (missing required fields)',
+                error   => $@ ? "Configuration error: " . strip_location($@) : 'SSO is not properly configured (missing required fields)',
             });
             return;
         }
@@ -139,7 +140,7 @@ sub test_sso {
         if ($@ || !$test_result || !$test_result->{success}) {
             $c->render(json => {
                 success => 0,
-                error   => $test_result->{error} // $@ // 'Failed to build test AuthnRequest',
+                error   => $test_result->{error} // ($@ ? strip_location($@) : undef) // 'Failed to build test AuthnRequest',
             });
             return;
         }

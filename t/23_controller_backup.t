@@ -224,7 +224,8 @@ subtest 'create backup failure returns 500' => sub {
     $ctrl->create($c);
 
     is $c->rendered->{status}, 500, 'returns 500 on failure';
-    like $c->rendered->{json}{error}, qr/Create failed/, 'error message';
+    is $c->rendered->{json}{code}, 'internal', 'stable error code';
+    unlike $c->rendered->{json}{error}, qr/Create failed/, 'storage exception text is not echoed (#107)';
 };
 
 # ============================================

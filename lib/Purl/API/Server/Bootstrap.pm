@@ -25,7 +25,7 @@ sub configure_sessions {
             $settings->set('server', 'session_secret', $session_secret);
             $app->log->info("Generated and persisted new session secret to config");
         }
-        $app->log->warn("WARNING: Using ephemeral session secret — sessions won't survive restart. Set PURL_SESSION_SECRET env var for multi-replica deployments.");
+        $app->log->warn("WARNING: Using ephemeral session secret - sessions won't survive restart. Set PURL_SESSION_SECRET env var for multi-replica deployments.");
     }
     $app->secrets([$session_secret]);
     $app->sessions->samesite('Strict');

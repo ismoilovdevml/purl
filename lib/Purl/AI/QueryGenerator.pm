@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::ErrorResponse qw(strip_location);
 use namespace::clean;
 
 use Purl::AI::Factory;
@@ -57,14 +58,15 @@ Table: purl.logs
 Columns:
   - id UUID (log entry ID)
   - timestamp DateTime64(3) (log timestamp, millisecond precision)
-  - level LowCardinality(String) — values: TRACE, DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY
-  - service LowCardinality(String) — application/service name
-  - host LowCardinality(String) — hostname or pod name
-  - message String — log message text
-  - meta String — JSON metadata (namespace, pod, container, node, cluster, etc.)
-  - trace_id String — distributed trace ID
-  - request_id String — request correlation ID
-  - span_id String — OpenTelemetry span ID
+  - level LowCardinality(String) - values: TRACE, DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY
+  - service LowCardinality(String) - application/service name
+  - host LowCardinality(String) - hostname or pod name
+  - message String - log message text
+  - namespace, pod, container LowCardinality(String) - Kubernetes metadata (empty for non-k8s logs)
+  - meta String - JSON metadata (node, cluster, deployment, etc.)
+  - trace_id String - distributed trace ID
+  - request_id String - request correlation ID
+  - span_id String - OpenTelemetry span ID
 
 Important:
 - ALWAYS use formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts for timestamp formatting
@@ -75,7 +77,7 @@ Important:
 
 Also express the question's FILTER in the Purl search-bar syntax (KQL):
 - field:value terms, combined with AND, OR, NOT and parentheses; whitespace means AND
-- fields: level, service, host, trace_id, request_id, span_id, message, raw, meta.<key>
+- fields: level, service, host, namespace, pod, container, trace_id, request_id, span_id, message, raw, meta.<key>
 - quote values that contain spaces: message:"connection refused"
 - a quoted phrase alone searches the message: "timeout"
 - no time range (the search bar has its own time picker), no aggregation,
@@ -101,7 +103,7 @@ sub generate {
 
     my $answer = eval { $self->_provider_obj->generate($question, $SCHEMA_CONTEXT) };
     if ($@) {
-        return { error => "AI API call failed: $@" };
+        return { error => "AI API call failed: " . strip_location($@) };
     }
 
     my ($sql, $search) = _split_answer($answer);

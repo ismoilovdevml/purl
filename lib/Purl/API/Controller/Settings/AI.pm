@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::ErrorResponse qw(strip_location);
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
 
@@ -109,13 +110,13 @@ sub test_ai {
 
         my $provider = eval { Purl::AI::Factory->create($provider_name, %opts) };
         if ($@) {
-            $c->render(json => { status => 'error', message => "Provider init failed: $@" });
+            $c->render(json => { status => 'error', message => "Provider init failed: " . strip_location($@) });
             return;
         }
 
         my $response = eval { $provider->generate('Reply with: OK', 'You are a test assistant. Reply with just: OK') };
         if ($@) {
-            $c->render(json => { status => 'error', message => "Connection failed: $@" });
+            $c->render(json => { status => 'error', message => "Connection failed: " . strip_location($@) });
             return;
         }
 

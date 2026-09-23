@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::ErrorResponse qw(strip_location);
 use namespace::clean;
 
 has 'config' => (
@@ -111,7 +112,7 @@ sub build_authn_request {
     if ($@ || !$redirect_url) {
         my $err = $@ || 'Unknown error building AuthnRequest';
         warn "SAML: build_authn_request failed: $err\n";
-        return { success => 0, error => "Failed to build AuthnRequest: $err" };
+        return { success => 0, error => "Failed to build AuthnRequest: " . strip_location($err) };
     }
 
     return { success => 1, redirect_url => $redirect_url };
@@ -135,7 +136,7 @@ sub validate_response {
     # Require IdP certificate for signature verification
     my $idp_cert = $cfg->{idp_cert} // '';
     unless ($idp_cert && length($idp_cert) > 10) {
-        return { success => 0, error => 'IdP certificate not configured — cannot verify signature' };
+        return { success => 0, error => 'IdP certificate not configured - cannot verify signature' };
     }
 
     my $result = eval {
@@ -225,7 +226,7 @@ sub validate_response {
         my $err = "$@";
         chomp $err;
         warn "SAML: validate_response error: $err\n";
-        return { success => 0, error => "SAML validation failed: $err" };
+        return { success => 0, error => "SAML validation failed: " . strip_location($err) };
     }
 
     return $result // { success => 0, error => 'Unknown validation error' };

@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::ErrorResponse qw(strip_location);
 use namespace::clean;
 use JSON::XS ();
 
@@ -67,7 +68,7 @@ LOG
 
     my $raw = eval { $self->provider->generate($prompt, $SYSTEM_PROMPT) };
     if ($@) {
-        return { error => "AI explanation failed: $@" };
+        return { error => "AI explanation failed: " . strip_location($@) };
     }
 
     return $self->_parse_json_response($raw, {

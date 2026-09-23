@@ -137,7 +137,7 @@ sub generate_api_key {
                 api_key    => $new_key,
                 label      => $label,
                 created_at => $created_at,
-                message    => 'API key generated. Store it securely — it will not be shown again.',
+                message    => 'API key generated. Store it securely - it will not be shown again.',
             });
         } else {
             $self->render_error($c, 'Failed to save API key', 500);

@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::ErrorResponse qw(strip_location);
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
 use HTTP::Tiny;
@@ -161,7 +162,7 @@ sub update_retention {
 
         my $result = eval { $self->storage->update_retention($days) };
         if ($@) {
-            $self->render_error($c, "Failed to update retention: $@", 500);
+            $self->render_exception($c, $@, context => q{update retention});
             return;
         }
 
@@ -265,7 +266,7 @@ sub test_clickhouse {
         if ($@) {
             $c->render(json => {
                 success => 0,
-                error   => "Connection error: $@",
+                error   => "Connection error: " . strip_location($@),
             }, status => 500);
         }
     });

@@ -40,7 +40,7 @@ sub _materialize_backup_dir {
         die "Backup directory not found: " . ($backup->{target_path} // '');
     }
 
-    die "Backup lives in S3 but S3 is not configured (bucket/access key/secret key)"
+    die "Backup lives in S3 but S3 is not configured (bucket/access key/secret key)\n"
         unless $s3_config && $s3_config->{bucket}
             && $s3_config->{access_key} && $s3_config->{secret_key};
 
@@ -76,8 +76,8 @@ sub create_backup_archive {
     my ($self, $id) = @_;
 
     my $backup = $self->get_backup($id);
-    die "Backup not found" unless $backup;
-    die "Backup not completed" unless $backup->{status} eq 'completed';
+    die "Backup not found\n" unless $backup;
+    die "Backup not completed\n" unless $backup->{status} eq 'completed';
 
     # The LOCAL directory, not target_path — target_path becomes an s3:// URI
     # once the backup has been uploaded.
@@ -166,7 +166,7 @@ sub _purge_backup_artifacts {
             && $s3_config->{access_key} && $s3_config->{secret_key}) {
         # Deleting the metadata row while the object survives would orphan it
         # forever — the caller must be told.
-        die "Backup is stored in S3 but S3 is not configured — cannot delete the remote object";
+        die "Backup is stored in S3 but S3 is not configured - cannot delete the remote object\n";
     }
 
     $self->_s3_client($s3_config)->delete_object(
@@ -249,7 +249,7 @@ sub delete_backup {
     my ($self, $id, %opts) = @_;
 
     my $backup = $self->get_backup($id);
-    die "Backup not found" unless $backup;
+    die "Backup not found\n" unless $backup;
 
     $self->_purge_backup_artifacts($backup, $opts{s3_config});
 

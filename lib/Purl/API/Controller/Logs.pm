@@ -215,7 +215,7 @@ sub ingest {
             $c->res->headers->header('Retry-After' => '1');
             $c->render(json => {
                 status => 'error',
-                error  => 'Ingest buffer full — backpressure, retry shortly',
+                error  => 'Ingest buffer full - backpressure, retry shortly',
             }, status => 503);
             return;
         }
@@ -285,7 +285,7 @@ sub ingest {
             $c->res->headers->header('Retry-After' => '1');
             $c->render(json => {
                 status => 'error',
-                error  => 'Storage unavailable — log not accepted',
+                error  => 'Storage unavailable - log not accepted',
             }, status => 503);
             return;
         }

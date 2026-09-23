@@ -10,6 +10,7 @@ use Moo;
 use Purl::Util::SearchQuery qw(plan_search_query);
 
 use Purl::Util::Principal qw(principal_role);
+use Purl::Util::ErrorResponse qw(exception_response message_response strip_location);
 use namespace::clean;
 
 has 'storage' => (
@@ -55,27 +56,32 @@ sub invalidate_cached {
     return delete $self->cache->{$key};
 }
 
+# Render an error the caller phrased itself. Body: {error, code, request_id}
+# (Purl::Util::ErrorResponse). $message must be a literal the caller wrote,
+# never exception text — a caught exception goes through render_exception.
+# $error_code defaults from the status (404 -> not_found, ...).
 sub render_error {
-    my ($self, $c, $message, $code) = @_;
-    $code //= 500;
-    
-    # Log the error if it's a 500
-    if ($code >= 500) {
-        $c->app->log->error($message);
-    }
-    
-    $c->render(json => { error => $message }, status => $code);
+    my ($self, $c, $message, $status, $error_code) = @_;
+    my ($code, $body) = message_response($c, $message, $status // 500, $error_code);
+    return $c->render(json => $body, status => $code);
+}
+
+# Render a caught exception: classified into a stable code with a fixed
+# user-facing message; the full text is logged with the request id only.
+sub render_exception {
+    my ($self, $c, $err, %opt) = @_;
+    my ($code, $body) = exception_response($c, $err, %opt);
+    return $c->render(json => $body, status => $code);
 }
 
 sub safe_execute {
     my ($self, $c, $cb) = @_;
 
-    eval {
-        $cb->();
-    };
-    if ($@) {
-        $self->render_error($c, "Internal Server Error: $@", 500);
-    }
+    my $ok = eval { $cb->(); 1 };
+    return if $ok;
+    my $err = $@ || 'unknown error';
+    $self->render_exception($c, $err);
+    return;
 }
 
 # ============================================
@@ -101,7 +107,8 @@ sub _apply_query {
 
     my ($fragment, $err) = plan_search_query($query);
     if ($err) {
-        $self->render_error($c, "Invalid query syntax: $err", 400);
+        $self->render_error($c, 'Invalid query syntax: ' . strip_location($err),
+            400, 'invalid_query');
         return 0;
     }
 
@@ -169,10 +176,9 @@ sub reject_env_managed {
     my @blocked = $settings->env_shadowed_keys($section, \%proposed);
     return 0 unless @blocked;
 
-    $c->render(json => {
-        error    => 'Cannot modify ENV-configured values: ' . join(', ', @blocked),
-        from_env => \@blocked,
-    }, status => 409);
+    my ($status, $body) = message_response($c,
+        'Cannot modify ENV-configured values: ' . join(', ', @blocked), 409);
+    $c->render(json => { %$body, from_env => \@blocked }, status => $status);
 
     return 1;
 }
@@ -258,10 +264,9 @@ sub take_clear_requests {
         return undef;
     }
     if (@from_env) {
-        $c->render(json => {
-            error    => 'Cannot modify ENV-configured values: ' . join(', ', @from_env),
-            from_env => \@from_env,
-        }, status => 409);
+        my ($status, $err_body) = message_response($c,
+            'Cannot modify ENV-configured values: ' . join(', ', @from_env), 409);
+        $c->render(json => { %$err_body, from_env => \@from_env }, status => $status);
         return undef;
     }
 

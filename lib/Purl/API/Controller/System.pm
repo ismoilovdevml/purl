@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::ErrorResponse qw(classify_error);
 use namespace::clean;
 use Time::HiRes qw(time);
 use Purl::Metrics::Prometheus;
@@ -21,13 +22,17 @@ has 'metrics_counters' => (
 );
 
 # One ClickHouse probe, used by /api/health and /api/health/ready. Returns
-# (ok, error_string).
+# (ok, public_error). These endpoints are UNAUTHENTICATED, so the raw
+# exception (ClickHouse text, file/line) goes to the log only and the body gets
+# the classified, fixed message (#107).
 sub _clickhouse_probe {
     my ($self, $c) = @_;
     my $ok = eval { $self->storage->stats(); 1 } // 0;
-    my $error = $@;
-    $c->app->log->warn("Health check - ClickHouse error: $error") if $error;
-    return ($ok, $error);
+    return (1, undef) if $ok;
+    my $error = $@ || 'unknown error';
+    $c->app->log->warn("Health check - ClickHouse error: $error");
+    my (undef, $public) = classify_error($error);
+    return (0, $public);
 }
 
 # Legacy combined endpoint. Behaviour deliberately UNCHANGED (200 when
@@ -50,7 +55,7 @@ sub health {
         clickhouse  => $ch_ok ? 'connected' : 'disconnected',
         circuit_breaker => $cb_status,
         uptime_secs => int(time() - $^T),
-        ($ch_error ? (error => substr($ch_error, 0, 200)) : ()),
+        ($ch_error ? (error => $ch_error) : ()),
     }, status => $code);
 }
 
@@ -89,7 +94,7 @@ sub health_ready {
         clickhouse  => $ch_ok ? 'connected' : 'disconnected',
         circuit_breaker => $cb_status,
         uptime_secs => int(time() - $^T),
-        ($ch_error ? (error => substr($ch_error, 0, 200)) : ()),
+        ($ch_error ? (error => $ch_error) : ()),
     }, status => $ch_ok ? 200 : 503);
 }
 

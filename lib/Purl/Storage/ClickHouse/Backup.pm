@@ -227,12 +227,12 @@ sub restore_backup {
     my ($self, $id, %opts) = @_;
 
     my $mode = $opts{mode} // 'append';
-    die "Invalid restore mode: $mode (expected 'append' or 'replace')"
+    die "Invalid restore mode: $mode (expected 'append' or 'replace')\n"
         unless $mode eq 'append' || $mode eq 'replace';
 
     my $backup = $self->get_backup($id);
-    die "Backup not found" unless $backup;
-    die "Backup status is $backup->{status}, expected completed"
+    die "Backup not found\n" unless $backup;
+    die "Backup status is $backup->{status}, expected completed\n"
         unless $backup->{status} eq 'completed';
 
     my ($path, $tmp_guard) = $self->_materialize_backup_dir($backup, $opts{s3_config});

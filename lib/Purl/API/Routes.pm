@@ -9,6 +9,7 @@ use Purl::API::Routes::Management;
 use Purl::API::Routes::Integrations;
 use Purl::API::Routes::LiveTail;
 use Purl::Util::Principal qw(principal);
+use Purl::Util::ErrorResponse qw(message_response);
 
 # Route table of the Purl API. Mojolicious matches routes in DEFINITION ORDER,
 # so the area modules below are registered in a fixed sequence and the JSON 404
@@ -52,7 +53,7 @@ sub register {
 
         # Auth check via middleware
         unless ($auth_middleware->check_auth($c)) {
-            $c->render(json => { error => 'Unauthorized' }, status => 401);
+            _render_gate_error($c, 'Unauthorized', 401);
             $metrics->{errors_total}++;
             return 0;
         }
@@ -60,20 +61,15 @@ sub register {
         # CSRF protection for cookie-authenticated (browser) mutating requests.
         # API-key / basic-auth clients and read-only methods are exempt.
         unless ($auth_middleware->check_csrf($c)) {
-            $c->render(json => {
-                error => 'CSRF token missing or invalid',
-                csrf  => \1,
-            }, status => 403);
+            _render_gate_error($c, 'CSRF token missing or invalid', 403, csrf => \1);
             $metrics->{errors_total}++;
             return 0;
         }
 
         # Block access if password change required (except for the change-password endpoint itself)
         if (principal($c)->{must_change_password} && $path !~ m{^/api/auth/(change-password|me|logout)$}) {
-            $c->render(json => {
-                error => 'Password change required',
-                password_change_required => \1,
-            }, status => 403);
+            _render_gate_error($c, 'Password change required', 403,
+                password_change_required => \1);
             return 0;
         }
 
@@ -93,7 +89,7 @@ sub register {
     # Must stay the LAST /api route: Mojolicious matches in definition order.
     $api->any('/*api_path' => { api_path => '' } => sub {
         my ($c) = @_;
-        $c->render(json => { error => 'Not found' }, status => 404);
+        _render_gate_error($c, 'Not found', 404);
     });
 
     # SPA fallback (non-API paths only — /api/* is caught above)
@@ -105,12 +101,20 @@ sub register {
     return;
 }
 
+# The gate's own refusals, in the one API error shape ({error, code,
+# request_id}, Purl::Util::ErrorResponse) plus any flags the UI keys on.
+sub _render_gate_error {
+    my ($c, $message, $status, %extra) = @_;
+    my ($code, $body) = message_response($c, $message, $status);
+    return $c->render(json => { %$body, %extra }, status => $code);
+}
+
 # One 429 shape for every limiter: JSON body + Retry-After header carrying the
 # seconds actually left in the caller's window, counted as an error.
 sub _render_rate_limited {
     my ($metrics, $c, $error, $retry_after) = @_;
     $c->res->headers->header('Retry-After' => $retry_after);
-    $c->render(json => { error => $error, retry_after => $retry_after }, status => 429);
+    _render_gate_error($c, $error, 429, retry_after => $retry_after);
     $metrics->{errors_total}++;
     return 0;
 }

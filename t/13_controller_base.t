@@ -147,7 +147,11 @@ subtest 'safe_execute catches exceptions' => sub {
 
     $ctrl->safe_execute($c, sub { die "Something broke\n" });
     is $c->rendered->{status}, 500, 'exception results in 500';
-    like $c->rendered->{json}{error}, qr/Something broke/, 'error message includes exception';
+    # #107: the exception text goes to the log, never to the client.
+    is $c->rendered->{json}{error}, 'Internal server error', 'generic user-facing message';
+    is $c->rendered->{json}{code}, 'internal', 'stable error code';
+    ok $c->rendered->{json}{request_id}, 'request id to quote';
+    unlike $c->rendered->{json}{error}, qr/Something broke/, 'exception text is not echoed';
 };
 
 # ============================================

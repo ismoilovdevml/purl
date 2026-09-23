@@ -4,6 +4,7 @@ use warnings;
 use 5.024;
 
 use Moo;
+use Purl::Util::ErrorResponse qw(strip_location);
 use namespace::clean;
 use Mojo::JSON qw(decode_json);
 
@@ -139,7 +140,7 @@ sub test_ldap {
         if ($@ || !$available) {
             $c->render(json => {
                 success => 0,
-                error   => $@ ? "Connection error: $@" : 'LDAP server unreachable',
+                error   => $@ ? "Connection error: " . strip_location($@) : q{LDAP server unreachable},
             });
             return;
         }
