@@ -88,11 +88,11 @@ sub _build_redis {
 #
 # Redis path (atomic across workers/replicas):
 #     INCR   key            # atomic; creates key at 1 if absent
-#     EXPIRE key $ttl        # ONLY when INCR returned 1 (first hit)
+#     EXPIRE key $ttl        # on the first hit, or when TTL reports -1 (repair)
 #
-# EXPIRE is applied only on the first increment so the window is FIXED (starts
-# at the first hit, expires $ttl later) rather than sliding — this matches the
-# pre-existing in-memory semantics exactly. INCR is atomic, so concurrent
+# EXPIRE is applied only when the key has no TTL yet, so the window is FIXED
+# (starts at the first hit, expires $ttl later) rather than sliding — this
+# matches the pre-existing in-memory semantics exactly. See _ensure_expiry. INCR is atomic, so concurrent
 # workers can never double-count or skip a count.
 # ----------------------------------------------------------------------------
 sub incr {
@@ -118,14 +118,16 @@ sub incr_by {
     $amount = int($amount);
 
     if ($self->_use_redis) {
-        my $count;
+        my ($count, $db);
         my $ok = eval {
-            my $db = $self->_redis->db;
+            $db    = $self->_redis->db;
             $count = $db->incrby($key, $amount);
-            $db->expire($key, $ttl) if defined $count && $count == $amount;
             1;
         };
-        return $count if $ok && defined $count;
+        if ($ok && defined $count) {
+            $self->_ensure_expiry($db, $key, $ttl, $count == $amount);
+            return $count;
+        }
         $self->_mark_down($@);
         # fall through to local on Redis failure (fail-open degradation)
     }
@@ -201,6 +203,26 @@ sub _use_redis {
     return $self->_redis_available && defined $redis ? 1 : 0;
 }
 
+# Guarantee the key carries a TTL (issue #88). INCRBY and EXPIRE are two
+# commands, so EXPIRE can fail after INCRBY already created the key; a key with
+# no TTL would keep a lockout/rate limit tripped forever. So on every hit that
+# is not the first one we check TTL and re-apply EXPIRE when Redis reports -1
+# (key exists, no expiry). A healthy key already has a TTL and is left alone,
+# which keeps the window FIXED. An EXPIRE failure is logged but does not
+# discard the INCRBY result: the Redis count is authoritative and the next hit
+# repairs the TTL.
+sub _ensure_expiry {
+    my ($self, $db, $key, $ttl, $created) = @_;
+    my $ok = eval {
+        my $needs = $created ? 1 : (($db->ttl($key) // -2) == -1);
+        $db->expire($key, $ttl) if $needs;
+        1;
+    };
+    warn "Store::Counter: could not set TTL on '$key' ($@), will retry on next hit\n"
+        unless $ok;
+    return;
+}
+
 sub _mark_down {
     my ($self, $err) = @_;
     return if !$self->_redis_available;
@@ -264,8 +286,9 @@ Purl::Store::Counter - Shared (Redis-backed) counter with in-memory fallback
 =head1 DESCRIPTION
 
 Backs security counters that must be consistent across prefork workers and
-replicas. Under Redis it uses atomic C<INCR> plus a one-shot C<EXPIRE> (applied
-only on the first increment) to implement a fixed expiry window without races.
+replicas. Under Redis it uses atomic C<INCR> plus C<EXPIRE> (applied on the
+first increment, and re-applied whenever a later hit finds the key without a
+TTL) to implement a fixed expiry window that can never become permanent.
 Without a reachable Redis it falls back to a per-instance in-memory hash whose
 behaviour is identical to the original Auth.pm implementation, so single-process
 / no-Redis deployments are entirely unaffected.
@@ -286,7 +309,10 @@ to per-worker accounting (no worse than the pre-shared-store baseline).
 
 =item * C<INCRBY key n> - atomic add, for accumulating counters
 
-=item * C<EXPIRE key ttl> - applied ONLY when INCR returned 1 (fixed window)
+=item * C<EXPIRE key ttl> - applied when INCR created the key, or when C<TTL>
+reports -1 on a later hit (repairs a key whose first EXPIRE failed)
+
+=item * C<TTL key> - checked on non-first hits to detect a key with no expiry
 
 =item * C<GET key> - read current count (nil => 0)
 
