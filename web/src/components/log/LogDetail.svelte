@@ -9,7 +9,7 @@
 -->
 <script>
   import { getLevelColor } from '../../utils/colors.js';
-  import { highlightText, copyToClipboard } from '../../utils/dom.js';
+  import { highlightText, copyToClipboard, stopPropagation } from '../../utils/dom.js';
 
   let {
     log,
@@ -39,15 +39,6 @@
     copiedTimeout = setTimeout(() => {
       copiedField = null;
     }, 700);
-  }
-
-  // Replaces the old `|stopPropagation` modifier: clicks inside the detail
-  // panel must not reach the row's own click handler (which collapses it).
-  function stop(fn) {
-    return (event) => {
-      event.stopPropagation();
-      fn();
-    };
   }
 
   function handleFilterTrace() {
@@ -81,7 +72,7 @@
     type="button"
     class="detail-line"
     class:copied={copiedField === id}
-    onclick={stop(() => handleCopy(value, id))}
+    onclick={stopPropagation(() => handleCopy(value, id))}
   >
     <span class="line-key">{key}</span>
     <span class="line-value {valueClass}" style={valueStyle}>{value}</span>
@@ -94,7 +85,7 @@
   <button
     type="button"
     class="detail-line trace"
-    onclick={stop(onfilter)}
+    onclick={stopPropagation(onfilter)}
     {title}
   >
     <span class="line-key">{key}</span>
@@ -108,26 +99,28 @@
   <button
     type="button"
     class="detail-line"
-    onclick={stop(() => handleCopy(value))}
+    onclick={stopPropagation(() => handleCopy(value))}
   >
     <span class="line-key">{key}</span>
     <span class="line-value mono">{value}</span>
   </button>
 {/snippet}
 
+<!-- Every handler below is wrapped in stopPropagation: clicks inside the
+     detail panel must not reach the row's own click handler (which collapses it). -->
 <div class="log-detail">
   <div class="detail-actions">
-    <button class="action-btn" onclick={stop(() => handleCopy(log.raw || log.message))} title="Copy raw log">
+    <button class="action-btn" onclick={stopPropagation(() => handleCopy(log.raw || log.message))} title="Copy raw log">
       Copy
     </button>
-    <button class="action-btn" onclick={stop(() => handleCopy(JSON.stringify(log, null, 2)))} title="Copy as JSON">
+    <button class="action-btn" onclick={stopPropagation(() => handleCopy(JSON.stringify(log, null, 2)))} title="Copy as JSON">
       JSON
     </button>
     {#if showContextButton}
       <button
         class="action-btn context"
         class:active={contextOpen}
-        onclick={stop(handleShowContext)}
+        onclick={stopPropagation(handleShowContext)}
         title="Show surrounding logs"
         disabled={contextLoading}
       >
@@ -153,7 +146,7 @@
       type="button"
       class="detail-line msg"
       class:copied={copiedField === `${log.id}-message`}
-      onclick={stop(() => handleCopy(log.message, `${log.id}-message`))}
+      onclick={stopPropagation(() => handleCopy(log.message, `${log.id}-message`))}
     >
       <span class="line-key">message</span>
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -168,7 +161,7 @@
           type="button"
           class="detail-line meta"
           class:copied={copiedField === `${log.id}-${key}`}
-          onclick={stop(() => handleCopy(String(value), `${log.id}-${key}`))}
+          onclick={stopPropagation(() => handleCopy(String(value), `${log.id}-${key}`))}
         >
           <span class="line-key">{key}</span>
           <span class="line-value mono">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
