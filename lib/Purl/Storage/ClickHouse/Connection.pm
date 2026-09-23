@@ -83,7 +83,6 @@ sub _query_settings {
         'max_execution_time=' . $self->max_execution_time,
         'max_rows_to_read=' . $self->max_rows_to_read,
         'optimize_read_in_order=1',
-        'use_uncompressed_cache=1',
         'load_balancing=nearest_hostname',
         'prefer_localhost_replica=1',
         $opts{sync} ? 'async_insert=0&mutations_sync=1' : $self->_async_insert_settings,
