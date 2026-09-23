@@ -9,7 +9,7 @@ type: application
 # publishing a chart 1.2.0 to charts.purlogs.com would have shipped a version
 # string that already means something else. Chart versions are independent of
 # appVersion and are documented in chart/README.md.
-version: 2.0.0
+version: 2.1.0
 # Must track the app version that is actually published to Docker Hub:
 # image.tag defaults to "" and falls back to appVersion, so bumping this ahead
 # of a released tag makes every public `helm install` ImagePullBackOff.

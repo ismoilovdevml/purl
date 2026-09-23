@@ -15,7 +15,7 @@
 #
 # Why the image scans run vuln-only (no secret scanner):
 # the image bundles third-party CPAN libraries that ship sample keys inside
-# their POD/tests (Crypt::JWT, Crypt::PK::{RSA,ECC,DSA,Ed25519}, and
+# their POD/tests (Crypt::PK::{RSA,ECC,DSA,Ed25519}, and
 # Mojo::IOLoop's built-in test server.key). Those are upstream docs/test
 # fixtures, not our secrets, and we cannot strip them from the dependency.
 # Secret detection for OUR code is not weakened: the security-fs job scans

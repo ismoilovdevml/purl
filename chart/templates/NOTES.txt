@@ -43,14 +43,14 @@ ClickHouse is configured to use an external instance at:
 
 {{- if .Values.config.volume.enabled }}
 
-Dashboard users, the license key and settings.json are persisted on the
+Dashboard users and settings.json are persisted on the
 {{ include "purl.fullname" . }}-config PVC ({{ .Values.config.volume.size }}).
 If Purl stays Pending, check that the cluster has a default StorageClass:
   kubectl get storageclass
   # none? -> set config.volume.storageClass, or config.volume.enabled=false
 {{- if .Values.config.volume.keepOnUninstall }}
 That PVC is annotated helm.sh/resource-policy=keep, so `helm uninstall` will
-NOT delete your dashboard logins or license. To remove it deliberately:
+NOT delete your dashboard logins. To remove it deliberately:
   kubectl -n {{ .Release.Namespace }} delete pvc {{ include "purl.fullname" . }}-config
 
 !! `keep` stops DELETION, not MUTATION. A PVC spec is immutable in
@@ -62,7 +62,7 @@ NOT delete your dashboard logins or license. To remove it deliberately:
    conflict. To actually change the volume:
      kubectl -n {{ .Release.Namespace }} get pvc {{ include "purl.fullname" . }}-config -o yaml > config-pvc-backup.yaml
      helm -n {{ .Release.Namespace }} uninstall {{ .Release.Name }}
-     kubectl -n {{ .Release.Namespace }} delete pvc {{ include "purl.fullname" . }}-config   # deletes the logins/license
+     kubectl -n {{ .Release.Namespace }} delete pvc {{ include "purl.fullname" . }}-config   # deletes the logins/settings
      helm -n {{ .Release.Namespace }} install {{ .Release.Name }} purl/purl --set config.volume.size=<new>
    Reinstall with the SAME release name ({{ .Release.Name }}) and namespace
    ({{ .Release.Namespace }}); a different name fails on `invalid ownership
@@ -72,21 +72,21 @@ NOT delete your dashboard logins or license. To remove it deliberately:
      kubectl -n {{ .Release.Namespace }} patch pvc {{ include "purl.fullname" . }}-config -p '{"spec":{"resources":{"requests":{"storage":"<new>"}}}}'
 {{- else }}
 !! config.volume.keepOnUninstall=false: `helm uninstall` DELETES the PVC
-   holding every dashboard login and the license key. ClickHouse data is
+   holding every dashboard login and settings.json. ClickHouse data is
    unaffected (its PVC is not Helm-managed), so you would keep all the logs
    and lose the ability to log in.
 {{- end }}
 {{- else }}
 
 WARNING: config.volume.enabled=false. /app/config is an emptyDir, so EVERY
-restart, rollout or eviction wipes all dashboard logins and the license key.
+restart, rollout or eviction wipes all dashboard logins and settings.json.
 {{- if .Values.config.volume.keepOnUninstall }}
 
 !! If this release previously ran with config.volume.enabled=true, the PVC is
    annotated helm.sh/resource-policy=keep: dropping it out of the rendered
    manifest does NOT delete it. It and its PV stay bound and BILLED, silently,
    with no message from this upgrade — and they still hold your old dashboard
-   logins and license. Check and remove it yourself when you meant to:
+   logins and settings. Check and remove it yourself when you meant to:
      kubectl -n {{ .Release.Namespace }} get pvc {{ include "purl.fullname" . }}-config
      kubectl -n {{ .Release.Namespace }} delete pvc {{ include "purl.fullname" . }}-config
 {{- end }}

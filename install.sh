@@ -158,8 +158,6 @@ install_purl_docker() {
     local purl_port="3000"
     local retention_days="30"
 
-    local license_key=""
-
     if [ "$INTERACTIVE" = true ]; then
         echo
         log_step "Configuration"
@@ -167,10 +165,6 @@ install_purl_docker() {
         api_key=$(prompt "API Key" "$api_key")
         purl_port=$(prompt "Purl port" "$purl_port")
         retention_days=$(prompt "Log retention (days)" "$retention_days")
-        echo
-        log_info "License key unlocks Pro/Enterprise features (unlimited servers, extended retention, etc.)"
-        log_info "Get your key at ${BOLD}https://purlogs.com/license-keys${NC}"
-        license_key=$(prompt "License key (Enter to skip for Free plan)" "")
     fi
 
     cat > .env << EOF
@@ -187,11 +181,6 @@ PURL_API_KEYS=$api_key
 PURL_RETENTION_DAYS=$retention_days
 VECTOR_HOSTNAME=$(hostname)
 EOF
-
-    if [ -n "$license_key" ]; then
-        echo "PURL_LICENSE_KEY=$license_key" >> .env
-        log_info "License key configured"
-    fi
 
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' "s/CHANGE_ME_GENERATE_SECURE_PASSWORD/$ch_password/g" docker/clickhouse/users.xml
@@ -271,11 +260,6 @@ install_purl_systemd() {
     local api_key=$(generate_api_key)
     local purl_port=$(prompt "Purl port" "3000")
 
-    echo
-    log_info "License key unlocks Pro/Enterprise features (unlimited servers, extended retention, etc.)"
-    log_info "Get your key at ${BOLD}https://purlogs.com/license-keys${NC}"
-    local license_key=$(prompt "License key (Enter to skip for Free plan)" "")
-
     mkdir -p /etc/purl
     cat > /etc/purl/purl.env << EOF
 PURL_PORT=$purl_port
@@ -291,10 +275,6 @@ PURL_API_KEYS=$api_key
 PURL_RETENTION_DAYS=30
 EOF
 
-    if [ -n "$license_key" ]; then
-        echo "PURL_LICENSE_KEY=$license_key" >> /etc/purl/purl.env
-        log_info "License key configured"
-    fi
     chmod 600 /etc/purl/purl.env
 
     cat > /etc/systemd/system/purl.service << 'EOF'

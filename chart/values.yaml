@@ -62,7 +62,7 @@ securityContext:
   runAsNonRoot: true
   runAsUser: 1000
   runAsGroup: 1000
-  # Purl writes settings.json / users / license under /app/config and
+  # Purl writes settings.json and the user database under /app/config and
   # scratch files under /app/data, so the root filesystem stays writable.
   #
   # Do NOT set this to true unless /app/config is a writable VOLUME
@@ -146,7 +146,7 @@ purl:
 
   # -- Name of an EXISTING Secret holding the Purl runtime secrets. When set,
   # the chart does NOT create a Secret and none of purl.apiKeys /
-  # purl.sessionSecret / purl.license.key / clickhouse.password /
+  # purl.sessionSecret / clickhouse.password /
   # purl.telegram.* / purl.slack.* / purl.alertWebhook.* are templated —
   # keeping them out of `helm get values` and the release history.
   # The Secret must provide the env vars Purl reads. REQUIRED keys:
@@ -159,7 +159,7 @@ purl:
   #                             while still accepting connections from
   #                             clickhouse.allowedNetworks, i.e. any pod in
   #                             the cluster can read and write your logs.)
-  # Optional, as applicable: PURL_LICENSE_KEY, PURL_TELEGRAM_BOT_TOKEN,
+  # Optional, as applicable: PURL_TELEGRAM_BOT_TOKEN,
   # PURL_TELEGRAM_CHAT_ID, PURL_SLACK_WEBHOOK_URL, PURL_SLACK_CHANNEL,
   # PURL_ALERT_WEBHOOK_URL, PURL_ALERT_WEBHOOK_TOKEN.
   # NOT here: PURL_TELEGRAM_THREAD_ID. A forum topic id is not a credential,
@@ -196,15 +196,6 @@ purl:
     webhookUrl: ""
     # -- Slack channel override
     channel: ""
-
-  # -- License (Pro/Enterprise). Without a key Purl runs the free plan / 14-day trial.
-  license:
-    # -- License key JWT (RS256) issued by purlogs.com. Stored in the Secret.
-    key: ""
-    # -- Public key PEM for offline verification. Empty = online activation against apiUrl.
-    publicKey: ""
-    # -- License API URL used for online activation/heartbeat
-    apiUrl: ""
 
   # -- Redis for cross-replica WebSocket live tail broadcast AND for the
   # shared Prometheus counter store.
@@ -463,9 +454,8 @@ networkPolicy:
     extraFrom: []
   egress:
     # -- Allow outbound HTTPS/HTTP to the public internet. Required for
-    # Telegram/Slack/webhook alerting and for license activation +
-    # heartbeat against purl.license.apiUrl. Without it those silently fail
-    # and the license eventually degrades to the free plan.
+    # Telegram/Slack/webhook alerting. Without it alerts silently fail to
+    # deliver.
     allowInternet: true
     # -- Ports opened by allowInternet.
     internetPorts:
@@ -639,24 +629,24 @@ resources:
     memory: 256Mi
     ephemeral-storage: 256Mi
 
-# -- Config volume for settings.json, users, license files
+# -- Config volume for settings.json and dashboard users
 config:
   volume:
     # -- Mount a PVC at /app/config.
-    # ON by default: /app/config holds the dashboard user database, the
-    # license key and settings.json. With an emptyDir every restart, rollout
-    # or eviction silently wipes all dashboard logins and the license, so a
+    # ON by default: /app/config holds the dashboard user database and
+    # settings.json. With an emptyDir every restart, rollout or eviction
+    # silently wipes all dashboard logins and settings, so a
     # default install was not persistent in any meaningful sense.
     # Requires a default StorageClass in the cluster — if `kubectl get sc`
     # is empty the PVC stays Pending and Purl never starts. On such clusters
     # either set config.volume.storageClass or set enabled=false and accept
-    # that logins/license do not survive a restart.
+    # that logins/settings do not survive a restart.
     enabled: true
     # -- Keep the config PVC when the release is uninstalled
     # (helm.sh/resource-policy: keep). ON by default: unlike the ClickHouse
     # data PVC — which survives because StatefulSet volumeClaimTemplates are
     # not Helm-managed — this PVC IS Helm-managed, so `helm uninstall` used
-    # to delete every dashboard login and the license key while every log
+    # to delete every dashboard login and settings.json while every log
     # line survived. Set false for throwaway/CI installs; note that a kept
     # PVC must then be deleted by hand:
     #   kubectl -n <ns> delete pvc <release>-purl-config
@@ -776,7 +766,7 @@ backup:
     # statement carries only the URL.
     credentialsInQuery: false
 
-  # -- Also back up /app/config (dashboard users, license, settings.json).
+  # -- Also back up /app/config (dashboard users, settings.json).
   # A ClickHouse-only backup restores every log and still leaves you locked
   # out of the dashboard, because the user database does not live in
   # ClickHouse. The job tars the config volume into

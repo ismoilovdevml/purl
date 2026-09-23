@@ -68,14 +68,10 @@ web/playwright-report/
 /package-lock.json
 /node_modules/
 
-# beads (bd) issue tracker — removed from this project. The stale git hooks
-# that recreated .beads/embeddeddolt/ on every commit/merge are gone; this
-# entry keeps a leftover local install from ever being committed.
-.beads/
-
 .playwright-mcp/
 
-# AI assistant tooling — kept local, never published
+# Local tooling, not part of the project
+.beads/
 .claude/
 .planning/
 .perles/

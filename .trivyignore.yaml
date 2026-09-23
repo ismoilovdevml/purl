@@ -33,8 +33,8 @@ misconfigurations:
     paths:
       - "chart/templates/deployment.yaml"
     statement: >-
-      Purl writes settings.json, the dashboard user database and the license
-      under /app/config, plus scratch files under /app/data. Those are
+      Purl writes settings.json and the dashboard user database under
+      /app/config, plus scratch files under /app/data. Those are
       volume mounts, but the Perl runtime also writes its own temp files to
       the container filesystem. readOnlyRootFilesystem: false is set
       explicitly in chart/values.yaml (securityContext) with this rationale.

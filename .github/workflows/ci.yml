@@ -616,7 +616,7 @@ jobs:
 
       # scanners: vuln (no secret scanner) — deliberate.
       # The image bundles third-party CPAN libraries whose POD examples and
-      # test fixtures contain sample keys (Crypt::JWT, Crypt::PK::{RSA,ECC,
+      # test fixtures contain sample keys (Crypt::PK::{RSA,ECC,
       # DSA,Ed25519}, Mojo::IOLoop's built-in test server.key). Those are
       # upstream docs/test data, not our secrets, and we cannot remove them.
       # OUR OWN secrets are still gated: the security-fs job scans the repo
@@ -752,17 +752,12 @@ jobs:
           key: ${{ secrets.K8S_DEV_SSH_KEY }}
           script: |
             set -e
-            # Optional: Enterprise/Pro license values (purl.license.*), kept out
-            # of values-secrets.yaml so it can be rotated on its own.
-            LICENSE_VALUES=""
-            [ -f /opt/purl-dev/values-license.yaml ] && LICENSE_VALUES="-f /opt/purl-dev/values-license.yaml"
             # deployedAt annotation forces a pod template change so the
             # mutable :dev tag is re-pulled (imagePullPolicy: Always).
             helm upgrade --install purl /opt/purl-dev/chart \
               --namespace purl-dev \
               -f /opt/purl-dev/chart/values-dev.yaml \
               -f /opt/purl-dev/values-secrets.yaml \
-              $LICENSE_VALUES \
               --set-string podAnnotations.deployedAt="$(date +%s)" \
               --wait --timeout 10m --atomic --cleanup-on-fail
             kubectl -n purl-dev rollout status deployment/purl --timeout=5m

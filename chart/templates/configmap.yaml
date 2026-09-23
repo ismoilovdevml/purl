@@ -20,12 +20,6 @@ data:
   {{- if .Values.clickhouse.cluster.enabled }}
   PURL_CLICKHOUSE_CLUSTER: {{ .Values.clickhouse.cluster.name | quote }}
   {{- end }}
-  {{- if .Values.purl.license.publicKey }}
-  PURL_LICENSE_PUBLIC_KEY: {{ .Values.purl.license.publicKey | quote }}
-  {{- end }}
-  {{- if .Values.purl.license.apiUrl }}
-  PURL_LICENSE_API_URL: {{ .Values.purl.license.apiUrl | quote }}
-  {{- end }}
   {{- /*
     PURL_REDIS_URL drives two things: cross-replica live-tail broadcast AND
     the shared metrics counter store (Purl::Store::Counter). Without it the

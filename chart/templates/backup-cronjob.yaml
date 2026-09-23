@@ -42,8 +42,8 @@ data:
     # /app/config -> <db>.purl_config_archive
     #
     # A ClickHouse-only backup restores every log line and still leaves you
-    # locked out of the dashboard: the user database, the license key and
-    # settings.json live on the config volume, not in ClickHouse. Park a
+    # locked out of the dashboard: the user database and settings.json live
+    # on the config volume, not in ClickHouse. Park a
     # tarball in a ClickHouse table so the single BACKUP DATABASE below
     # carries it to S3 too.
     # ---------------------------------------------------------------
@@ -63,7 +63,7 @@ data:
 
     # backup.includeConfig is on but config.volume.enabled is off: there is
     # no persistent /app/config to archive (it is an ephemeral emptyDir), so
-    # dashboard users and the license are NOT covered by this backup.
+    # dashboard users and settings are NOT covered by this backup.
     {{- end }}
 
     log "Backing up DATABASE ${CH_DB} -> S3 (${URL})"

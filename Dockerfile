@@ -36,7 +36,7 @@ LABEL org.opencontainers.image.source="https://github.com/ismoilovdevml/purl"
 LABEL org.opencontainers.image.title="Purl"
 LABEL org.opencontainers.image.description="Lightweight log aggregation system"
 LABEL org.opencontainers.image.vendor="Purl"
-LABEL org.opencontainers.image.licenses="BSL-1.1"
+LABEL org.opencontainers.image.licenses="MIT"
 
 # apt-get upgrade pulls Debian security patches for base-image OS packages so
 # the Trivy image scan (fails on fixable HIGH/CRITICAL) stays green. Without it

@@ -214,7 +214,7 @@ fi
 log "Restore completed successfully from: ${BACKUP_NAME}"
 
 # ---------------------------------------------------------
-# /app/config (dashboard users, license key, settings.json)
+# /app/config (dashboard users, settings.json)
 #
 # The Helm backup CronJob (backup.includeConfig=true) tars the config volume
 # into <db>.purl_config_archive so it travels inside the same BACKUP. Logs

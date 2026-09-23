@@ -58,7 +58,7 @@ install.sh
 docker-compose*.yml
 Makefile
 
-# Planning / agent state
+# Local tooling, not part of the project
 .planning/
 .beads/
 .claude/

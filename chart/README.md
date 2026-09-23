@@ -32,6 +32,15 @@ rendered on `X.Y.*` must keep rendering on `X.(Y+1).*`. A guard that rejects
 previously valid values is a MAJOR bump, which is why the release after 1.1.0
 is 2.0.0 and not 1.2.0.
 
+## 2.1.0
+
+The `purl.license` values block is gone, along with the license environment
+variables it rendered into the ConfigMap and Secret. Purl is MIT licensed and
+every feature works without a license key. Existing values files that still
+set `purl.license` render fine — the block is simply ignored — so this is a
+minor bump. A license entry left in a `purl.existingSecret` Secret is ignored
+too and can be deleted.
+
 ## Upgrading to 2.0.0
 
 `helm upgrade` from 1.x **fails at render time** for the value sets below.
@@ -168,7 +177,7 @@ satisfy the guard; to render without setting it, turn off
 Not a render failure — a behaviour change. `config.volume.keepOnUninstall` is
 new and defaults to `true`, adding `helm.sh/resource-policy: keep` to the
 `<release>-purl-config` PVC. In 1.x, `helm uninstall` deleted it, taking every
-dashboard login and the license key with it while every log line survived on
+dashboard login and settings.json with it while every log line survived on
 ClickHouse's own (non-Helm-managed) PVC.
 
 Read the "Config volume" section below before changing that volume: `keep`
@@ -185,8 +194,7 @@ stays HTTP-only: it exists for kubelet probes, which never need 9000.
 
 ## Config volume
 
-`<release>-purl-config` holds dashboard users, the license key and
-`settings.json`. With `config.volume.keepOnUninstall: true` (default) it is
+`<release>-purl-config` holds dashboard users and `settings.json`. With `config.volume.keepOnUninstall: true` (default) it is
 annotated `helm.sh/resource-policy: keep`.
 
 **`keep` stops deletion, not mutation.** A PVC spec is immutable. Changing
@@ -206,7 +214,7 @@ helm upgrade purl purl/purl -n purl --set config.volume.size=5Gi
 ```
 
 Otherwise the volume has to be replaced by hand, which **destroys the logins
-and license** unless you restore them:
+and settings** unless you restore them:
 
 ```bash
 kubectl -n purl get pvc purl-config -o yaml > config-pvc-backup.yaml
@@ -220,7 +228,7 @@ name fails on `invalid ownership metadata` against the surviving PVC.
 
 **`config.volume.enabled=false` orphans it silently.** The PVC leaves the
 rendered manifest, `keep` stops Helm deleting it, and the PVC and its PV stay
-bound and billed with no message — still holding the old logins and license.
+bound and billed with no message — still holding the old logins and settings.
 Check for it yourself:
 
 ```bash

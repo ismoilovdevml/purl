@@ -9,13 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Removed commercial licensing: every feature is available without a license
+  key; no license heartbeat. The license settings are gone from the Helm
+  chart (`purl.license`, chart 2.1.0), `docker-compose.yml`, `.env.example`,
+  `install.sh` and the dev deploy workflow.
+- **BREAKING** API: `GET /api/license` and `PUT /api/settings/license`.
 - **BREAKING** `deploy/kubernetes/` raw manifests and their `install.sh` /
   `uninstall.sh` (issue #41). They duplicated the Helm chart without any of its
   hardening. The chart is the only supported Kubernetes path — see the
   migration steps in README.md.
 
+### Added
+
+- `GET /api/auth/sso/status` returns `{enabled}`.
+- `GET /api/auth/me` includes `k8s_mode`.
+
 ### Changed
 
+- `GET /api/agents` no longer returns `limit`.
 - **BREAKING** The chart no longer invents `PURL_CLICKHOUSE_PASSWORD`,
   `PURL_SESSION_SECRET` or `PURL_API_KEYS` by default (issue #22). Generation
   relied on `lookup`, which is always empty without cluster access, so every
@@ -26,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - kube-apiserver audit policy and webhook config moved from
   `deploy/kubernetes/` to `deploy/k8s-audit/`. They configure the apiserver,
   not Purl, so they were never part of the chart.
+
+### Security
+
+- Backup list, download, schedule and S3 config, and the LDAP and SSO
+  settings reads, now require the admin role. They were previously readable
+  by any authenticated caller, including ingest API keys, on licensed installs.
+- AI endpoints now require a signed-in user.
 
 ## [1.2.0] - 2025-12-15
 

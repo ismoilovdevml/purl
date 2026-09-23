@@ -2,6 +2,9 @@
 
 Lightweight log aggregation system with ClickHouse. Collect, search, analyze, and alert.
 
+Purl is free and open source under the [MIT license](LICENSE). Every feature is
+available to everyone — there are no paid tiers and no license key.
+
 ```text
   ____            _
  |  _ \ _   _ _ _| |
@@ -189,14 +192,14 @@ helm uninstall purl -n purl
 ```
 
 The config PVC carries `helm.sh/resource-policy: keep`, so dashboard users and
-the license key survive an uninstall. Delete it explicitly when you mean to.
+`settings.json` survive an uninstall. Delete it explicitly when you mean to.
 
 ### Migrating off the old raw manifests
 
 `deploy/kubernetes/` has been removed (issue #41). It predated the chart,
 duplicated everything the chart templates and received none of its hardening —
 no `securityContext` on any workload, no config persistence (dashboard users
-and the license lived in an `emptyDir`), no NetworkPolicy allow-list, no
+lived in an `emptyDir`), no NetworkPolicy allow-list, no
 backups, and a `secret.yaml` shipping `CHANGE_ME` placeholders. The chart is
 the only supported Kubernetes path.
 
@@ -305,10 +308,16 @@ spec:
 ## Development
 
 ```bash
-make lint      # Run linters
-make up        # Start services
-make web-dev   # Frontend dev server
+make up          # Start Purl + ClickHouse with Docker Compose
+make web-dev     # Frontend dev server with hot reload
+make preflight   # Lint + tests + frontend build — run before opening a PR
 ```
+
+## Contributing
+
+Bug reports, fixes and features are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for the development setup, branch model and commit style. Report security
+issues privately as described in [SECURITY.md](SECURITY.md).
 
 ## Tech Stack
 
@@ -317,3 +326,7 @@ make web-dev   # Frontend dev server
 - **Frontend**: Svelte 5
 - **Log Collector**: Vector
 - **Deploy**: Docker, Kubernetes
+
+## License
+
+[MIT](LICENSE)

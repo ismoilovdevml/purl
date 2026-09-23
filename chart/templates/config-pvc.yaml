@@ -9,9 +9,9 @@ metadata:
   annotations:
     # ClickHouse data survives `helm uninstall` because StatefulSet
     # volumeClaimTemplates PVCs are not Helm-managed. This PVC IS, and it is
-    # the only home of the dashboard user database, the license key and
-    # settings.json — so an uninstall/reinstall cycle used to delete every
-    # login and the license while leaving all the logs intact.
+    # the only home of the dashboard user database and settings.json — so
+    # an uninstall/reinstall cycle used to delete every login while leaving
+    # all the logs intact.
     "helm.sh/resource-policy": keep
   {{- end }}
 spec:

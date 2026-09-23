@@ -31,7 +31,7 @@ second Purl pod either lands on the same node by luck or hangs forever with
 {{- $replicas = max $replicas (int .Values.autoscaling.maxReplicas) }}
 {{- end }}
 {{- if gt $replicas 1 }}
-{{- fail "config.volume.accessModes=[ReadWriteOnce] supports exactly one Purl replica (autoscaling.maxReplicas counts). Use a ReadWriteMany storage class (config.volume.accessModes: [ReadWriteMany]), or set config.volume.enabled=false and accept that dashboard users/license do not survive a restart." }}
+{{- fail "config.volume.accessModes=[ReadWriteOnce] supports exactly one Purl replica (autoscaling.maxReplicas counts). Use a ReadWriteMany storage class (config.volume.accessModes: [ReadWriteMany]), or set config.volume.enabled=false and accept that dashboard users/settings do not survive a restart." }}
 {{- end }}
 {{- if ne .Values.updateStrategy.type "Recreate" }}
 {{- fail "config.volume.accessModes=[ReadWriteOnce] requires updateStrategy.type=Recreate — a RollingUpdate attaches the volume to the new pod before the old one releases it and the rollout deadlocks on Multi-Attach." }}
@@ -191,8 +191,8 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             {{- if .Values.config.volume.enabled }}
-            # Writable: Purl persists settings.json, dashboard users and
-            # license files under /app/config at runtime.
+            # Writable: Purl persists settings.json and dashboard users
+            # under /app/config at runtime.
             - name: config
               mountPath: /app/config
             {{- end }}
