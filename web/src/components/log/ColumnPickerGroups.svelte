@@ -127,6 +127,9 @@
 <style>
   .picker-groups {
     flex: 1;
+    /* Lets the list shrink below its content inside a clamped ColumnPicker
+       panel, so it scrolls instead of being cut off (#118). */
+    min-height: 0;
     overflow-y: auto;
     padding: 8px 0;
   }

@@ -6,7 +6,7 @@
   <ColumnPicker bind:columns bind:open onchange={({ columns }) => saveConfig(columns)} />
 -->
 <script>
-  import { clickOutside } from '../../utils/dom.js';
+  import { clickOutside, fitToViewport } from '../../utils/dom.js';
   import { defaultColumns } from '../../utils/columns.js';
   import Icon from '../ui/Icon.svelte';
   import { refresh, search, textLines } from '../ui/icons.js';
@@ -118,7 +118,9 @@
   </button>
 
   {#if open}
-    <div class="picker-dropdown" use:clickOutside={close}>
+    <!-- Clamped to the viewport (opens upward when there is more room above);
+         the column list scrolls inside it (#118). -->
+    <div class="picker-dropdown" use:clickOutside={close} use:fitToViewport={{ vertical: true }}>
       <!-- Search -->
       <div class="picker-search">
         <Icon icon={search} size={14} strokeWidth={2.5} class="search-icon" />
@@ -216,6 +218,15 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
+  }
+
+  /* Only the column list shrinks when the panel is clamped; the search,
+     presets and footer keep their height. */
+  .picker-search,
+  .picker-presets,
+  .picker-divider,
+  .picker-footer {
+    flex-shrink: 0;
   }
 
   .picker-search {

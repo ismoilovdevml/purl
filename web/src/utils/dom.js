@@ -172,25 +172,67 @@ export function portal(node, target = document.body) {
 
 /**
  * Svelte action: keep an absolutely positioned popup (dropdown menu, picker
- * panel) horizontally inside the viewport. The popup keeps its CSS anchoring
- * (e.g. `right: 0` under its trigger); when that would push it past either
- * edge — a trigger that wrapped to the left of a narrow header, or one flush
- * with the right edge — it is shifted back in with a translateX, and it is
- * never wider than the viewport. Re-measured on window resize and whenever
- * the popup's own size changes (e.g. the time picker swapping to its wider
- * custom-range form).
+ * panel) inside the viewport. The popup keeps its CSS anchoring (e.g.
+ * `right: 0` under its trigger); when that would push it past either edge —
+ * a trigger that wrapped to the left of a narrow header, or one flush with the
+ * right edge — it is shifted back in with a translateX, and it is never wider
+ * than the viewport. Re-measured on window resize and whenever the popup's own
+ * size changes (e.g. the time picker swapping to its wider custom-range form).
+ *
+ * With `{ vertical: true }` it also keeps a popup that drops down from its
+ * trigger (the popup's parent) from running off the bottom. The popup is then
+ * positioned `fixed` against the trigger — so a clipping ancestor
+ * (`overflow: hidden`) cannot cut it off — opens upward when there is more
+ * room above than below, and gets a max-height from the room it has. It must
+ * scroll internally (a scrollable child with `min-height: 0`, or
+ * `overflow-y: auto` on itself). It follows the trigger on scroll.
  *
  * Use on an element that exists only while open (`{#if open}`), so the first
  * measurement sees its real box.
  * Usage: <div class="dropdown" use:fitToViewport>
+ *        <div class="panel" use:fitToViewport={{ vertical: true }}>
  * @param {HTMLElement} node - The popup element
+ * @param {{ vertical?: boolean }} [options]
  * @returns {object} Svelte action object
  */
-export function fitToViewport(node) {
+export function fitToViewport(node, options = {}) {
   const GUTTER = 8;
+  const vertical = options.vertical === true;
   node.style.maxWidth = `calc(100vw - ${GUTTER * 2}px)`;
 
-  function place() {
+  // Read once, before this action overrides them: the popup's own CSS cap and
+  // its gap from the trigger.
+  const cssStyle = getComputedStyle(node);
+  const cssMaxHeight = parseFloat(cssStyle.maxHeight); // NaN for 'none'
+  const gap = parseFloat(cssStyle.marginTop) || 0;
+
+  function placeVertically() {
+    const trigger = node.parentElement.getBoundingClientRect();
+    const viewport = document.documentElement.clientHeight;
+    node.style.position = 'fixed';
+    node.style.margin = '0';
+    node.style.left = `${Math.round(trigger.left)}px`;
+    node.style.right = 'auto';
+    node.style.maxHeight = Number.isNaN(cssMaxHeight) ? '' : `${cssMaxHeight}px`;
+
+    const height = node.getBoundingClientRect().height;
+    const below = viewport - GUTTER - (trigger.bottom + gap);
+    const above = trigger.top - gap - GUTTER;
+    const up = height > below && above > below;
+    if (up) {
+      node.style.top = 'auto';
+      node.style.bottom = `${Math.round(viewport - trigger.top + gap)}px`;
+    } else {
+      node.style.top = `${Math.round(trigger.bottom + gap)}px`;
+      node.style.bottom = 'auto';
+    }
+    const room = Math.max(0, Math.floor(up ? above : below));
+    if (height > room) {
+      node.style.maxHeight = `${Number.isNaN(cssMaxHeight) ? room : Math.min(cssMaxHeight, room)}px`;
+    }
+  }
+
+  function placeHorizontally() {
     node.style.translate = '';
     const rect = node.getBoundingClientRect();
     if (rect.width === 0) return;
@@ -201,15 +243,37 @@ export function fitToViewport(node) {
     if (shift !== 0) node.style.translate = `${Math.round(shift)}px 0`;
   }
 
+  function place() {
+    if (vertical) placeVertically();
+    placeHorizontally();
+  }
+
   place();
   window.addEventListener('resize', place);
-  // `translate` does not change the observed box size, so this cannot loop.
+  // A fixed popup does not move with its trigger; any scrolling ancestor does.
+  // Scrolling inside the popup itself must not re-place it: re-measuring
+  // resets its max-height, which would clamp the list's own scroll position.
+  // At most one re-place per frame: scroll events fire far more often.
+  let frame = 0;
+  const onScroll = (event) => {
+    if (event.target instanceof Node && node.contains(event.target)) return;
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      place();
+    });
+  };
+  if (vertical) window.addEventListener('scroll', onScroll, true);
+  // `translate` does not change the observed box size, and max-height only
+  // settles towards the room available, so this cannot loop.
   const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(place) : null;
   observer?.observe(node);
 
   return {
     destroy() {
       window.removeEventListener('resize', place);
+      if (vertical) window.removeEventListener('scroll', onScroll, true);
+      if (frame) cancelAnimationFrame(frame);
       observer?.disconnect();
     },
   };
