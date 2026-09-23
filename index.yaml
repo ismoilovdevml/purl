@@ -1,0 +1,61 @@
+apiVersion: v1
+entries:
+  purl:
+  - apiVersion: v2
+    appVersion: 1.2.0
+    created: "2026-07-14T12:20:25.495962+05:00"
+    description: Lightweight self-hosted log aggregation system
+    digest: e6f0000e22ca4206f4a50b2580cc2bae7b60d5e55d9827a4fcc07b2260c4a741
+    home: https://github.com/ismoilovdevml/purl
+    keywords:
+    - logging
+    - log-aggregation
+    - observability
+    - clickhouse
+    maintainers:
+    - email: ismoilovdevarchlinux@gmail.com
+      name: ismoilovdevml
+    name: purl
+    type: application
+    urls:
+    - https://github.com/ismoilovdevml/purl/releases/download/purl-1.0.2/purl-1.0.2.tgz
+    version: 1.0.2
+  - apiVersion: v2
+    appVersion: 1.2.0
+    created: "2026-07-14T12:20:25.495353+05:00"
+    description: Lightweight self-hosted log aggregation system
+    digest: d30612f0e7aa8c8e1941e8e647b5c88920b8ddecbd41d722d67304d38ab492d2
+    home: https://github.com/ismoilovdevml/purl
+    keywords:
+    - logging
+    - log-aggregation
+    - observability
+    - clickhouse
+    maintainers:
+    - email: ismoilovdevarchlinux@gmail.com
+      name: ismoilovdevml
+    name: purl
+    type: application
+    urls:
+    - https://github.com/ismoilovdevml/purl/releases/download/purl-1.0.1/purl-1.0.1.tgz
+    version: 1.0.1
+  - apiVersion: v2
+    appVersion: 1.2.0
+    created: "2026-07-14T12:20:25.494441+05:00"
+    description: Lightweight self-hosted log aggregation system
+    digest: f23c47915fec9601552b940debfad054fe2caa53a90afaa8190fe0726ef3a402
+    home: https://github.com/ismoilovdevml/purl
+    keywords:
+    - logging
+    - log-aggregation
+    - observability
+    - clickhouse
+    maintainers:
+    - email: ismoilovdevarchlinux@gmail.com
+      name: ismoilovdevml
+    name: purl
+    type: application
+    urls:
+    - https://github.com/ismoilovdevml/purl/releases/download/purl-1.0.0/purl-1.0.0.tgz
+    version: 1.0.0
+generated: "2026-07-14T12:20:25.493788+05:00"
