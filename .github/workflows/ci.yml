@@ -350,7 +350,8 @@ jobs:
             --set vector.buffer.maxSizeBytes=1024
 
           assert_fails "multi-replica on a ReadWriteOnce config volume" \
-            --set replicaCount=3
+            --set replicaCount=3 \
+            --set purl.redis.enabled=true --set purl.redis.url=redis://r:6379
 
       # Pinned version + checksum. `releases/latest/download` silently changes
       # what it serves, and the tarball was previously executed unverified.
@@ -378,6 +379,8 @@ jobs:
           helm template purl chart/ $HELM_AUTOGEN \
             --set autoscaling.enabled=true \
             --set 'config.volume.accessModes[0]=ReadWriteMany' \
+            --set purl.redis.enabled=true \
+            --set purl.redis.url=redis://redis:6379 \
             | ./kubeconform -strict -summary -kubernetes-version 1.29.0
 
   # ==========================================
