@@ -261,6 +261,11 @@ purl:
   # default (604800 = 7d); a non-positive or non-numeric value is ignored.
   sessionMaxAge: ""
 
+  # -- PURL_GRACEFUL_TIMEOUT: seconds a worker may take to finish in-flight
+  # requests and flush its buffer on shutdown before it is killed. Keep it
+  # below terminationGracePeriodSeconds. Empty = app default (50).
+  gracefulTimeout: ""
+
   # -- Generic webhook alerting
   alertWebhook:
     # -- Webhook URL for alerts

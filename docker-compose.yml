@@ -32,6 +32,7 @@ services:
       - PURL_ADMIN_PASSWORD=${PURL_ADMIN_PASSWORD:-}
       # Absolute session lifetime in seconds; empty = app default (604800 = 7d)
       - PURL_SESSION_MAX_AGE=${PURL_SESSION_MAX_AGE:-}
+      - PURL_GRACEFUL_TIMEOUT=${PURL_GRACEFUL_TIMEOUT:-}
     volumes:
       - ./config:/app/config
       - purl_backups:/app/backups
