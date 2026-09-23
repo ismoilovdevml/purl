@@ -121,13 +121,16 @@ sub query {
         my $sql          = $result->{sql};
         my $execute      = $body->{execute} // 1;
         my $query_results;
+        # Search-bar (KQL) form of the question, already validated by the
+        # search parser; absent when the model gave none that parses (#98).
+        my %search = defined $result->{query} ? (query => $result->{query}) : ();
 
         if ($execute) {
             eval {
                 $query_results = $self->storage->_query_json($sql, no_cache => 1);
             };
             if ($@) {
-                $c->render(json => { sql => $sql, error => "Query execution failed: $@" });
+                $c->render(json => { sql => $sql, %search, error => "Query execution failed: $@" });
                 return;
             }
             splice @$query_results, 500 if $query_results && @$query_results > 500;
@@ -136,6 +139,7 @@ sub query {
         $c->render(json => {
             question => $question,
             sql      => $sql,
+            %search,
             provider => $cfg->{provider},
             ($query_results ? (results => $query_results, total => scalar @$query_results) : ()),
         });
