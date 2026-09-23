@@ -237,9 +237,17 @@ sub disconnect {
     $self->flush();  # Flush any remaining logs
 }
 
+# Best effort only: flush a buffer left in an object that is freed at runtime
+# (e.g. the old storage after a settings-driven rebuild). The shutdown flush
+# is explicit (Purl::API::Server::Shutdown) because during global destruction
+# the HTTP client / JSON encoder a flush needs may already be gone (#90) —
+# attempting it then only produces "(in cleanup)" noise, so it is skipped.
 sub DEMOLISH {
-    my ($self) = @_;
-    $self->disconnect();
+    my ($self, $in_global_destruction) = @_;
+    return if $in_global_destruction || ${^GLOBAL_PHASE} eq 'DESTRUCT';
+    eval { $self->disconnect(); 1 }
+        or warn "ClickHouse buffer flush on destroy failed: $@";
+    return;
 }
 
 # Note: Saved Searches and Alerts CRUD methods are provided by

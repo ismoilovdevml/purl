@@ -6,8 +6,7 @@ use 5.024;
 our $VERSION = '1.3.0';
 
 use Mojolicious::Lite -signatures;
-use Mojo::Server::Prefork ();
-use Mojo::IOLoop ();
+use Purl::API::Server::Prefork;
 use Time::HiRes qw(time);
 use Purl::Util::ClientIP ();
 
@@ -18,6 +17,7 @@ use Purl::API::Server::Builders;
 use Purl::API::Server::Bootstrap;
 use Purl::API::Server::Cron;
 use Purl::API::Server::Hooks;
+use Purl::API::Server::Shutdown;
 use Purl::API::Routes;
 
 # Controllers
@@ -61,6 +61,8 @@ use Purl::Metrics::Counters;
 #   Purl::API::Server::Bootstrap  sessions, initial admin, schema init
 #   Purl::API::Server::Cron       recurring jobs + singleton cron leadership
 #   Purl::API::Server::Hooks      security headers, CORS, metrics, audit helper
+#   Purl::API::Server::Prefork    prefork manager: SIGTERM/SIGINT stop gracefully
+#   Purl::API::Server::Shutdown   per-worker exit: flush ingest buffer, close WebSockets
 #   Purl::API::Routes(::*)        the route table
 #
 # PREFORK: all of this runs in the manager before build_prefork->run forks,
@@ -97,10 +99,6 @@ sub get_metrics { return \%metrics; }
 
 # Shared cache for all controllers
 my %cache;
-my $cache_ttl = 60;
-
-# Trusted reverse-proxy list (arrayref), resolved once at startup.
-my $trusted_proxies = [];
 
 # Auth middleware instance
 my $auth_middleware;
@@ -117,7 +115,6 @@ my $namespace_scope;
 sub create {
     my ($class, %args) = @_;
     $config = $args{config} // {};
-    $cache_ttl = $config->{cache}{ttl} // 60;
     return bless {}, $class;
 }
 
@@ -183,7 +180,7 @@ sub setup_routes {
     $auth_middleware->settings($settings);
 
     # Security posture from config: trusted proxies (for real client IP) + CSRF.
-    $trusted_proxies = Purl::Util::ClientIP::parse_proxy_list(
+    my $trusted_proxies = Purl::Util::ClientIP::parse_proxy_list(
         $settings->get('security', 'trusted_proxies') // ''
     );
     $auth_middleware->trusted_proxies($trusted_proxies);
@@ -365,31 +362,23 @@ sub build_prefork {
     my $port    = $opts{port}    // 3000;
     my $workers = $opts{workers} // 4;
 
-    my $prefork = Mojo::Server::Prefork->new(
+    my $prefork = Purl::API::Server::Prefork->new(
         app     => app,
         listen  => ["http://$host:$port"],
         workers => $workers,
     );
 
     # ------------------------------------------------------------------
-    # Graceful shutdown model (PREFORK).
+    # Graceful shutdown model (PREFORK), see #90.
     #
-    # We do NOT install our own $SIG{TERM}/$SIG{INT} handlers: the prefork
-    # manager owns process signals and its handlers are installed with
-    # `local` inside run() (anything we set would be clobbered anyway).
+    # Manager: SIGQUIT, SIGTERM and SIGINT all stop GRACEFULLY
+    # (Purl::API::Server::Prefork): each worker gets QUIT, stops accepting,
+    # finishes in-flight requests, then exits. Stock Mojo SIGKILLs the
+    # workers on TERM/INT, which dropped every buffered log.
     #
-    # Signal semantics of Mojo::Server::Prefork:
-    #   SIGQUIT -> graceful: manager sends QUIT to each worker, workers
-    #              stop accepting, finish in-flight requests, then exit.
-    #   SIGTERM/SIGINT -> immediate: workers are KILLed (drops in-flight).
-    # The container is therefore configured (Dockerfile STOPSIGNAL SIGQUIT,
-    # k8s preStop `kill -QUIT 1`) to send SIGQUIT so shutdown DRAINS.
-    #
-    # Cleanup is per-worker because state is per-worker after fork: the
-    # ingest buffer and WebSocket list live in EACH worker's memory ->
-    # flushed/closed per worker when its IOLoop stops gracefully.
-    # Hook: IOLoop singleton `finish` (fires in the draining worker). The
-    # manager's prefork `finish` hook only logs the shutdown.
+    # Worker: state is per-worker after fork (ingest buffer, WebSocket
+    # list), so each worker flushes/closes its own on its own exit, before
+    # global destruction -- see Purl::API::Server::Shutdown.
     # ------------------------------------------------------------------
     $prefork->on(finish => sub {
         my ($pf, $graceful) = @_;
@@ -397,15 +386,11 @@ sub build_prefork {
             'Manager shutting down (graceful=' . ($graceful ? 1 : 0) . ')');
     });
 
-    Mojo::IOLoop->singleton->on(finish => sub {
-        if ($storage && $storage->can('flush')) {
-            eval { $storage->flush(); 1 }
-                or app->log->error("Buffer flush failed: $@");
-        }
-        for my $tx (@$websockets) {
-            eval { $tx->finish(1001 => 'Server shutting down'); 1 };
-        }
-    });
+    Purl::API::Server::Shutdown::install(
+        storage    => sub { $storage },
+        websockets => $websockets,
+        log        => app->log,
+    );
 
     return $prefork;
 }
@@ -427,19 +412,53 @@ Purl::API::Server - Mojolicious REST API server for Purl
 
 =head1 DESCRIPTION
 
-Main API server that routes requests to specialized controllers:
+This module is the composition root: it owns the process-wide state, builds
+the controllers and hands everything to the modules that do the work.
 
-    Purl::API::Controller::Logs        - Log search/ingest
-    Purl::API::Controller::Traces      - Trace correlation
-    Purl::API::Controller::System      - Health/metrics
-    Purl::API::Controller::Analytics   - Table stats, slow queries
-    Purl::API::Controller::Auth        - CSRF tokens
-    Purl::API::Controller::Stats       - Field stats, histograms
-    Purl::API::Controller::Patterns    - Log pattern analysis
+=head2 Server submodules
+
+    Purl::API::Server::Builders   - storage, notifiers, broadcaster, LDAP, SAML
+    Purl::API::Server::Bootstrap  - sessions, initial admin, schema init
+    Purl::API::Server::Cron       - recurring jobs + singleton cron leadership
+    Purl::API::Server::Hooks      - security headers, CORS, metrics, audit helper
+    Purl::API::Server::Prefork    - prefork manager; SIGTERM/SIGINT/SIGQUIT all drain
+    Purl::API::Server::Shutdown   - per-worker exit: flush the ingest buffer,
+                                    close WebSockets (before global destruction)
+
+=head2 Route table
+
+    Purl::API::Routes               - registers the groups below, auth gates
+    Purl::API::Routes::System       - health, metrics, CSRF token, login/logout, SSO
+    Purl::API::Routes::Logs         - ingest (incl. OTLP), search, traces, stats,
+                                      analytics, patterns, saved searches
+    Purl::API::Routes::Management   - alerts, config, settings, agents, backups, audit
+    Purl::API::Routes::Integrations - ES-compat, syslog, pipelines, dashboards,
+                                      k8s, AI (rate-limited), clusters
+    Purl::API::Routes::LiveTail     - WebSocket live tail
+
+=head2 Controllers
+
+    Purl::API::Controller::Logs          - Log search/ingest
+    Purl::API::Controller::Traces        - Trace correlation
+    Purl::API::Controller::System        - Health/metrics
+    Purl::API::Controller::Analytics     - Table stats, slow queries
+    Purl::API::Controller::Auth          - Login, sessions, CSRF tokens
+    Purl::API::Controller::Stats         - Field stats, histograms
+    Purl::API::Controller::Patterns      - Log pattern analysis
     Purl::API::Controller::SavedSearches - Saved search CRUD
-    Purl::API::Controller::Alerts      - Alert management
-    Purl::API::Controller::Settings    - Runtime settings
-    Purl::API::Controller::Config      - Read-only configuration
-    Purl::API::Controller::OTLP       - OpenTelemetry OTLP/JSON log ingest
+    Purl::API::Controller::Alerts        - Alert management
+    Purl::API::Controller::Config        - Read-only configuration
+    Purl::API::Controller::OTLP          - OpenTelemetry OTLP/JSON log ingest
+
+Runtime settings are split by area, one controller each:
+
+    Purl::API::Controller::Settings                - overview, ClickHouse, retention
+    Purl::API::Controller::Settings::Notifications - Telegram, Slack, webhook
+    Purl::API::Controller::Settings::ApiKeys       - ingest API keys
+    Purl::API::Controller::Settings::Users         - users and roles
+    Purl::API::Controller::Settings::LDAP          - LDAP
+    Purl::API::Controller::Settings::SSO           - SAML SSO
+    Purl::API::Controller::Settings::AI            - AI provider
+    Purl::API::Controller::Settings::Redis         - Redis / broadcast mode
 
 =cut
