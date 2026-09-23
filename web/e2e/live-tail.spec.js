@@ -108,4 +108,56 @@ test.describe('Live tail', () => {
       'a log ingested while tailing must appear in the table with no manual refresh'
     ).toBeVisible({ timeout: 30_000 });
   });
+
+  test('a burst of same-timestamp logs all appear while tailing', async ({ page, request }) => {
+    /*
+     * Streamed logs carry no `id` (ClickHouse assigns it on insert), so the
+     * client makes one up. It used to be `${timestamp}-${Date.now()}`, which is
+     * identical for same-timestamp logs handled in the same millisecond — and
+     * the table is a keyed {#each}. Svelte >= 5.5x throws each_key_duplicate
+     * on that in production builds too, which froze the table mid-burst.
+     */
+    const pageErrors = [];
+    page.on('pageerror', (err) => pageErrors.push(err.message));
+
+    await page.addInitScript(() => {
+      const raw = window.localStorage.getItem('purl_settings');
+      const parsed = raw ? JSON.parse(raw) : {};
+      parsed.refreshInterval = 0;
+      window.localStorage.setItem('purl_settings', JSON.stringify(parsed));
+    });
+    await page.reload();
+    await gotoTab(page, 'Logs');
+
+    const frames = [];
+    page.on('websocket', (ws) => {
+      ws.on('framereceived', (f) => frames.push(f.payload));
+    });
+    await page.locator('.search-bar button:has-text("Live")').click();
+    await expect
+      .poll(() => frames.some((f) => typeof f === 'string' && f.includes('"connected"')), {
+        message: 'socket must be established before ingesting',
+        timeout: 20_000,
+      })
+      .toBe(true);
+
+    const marker = unique('burst');
+    const timestamp = new Date().toISOString();
+    const count = 25;
+    await ingestLogs(
+      request,
+      Array.from({ length: count }, (_, i) =>
+        logEntry({ timestamp, message: `${marker} line-${String(i).padStart(2, '0')}` })
+      )
+    );
+
+    // Every line of the burst, not just the first, must reach the table.
+    for (const i of [0, Math.floor(count / 2), count - 1]) {
+      await expect(
+        page.locator('.log-table', { hasText: `${marker} line-${String(i).padStart(2, '0')}` }).first(),
+        `burst line ${i} must appear while tailing`
+      ).toBeVisible({ timeout: 30_000 });
+    }
+    expect(pageErrors, 'rendering a same-timestamp burst must not throw').toEqual([]);
+  });
 });

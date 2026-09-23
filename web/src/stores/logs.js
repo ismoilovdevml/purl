@@ -1,6 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { escapeHtml } from '../utils/dom.js';
 import { api } from '../utils/api.js';
+import { uniqueId } from '../utils/id.js';
 import { settings, clampMaxResults } from './settings.js';
 import { passwordChangeRequired, endRevokedSession, WS_SESSION_REVOKED } from './auth.js';
 import { error as toastError } from './toast.js';
@@ -482,7 +483,10 @@ export function connectWebSocket() {
         if (data.type === 'log') {
           const logWithId = {
             ...data.data,
-            id: data.data.id || `${data.data.timestamp}-${Date.now()}`
+            // Streamed logs have no id yet (ClickHouse assigns it on insert).
+            // timestamp+Date.now() collided within a same-timestamp burst and
+            // the duplicate {#each} key froze the table.
+            id: data.data.id || uniqueId('live')
           };
           logs.update(current => [logWithId, ...current.slice(0, MAX_LIVE_LOGS - 1)]);
         }

@@ -122,7 +122,8 @@ export function assertBrowserUsable(channel) {
     executablePath = chromium.executablePath();
   } catch (cause) {
     throw new Error(
-      `Playwright cannot resolve a Chromium executable.\n\n${INSTALL_HINT}\n\nUnderlying error: ${cause.message}`
+      `Playwright cannot resolve a Chromium executable.\n\n${INSTALL_HINT}\n\nUnderlying error: ${cause.message}`,
+      { cause }
     );
   }
 

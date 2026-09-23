@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 import { api } from '../utils/api.js';
+import { uniqueId } from '../utils/id.js';
 import { error as toastError, success as toastSuccess } from './toast.js';
 
 export const dashboards = writable([]);
@@ -20,10 +21,26 @@ export async function fetchDashboards() {
   }
 }
 
+/**
+ * Give every widget a unique id. Widgets created from a server template have
+ * none, and the id is both the widget grid's {#each} key (a duplicate throws)
+ * and the slot its query result is stored under. The ids are persisted the
+ * next time the dashboard's widgets are saved.
+ */
+function withWidgetIds(dashboard) {
+  const seen = new Set();
+  const widgets = (dashboard.widgets || []).map((w) => {
+    const id = w.id && !seen.has(w.id) ? w.id : uniqueId('widget');
+    seen.add(id);
+    return id === w.id ? w : { ...w, id };
+  });
+  return { ...dashboard, widgets };
+}
+
 export async function fetchDashboard(id) {
   dashboardLoading.set(true);
   try {
-    const data = await api.get(`/dashboards/${id}`);
+    const data = withWidgetIds(await api.get(`/dashboards/${id}`));
     currentDashboard.set(data);
     return data;
   } catch (err) {

@@ -96,6 +96,14 @@ test.describe('Dashboards', () => {
   });
 
   test('a dashboard created from a template arrives with its widgets', async ({ page }) => {
+    // Template widgets come from the server WITHOUT ids. The widget grid is a
+    // keyed {#each}, so id-less widgets used to share the key `undefined`:
+    // Svelte >= 5.5x throws each_key_duplicate on that (the dashboard never
+    // opened), and older Svelte rendered it but pooled every widget's result
+    // under one slot.
+    const pageErrors = [];
+    page.on('pageerror', (err) => pageErrors.push(err.message));
+
     await gotoTab(page, 'Dashboards');
 
     // Template cards create immediately, with the template's own name.
@@ -124,11 +132,17 @@ test.describe('Dashboards', () => {
       const widgets = page.locator('.widgets-grid .widget-card');
       await expect(widgets.first()).toBeVisible();
       expect(await widgets.count(), 'the template must bring more than one widget').toBeGreaterThan(1);
+      // Each widget is its own card, not N copies of one.
+      const titles = await page.locator('.widgets-grid .widget-card .widget-title').allTextContents();
+      expect(new Set(titles.map((t) => t.trim())).size, 'every template widget keeps its own title').toBe(
+        titles.length
+      );
 
       // Every widget must resolve — one stuck on "Loading..." or showing an
       // error is the failure mode this catches.
       await expect(page.locator('.widget-body .widget-loading')).toHaveCount(0, { timeout: 30_000 });
       await expect(page.locator('.widget-body .widget-error')).toHaveCount(0);
+      expect(pageErrors, 'opening a template dashboard must not throw').toEqual([]);
     } finally {
       await cleanup(page, 'Application Logs');
     }

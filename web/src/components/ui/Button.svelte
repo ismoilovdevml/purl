@@ -11,8 +11,9 @@
 -->
 <script>
   // Rest props are the point of this primitive (aria-*, title, on* handlers
-  // pass straight through to <button>); it is never built as a custom element.
-  // svelte-ignore custom_element_props_identifier
+  // pass straight through to <button>). Svelte 5.57 raises
+  // custom_element_props_identifier only for custom-element builds, so this
+  // no longer needs an ignore comment.
   let {
     /** @type {'default' | 'primary' | 'success' | 'danger' | 'ghost' | 'link'} */
     variant = 'default',

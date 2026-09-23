@@ -222,6 +222,9 @@
   // Selection handlers
   function toggleRowSelection(event, log, index) {
     event.stopPropagation();
+    // Copy-then-reassign: selectedIds is replaced wholesale below, so the
+    // working copy itself does not need to be reactive.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const newSet = new Set(selectedIds);
 
     if (event.shiftKey && lastCheckedIndex !== null) {
@@ -253,6 +256,9 @@
   }
 
   function toggleSelectAll() {
+    // Copy-then-reassign: selectedIds is replaced wholesale below, so the
+    // working copy itself does not need to be reactive.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const newSet = new Set(selectedIds);
     if (allSelected) {
       // Deselect all on current page

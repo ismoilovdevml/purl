@@ -338,6 +338,8 @@
 
       if (startTime && endTimeRaw) {
         // Calculate end time based on interval
+        // Local scratch value, never rendered — no reactivity needed.
+        // eslint-disable-next-line svelte/prefer-svelte-reactivity
         const endDate = new Date(endTimeRaw);
         // Add interval duration to get actual end time
         // Detect interval from histogram bucket spacing

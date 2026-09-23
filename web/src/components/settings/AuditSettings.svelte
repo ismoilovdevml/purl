@@ -134,6 +134,7 @@
   function toggleDetails(logId) {
     // A fresh Set: $state does not track Set mutations, and reassigning the
     // same reference is a no-op in runes mode.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const next = new Set(expandedRows);
     if (next.has(logId)) {
       next.delete(logId);

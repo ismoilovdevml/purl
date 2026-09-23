@@ -25,6 +25,9 @@
    *   onshowhelp: () => void,
    * }}
    */
+  // exportStatus is write-only here: the parent reads it through bind:, which
+  // ESLint cannot see.
+  // eslint-disable-next-line no-useless-assignment
   let { selectedLogs, exportStatus = $bindable(''), onsavesearch, onshowhelp } = $props();
 
   function handleTimeRangeChange({ range, from, to }) {

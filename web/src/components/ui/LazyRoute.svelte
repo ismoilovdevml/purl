@@ -12,6 +12,9 @@
   // Module-level cache: loader fn -> import promise.
   // Without this, every re-render would call loader() again and produce a
   // fresh promise identity, sending {#await} back into its pending branch.
+  // Deliberately NOT a SvelteMap: nothing renders from it, and a reactive
+  // cache would re-run the {#await} on every insert.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const cache = new Map();
 
   function load(loader) {
