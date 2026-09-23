@@ -1,6 +1,8 @@
 <!--
   SettingsPage Component
-  Main settings page with navigation sidebar.
+  Main settings page with navigation sidebar. Below 900px the sidebar gives
+  way to a section <Select> above the content, so a phone gets the full width
+  for the section itself (#119).
 
   Deep links: the section lives in the hash suffix (`#settings/agents`), so any
   page can link straight to a settings section. App.svelte routes on
@@ -31,6 +33,7 @@
   import AgentsSettings from './AgentsSettings.svelte';
   import { currentUser, k8sMode } from '../../stores/auth.js';
   import Icon from '../ui/Icon.svelte';
+  import Select from '../ui/Select.svelte';
   import {
     activity, agent, ai, bell, database, databaseThreeTier, databaseTwoTier,
     fileText, info, integrations, key, lock, monitor, pipeline, server, upload, users,
@@ -70,6 +73,16 @@
     { id: 'redis', label: 'Redis', icon: databaseTwoTier, locked: !isAdmin },
     { id: 'about', label: 'About', icon: info },
   ]);
+
+  // Same list for the narrow-screen picker; a locked section stays listed
+  // (so it is clear it exists) but cannot be chosen, as in the sidebar.
+  const sectionOptions = $derived(
+    sections.map((s) => ({
+      value: s.id,
+      label: s.locked ? `${s.label} (admin only)` : s.label,
+      disabled: s.locked,
+    })),
+  );
 
   /**
    * Re-run whenever the hash OR the section list changes. The second dependency
@@ -131,6 +144,20 @@
       {/each}
     </nav>
   </aside>
+
+  <div class="settings-mobile-nav">
+    <Select
+      label="Settings section"
+      value={activeSection}
+      options={sectionOptions}
+      placeholder=""
+      fullWidth
+      onchange={({ value }) => {
+        const section = sections.find((s) => s.id === value);
+        if (section) selectSection(section);
+      }}
+    />
+  </div>
 
   <main class="settings-content">
     {#if activeSection === 'database'}
@@ -250,5 +277,36 @@
     padding: 24px 32px;
     overflow-y: auto;
     height: 100%;
+    /* A flex item defaults to min-width: auto, so one wide child (a table)
+       would widen the whole column past the viewport instead of scrolling. */
+    min-width: 0;
+  }
+
+  .settings-mobile-nav {
+    display: none;
+  }
+
+  @media (max-width: 900px) {
+    .settings-page {
+      flex-direction: column;
+    }
+
+    .settings-nav {
+      display: none;
+    }
+
+    .settings-mobile-nav {
+      display: block;
+      flex-shrink: 0;
+      padding: 12px 16px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-muted);
+    }
+
+    .settings-content {
+      padding: 16px;
+      height: auto;
+      min-height: 0;
+    }
   }
 </style>

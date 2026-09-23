@@ -101,9 +101,13 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    /* Lets a long URL wrap instead of pushing the copy button off a phone's
+       edge (#119). */
+    min-width: 0;
   }
 
   .config-url {
+    overflow-wrap: anywhere;
     font-size: 0.8125rem;
     font-family: var(--font-mono);
     color: var(--color-primary);

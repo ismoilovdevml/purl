@@ -335,9 +335,17 @@
 
   .form-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    /* minmax(0, …): a 1fr track never shrinks below its content's min width,
+       which pushed the right column past a phone's edge (#119). */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 16px;
     padding: 16px;
+  }
+
+  @media (max-width: 560px) {
+    .form-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   .full-width {

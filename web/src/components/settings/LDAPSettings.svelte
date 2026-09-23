@@ -382,6 +382,18 @@
 
   .form-group--filter {
     flex: 1;
+    min-width: 0;
+  }
+
+  /* Mode + Search Filter side by side do not fit a phone (#119). */
+  @media (max-width: 560px) {
+    .form-row {
+      flex-direction: column;
+    }
+
+    .form-group--mode {
+      flex: none;
+    }
   }
 
 </style>
