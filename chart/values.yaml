@@ -129,6 +129,16 @@ purl:
   authEnabled: true
   # -- Log retention in days
   retentionDays: 30
+  # -- Durable ingest (PURL_INGEST_DURABLE). true = each flush waits for
+  # ClickHouse to commit the async insert (wait_for_async_insert=1): a failed
+  # flush reaches Purl, which keeps the batch and retries or answers 503 so
+  # the collector resends. false = fire-and-forget (wait_for_async_insert=0):
+  # faster, but ClickHouse can still reject the flush AFTER Purl answered 2xx
+  # (seen live as code 241, memory limit exceeded), and those rows are gone
+  # with no error anywhere in Purl (#126). The cost of true is that each
+  # flush waits for ClickHouse's async-insert window before it returns.
+  # Must be a boolean; the chart refuses anything else.
+  ingestDurable: true
   # -- Session secret for signed cookies. Empty means "let the chart generate
   # one", which requires purl.autoGenerateSecrets=true — see below.
   sessionSecret: ""

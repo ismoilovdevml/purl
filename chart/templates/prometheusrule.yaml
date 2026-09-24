@@ -6,7 +6,7 @@
     purl_logs_stored, purl_db_size_bytes, purl_cache_size,
     purl_http_requests_total{method,status}, purl_errors_total,
     purl_query_latency_seconds_{sum,count}, purl_ingest_bytes_total,
-    purl_metrics_shared
+    purl_ingest_dropped_total, purl_metrics_shared
   An earlier version alerted on purl_query_latency_p99 and
   purl_memory_usage_bytes, which exist nowhere in lib/. PromQL returns an
   empty vector for an unknown metric and an empty vector never fires, so
@@ -90,6 +90,27 @@ spec:
               No new logs stored in the last {{ . }}. Check the Vector
               DaemonSet and the ClickHouse connection.
         {{- end }}
+
+        # -- Logs Purl accepted and then threw away (#126).
+        # purl_ingest_dropped_total counts rows evicted from the ingest buffer
+        # when it passes buffer_max (Purl::Storage::ClickHouse::Ingest
+        # _record_drop). Any increase is data loss, so the threshold is > 0.
+        # It CANNOT see an async-insert flush that ClickHouse rejects after
+        # the fact in fast mode (purl.ingestDurable=false): Purl was never told.
+        # Keep purl.ingestDurable=true so such failures come back to Purl and
+        # are retried instead of lost.
+        - alert: PurlIngestDropped
+          expr: increase(purl_ingest_dropped_total[5m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "Purl dropped accepted logs"
+            description: >-
+              {{ "{{" }} $value {{ "}}" }} accepted log(s) were dropped in the
+              last 5 minutes on {{ "{{" }} $labels.instance {{ "}}" }} because
+              the ingest buffer was full. ClickHouse is not keeping up or is
+              failing; check purl_clickhouse_healthy and the Purl pod logs for
+              "Ingest dropped".
 
         # -- Trend-based disk warning. The dev cluster outage began as
         # unbounded ClickHouse growth on a node with no headroom; this fires

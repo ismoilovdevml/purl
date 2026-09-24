@@ -33,6 +33,10 @@ services:
       # Absolute session lifetime in seconds; empty = app default (604800 = 7d)
       - PURL_SESSION_MAX_AGE=${PURL_SESSION_MAX_AGE:-}
       - PURL_GRACEFUL_TIMEOUT=${PURL_GRACEFUL_TIMEOUT:-}
+      # 1 = wait for ClickHouse to commit each flush (#126). With 0 a flush
+      # ClickHouse rejects after Purl already answered 2xx (e.g. code 241,
+      # memory limit) loses those logs silently. Same default as the chart.
+      - PURL_INGEST_DURABLE=${PURL_INGEST_DURABLE:-1}
     volumes:
       - ./config:/app/config
       - purl_backups:/app/backups

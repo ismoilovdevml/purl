@@ -245,6 +245,36 @@ helm-lint:
 		echo "  FAIL: PURL_TELEGRAM_THREAD_ID rendered with threadId empty; an"; \
 		echo "        empty message_thread_id is rejected by Telegram."; exit 1; \
 	} || true
+	@echo "Asserting ingest is durable by default (issue #126)..."
+	@set -e; \
+	DEF=$$(helm template purl chart/ $(AUTOGEN)); \
+	FAST=$$(helm template purl chart/ $(AUTOGEN) --set purl.ingestDurable=false); \
+	printf '%s\n' "$$DEF" | awk '/^kind: ConfigMap$$/,/^---$$/' | grep -q 'PURL_INGEST_DURABLE: "1"' || { \
+		echo "  FAIL: default render does not set PURL_INGEST_DURABLE=\"1\". Fast mode"; \
+		echo "        loses rows ClickHouse rejects after Purl answered 2xx (#126)."; exit 1; \
+	}; \
+	printf '%s\n' "$$FAST" | awk '/^kind: ConfigMap$$/,/^---$$/' | grep -q 'PURL_INGEST_DURABLE: "0"' || { \
+		echo "  FAIL: purl.ingestDurable=false did not render PURL_INGEST_DURABLE=\"0\"."; exit 1; \
+	}; \
+	C1=$$(printf '%s\n' "$$DEF" | awk '/^kind:/{k=$$2} k=="Deployment" && /checksum\/config:/{print $$2}'); \
+	C2=$$(printf '%s\n' "$$FAST" | awk '/^kind:/{k=$$2} k=="Deployment" && /checksum\/config:/{print $$2}'); \
+	if [ -z "$$C1" ] || [ "$$C1" = "$$C2" ]; then \
+		echo "  FAIL: toggling purl.ingestDurable does not change the Deployment's"; \
+		echo "        checksum/config,"; \
+		echo "        so running pods would keep the old mode."; exit 1; \
+	fi; \
+	ERR=$$(helm template purl chart/ $(AUTOGEN) --set-string purl.ingestDurable=false 2>&1 >/dev/null) && { \
+		echo "  FAIL: a STRING \"false\" rendered. It is truthy in a template and"; \
+		echo "        would have meant durable."; exit 1; \
+	} || true; \
+	printf '%s\n' "$$ERR" | grep -q 'purl.ingestDurable must be a boolean' || { \
+		echo "  FAIL: string ingestDurable failed for another reason. Got:"; \
+		printf '%s\n' "$$ERR" | head -3; exit 1; \
+	}; \
+	helm template purl chart/ $(AUTOGEN) --set metrics.prometheusRule.enabled=true \
+		| grep -q 'increase(purl_ingest_dropped_total\[5m\]) > 0' || { \
+		echo "  FAIL: PrometheusRule has no PurlIngestDropped alert."; exit 1; \
+	}
 	@echo "Asserting generated secrets cannot drift under GitOps (issue #22)..."
 	@set -e; \
 	PIN="--set clickhouse.password=pw --set purl.sessionSecret=ss --set purl.apiKeys=ak"; \

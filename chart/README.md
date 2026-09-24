@@ -37,6 +37,33 @@ rendered on `X.Y.*` must keep rendering on `X.(Y+1).*`. A guard that rejects
 previously valid values is a MAJOR bump, which is why the release after 1.1.0
 is 2.0.0 and not 1.2.0.
 
+## 2.2.2
+
+- `purl.ingestDurable` (new, default `true`) sets `PURL_INGEST_DURABLE=1`
+  (#126). Purl's own default is fast mode (`wait_for_async_insert=0`), where
+  ClickHouse can reject an async-insert flush after Purl has already answered
+  2xx. This was seen live as code 241 (memory limit exceeded) every few
+  minutes, and those rows were lost with no error anywhere in Purl. In durable
+  mode the failure reaches Purl, which keeps the batch and retries, or answers
+  503 so Vector resends. The cost is that each flush waits for ClickHouse's
+  async-insert window. Set `purl.ingestDurable=false` to get the old
+  behaviour. The value must be a boolean: a string such as `"false"` fails the
+  render instead of silently meaning `true`. Changing it rolls the Purl pods
+  (`checksum/config`). `appVersion` stays 1.3.0.
+- `metrics.prometheusRule` gets `PurlIngestDropped`:
+
+  ```promql
+  increase(purl_ingest_dropped_total[5m]) > 0
+  ```
+
+  `purl_ingest_dropped_total` counts logs Purl accepted and then evicted from
+  its ingest buffer (buffer over `PURL_INGEST_BUFFER_MAX`). Any increase is
+  data loss. It does **not** count a fast-mode flush that ClickHouse rejects
+  later, because Purl never learns of it. That loss is only visible in
+  ClickHouse (`system.asynchronous_insert_log`, `status != 'Ok'`), which is
+  why durable mode is the default. If you run your own Prometheus rules
+  instead of the chart's PrometheusRule, add the expression above.
+
 ## 2.2.1
 
 - The Vector DaemonSet no longer marks a line as DEBUG (or WARN/ERROR) just

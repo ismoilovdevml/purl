@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Ingest is durable by default in the Helm chart (2.2.2, new
+  `purl.ingestDurable: true`) and in `docker-compose.yml` /
+  `.env.example` (`PURL_INGEST_DURABLE=1`) (#126). In fast mode ClickHouse
+  can reject an async-insert flush after Purl has already answered 2xx
+  (seen live as code 241, memory limit exceeded), and those logs were lost
+  with no error in Purl. Durable mode surfaces the failure so the batch is
+  retried or the request answers 503 and the collector resends. Each flush
+  now waits for ClickHouse to commit it. Set `purl.ingestDurable=false` or
+  `PURL_INGEST_DURABLE=0` to keep the old behaviour.
+- The chart's PrometheusRule adds `PurlIngestDropped`
+  (`increase(purl_ingest_dropped_total[5m]) > 0`), which fires when Purl
+  drops logs it had accepted because its ingest buffer is full.
 - Log level detection in the Vector configs (Helm chart 2.2.1,
   `deploy/vector/vector.toml` for docker compose, and the agent that
   `install.sh -a` sets up) no longer matches a level word anywhere in a line

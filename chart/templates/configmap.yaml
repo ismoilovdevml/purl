@@ -1,6 +1,13 @@
 {{- if and .Values.purl.redis.enabled (not .Values.purl.redis.url) }}
 {{- fail "purl.redis.enabled=true requires purl.redis.url — the chart does not deploy Redis. Without the URL, live-tail broadcast stays single-replica and the Prometheus counters stay per-worker, with nothing to indicate it but purl_metrics_shared=0." }}
 {{- end }}
+{{- /*
+  A string "false" is truthy in a template, so `ternary` over it would render
+  durable for a user who asked for fast. Accept only a real boolean.
+*/}}
+{{- if not (kindIs "bool" .Values.purl.ingestDurable) }}
+{{- fail (printf "purl.ingestDurable must be a boolean (true or false), got %v" .Values.purl.ingestDurable) }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -17,6 +24,13 @@ data:
   PURL_CLICKHOUSE_USER: {{ .Values.clickhouse.user | quote }}
   PURL_RETENTION_DAYS: {{ .Values.purl.retentionDays | quote }}
   PURL_AUTH_ENABLED: {{ ternary "1" "0" .Values.purl.authEnabled | quote }}
+  {{- /*
+    "1"/"0", the spelling PURL_AUTH_ENABLED uses; Purl reads it through
+    Purl::Config::EnvMap::bool_text, which accepts 1/0, true/false, yes/no,
+    on/off. The checksum/config annotation on the Deployment rolls the pods
+    when this changes.
+  */}}
+  PURL_INGEST_DURABLE: {{ ternary "1" "0" .Values.purl.ingestDurable | quote }}
   {{- if .Values.clickhouse.cluster.enabled }}
   PURL_CLICKHOUSE_CLUSTER: {{ .Values.clickhouse.cluster.name | quote }}
   {{- end }}
