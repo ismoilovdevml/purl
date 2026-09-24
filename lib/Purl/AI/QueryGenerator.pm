@@ -5,6 +5,7 @@ use 5.024;
 
 use Moo;
 use Purl::Util::ErrorResponse qw(strip_location);
+use Purl::Util::Level qw(canonical_levels level_spellings);
 use namespace::clean;
 
 use Purl::AI::Factory;
@@ -51,14 +52,19 @@ sub _build_provider {
 }
 
 # Schema context for SQL generation
-my $SCHEMA_CONTEXT = <<'SCHEMA';
+# Level names come from the ingest table (Purl::Util::Level): new rows only
+# ever carry these, so a prompt listing WARNING or CRITICAL produced SQL that
+# missed them (#110).
+my $LEVELS = join ', ', canonical_levels();
+my $LEVEL_EXAMPLE = join ', ', map { "'$_'" } level_spellings('ERROR');
+my $SCHEMA_CONTEXT = <<'SCHEMA' =~ s/__LEVELS__/$LEVELS/r =~ s/__LEVEL_EXAMPLE__/$LEVEL_EXAMPLE/r;
 You are a SQL query generator for a ClickHouse log aggregation system called Purl.
 
 Table: purl.logs
 Columns:
   - id UUID (log entry ID)
   - timestamp DateTime64(3) (log timestamp, millisecond precision)
-  - level LowCardinality(String) - values: TRACE, DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL, ALERT, EMERGENCY
+  - level LowCardinality(String) - values: __LEVELS__
   - service LowCardinality(String) - application/service name
   - host LowCardinality(String) - hostname or pod name
   - message String - log message text
@@ -71,6 +77,7 @@ Columns:
 Important:
 - ALWAYS use formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S') || 'Z' as ts for timestamp formatting
 - For time ranges use: timestamp >= now() - INTERVAL X HOUR/MINUTE/DAY
+- For levels use level IN (...) with every spelling older rows may carry, e.g. for ERROR: level IN (__LEVEL_EXAMPLE__). Never upper(level) or lower(level): the plain IN lets the primary key skip data
 - For text search use: message LIKE '%search_term%' (case sensitive) or positionCaseInsensitive(message, 'term') > 0
 - For meta fields use: JSONExtractString(meta, 'field_name')
 - LIMIT results to 500 by default unless specified

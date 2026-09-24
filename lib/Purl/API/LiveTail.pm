@@ -5,6 +5,7 @@ use 5.024;
 
 use Exporter 'import';
 use Mojo::JSON qw(from_json);
+use Purl::Util::Level qw(canonical_level);
 
 our @EXPORT_OK = qw(
     filter_logs
@@ -45,14 +46,12 @@ sub filter_logs {
     my @matches;
 
     for my $log (@$logs) {
-        # Level filter (exact match or array)
+        # Level filter (one level or a list), by canonical name: a subscriber
+        # asking for WARNING gets the WARN rows ingest now stores (#110).
         if ($filter->{level}) {
-            if (ref $filter->{level} eq 'ARRAY') {
-                my %allowed = map { uc($_) => 1 } @{ $filter->{level} };
-                next unless $allowed{ uc($log->{level} // '') };
-            } else {
-                next if uc($log->{level} // '') ne uc($filter->{level});
-            }
+            my @wanted = ref $filter->{level} eq 'ARRAY' ? @{ $filter->{level} } : ($filter->{level});
+            my %allowed = map { canonical_level($_) => 1 } @wanted;
+            next unless $allowed{ canonical_level($log->{level}) };
         }
 
         # Service filter (exact match or wildcard)

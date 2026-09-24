@@ -69,12 +69,17 @@ sub _kql_term_sql {
 
     if ($EXACT_COLUMN{$field}) {
         my $column = $field;
-        # Levels are case-insensitive (#105). Ingest now stores them upper-case,
-        # but older rows may say `warn`, and `level` is a sort-key column that
-        # ClickHouse will not rewrite — so compare upper(level).
+        # Levels are case-insensitive (#105) and synonyms are one level (#110).
+        # Ingest now stores canonical names, but older rows may say `warn` or
+        # `WARNING`, and `level` is a sort-key column that ClickHouse will not
+        # rewrite — so match every stored spelling (Levels role).
+        # A wildcard (`level:crit*`) also expands against the synonym table.
         if ($field eq 'level') {
-            $value  = uc $value;
-            $column = 'upper(level)';
+            my $placeholder = sub { $self->_kql_bind($bind, $seq, $_[0]) };
+            return $self->_level_filter_sql([$value], $placeholder)
+                if $node->{quoted} || $value !~ /\*/;
+            my $like = $self->_kql_bind($bind, $seq, $self->_kql_like_pattern(uc $value));
+            return $self->_level_wildcard_sql($value, $like, $placeholder);
         }
 
         # A wildcard is only a wildcard when unquoted; level:"a*b" is literal.
@@ -137,7 +142,7 @@ Field mapping:
 
 =item * C<service>, C<host>, C<namespace>, C<pod>, C<container>, C<trace_id>, C<request_id>, C<span_id> — equality (C<LIKE> when the unquoted value contains C<*>)
 
-=item * C<level> — the same, against C<upper(level)> so every stored case matches
+=item * C<level> — C<level IN> every stored spelling of the level (C<WARN> also matches C<WARNING>, C<warn>); a wildcard also expands against the synonym table
 
 =item * C<message>, C<raw> — substring match via C<position()>
 

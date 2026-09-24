@@ -17,7 +17,8 @@ use Purl::Util::KQL qw(parse_kql);
 #      what the UI colour map and the level filters already use), and
 #   2. rows already stored in another case are still found and counted together.
 #      `level` is part of the sort key, so ClickHouse refuses to rewrite it
-#      (ALTER UPDATE -> CANNOT_UPDATE_COLUMN); queries compare upper(level).
+#      (ALTER UPDATE -> CANNOT_UPDATE_COLUMN); queries match every stored
+#      spelling with a plain, primary-key-prunable `level IN (...)`.
 # ============================================
 
 {
@@ -34,7 +35,7 @@ subtest 'ingest stores one canonical (upper-case) level' => sub {
         'warn'     => 'WARN',
         'Info'     => 'INFO',
         ' error '  => 'ERROR',
-        'WARNING'  => 'WARNING',
+        'WARNING'  => 'WARN',     # synonym folded too (#110)
         ''         => 'INFO',
         "\t"       => 'INFO',
     );
@@ -63,23 +64,28 @@ subtest 'ingest stores one canonical (upper-case) level' => sub {
 subtest 'KQL level filter matches every stored case' => sub {
     my ($ast) = parse_kql('level:warn');
     my ($sql, $bind) = LevelCH->new->_build_where_clause(kql => $ast);
-    like $sql, qr/upper\(level\) = \{p_kql_0:String\}/, 'compares upper(level)';
-    is $bind->{p_kql_0}, 'WARN', 'value upper-cased';
+    like $sql, qr/\A WHERE \s \(level \s IN \s \((?:\{p_kql_\d:String\}(?:,\s)?){6}\)\)\z/x,
+        'plain level IN, never upper(level)';
+    is_deeply [ @{$bind}{map { "p_kql_$_" } 0 .. 5} ], [ qw(WARN warn Warn WARNING warning Warning) ],
+        'every case of the value and its synonym (#105, #110)';
 
     ($ast) = parse_kql('level:WAR*');
     ($sql, $bind) = LevelCH->new->_build_where_clause(kql => $ast);
     like $sql, qr/upper\(level\) LIKE \{p_kql_0:String\}/, 'wildcard compares upper(level)';
+    like $sql, qr/ OR level IN \(/, 'and the levels the prefix names (WARN, via WARNING)';
     is $bind->{p_kql_0}, 'WAR%', 'pattern upper-cased';
 };
 
 subtest 'flat level param (dashboard widgets, histogram) matches every stored case' => sub {
     my ($sql, $bind) = LevelCH->new->_build_where_clause(level => 'warn');
-    like $sql, qr/upper\(level\) = \{p_level:String\}/, 'single level';
-    is $bind->{p_level}, 'WARN', 'bound upper-case';
+    like $sql, qr/\AWHERE level IN \((?:\{p_level_\d:String\}(?:, )?){6}\)\z/, 'single level';
+    is_deeply [ @{$bind}{map { "p_level_$_" } 0 .. 5} ], [ qw(WARN warn Warn WARNING warning Warning) ],
+        'every stored spelling bound (#105, #110)';
 
     ($sql, $bind) = LevelCH->new->_build_where_clause(level => [ 'error', 'Warn' ]);
-    like $sql, qr/upper\(level\) IN \(\{p_level_0:String\}, \{p_level_1:String\}\)/, 'level list';
-    is_deeply [ @{$bind}{qw(p_level_0 p_level_1)} ], [ 'ERROR', 'WARN' ], 'list bound upper-case';
+    like $sql, qr/\AWHERE level IN \((?:\{p_level_\d+:String\}(?:, )?){12}\)\z/, 'level list';
+    is_deeply [ @{$bind}{map { "p_level_$_" } 0 .. 11} ],
+        [ qw(ERROR error Error ERR err Err WARN warn Warn WARNING warning Warning) ], 'list bound';
 };
 
 done_testing;

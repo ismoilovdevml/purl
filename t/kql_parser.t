@@ -30,6 +30,10 @@ sub compile {
     return ($sql, $bind, undef);
 }
 
+# Every stored spelling a level filter binds (#105 case, #110 synonyms).
+my @ERROR_SPELLINGS = qw(ERROR error Error ERR err Err);
+my @WARN_SPELLINGS  = qw(WARN warn Warn WARNING warning Warning);
+
 # The bind values in the order the compiler emitted them.
 sub bind_values {
     my ($bind) = @_;
@@ -103,11 +107,12 @@ subtest 'AND is an intersection and is order-independent' => sub {
               [ sort @{ bind_values($bind_b) } ],
               'both operand orders bind the same value set';
 
-    is_deeply [ sort @{ bind_values($bind_a) } ], [ 'ERROR', 'svc-a' ],
+    is_deeply [ sort @{ bind_values($bind_a) } ], [ sort @ERROR_SPELLINGS, 'svc-a' ],
         'service value keeps its dash; level is upper-cased';
 
     like $sql_a, qr/service\s*=\s*\{p_kql_\d+:String\}/, 'service compiled to equality';
-    like $sql_a, qr/upper\(level\)\s*=\s*\{p_kql_\d+:String\}/, 'level compiled to case-insensitive equality (#105)';
+    like $sql_a, qr/(?<!upper\()level IN \((?:\{p_kql_\d+:String\}(?:, )?){6}\)/,
+        'level compiled to a case- and synonym-insensitive match (#105, #110)';
 };
 
 subtest 'AND is never wider than either operand' => sub {
@@ -133,7 +138,7 @@ subtest 'implicit AND (juxtaposition)' => sub {
 
 subtest 'AND chains of three' => sub {
     my ($sql, $bind) = compile('level:error AND service:api AND host:web1');
-    is_deeply [ sort @{ bind_values($bind) } ], [ 'ERROR', 'api', 'web1' ],
+    is_deeply [ sort @{ bind_values($bind) } ], [ sort @ERROR_SPELLINGS, 'api', 'web1' ],
         'all three operands bound';
     my $n = () = $sql =~ / AND /g;
     ok $n >= 2, 'at least two AND joins';
@@ -147,7 +152,7 @@ subtest 'OR is a union' => sub {
     my ($sql, $bind, $err) = compile('level:error OR level:warn');
     is $err, undef, 'no error';
     like $sql, qr/\) OR \(/, 'operands joined with OR';
-    is_deeply [ sort @{ bind_values($bind) } ], [ 'ERROR', 'WARN' ], 'both levels bound';
+    is_deeply [ sort @{ bind_values($bind) } ], [ sort @ERROR_SPELLINGS, @WARN_SPELLINGS ], 'both levels bound (every spelling, #110)';
 };
 
 subtest 'OR is order-independent' => sub {
@@ -176,7 +181,7 @@ subtest 'NOT negates a single term' => sub {
     my ($sql, $bind, $err) = compile('NOT level:debug');
     is $err, undef, 'no error';
     like $sql, qr/NOT \(/, 'NOT emitted';
-    is_deeply bind_values($bind), ['DEBUG'], 'value bound once';
+    is_deeply bind_values($bind), [ qw(DEBUG debug Debug) ], 'one term, its three stored cases';
 };
 
 subtest 'NOT binds tighter than AND' => sub {
@@ -196,7 +201,7 @@ subtest 'NOT is case-insensitive and stacks' => sub {
 subtest 'NOT over a group' => sub {
     my ($sql, $bind) = compile('NOT (level:error OR level:warn)');
     like $sql, qr/NOT \(\(.*\) OR \(.*\)\)/, 'negates the whole group, not just the first term';
-    is_deeply [ sort @{ bind_values($bind) } ], [ 'ERROR', 'WARN' ], 'both bound';
+    is_deeply [ sort @{ bind_values($bind) } ], [ sort @ERROR_SPELLINGS, @WARN_SPELLINGS ], 'both bound';
 };
 
 # ============================================
@@ -215,7 +220,7 @@ subtest 'parentheses override precedence' => sub {
 subtest 'nested parentheses' => sub {
     my ($sql, $bind, $err) = compile('((level:error))');
     is $err, undef, 'no error';
-    is_deeply bind_values($bind), ['ERROR'], 'redundant parens collapse cleanly';
+    is_deeply bind_values($bind), \@ERROR_SPELLINGS, 'redundant parens collapse cleanly';
 };
 
 subtest 'unbalanced parentheses are rejected' => sub {
@@ -257,7 +262,7 @@ subtest 'quoted boolean keyword is a literal, not an operator' => sub {
 subtest 'quoted field value with spaces' => sub {
     my ($sql, $bind, $err) = compile('service:"my service" AND level:error');
     is $err, undef, 'no error';
-    is_deeply [ sort @{ bind_values($bind) } ], [ 'ERROR', 'my service' ],
+    is_deeply [ sort @{ bind_values($bind) } ], [ sort @ERROR_SPELLINGS, 'my service' ],
         'phrase bound as one value';
 };
 

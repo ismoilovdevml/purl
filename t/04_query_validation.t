@@ -77,14 +77,20 @@ subtest '_validate_field meta sub-fields' => sub {
 # _validate_level — level whitelist
 # ============================================
 subtest '_validate_level allowed' => sub {
-    for my $l (qw(TRACE DEBUG INFO NOTICE WARNING WARN ERROR CRITICAL ALERT EMERGENCY FATAL)) {
+    for my $l (qw(TRACE DEBUG INFO WARN ERROR FATAL)) {
         is $q->_validate_level($l), $l, "level '$l' accepted";
+    }
+    # Synonyms are accepted as their canonical name (#110).
+    my %synonym = (NOTICE => 'INFO', WARNING => 'WARN', ERR => 'ERROR',
+        CRITICAL => 'FATAL', CRIT => 'FATAL', ALERT => 'FATAL', EMERGENCY => 'FATAL');
+    for my $l (sort keys %synonym) {
+        is $q->_validate_level($l), $synonym{$l}, "level '$l' accepted as $synonym{$l}";
     }
 };
 
 subtest '_validate_level case insensitive' => sub {
     is $q->_validate_level('error'), 'ERROR', 'lowercase normalized';
-    is $q->_validate_level('Warning'), 'WARNING', 'mixed case normalized';
+    is $q->_validate_level('Warning'), 'WARN', 'mixed case normalized (to the canonical name)';
 };
 
 subtest '_validate_level rejects invalid' => sub {
@@ -196,15 +202,17 @@ subtest '_build_where_clause empty' => sub {
 
 subtest '_build_where_clause single level' => sub {
     my ($sql, $params) = $q->_build_where_clause(level => 'ERROR');
-    like $sql, qr/WHERE.*upper\(level\) = \{p_level:String\}/, 'level filter in WHERE';
-    is $params->{p_level}, 'ERROR', 'level param bound';
+    like $sql, qr/WHERE level IN \(\{p_level_0:String\}, (?:\{p_level_\d:String\}(?:, )?){5}\)/,
+        'level filter in WHERE';
+    is_deeply [ @{$params}{map { "p_level_$_" } 0 .. 5} ], [ qw(ERROR error Error ERR err Err) ],
+        'level and its synonym bound';
 };
 
 subtest '_build_where_clause level array' => sub {
     my ($sql, $params) = $q->_build_where_clause(level => ['ERROR', 'WARNING']);
-    like $sql, qr/upper\(level\) IN/, 'level IN clause (case-insensitive, #105)';
-    is $params->{p_level_0}, 'ERROR', 'first level bound';
-    is $params->{p_level_1}, 'WARNING', 'second level bound';
+    like $sql, qr/WHERE level IN \(/, 'plain level IN clause, prunable by the primary key';
+    is_deeply [ @{$params}{map { "p_level_$_" } 0 .. 11} ], [ qw(ERROR error Error ERR err Err WARN warn Warn WARNING warning Warning) ],
+        'every spelling of both levels bound';
 };
 
 subtest '_build_where_clause service wildcard' => sub {
@@ -276,7 +284,7 @@ subtest '_build_where_clause combined filters' => sub {
     );
     my @ands = ($sql =~ /AND/g);
     is scalar @ands, 3, 'multiple filters joined with AND';
-    ok exists $params->{p_level}, 'level param present';
+    ok exists $params->{p_level_0}, 'level param present';
     ok exists $params->{p_service}, 'service param present';
     ok exists $params->{p_host}, 'host param present';
     ok exists $params->{p_query}, 'query param present';

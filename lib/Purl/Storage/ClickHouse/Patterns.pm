@@ -27,12 +27,8 @@ sub get_patterns {
     if ($params{level}) {
         my $valid_level = $self->_validate_level($params{level});
         if ($valid_level) {
-            # A plain `level IN (...)` so the (service, level, timestamp) primary
-            # key prunes granules — upper(level) cannot (#108). The three
-            # spellings cover rows stored before ingest normalised case (#105):
-            # ERROR, error, Error.
-            my @spellings = do { my %s; grep { !$s{$_}++ } ($valid_level, lc $valid_level, ucfirst lc $valid_level) };
-            push @where, 'level IN (' . join(', ', map { $self->_quote_string($_) } @spellings) . ')';
+            # Every stored spelling, prunable by the primary key (Levels role).
+            push @where, $self->_level_filter_sql([$valid_level], sub { $self->_quote_string($_[0]) });
         }
     }
 
@@ -51,6 +47,11 @@ sub get_patterns {
     }
 
     my $where_sql = @where ? 'WHERE ' . join(' AND ', @where) : '';
+
+    # One pattern per canonical level: WARNING and WARN rows are the same
+    # pattern (#110). Aliased apart from `level` so the WHERE above keeps
+    # reading the stored column.
+    my $level_sql = $self->_level_canonical_sql;
 
     # Query patterns directly from logs table for real-time results
     # Pattern extraction uses same logic as MV
@@ -81,13 +82,13 @@ sub get_patterns {
             as pattern,
             any(message) as sample_message,
             service,
-            level,
+            $level_sql as canonical_level,
             min(timestamp) as first_seen,
             max(timestamp) as last_seen,
             count() as count
         FROM ${db}.${table}
         $where_sql
-        GROUP BY pattern_hash, pattern, service, level
+        GROUP BY pattern_hash, pattern, service, canonical_level
         ORDER BY count DESC
         LIMIT $limit
     };
@@ -96,6 +97,7 @@ sub get_patterns {
 
     # Format timestamps and ensure pattern_hash is string (avoid JS BigInt issues)
     for my $row (@$results) {
+        $row->{level} = delete $row->{canonical_level};
         $row->{first_seen} =~ s/ /T/;
         $row->{first_seen} .= 'Z' unless $row->{first_seen} =~ /Z$/;
         $row->{last_seen} =~ s/ /T/;

@@ -165,7 +165,7 @@ sub suggest {
             'Show log volume per minute for the last 30 minutes',
             'Find all logs containing "timeout" in the last 24 hours',
             'What are the top 10 error messages this week?',
-            'Show me ERROR and CRITICAL logs from the last 15 minutes',
+            'Show me ERROR and FATAL logs from the last 15 minutes',
             'Count logs per service for the last 24 hours',
             'Find traces with errors in multiple services',
         );

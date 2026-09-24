@@ -66,6 +66,17 @@ subtest 'generator: a valid search query is returned beside the SQL' => sub {
     like $fake->{context}, qr/SEARCH:/, 'the prompt asks for the search-bar form';
 };
 
+subtest 'generator: the prompt names only canonical levels (#110)' => sub {
+    my (undef, $fake) = generate_with("SQL:\n$SQL\nSEARCH:\nNONE\n");
+    my ($values) = $fake->{context} =~ /^\s*- level .*values: (.+)$/m;
+    is $values, 'TRACE, DEBUG, INFO, WARN, ERROR, FATAL', 'level values are the stored names';
+    unlike $fake->{context}, qr/\b(?:WARNING|CRITICAL|EMERGENCY|NOTICE|ALERT)\b/,
+        'no retired synonym anywhere in the prompt';
+    like $fake->{context}, qr/level IN \('ERROR', 'error', 'Error', 'ERR', 'err', 'Err'\)/,
+        'the model is told the prunable IN form, with every stored spelling';
+    unlike $fake->{context}, qr/__LEVEL/, 'no unfilled template marker';
+};
+
 subtest 'generator: an invalid search query is omitted, SQL unaffected' => sub {
     for my $search ('level:ERROR AND', 'status:500', 'NONE', $SQL) {
         my ($r) = generate_with("SQL:\n$SQL\nSEARCH:\n$search\n");
@@ -126,6 +137,15 @@ subtest 'POST /api/ai/query: invalid search query => no `query`, the rest unchan
 subtest 'POST /api/ai/query: legacy bare-SQL answer still works' => sub {
     my $t = ask($SQL)->status_is(200)->json_is('/sql' => $SQL);
     ok !exists $t->tx->res->json->{query}, 'query omitted';
+};
+
+subtest 'GET /api/ai/suggest: suggestions use canonical level names (#110)' => sub {
+    my $t = login('admin', 'StrongAdminPass123');
+    $t->get_ok('/api/ai/suggest')->status_is(200);
+    my @s = @{ $t->tx->res->json('/suggestions') // [] };
+    ok scalar(@s), 'suggestions returned';
+    is scalar(grep { /\b(?:WARNING|CRITICAL|EMERGENCY|NOTICE|ALERT)\b/ } @s), 0,
+        'no retired level synonym in any suggestion';
 };
 
 done_testing();

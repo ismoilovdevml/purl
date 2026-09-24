@@ -77,8 +77,9 @@ sub field_stats {
         $select_field = $self->meta_key_sql('{p_meta_key:String}');
         $skip_empty   = 1;
     } elsif ($valid_field eq 'level') {
-        # One bucket per level whatever case older rows were stored in (#105).
-        $select_field = 'upper(level)';
+        # One bucket per level whatever case (#105) or synonym (#110) older
+        # rows were stored under.
+        $select_field = $self->_level_canonical_sql;
     } else {
         $select_field = $valid_field;
         # A log that did not come from Kubernetes has no namespace/pod/container;
@@ -159,9 +160,13 @@ sub histogram {
         $fill_to = "$to_start_func(now())";
     }
 
-    # Query with level breakdown and WITH FILL for empty buckets. Levels are
-    # compared upper-cased (#105); WARN (Vector, OTLP) and WARNING (syslog) are
-    # both warnings, and FATAL is an error.
+    # Query with level breakdown and WITH FILL for empty buckets. Every case
+    # (#105) and synonym (#110) of a level counts in its bucket; FATAL is an
+    # error, TRACE is debug.
+    my $errors   = $self->_level_literals(qw(ERROR FATAL));
+    my $warnings = $self->_level_literals('WARN');
+    my $info     = $self->_level_literals('INFO');
+    my $debug    = $self->_level_literals(qw(DEBUG TRACE));
     my $sql = qq{
         SELECT
             formatDateTime(time_bucket, '%Y-%m-%dT%H:%i:%S') || 'Z' as time,
@@ -174,10 +179,10 @@ sub histogram {
             SELECT
                 $time_func as time_bucket,
                 count() as count,
-                countIf(upper(level) IN ('ERROR', 'CRITICAL', 'EMERGENCY', 'ALERT', 'FATAL')) as errors,
-                countIf(upper(level) IN ('WARN', 'WARNING')) as warnings,
-                countIf(upper(level) IN ('INFO', 'NOTICE')) as info,
-                countIf(upper(level) IN ('DEBUG', 'TRACE')) as debug
+                countIf(upper(level) IN ($errors)) as errors,
+                countIf(upper(level) IN ($warnings)) as warnings,
+                countIf(upper(level) IN ($info)) as info,
+                countIf(upper(level) IN ($debug)) as debug
             FROM $table
             $where_sql
             GROUP BY time_bucket

@@ -4,6 +4,10 @@ use warnings;
 use 5.024;
 
 use Moo::Role;
+use Purl::Util::Level qw(canonical_level canonical_levels);
+use namespace::clean;
+
+with 'Purl::Storage::ClickHouse::Levels';
 
 # Allowed field names (whitelist for SQL injection prevention)
 my %ALLOWED_FIELDS = map { $_ => 1 } qw(
@@ -18,10 +22,9 @@ my %ALLOWED_META_FIELDS = map { $_ => 1 } qw(
     deployment team environment version unit
 );
 
-# Allowed level values
-my %ALLOWED_LEVELS = map { $_ => 1 } qw(
-    TRACE DEBUG INFO NOTICE WARNING WARN ERROR CRITICAL ALERT EMERGENCY FATAL
-);
+# Allowed level values: the canonical names. A synonym (WARNING, CRIT, ...) is
+# accepted and validated as its canonical name (#110).
+my %ALLOWED_LEVELS = map { $_ => 1 } canonical_levels();
 
 # ============================================
 # SQL Injection Prevention Helpers
@@ -55,11 +58,11 @@ sub _validate_field {
     return $ALLOWED_FIELDS{$field} ? $field : undef;
 }
 
-# Validate level value
+# Validate level value; returns its canonical name
 sub _validate_level {
     my ($self, $level) = @_;
     return undef unless defined $level;
-    $level = uc($level);
+    $level = canonical_level($level);
     return $ALLOWED_LEVELS{$level} ? $level : undef;
 }
 
@@ -106,6 +109,22 @@ sub _sanitize_trace_id {
     return (length($value) >= 8 && length($value) <= 36) ? lc($value) : undef;
 }
 
+# Equality (or LIKE for an unquoted `*`) on a materialised k8s column
+# (K8sColumns, #108): 1 byte/row instead of the whole meta string, and it
+# matches the KEY's value, not the value text anywhere in meta (cluster=prod
+# used to match pod "prod-db"). $column must already be a known k8s column.
+sub _k8s_column_sql {
+    my ($self, $column, $value, $bind, $pname) = @_;
+    if ($value =~ /\*/) {
+        (my $pattern = $value) =~ s/([\\%_])/\\$1/g;
+        $pattern =~ s/\*/%/g;
+        $bind->{$pname} = $pattern;
+        return "$column LIKE {${pname}:String}";
+    }
+    $bind->{$pname} = $value;
+    return "$column = {${pname}:String}";
+}
+
 # Build WHERE clause from parameters
 sub _build_where_clause {
     my ($self, %params) = @_;
@@ -138,30 +157,18 @@ sub _build_where_clause {
         }
     }
 
-    # Level filter. upper(level): rows stored before ingest normalised the case
-    # (#105) still match; `level` is a sort key, so they cannot be rewritten.
+    # Level filter: one level or a list. Every case and synonym older rows may
+    # carry (#105, #110) — `level` is a sort key, so they cannot be rewritten.
     if ($params{level}) {
-        if (ref $params{level} eq 'ARRAY') {
-            my @valid_levels = grep { defined } map { $self->_validate_level($_) } @{$params{level}};
-            if (@valid_levels) {
-                # ClickHouse doesn't support array parameters in IN clause easily via HTTP API in older versions
-                # checking if we can use an array param or just multiple ORs or separate params
-                # For safety and simple HTTP API compatibility, let's use creating multiple params
-                my @level_placeholders;
-                for my $i (0 .. $#valid_levels) {
-                    my $pname = "p_level_$i";
-                    push @level_placeholders, "{${pname}:String}";
-                    $bind_params{$pname} = $valid_levels[$i];
-                }
-                push @where, "upper(level) IN (" . join(', ', @level_placeholders) . ")";
-            }
-        } else {
-            my $valid_level = $self->_validate_level($params{level});
-            if ($valid_level) {
-                push @where, "upper(level) = {p_level:String}";
-                $bind_params{p_level} = $valid_level;
-            }
-        }
+        my @requested = ref $params{level} eq 'ARRAY' ? @{$params{level}} : ($params{level});
+        my @valid_levels = grep { defined } map { $self->_validate_level($_) } @requested;
+        my $n = 0;
+        my $level_sql = $self->_level_filter_sql(\@valid_levels, sub {
+            my $name = 'p_level_' . $n++;
+            $bind_params{$name} = $_[0];
+            return "{${name}:String}";
+        });
+        push @where, $level_sql if $level_sql;
     }
 
     # Service filter
@@ -236,19 +243,7 @@ sub _build_where_clause {
     if ($params{meta_field} && $params{meta_value}) {
         my $meta_field = lc($params{meta_field});
         if ($self->can('is_k8s_column') && $self->is_k8s_column($meta_field)) {
-            # A materialised column (K8sColumns, #108): reads 1 byte/row instead
-            # of the whole meta string, and matches the KEY's value, not the value
-            # text anywhere in meta (cluster=prod used to match pod "prod-db").
-            my $meta_value = $params{meta_value};
-            if ($meta_value =~ /\*/) {
-                (my $pattern = $meta_value) =~ s/([\\%_])/\\$1/g;
-                $pattern =~ s/\*/%/g;
-                push @where, "$meta_field LIKE {p_meta_value:String}";
-                $bind_params{p_meta_value} = $pattern;
-            } else {
-                push @where, "$meta_field = {p_meta_value:String}";
-                $bind_params{p_meta_value} = $meta_value;
-            }
+            push @where, $self->_k8s_column_sql($meta_field, $params{meta_value}, \%bind_params, 'p_meta_value');
         }
         elsif ($ALLOWED_META_FIELDS{$meta_field} || $meta_field =~ /^[a-z][a-z0-9_]{0,31}$/) {
             my $meta_value = $params{meta_value};
@@ -266,6 +261,16 @@ sub _build_where_clause {
                 $bind_params{p_meta_value} = $meta_value;
             }
         }
+    }
+
+    # Kubernetes pickers (#112): cluster/namespace/pod/container as their own
+    # filters, ANDed with the whole search expression. Appending them to the
+    # query text instead made `a OR b cluster:x` mean `a OR (b AND cluster:x)`.
+    for my $column (qw(cluster namespace pod container)) {
+        my $value = $params{$column};
+        next unless defined $value && length $value && !ref $value;
+        next unless $self->can('is_k8s_column') && $self->is_k8s_column($column);
+        push @where, $self->_k8s_column_sql($column, $value, \%bind_params, "p_k8s_$column");
     }
 
     # Namespace scope enforcement (RBAC)
