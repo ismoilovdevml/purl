@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-24
+
 ### Removed
 
 - Removed commercial licensing: every feature is available without a license
@@ -52,6 +54,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - kube-apiserver audit policy and webhook config moved from
   `deploy/kubernetes/` to `deploy/k8s-audit/`. They configure the apiserver,
   not Purl, so they were never part of the chart.
+
+### Fixed
+
+- Search matches non-ASCII text (Cyrillic, CJK, emoji, accented Latin); a
+  search for `café` used to return nothing, and wider characters failed the
+  request. Cached search results no longer lose their timestamp and `meta`.
+- Updating a dashboard or pipeline no longer fails with a 500, and a field left
+  out of an update keeps its value.
+- Fast-mode ingest no longer loses accepted logs when ClickHouse is briefly
+  unavailable. When the buffer is full, every ingest endpoint answers 503 with
+  `Retry-After` so the sender retries; dropped rows are counted in
+  `purl_ingest_dropped_total`. `PURL_INGEST_DURABLE=false` now means false.
+- Time bounds with a zone offset, no zone, fractions, dates or epoch values are
+  accepted and read as UTC; an offset timestamp used to reject the whole ingest
+  batch. Server-side "now" is UTC.
+- `/api/health/ready` no longer depends on ClickHouse, so an outage shows
+  Purl's own error instead of the proxy's "no healthy upstream".
+- A single failing or oversized query no longer opens the circuit breaker for
+  every endpoint; only real outages do.
+- Errors shown to users are short messages with a code and request id, never
+  raw ClickHouse output or file paths.
+- Query page results, the live-tail stream at high rates, the column picker
+  near the bottom of the screen, and the settings pages on phones.
+- Filter and facet by Kubernetes namespace, pod, container and cluster; log
+  levels match case-insensitively.
+
+### Performance
+
+- ClickHouse no longer fills its uncompressed cache on every query, which ran
+  a 5 GiB pod out of memory. Each query is capped at 256 MiB
+  (`PURL_CLICKHOUSE_MAX_QUERY_MEMORY`), and log searches read only the rows
+  they return.
+- The Helm chart (2.2.0) and docker-compose ship a small ClickHouse profile:
+  a 1536Mi limit and about 200 MiB idle, down from 4Gi and about 660 MiB.
 
 ### Security
 
@@ -147,6 +183,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Svelte 5 dark theme dashboard
 - Vector log collector configurations
 
+[Unreleased]: https://github.com/ismoilovdevml/purl/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ismoilovdevml/purl/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ismoilovdevml/purl/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ismoilovdevml/purl/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ismoilovdevml/purl/releases/tag/v1.0.0
