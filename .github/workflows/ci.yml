@@ -253,17 +253,18 @@ jobs:
 
           echo "--- users.d fragment must sort after the image entrypoint's"
           echo "--- default-user.xml or restrictDefaultUser silently does nothing."
-          helm template purl chart/ $HELM_AUTOGEN | grep -q 'users.d/zz-purl-users.xml'
+          DEFAULT=$(helm template purl chart/ $HELM_AUTOGEN)
+          grep -q 'users.d/zz-purl-users.xml' <<<"$DEFAULT"
 
           echo "--- ServiceMonitor must not reopen the allow-list cluster-wide."
-          helm template purl chart/ $HELM_AUTOGEN \
+          SM=$(helm template purl chart/ $HELM_AUTOGEN \
             --set networkPolicy.enabled=true \
             --set metrics.serviceMonitor.enabled=true \
-            --set metrics.prometheusNamespace=monitoring \
-            | grep -q 'kubernetes.io/metadata.name: "monitoring"'
+            --set metrics.prometheusNamespace=monitoring)
+          grep -q 'kubernetes.io/metadata.name: "monitoring"' <<<"$SM"
 
           echo "--- Config PVC must outlive helm uninstall."
-          helm template purl chart/ $HELM_AUTOGEN | grep -q '"helm.sh/resource-policy": keep'
+          grep -q '"helm.sh/resource-policy": keep' <<<"$DEFAULT"
 
           echo "All rendered-content assertions passed."
 
@@ -283,9 +284,9 @@ jobs:
             echo "::error::default render succeeded; it must refuse to invent credentials"
             exit 1
           fi
-          printf '%s\n' "$err" | grep -q 'refusing to generate' || {
+          grep -q 'refusing to generate' <<<"$err" || {
             echo "::error::render failed, but not on the #22 guard"
-            printf '%s\n' "$err" | head -5
+            head -5 <<<"$err"
             exit 1
           }
 
@@ -307,9 +308,9 @@ jobs:
           # vacuous — two empty renders are equal too.
           A=$(helm template purl chart/ $PIN)
           B=$(helm template purl chart/ $PIN)
-          printf '%s\n' "$A" | grep -q 'PURL_CLICKHOUSE_PASSWORD: "pw"'
-          printf '%s\n' "$A" | grep -q 'PURL_SESSION_SECRET: "ss"'
-          printf '%s\n' "$A" | grep -q 'PURL_API_KEYS: "ak"'
+          grep -q 'PURL_CLICKHOUSE_PASSWORD: "pw"' <<<"$A"
+          grep -q 'PURL_SESSION_SECRET: "ss"' <<<"$A"
+          grep -q 'PURL_API_KEYS: "ak"' <<<"$A"
           test "$A" = "$B"
 
           echo "--- The opt-in escape hatch must still produce a real password."
@@ -334,7 +335,7 @@ jobs:
             # A guard that fires for the wrong reason asserts nothing. If
             # $HELM_AUTOGEN ever goes missing here, every case below starts
             # failing on the issue #22 secret guard and still reports "ok".
-            if printf '%s\n' "$err" | grep -q 'refusing to generate'; then
+            if grep -q 'refusing to generate' <<<"$err"; then
               echo "::error::guard '${desc}' hit the #22 secret guard, not its own"
               exit 1
             fi

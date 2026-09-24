@@ -56,13 +56,24 @@ awk '
 ' "$ROOT/install.sh" > "$WORK/install.body"
 grep -q '^\[transforms\.parsed\]' "$WORK/install.body" \
   || { echo "tests/vector: could not find the [transforms.parsed] heredoc in install.sh" >&2; exit 1; }
+# Expand with the interpreter install.sh itself names in its shebang (the
+# shell a real host runs it with), falling back to `bash` from PATH.
+INSTALL_BASH="$(sed -n '1s/^#![[:space:]]*//p' "$ROOT/install.sh" | awk '{print $1}')"
+[ -x "${INSTALL_BASH:-}" ] || INSTALL_BASH="$(command -v bash)"
+{ echo 'cat <<EOF'; cat "$WORK/install.body"; echo 'EOF'; } > "$WORK/install.expand.sh"
 {
   printf '[sources.docker_logs]\ntype = "demo_logs"\nformat = "shuffle"\nlines = ["x"]\n'
   inputs='["docker_logs"]' hostname_label=test-host purl_url=http://purl.invalid:3000 \
-    bash -c "cat <<EOF
-$(cat "$WORK/install.body")
-EOF"
+    "$INSTALL_BASH" "$WORK/install.expand.sh"
 } > "$WORK/install.toml"
+# What the shell wrote must be the chart's block byte for byte: this catches
+# a `$` or backslash the heredoc ate, whatever bash version expanded it.
+awk '/# BEGIN purl-level-detection/{on=1} on{print} /# END purl-level-detection/{exit}' "$WORK/install.toml" \
+  | sed -e 's/^[[:space:]]*//' > "$WORK/block.install-expanded"
+if ! diff -u "$WORK/block.chart" "$WORK/block.install-expanded" >&2; then
+  echo "FAIL: install.sh's heredoc, expanded by $INSTALL_BASH ($("$INSTALL_BASH" -c 'echo $BASH_VERSION')), differs from the chart's block" >&2
+  exit 1
+fi
 
 # --- run -----------------------------------------------------------------------
 run_vector() {
@@ -74,15 +85,29 @@ run_vector() {
   fi
 }
 
+# A `vector test` topology can occasionally report "no events received" for
+# one case that passes on every rerun (seen once in CI on a single case,
+# not reproducible in 32 local runs). Rerun a target once in exactly that
+# situation, and say so; any assertion failure or other error fails at once.
 fail=0
 for target in chart:parsed deploy:parse install:parsed; do
   name="${target%%:*}"
   transform="${target#*:}"
   sed "s/@TRANSFORM@/$transform/g" "$CASES" > "$WORK/$name-tests.toml"
   echo "==> vector test: $name ($transform)"
-  if ! run_vector "$name.toml" "$name-tests.toml"; then
-    echo "FAIL: $name" >&2
-    fail=1
+  if run_vector "$name.toml" "$name-tests.toml" > "$WORK/$name.out" 2>&1; then
+    cat "$WORK/$name.out"
+    continue
   fi
+  cat "$WORK/$name.out"
+  if grep -q 'no events received' "$WORK/$name.out" \
+     && ! grep -qE 'assertion failed|error\[E' "$WORK/$name.out"; then
+    echo "::warning::vector test $name: 'no events received', rerunning once"
+    if run_vector "$name.toml" "$name-tests.toml"; then
+      continue
+    fi
+  fi
+  echo "FAIL: $name" >&2
+  fail=1
 done
 exit "$fail"

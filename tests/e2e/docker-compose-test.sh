@@ -149,7 +149,7 @@ for _ in $(seq 1 20); do
     BODY=$(curl -s --get http://localhost:3000/api/logs \
         --data-urlencode "q=$MARKER" -d limit=10 -d range=15m \
         -H "X-API-Key: ${PURL_API_KEYS}" 2>/dev/null) || true
-    if echo "$BODY" | grep -q "$MARKER"; then
+    if grep -q -- "$MARKER" <<<"$BODY"; then
         FOUND=1
         break
     fi

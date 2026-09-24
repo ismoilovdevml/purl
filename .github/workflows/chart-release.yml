@@ -81,7 +81,11 @@ jobs:
             echo "::error::Branch ${PAGES_BRANCH} does not exist. Run the one-time setup in docs/RELEASE.md."
             exit 1
           fi
-          if git show "origin/${PAGES_BRANCH}:index.yaml" 2>/dev/null | grep -q "/purl-${VERSION}\.tgz"; then
+          # Not `git show | grep -q`: under pipefail grep's early exit makes
+          # git show die of SIGPIPE once index.yaml outgrows the pipe buffer,
+          # and the step would re-publish an existing version.
+          INDEX=$(git show "origin/${PAGES_BRANCH}:index.yaml" 2>/dev/null || true)
+          if grep -q "/purl-${VERSION}\.tgz" <<<"$INDEX"; then
             echo "::notice::Chart purl-${VERSION} is already in the ${PAGES_BRANCH} index — nothing to publish."
             echo "publish=false" >> "$GITHUB_OUTPUT"
           else
