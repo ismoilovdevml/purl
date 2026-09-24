@@ -14,6 +14,7 @@ use Purl::Util::Time qw(parse_time_range epoch_to_iso);
 use Purl::API::LiveTail qw(send_logs);
 
 extends 'Purl::API::Controller::Base';
+with 'Purl::API::Controller::IngestBackpressure';
 
 # Shared state for live tail WebSocket connections
 has 'websockets' => (
@@ -206,19 +207,9 @@ sub ingest {
         # backpressure check, and broadcast below all use the result.
         $logs = $self->apply_pipelines($c, $logs);
 
-        # Backpressure: if the in-memory buffer cannot absorb this batch, refuse
-        # with 503 instead of growing the buffer unbounded (OOM) or silently
-        # accepting logs we cannot store. NOTE: the buffer is per-process, so
-        # under prefork this cap is enforced per worker.
-        if ($self->storage->can('buffer_full')
-            && $self->storage->buffer_full(scalar @$logs)) {
-            $c->res->headers->header('Retry-After' => '1');
-            $c->render(json => {
-                status => 'error',
-                error  => 'Ingest buffer full - backpressure, retry shortly',
-            }, status => 503);
-            return;
-        }
+        # Backpressure: refuse with 503 when the bounded buffer cannot take
+        # this batch (see IngestBackpressure).
+        return if $self->reject_when_buffer_full($c, scalar @$logs);
 
         my $durable = $self->storage->can('durable') ? $self->storage->durable : 0;
 
@@ -280,8 +271,10 @@ sub ingest {
             my $err = $@ || 'unknown storage error';
             $c->app->log->error("Ingest storage failure: $err");
             # A flush/insert error must surface as an error status, never a
-            # silent 200. In durable mode the batch is retained in the buffer
-            # for retry (at-least-once).
+            # silent 200. Only durable mode gets here from a flush: the batch
+            # stays in the buffer for retry (at-least-once). In fast mode a
+            # failed flush keeps the batch buffered and the request succeeds —
+            # the logs are held by Purl and retried (#115).
             $c->res->headers->header('Retry-After' => '1');
             $c->render(json => {
                 status => 'error',

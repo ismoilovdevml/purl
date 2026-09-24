@@ -5,7 +5,7 @@ use 5.024;
 
 use Exporter 'import';
 our @EXPORT_OK = qw(
-    env_var_for env_mapped_keys is_write_only manages_below is_blank same_scalar
+    env_var_for env_mapped_keys is_write_only manages_below is_blank same_scalar bool_text
 );
 
 # Which config keys the environment manages, which keys the API never

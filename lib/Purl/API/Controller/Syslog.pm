@@ -9,6 +9,7 @@ use Mojo::JSON qw(decode_json encode_json);
 use Purl::Util::Time qw(epoch_to_iso);
 
 extends 'Purl::API::Controller::Base';
+with 'Purl::API::Controller::IngestBackpressure';
 
 # ============================================
 # Syslog ingest endpoint
@@ -90,6 +91,7 @@ sub ingest {
         # Run logs through configured pipelines (enrich / rewrite / drop)
         # before storage. No-op unless pipelines are configured.
         @logs = @{ $self->apply_pipelines($c, \@logs) };
+        return if $self->reject_when_buffer_full($c, scalar @logs);
 
         my $count = 0;
         for my $log (@logs) {

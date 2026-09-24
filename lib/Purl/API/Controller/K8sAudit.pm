@@ -9,6 +9,7 @@ use Mojo::JSON qw(decode_json encode_json);
 use Time::HiRes qw(time);
 
 extends 'Purl::API::Controller::Base';
+with 'Purl::API::Controller::IngestBackpressure';
 
 # ============================================
 # Kubernetes API audit log webhook receiver
@@ -86,6 +87,8 @@ sub ingest {
                 parent_span_id => '',
             };
         }
+
+        return if $self->reject_when_buffer_full($c, scalar @logs);
 
         if (@logs) {
             $self->storage->insert_batch(\@logs);

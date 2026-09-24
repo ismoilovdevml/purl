@@ -130,7 +130,17 @@ sub effective_config { return $config }
 
 # Dependency seams. Kept as package subs (not inlined) because tests replace
 # them — e.g. *Purl::API::Server::_build_storage — to run the app on a mock.
-sub _build_storage { return Purl::API::Server::Builders::build_storage($config) }
+sub _build_storage {
+    my $st = Purl::API::Server::Builders::build_storage($config);
+    # Dropped ingest rows go to the fleet-wide counter (purl_ingest_dropped_total).
+    # Resolved per call, so the counters built later in setup_routes are used.
+    $st->on_ingest_drop(sub {
+        my ($count, $reason) = @_;
+        $metrics_counters->record_ingest_dropped($count) if $metrics_counters;
+        app->log->error("Ingest dropped $count log(s): $reason");
+    }) if $st->can('on_ingest_drop');
+    return $st;
+}
 
 sub _build_notifiers {
     return Purl::API::Server::Builders::build_notifiers($settings, \%notifiers);

@@ -125,6 +125,13 @@ sub render {
         'purl_ingest_bytes_total ' . _num($counters->{ingest_bytes_total}));
     $out .= "\n";
 
+    # Always present (0 when nothing was lost), so an alert on increase() works
+    # from the first scrape.
+    $out .= _metric('purl_ingest_dropped_total',
+        'Logs accepted by ingest and then dropped before reaching ClickHouse', 'counter',
+        'purl_ingest_dropped_total ' . _num($counters->{ingest_dropped_total}));
+    $out .= "\n";
+
     # Tells the operator whether the counters above are fleet-wide or
     # per-worker — without it, a low request rate under prefork looks like a
     # traffic drop rather than an unconfigured Redis.
@@ -172,6 +179,7 @@ producing a malformed line — one bad line invalidates the entire scrape.
     purl_errors_total                           counter
     purl_query_latency_seconds_{sum,count}      summary
     purl_ingest_bytes_total                     counter
+    purl_ingest_dropped_total                   counter
     purl_metrics_shared                         gauge (0/1)
 
 =cut

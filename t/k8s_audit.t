@@ -26,7 +26,16 @@ use Mojo::JSON qw(encode_json decode_json);
     sub new  { bless { body => $_[1] // '' }, $_[0] }
     sub body { $_[0]->{body} }
 
+    package MockHeaders;
+    sub new    { bless {}, $_[0] }
+    sub header { my ($s, $k, $v) = @_; $s->{$k} = $v if defined $v; $s->{$k} }
+
+    package MockRes;
+    sub new     { bless { headers => MockHeaders->new }, $_[0] }
+    sub headers { $_[0]->{headers} }
+
     package MockCtrl;
+    sub res { $_[0]->{res} //= MockRes->new }
     sub new {
         bless {
             req      => MockReq->new($_[1]),
@@ -70,6 +79,7 @@ use Mojo::JSON qw(encode_json decode_json);
         $total += scalar @$_ for @{$self->{batches}};
         return $total;
     }
+    sub buffer_full { $_[0]->{full} ? 1 : 0 }   # backpressure (#115)
     sub can { 1 }
 }
 
@@ -793,6 +803,22 @@ subtest 'realistic K8s audit EventList' => sub {
     is($meta2->{api_group}, 'apps',    'second event api_group in meta');
     is($meta2->{verb},      'patch',   'second event verb in meta');
     is($meta2->{name},      'web',     'second event name in meta');
+};
+
+# ============================================
+# Backpressure (#115): a full ingest buffer is a 503, nothing is inserted
+# ============================================
+subtest 'buffer full => 503 + Retry-After, nothing inserted' => sub {
+    my $storage = MockStorage->new;
+    $storage->{full} = 1;
+    my $ctrl = Purl::API::Controller::K8sAudit->new(storage => $storage);
+    my $c    = MockCtrl->new(encode_json({ items => [{
+        verb => 'get', level => 'Metadata', objectRef => { resource => 'pods' },
+    }] }));
+    $ctrl->ingest($c);
+    is $c->rendered->{status}, 503, '503';
+    is $c->res->headers->header('Retry-After'), '1', 'Retry-After: 1';
+    is $storage->total_logs, 0, 'nothing inserted';
 };
 
 done_testing;

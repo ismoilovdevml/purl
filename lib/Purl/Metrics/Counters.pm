@@ -105,6 +105,15 @@ sub record_ingest_bytes {
     return 1;
 }
 
+# Logs Purl accepted and then had to drop (ingest buffer overflow, #115).
+sub record_ingest_dropped {
+    my ($self, $count) = @_;
+    return 0 unless $count && $count > 0;
+    eval { $self->store->incr_by($self->_key('ingest_dropped_total'), $count, $self->ttl); 1 }
+        or return 0;
+    return 1;
+}
+
 # ----------------------------------------------------------------------------
 # Reading
 # ----------------------------------------------------------------------------
@@ -126,6 +135,7 @@ sub snapshot {
         requests           => \%requests,
         errors_total       => eval { $self->store->get($self->_key('errors_total')) } // 0,
         ingest_bytes_total => eval { $self->store->get($self->_key('ingest_bytes_total')) } // 0,
+        ingest_dropped_total => eval { $self->store->get($self->_key('ingest_dropped_total')) } // 0,
         latency_ms_sum     => eval { $self->store->get($self->_key('query_latency_ms_sum')) } // 0,
         latency_count      => eval { $self->store->get($self->_key('query_latency_count')) } // 0,
         shared             => eval { $self->store->is_shared } // 0,
@@ -149,6 +159,7 @@ Purl::Metrics::Counters - Prefork-safe Prometheus counters
 
     $counters->record_request(method => 'POST', status => 201, duration_ms => 12.4);
     $counters->record_ingest_bytes(4096);
+    $counters->record_ingest_dropped(12);
 
     my $snapshot = $counters->snapshot;
 

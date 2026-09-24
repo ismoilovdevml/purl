@@ -7,6 +7,7 @@ use Moo::Role;
 use Time::HiRes qw(time);
 use URI::Escape qw(uri_escape);
 use Purl::Config;
+use Purl::Config::EnvMap qw(bool_text);
 use Purl::Util::Time qw(to_clickhouse_ts now_clickhouse);
 use namespace::clean;
 
@@ -42,14 +43,28 @@ has 'durable' => (
     is      => 'ro',
     lazy    => 1,
     default => sub {
+        # bool_text: PURL_INGEST_DURABLE=false is a non-empty (true) string
         my $v = eval { Purl::Config->new->get('ingest', 'durable') };
-        return (defined $v && $v) ? ($v ? 1 : 0) : 0;
+        return bool_text($v) ? 1 : 0;
     },
+);
+
+# Called with ($count, $reason) whenever logs are dropped from the buffer, so
+# the server can count them fleet-wide (purl_ingest_dropped_total). Optional.
+has 'on_ingest_drop' => (
+    is      => 'rw',
+    default => sub { undef },
 );
 
 has 'flush_interval' => (
     is      => 'ro',
     default => 1,  # seconds
+);
+
+# True from a failed flush until the next successful one.
+has '_flush_failing' => (
+    is      => 'rw',
+    default => 0,
 );
 
 has '_last_flush' => (
@@ -89,18 +104,22 @@ sub _normalize_level {
 # Insert single log
 sub insert {
     my ($self, $log) = @_;
-
-    _normalize_level($log);
-    push @{$self->_buffer}, $log;
-
-    if (@{$self->_buffer} >= $self->buffer_size) {
-        $self->flush();
-    }
-
+    $self->insert_batch([$log]);
     return 1;
 }
 
-# Insert batch of logs
+# Insert batch of logs.
+#
+# The buffer never grows past buffer_max. Every ingest controller checks
+# buffer_full() first and answers 503, so this cap is only reached by a caller
+# that skipped that check; the OLDEST rows then make room, and are counted and
+# logged as dropped — never silently.
+#
+# The size-triggered flush follows the ingest contract (#115):
+#   durable — a failure is re-thrown, the request answers 503;
+#   fast    — the batch stays in the buffer for the periodic retry, so the
+#             logs this request already put there are still owned by Purl and
+#             the request is not failed for them.
 sub insert_batch {
     my ($self, $logs) = @_;
 
@@ -109,23 +128,51 @@ sub insert_batch {
     _normalize_level($_) for @$logs;
     push @{$self->_buffer}, @$logs;
 
-    if (@{$self->_buffer} >= $self->buffer_size) {
-        $self->flush();
+    my $over = @{$self->_buffer} - $self->buffer_max;
+    if ($over > 0) {
+        splice @{$self->_buffer}, 0, $over;
+        $self->_record_drop($over, 'ingest buffer over buffer_max');
+    }
+
+    # While ClickHouse is failing, retry at most once per flush_interval —
+    # not once per inserted log (the controller inserts row by row).
+    my $backing_off = $self->_flush_failing
+        && (time() - $self->_last_flush) < $self->flush_interval;
+
+    if (@{$self->_buffer} >= $self->buffer_size && !$backing_off) {
+        if ($self->durable) {
+            $self->flush();
+        }
+        elsif (!eval { $self->flush(); 1 }) {
+            warn "Ingest flush failed, batch kept for retry: $@";
+        }
     }
 
     return scalar @$logs;
 }
 
+sub _record_drop {
+    my ($self, $count, $reason) = @_;
+    $self->_metrics->{ingest_dropped_total} += $count;
+    my $hook = $self->on_ingest_drop;
+    return if $hook && eval { $hook->($count, $reason); 1 };
+    warn "Ingest DROPPED $count log(s): $reason\n";   # no hook (or it failed)
+    return;
+}
+
 # Flush buffer to ClickHouse with async insert.
 #
 # durable=0 (default): fire-and-forget async insert (wait_for_async_insert=0).
-#   ClickHouse returns 200 before the batch is persisted — fast, at-most-once.
+#   The client got its 200 when the log entered the buffer.
 # durable=1: wait_for_async_insert=1 — the HTTP POST returns only once the row
 #   is durable, so a successful flush() means the data is in ClickHouse.
 #
-# On failure the batch is put back at the head of the buffer in durable mode so
-# the next flush retries it (at-least-once); the error is always re-thrown so
-# the caller can surface a non-2xx to the client.
+# On failure the batch goes back to the head of the buffer in BOTH modes, so the
+# next flush retries it (#115: fast mode used to drop it, after the client had
+# its 200). The buffer stays bounded by buffer_max, and ingest answers 503 once
+# it is full, so an outage turns into backpressure on the shippers — which
+# retry non-2xx from their own disk buffers — instead of lost logs. The error
+# is re-thrown so the caller can log it / surface a non-2xx.
 sub flush {
     my ($self) = @_;
 
@@ -153,7 +200,7 @@ sub flush {
             host           => $log->{host} // 'localhost',
             message        => $log->{message} // '',
             raw            => $log->{raw} // '',
-            meta           => $self->_json->encode($log->{meta} // {}),
+            meta           => $self->_encode_json_column($log->{meta} // {}),  # text, not bytes (#113)
             trace_id       => $log->{trace_id} // '',
             request_id     => $log->{request_id} // '',
             span_id        => $log->{span_id} // '',
@@ -176,14 +223,13 @@ sub flush {
 
     unless ($response->{success}) {
         $self->_metrics->{errors_total}++;
-        # In durable mode, do not lose the batch: return it to the buffer so the
-        # next flush retries it. The error is re-thrown either way so the ingest
-        # layer returns a non-2xx instead of a silent 200.
-        if ($self->durable) {
-            unshift @{$self->_buffer}, @logs;
-        }
+        $self->_metrics->{ingest_flush_failures}++;
+        unshift @{$self->_buffer}, @logs;
+        $self->_flush_failing(1);
         die "ClickHouse insert error: $response->{status} - $response->{content}";
     }
+
+    $self->_flush_failing(0);
 
     # Update metrics
     $self->_metrics->{inserts_total} += scalar @logs;
