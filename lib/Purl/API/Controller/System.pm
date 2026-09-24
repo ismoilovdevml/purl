@@ -21,7 +21,7 @@ has 'metrics_counters' => (
     default => sub { undef },
 );
 
-# One ClickHouse probe, used by /api/health and /api/health/ready. Returns
+# One ClickHouse probe, used by /api/health (not /ready — see #120). Returns
 # (ok, public_error). These endpoints are UNAUTHENTICATED, so the raw
 # exception (ClickHouse text, file/line) goes to the log only and the body gets
 # the classified, fixed message (#107).
@@ -78,24 +78,34 @@ sub health_live {
     }, status => 200);
 }
 
-# READINESS: should this instance receive traffic? Requires ClickHouse.
-# Failing readiness pulls the pod out of the Service endpoints without
-# restarting it, so it rejoins automatically once the database recovers.
+# READINESS: can this instance serve requests? Deliberately NOT gated on
+# ClickHouse (#120).
+#
+# It used to return 503 whenever ClickHouse failed. With one Purl pod that
+# pulled the ONLY endpoint out of the Service on every database blip, and the
+# mesh/ingress answered every request — the login page and the JS bundle
+# included — with a bare "no healthy upstream". The app's own degraded mode
+# (circuit breaker, storage_unavailable errors from #107, the error banner)
+# never reached anyone. With several replicas the effect is the same: they all
+# share one ClickHouse, so they all go unready together.
+#
+# Purl without ClickHouse can still serve the UI, login, settings and a clear
+# "storage unavailable" answer, so it stays in the Service. ClickHouse health
+# is reported by /api/health and purl_clickhouse_healthy, not used as a gate.
+# The circuit-breaker state below is in-memory: this handler never queries
+# the database, so it stays cheap and cannot hang on a slow ClickHouse.
 sub health_ready {
     my ($self, $c) = @_;
 
-    my ($ch_ok, $ch_error) = $self->_clickhouse_probe($c);
     my $cb_status = eval { $self->storage->circuit_breaker_status() } // {};
 
     $c->render(json => {
-        status      => $ch_ok ? 'ok' : 'unready',
+        status      => 'ok',
         timestamp   => time(),
         version     => $VERSION,
-        clickhouse  => $ch_ok ? 'connected' : 'disconnected',
         circuit_breaker => $cb_status,
         uptime_secs => int(time() - $^T),
-        ($ch_error ? (error => $ch_error) : ()),
-    }, status => $ch_ok ? 200 : 503);
+    }, status => 200);
 }
 
 sub metrics {

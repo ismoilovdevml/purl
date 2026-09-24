@@ -241,11 +241,14 @@ subtest 'liveness probe is public and DB-independent' => sub {
       ->json_has('/uptime_secs');
 };
 
-subtest 'readiness probe is public and reports the dependency' => sub {
+# #120: readiness answers "can this process serve?", not "is ClickHouse up?",
+# so it carries the in-memory breaker state and no ClickHouse verdict.
+subtest 'readiness probe is public and not gated on ClickHouse' => sub {
     $t->get_ok('/api/health/ready')
       ->status_is(200)
       ->json_is('/status' => 'ok')
-      ->json_is('/clickhouse' => 'connected');
+      ->json_has('/circuit_breaker')
+      ->json_hasnt('/clickhouse');
 };
 
 # ============================================

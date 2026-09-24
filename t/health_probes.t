@@ -14,7 +14,12 @@ use 5.024;
 #
 #   /api/health        unchanged (503 on DB failure) — external monitors use it
 #   /api/health/live   process only, NEVER touches ClickHouse
-#   /api/health/ready  requires ClickHouse, 503 pulls the pod from the Service
+#   /api/health/ready  "can this process serve?" — NOT gated on ClickHouse
+#
+# #120: /ready used to return 503 when ClickHouse failed. With one Purl pod
+# that removed the only Service endpoint on every database blip, and the mesh
+# answered the login page and the JS bundle with "no healthy upstream"; the
+# app's own degraded mode never reached the user.
 # ============================================================================
 
 use Test::More;
@@ -87,27 +92,50 @@ subtest 'health/live reports process facts only' => sub {
 # ---------------------------------------------------------------------------
 # Readiness
 # ---------------------------------------------------------------------------
-subtest 'health/ready returns 503 when ClickHouse is down' => sub {
+subtest 'health/ready stays 200 while ClickHouse is down (#120)' => sub {
     my $storage = DeadStorage->new;
     my $ctrl = Purl::API::Controller::System->new(storage => $storage);
     my $c = MockCtrl->new;
 
     $ctrl->health_ready($c);
 
-    is $c->rendered->{status}, 503, 'unready pulls the pod out of the Service';
-    is $c->rendered->{json}{status}, 'unready', 'reports unready';
-    is $c->rendered->{json}{clickhouse}, 'disconnected', 'names the failed dependency';
-    ok $storage->touched, 'readiness actually probed the database';
+    is $c->rendered->{status}, 200,
+        'a ClickHouse outage must not pull the pod from the Service (#120)';
+    is $c->rendered->{json}{status}, 'ok', 'reports ok';
+    is $storage->touched, 0,
+        'readiness never queries ClickHouse — cheap, and cannot hang on a slow database';
+    is_deeply $c->rendered->{json}{circuit_breaker}, { state => 'open' },
+        'the in-memory circuit-breaker state is still reported for operators';
+    ok !exists $c->rendered->{json}{clickhouse},
+        'does not claim a ClickHouse status it did not check';
+};
+
+subtest 'health/ready survives a storage object that throws' => sub {
+    {
+        package ThrowingStorage;
+        sub new { bless {}, $_[0] }
+        sub stats { die "boom\n" }
+        sub circuit_breaker_status { die "breaker exploded\n" }
+    }
+    my $ctrl = Purl::API::Controller::System->new(storage => ThrowingStorage->new);
+    my $c = MockCtrl->new;
+
+    $ctrl->health_ready($c);
+
+    is $c->rendered->{status}, 200, 'still ready';
+    is_deeply $c->rendered->{json}{circuit_breaker}, {},
+        'breaker status degrades to an empty hash instead of a 500';
 };
 
 subtest 'health/ready returns 200 when ClickHouse is up' => sub {
-    my $ctrl = Purl::API::Controller::System->new(storage => LiveStorage->new);
+    my $storage = LiveStorage->new;
+    my $ctrl = Purl::API::Controller::System->new(storage => $storage);
     my $c = MockCtrl->new;
 
     $ctrl->health_ready($c);
 
     is $c->rendered->{status}, 200, 'ready';
-    is $c->rendered->{json}{clickhouse}, 'connected', 'dependency healthy';
+    is $storage->touched, 0, 'no database round-trip on the probe path';
 };
 
 # ---------------------------------------------------------------------------

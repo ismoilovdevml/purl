@@ -14,7 +14,7 @@ use JSON::PP ();
 use POSIX ();
 
 # ============================================
-# REGRESSION (#107): when ClickHouse failed (memory limit on purl.edcom.uz),
+# REGRESSION (#107): when ClickHouse failed (memory limit on a production cluster),
 # the Logs page, Patterns panel and toasts showed the raw ClickHouse exception
 # (part paths, table UUIDs, SQL), Perl die text with file/line
 #   "... service unavailable at /app/lib/Purl/Storage/ClickHouse/CircuitBreaker.pm line 45."
@@ -311,15 +311,26 @@ subtest 'search: a user regex ClickHouse rejects -> 400 invalid_query, helpful b
 };
 
 subtest 'unauthenticated /api/health does not echo the ClickHouse exception' => sub {
-    for my $url ('/api/health', '/api/health/ready') {
-        reset_breaker();
-        set_mode(join "\n", @{ $CH{corrupted} });
-        $t->get_ok($url)->status_is(503);
-        my $body = $t->tx->res->body;
-        for my $leak (@LEAKS) {
-            unlike $body, $leak->[0], "$url: no $leak->[1]";
-        }
-        $t->json_is('/error' => 'Internal server error');
+    reset_breaker();
+    set_mode(join "\n", @{ $CH{corrupted} });
+    $t->get_ok('/api/health')->status_is(503);
+    my $body = $t->tx->res->body;
+    for my $leak (@LEAKS) {
+        unlike $body, $leak->[0], "/api/health: no $leak->[1]";
+    }
+    $t->json_is('/error' => 'Internal server error');
+};
+
+# #120: readiness is not gated on ClickHouse. A broken database must leave
+# /ready at 200 (so the pod stays in the Service and the UI can show its own
+# degraded state) and, being unauthenticated, it must leak nothing either.
+subtest '/api/health/ready stays 200 and leaks nothing while ClickHouse is broken' => sub {
+    reset_breaker();
+    set_mode(join "\n", @{ $CH{corrupted} });
+    $t->get_ok('/api/health/ready')->status_is(200)->json_is('/status' => 'ok');
+    my $body = $t->tx->res->body;
+    for my $leak (@LEAKS) {
+        unlike $body, $leak->[0], "/api/health/ready: no $leak->[1]";
     }
 };
 
