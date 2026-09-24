@@ -55,7 +55,7 @@ sub list_pipelines {
 
     # Parse rules JSON
     for my $row (@$results) {
-        $row->{rules}   = eval { $self->_json->decode($row->{rules} // '[]') } // [];
+        $row->{rules}   = $self->_decode_json_column($row->{rules}, []);
         $row->{enabled} = $row->{enabled} ? \1 : \0;
     }
 
@@ -87,7 +87,7 @@ sub get_pipeline {
     return undef unless @$results;
 
     my $row = $results->[0];
-    $row->{rules}   = eval { $self->_json->decode($row->{rules} // '[]') } // [];
+    $row->{rules}   = $self->_decode_json_column($row->{rules}, []);
     $row->{enabled} = $row->{enabled} ? \1 : \0;
     return $row;
 }
@@ -99,7 +99,7 @@ sub create_pipeline {
     my $name        = $self->_quote_string($data->{name} // 'Unnamed Pipeline');
     my $description = $self->_quote_string($data->{description} // '');
     my $filter      = $self->_quote_string($data->{filter_service} // '');
-    my $rules       = $self->_quote_string($self->_json->encode($data->{rules} // []));
+    my $rules       = $self->_quote_string($self->_encode_json_column($data->{rules} // []));
     my $enabled     = $data->{enabled} ? 1 : 0;
     my $priority    = int($data->{priority} // 100);
 
@@ -123,21 +123,15 @@ sub update_pipeline {
 
     my $db = $self->database;
 
-    my $name        = $self->_quote_string($data->{name}           // $existing->{name});
-    my $description = $self->_quote_string($data->{description}    // $existing->{description});
-    my $filter      = $self->_quote_string($data->{filter_service} // $existing->{filter_service});
-    my $rules       = $self->_quote_string(
-        $self->_json->encode($data->{rules} // $existing->{rules})
-    );
-    my $enabled  = exists $data->{enabled} ? ($data->{enabled} ? 1 : 0) : ($existing->{enabled} ? 1 : 0);
-    my $priority = int($data->{priority} // $existing->{priority} // 100);
-
-    my $sql = qq{
-        INSERT INTO ${db}.pipelines (id, name, description, filter_service, rules, enabled, priority, created_at, updated_at)
-        VALUES ('$id', $name, $description, $filter, $rules, $enabled, $priority, '$existing->{created_at}', now())
-    };
-
-    $self->_crud_write($sql);
+    $self->_insert_crud_version("${db}.pipelines", $id, {
+        name           => $self->_quote_string($data->{name}           // $existing->{name}),
+        description    => $self->_quote_string($data->{description}    // $existing->{description}),
+        filter_service => $self->_quote_string($data->{filter_service} // $existing->{filter_service}),
+        rules          => $self->_quote_string(
+            $self->_encode_json_column($data->{rules} // $existing->{rules})),
+        enabled  => $self->_crud_flag($data, $existing, 'enabled'),
+        priority => int($data->{priority} // $existing->{priority} // 100),
+    });
     $self->invalidate_logs_cache() if $self->can('invalidate_logs_cache');
     return { status => 'updated' };
 }

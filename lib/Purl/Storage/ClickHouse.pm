@@ -21,6 +21,8 @@ with 'Purl::Storage::ClickHouse::K8sHealth';
 with 'Purl::Storage::ClickHouse::Agents';
 with 'Purl::Storage::ClickHouse::CircuitBreaker';
 with 'Purl::Storage::ClickHouse::Connection';
+with 'Purl::Storage::ClickHouse::QuerySettings';
+with 'Purl::Storage::ClickHouse::JsonColumn';
 with 'Purl::Storage::ClickHouse::Schema';
 with 'Purl::Storage::ClickHouse::K8sColumns';
 with 'Purl::Storage::ClickHouse::Ingest';
@@ -79,6 +81,15 @@ has 'max_execution_time' => (
 has 'max_rows_to_read' => (
     is      => 'ro',
     default => 0,  # unlimited — max_execution_time is the safety net
+);
+
+# Per-query memory cap in bytes (#108), sent as max_memory_usage with sort and
+# GROUP BY spilling at a quarter of it. 256 MiB: the heaviest Logs-page query
+# measured at 31 MiB with lazy materialisation, an ingest batch with its
+# materialised views at 121 MiB. 0 = leave it to the server profile.
+has 'max_query_memory' => (
+    is      => 'ro',
+    default => 268_435_456,
 );
 
 has 'use_query_cache' => (

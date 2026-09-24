@@ -6,7 +6,7 @@ use 5.024;
 use Moo;
 use Time::HiRes ();
 use namespace::clean;
-use Mojo::JSON qw(decode_json encode_json);
+use Mojo::JSON qw(decode_json encode_json to_json);
 
 # ============================================
 # Pipeline processing engine
@@ -284,7 +284,7 @@ sub _rule_json_extract {
             $log->{timestamp} = $parsed->{$key};
         } else {
             $log->{meta}{$target} = ref $parsed->{$key}
-                ? encode_json($parsed->{$key})
+                ? to_json($parsed->{$key})   # text: ingest encodes UTF-8 once (#113)
                 : $parsed->{$key};
         }
     }

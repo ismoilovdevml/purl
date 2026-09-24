@@ -6,7 +6,8 @@ use 5.024;
 use Moo::Role;
 use HTTP::Tiny;
 use JSON::XS ();
-use URI::Escape qw(uri_escape);
+use URI::Escape qw(uri_escape uri_escape_utf8);
+use Encode qw(encode_utf8);
 use Time::HiRes qw(time);
 use namespace::clean;
 
@@ -43,6 +44,13 @@ has '_metrics' => (
     } },
 );
 
+# Encoding contract (#113): SQL text and bind parameters are Perl CHARACTER
+# strings (what Mojolicious hands us for a query string or a JSON body). They
+# are encoded to UTF-8 here, once, on the way to ClickHouse — never by callers.
+# Passing characters above U+00FF straight to HTTP::Tiny / uri_escape dies with
+# "Wide character", and passing U+0080..U+00FF sends Latin-1 bytes that match
+# nothing stored as UTF-8.
+
 sub _base_url {
     my ($self) = @_;
     return sprintf('http://%s:%d', $self->host, $self->port);
@@ -55,39 +63,6 @@ sub _auth_params {
     push @params, 'password=' . uri_escape($self->password) if $self->password;
     push @params, 'database=' . uri_escape($self->database);
     return join('&', @params);
-}
-
-# Async-insert settings, applied consistently everywhere an INSERT is issued.
-# durable=1 => wait_for_async_insert=1 (HTTP returns only once the row is
-# persisted). durable=0 => legacy fire-and-forget fast path.
-sub _async_insert_settings {
-    my ($self) = @_;
-    my $wait = $self->durable ? 1 : 0;
-    return "async_insert=1&wait_for_async_insert=$wait";
-}
-
-# ClickHouse performance settings.
-#
-# sync => 1 makes the statement read-after-write consistent:
-#   async_insert=0   — the INSERT is not parked in ClickHouse's async buffer
-#   mutations_sync=1 — ALTER ... UPDATE/DELETE is applied before we return
-#
-# Log ingest batches thousands of rows/s and trades visibility latency for
-# throughput. CRUD statements (alerts, saved searches, dashboards, pipelines,
-# agents) write one row at a time and are read back immediately by the UI, so
-# for them the async buffer and background mutations are pure downside: the row
-# is invisible — or a deleted row still visible — for seconds after a 200 OK.
-sub _query_settings {
-    my ($self, %opts) = @_;
-    my @settings = (
-        'max_execution_time=' . $self->max_execution_time,
-        'max_rows_to_read=' . $self->max_rows_to_read,
-        'optimize_read_in_order=1',
-        'load_balancing=nearest_hostname',
-        'prefer_localhost_replica=1',
-        $opts{sync} ? 'async_insert=0&mutations_sync=1' : $self->_async_insert_settings,
-    );
-    return join('&', @settings);
 }
 
 # Build the query URL. %opts:
@@ -114,7 +89,7 @@ sub _query_url {
 
     if (my $params = $opts{params}) {
         for my $key (keys %$params) {
-            $url .= '&param_' . uri_escape($key) . '=' . uri_escape($params->{$key});
+            $url .= '&param_' . uri_escape_utf8($key) . '=' . uri_escape_utf8($params->{$key} // '');
         }
     }
 
@@ -130,18 +105,18 @@ sub _query {
     my $url   = $self->_query_url(%opts);
 
     my $response = $self->_http->post($url, {
-        content => $sql,
+        content => encode_utf8($sql),
         headers => {
             'Content-Type' => 'text/plain',
             'X-ClickHouse-Format' => $opts{format} // 'TabSeparated',
         },
     });
 
-    $self->_circuit_record($response->{success}, time() - $start);
+    my $failure = $response->{success} ? undef
+        : "ClickHouse error: $response->{status} - $response->{content}";
+    $self->_circuit_record($response->{success}, time() - $start, $failure);
 
-    unless ($response->{success}) {
-        die "ClickHouse error: $response->{status} - $response->{content}";
-    }
+    die $failure if defined $failure;
 
     return $response->{content};
 }
@@ -178,7 +153,7 @@ sub _query_to_file {
     my $bytes = 0;
     my $response = eval {
         $self->_http->request('POST', $url, {
-            content => $sql,
+            content => encode_utf8($sql),
             headers => {
                 'Content-Type' => 'text/plain',
                 'X-ClickHouse-Format' => $opts{format} // 'TabSeparated',
@@ -197,15 +172,17 @@ sub _query_to_file {
 
     if ($err) {
         unlink $file_path;
-        $self->_circuit_record(0, time() - $start);
+        $self->_circuit_record(0, time() - $start, $err);
         die $err;
     }
 
-    $self->_circuit_record($response->{success}, time() - $start);
+    my $failure = $response->{success} ? undef
+        : "ClickHouse error: $response->{status} - $response->{content}";
+    $self->_circuit_record($response->{success}, time() - $start, $failure);
 
-    unless ($response->{success}) {
+    if (defined $failure) {
         unlink $file_path;
-        die "ClickHouse error: $response->{status} - $response->{content}";
+        die $failure;
     }
 
     return $bytes;
@@ -221,7 +198,7 @@ sub _post_file {
     die "File not found: $file_path" unless -f $file_path;
 
     my $start = time();
-    my $url   = $self->_query_url(%opts) . '&query=' . uri_escape($sql);
+    my $url   = $self->_query_url(%opts) . '&query=' . uri_escape_utf8($sql);
 
     open my $fh, '<:raw', $file_path or die "Cannot read $file_path: $!";
 
@@ -242,15 +219,15 @@ sub _post_file {
     close $fh;
 
     if ($err) {
-        $self->_circuit_record(0, time() - $start);
+        $self->_circuit_record(0, time() - $start, $err);
         die $err;
     }
 
-    $self->_circuit_record($response->{success}, time() - $start);
+    my $failure = $response->{success} ? undef
+        : "ClickHouse error: $response->{status} - $response->{content}";
+    $self->_circuit_record($response->{success}, time() - $start, $failure);
 
-    unless ($response->{success}) {
-        die "ClickHouse error: $response->{status} - $response->{content}";
-    }
+    die $failure if defined $failure;
 
     # The full response, not just the body: an INSERT answers with an empty
     # body but carries X-ClickHouse-Summary, the only exact row count a
@@ -318,6 +295,34 @@ sub _crud_write {
 sub _crud_read {
     my ($self, $sql, %opts) = @_;
     return $self->_query_json($sql, %opts, no_cache => 1);
+}
+
+# 0/1 for a UInt8 flag on update: the new value when the request sends one,
+# else the stored one. Stored flags read back as \1 / \0 (JSON booleans), and a
+# reference is always true — unwrapped, or every update switched them ON.
+sub _crud_flag {
+    my ($self, $data, $existing, $key) = @_;
+    my $v = exists $data->{$key} ? $data->{$key} : $existing->{$key};
+    $v = $$v if ref $v eq 'SCALAR';
+    return $v ? 1 : 0;
+}
+
+# Update a ReplacingMergeTree CRUD row (dashboards, pipelines) by inserting
+# its next version. %$values maps column => SQL literal (already quoted).
+#
+# created_at is copied from the stored row BY CLICKHOUSE (INSERT ... SELECT),
+# never round-tripped through Perl: the API shows it as '...T..:..:..Z', which
+# a DateTime column refuses (#114), and a client-supplied value must not be
+# able to rewrite it anyway. Nothing is inserted for an unknown id.
+sub _insert_crud_version {
+    my ($self, $table, $id, $values) = @_;
+    my @cols = sort keys %$values;
+    # Column names are interpolated into SQL: identifiers only.
+    /^\w+\z/ or die "Invalid column name: $_\n" for @cols;
+    my $sql = "INSERT INTO $table (id, " . join(', ', @cols) . ', created_at, updated_at) '
+        . 'SELECT id, ' . join(', ', @$values{@cols}) . ', created_at, now() '
+        . "FROM $table FINAL WHERE toString(id) = " . $self->_quote_string($id) . ' LIMIT 1';
+    return $self->_crud_write($sql);
 }
 
 # Check connection

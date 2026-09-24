@@ -127,7 +127,9 @@ subtest 'list queries correct SQL' => sub {
     $ctrl->list($c);
 
     like $storage->{last_sql}, qr/DISTINCT/, 'SQL uses DISTINCT';
-    like $storage->{last_sql}, qr/JSONExtractString.*meta.*cluster/, 'SQL extracts cluster from meta';
+    like $storage->{last_sql}, qr/SELECT DISTINCT cluster\b/, 'SQL reads the materialised cluster column (#108)';
+    unlike $storage->{last_sql}, qr/JSONExtract/, 'SQL never parses meta';
+    like $storage->{last_sql}, qr/timestamp >= now\(\) - INTERVAL 1 DAY/, 'SQL is bounded in time';
     like $storage->{last_sql}, qr/ORDER BY cluster/, 'SQL orders by cluster';
 };
 

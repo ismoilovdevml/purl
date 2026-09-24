@@ -22,12 +22,16 @@ sub list {
             return;
         }
 
+        # The materialised `cluster` column (K8sColumns), bounded to the last day:
+        # a cluster that has sent nothing for 24 h is not worth offering, and an
+        # unbounded scan grows with retention (#108).
         my $sql = q{
-            SELECT DISTINCT
-                JSONExtractString(meta, 'cluster') AS cluster
+            SELECT DISTINCT cluster
             FROM logs
-            WHERE JSONExtractString(meta, 'cluster') != ''
+            WHERE timestamp >= now() - INTERVAL 1 DAY
+              AND cluster != ''
             ORDER BY cluster
+            LIMIT 1000
         };
 
         my $rows = $self->storage->_query_json($sql, no_cache => 1);

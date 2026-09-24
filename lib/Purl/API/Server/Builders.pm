@@ -28,8 +28,24 @@ sub build_storage {
         username       => $ENV{PURL_CLICKHOUSE_USER} // $ch_config->{username} // 'default',
         password       => $ENV{PURL_CLICKHOUSE_PASSWORD} // $ch_config->{password} // '',
         buffer_size    => $ch_config->{buffer_size} // 1000,
+        max_query_memory => _max_query_memory($ch_config),
         retention_days => $retention_days,
     );
+}
+
+# Per-query memory cap in bytes: ENV > settings.json > 256 MiB. 0 is valid (no
+# cap, the server profile decides); anything that is not a whole number would
+# be sent to ClickHouse as-is and fail every query, so it falls back loudly.
+my $DEFAULT_MAX_QUERY_MEMORY = 268_435_456;
+
+sub _max_query_memory {
+    my ($ch_config) = @_;
+    my $v = $ENV{PURL_CLICKHOUSE_MAX_QUERY_MEMORY} // $ch_config->{max_query_memory};
+    return $DEFAULT_MAX_QUERY_MEMORY unless defined $v && length $v;
+    return $v + 0 if $v =~ /\A\d+\z/;
+    warn "PURL_CLICKHOUSE_MAX_QUERY_MEMORY '$v' is not a whole number of bytes; "
+       . "using $DEFAULT_MAX_QUERY_MEMORY (256 MiB)\n";
+    return $DEFAULT_MAX_QUERY_MEMORY;
 }
 
 # (Re)fill $into with the configured notifier channels and return it. Filled

@@ -175,6 +175,17 @@ is $storage->count(level => 'info', %range), 4, 'flat level param matches every 
 is_deeply facet('level', %range), { WARN => 3, INFO => 4, ERROR => 1 },
     'level facet has one bucket per level, no lower-case duplicates';
 
+# Patterns filter by level with a primary-key-friendly `level IN (...)` (#108)
+# and still see the legacy lower/Title-case rows (#105).
+{
+    my $n = 0;
+    $n += $_->{count} for @{ $storage->get_patterns(level => 'warn', %range, limit => 100) };
+    is $n, 3, 'patterns level:warn counts legacy warn + WARN + new';
+    $n = 0;
+    $n += $_->{count} for @{ $storage->get_patterns(level => 'ERROR', %range, limit => 100) };
+    is $n, 1, 'patterns level:ERROR sees the legacy "Error" row';
+}
+
 my $hist = $storage->histogram(interval => '1 day', %range);
 my $w = 0;
 $w += $_->{warnings} // 0 for @$hist;
@@ -213,5 +224,32 @@ is_deeply facet('meta.node', %range), { 'node-a' => 4, 'node-b' => 2 },
 my $hits = $storage->search(kql('namespace:trk AND pod:worker-*'), %range, limit => 10);
 is scalar @$hits, 1, 'search() with a k8s filter';
 is $hits->[0]{meta}{pod}, 'worker-1', 'row meta intact';
+
+# --------------------------------------------
+# 6. #108 — RBAC namespace scope and meta_field filters read the materialised
+#    columns: exact key matches, bound parameters, LIKE metacharacters escaped.
+# --------------------------------------------
+for my $r (['prod', 'prod', 'api-1'], ['staging', 'staging', 'prod-db'],
+           ['prod', 'pr_x', 'w-1'], ['qa', 'qa', 'q-1']) {
+    my ($ns, $cluster, $pod) = @$r;
+    $storage->insert({ level => 'INFO', service => 'clu', timestamp => $iso_now, host => 'h3',
+        message => "clu $pod", meta => { namespace => $ns, cluster => $cluster, pod => $pod } });
+}
+$storage->flush;
+
+my %clu = (service => 'clu', %range);
+sub pods { my (%p) = @_; [ sort map { $_->{meta}{pod} } @{ $storage->search(%p, limit => 50) } ] }
+
+is_deeply pods(%clu, _allowed_namespaces => ['prod']), ['api-1', 'w-1'], 'scope [prod] => only prod rows';
+is_deeply pods(%clu, _allowed_namespaces => ['prod', 'qa']), ['api-1', 'q-1', 'w-1'], 'scope [prod, qa]';
+is_deeply pods(%clu, _allowed_namespaces => [q{prod') OR 1=1 --}]), [], 'injection string as a namespace => 0 rows';
+is_deeply pods(%clu, _allowed_namespaces => ['"namespace":"prod"']), [], 'a JSON fragment is not a namespace';
+
+is_deeply pods(%clu, meta_field => 'cluster', meta_value => 'prod'), ['api-1'],
+    'cluster=prod matches the cluster key only, not pod "prod-db"';
+is_deeply pods(%clu, meta_field => 'cluster', meta_value => 'pr*'), ['api-1', 'w-1'], 'cluster=pr* wildcard';
+is_deeply pods(%clu, meta_field => 'cluster', meta_value => 'pr_*'), ['w-1'],
+    'cluster=pr_* : _ is a literal, not a LIKE wildcard';
+is_deeply pods(%clu, meta_field => 'cluster', meta_value => q{x' OR '1'='1}), [], 'injection string as a value => 0 rows';
 
 done_testing;

@@ -6,6 +6,7 @@ use 5.024;
 use Moo;
 use namespace::clean;
 use JSON::XS ();
+use Mojo::JSON qw(to_json);
 
 extends 'Purl::API::Controller::Base';
 
@@ -38,7 +39,7 @@ sub register {
 
         my $labels = '';
         if (ref $body->{labels} eq 'HASH') {
-            $labels = eval { $json->encode($body->{labels}) } // '{}';
+            $labels = eval { to_json($body->{labels}) } // '{}';  # characters: storage encodes UTF-8 once (#113)
         }
 
         $self->storage->register_agent({

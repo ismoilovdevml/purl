@@ -12,7 +12,7 @@ use Purl::Util::KQL qw(parse_kql);
 # ============================================
 # #105: log levels are case-insensitive.
 #
-# purl.edcom.uz listed `INFO 532K` and `info 1` as two facet values. Two halves:
+# A production cluster listed `INFO 532K` and `info 1` as two facet values. Two halves:
 #   1. every row written from now on carries ONE canonical spelling (upper case,
 #      what the UI colour map and the level filters already use), and
 #   2. rows already stored in another case are still found and counted together.

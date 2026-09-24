@@ -235,7 +235,22 @@ sub _build_where_clause {
     # Use simple position() to find field and value in meta JSON string
     if ($params{meta_field} && $params{meta_value}) {
         my $meta_field = lc($params{meta_field});
-        if ($ALLOWED_META_FIELDS{$meta_field} || $meta_field =~ /^[a-z][a-z0-9_]{0,31}$/) {
+        if ($self->can('is_k8s_column') && $self->is_k8s_column($meta_field)) {
+            # A materialised column (K8sColumns, #108): reads 1 byte/row instead
+            # of the whole meta string, and matches the KEY's value, not the value
+            # text anywhere in meta (cluster=prod used to match pod "prod-db").
+            my $meta_value = $params{meta_value};
+            if ($meta_value =~ /\*/) {
+                (my $pattern = $meta_value) =~ s/([\\%_])/\\$1/g;
+                $pattern =~ s/\*/%/g;
+                push @where, "$meta_field LIKE {p_meta_value:String}";
+                $bind_params{p_meta_value} = $pattern;
+            } else {
+                push @where, "$meta_field = {p_meta_value:String}";
+                $bind_params{p_meta_value} = $meta_value;
+            }
+        }
+        elsif ($ALLOWED_META_FIELDS{$meta_field} || $meta_field =~ /^[a-z][a-z0-9_]{0,31}$/) {
             my $meta_value = $params{meta_value};
             if ($meta_value =~ /\*/) {
                 # Wildcard search - look for field name and partial value
@@ -257,13 +272,15 @@ sub _build_where_clause {
     if ($params{_allowed_namespaces} && ref $params{_allowed_namespaces} eq 'ARRAY') {
         my @ns_list = @{$params{_allowed_namespaces}};
         if (@ns_list) {
-            my @ns_conditions;
+            # The materialised namespace column (#104, #108): exact, and 1 byte/row
+            # instead of a substring scan of every row's meta.
+            my @placeholders;
             for my $i (0 .. $#ns_list) {
                 my $pname = "p_ns_$i";
-                push @ns_conditions, "position(meta, {${pname}:String}) > 0";
-                $bind_params{$pname} = qq{"namespace":"$ns_list[$i]"};
+                push @placeholders, "{${pname}:String}";
+                $bind_params{$pname} = $ns_list[$i];
             }
-            push @where, '(' . join(' OR ', @ns_conditions) . ')';
+            push @where, 'namespace IN (' . join(', ', @placeholders) . ')';
         }
     }
 

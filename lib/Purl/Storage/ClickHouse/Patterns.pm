@@ -27,7 +27,12 @@ sub get_patterns {
     if ($params{level}) {
         my $valid_level = $self->_validate_level($params{level});
         if ($valid_level) {
-            push @where, "upper(level) = " . $self->_quote_string($valid_level);  # any stored case (#105)
+            # A plain `level IN (...)` so the (service, level, timestamp) primary
+            # key prunes granules — upper(level) cannot (#108). The three
+            # spellings cover rows stored before ingest normalised case (#105):
+            # ERROR, error, Error.
+            my @spellings = do { my %s; grep { !$s{$_}++ } ($valid_level, lc $valid_level, ucfirst lc $valid_level) };
+            push @where, 'level IN (' . join(', ', map { $self->_quote_string($_) } @spellings) . ')';
         }
     }
 
@@ -162,7 +167,7 @@ sub get_pattern_logs {
     # Process results
     for my $row (@$results) {
         $row->{timestamp} = delete $row->{ts};
-        $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
+        $row->{meta} = $self->_decode_json_column($row->{meta_json}, {});
         delete $row->{meta_json};
     }
 

@@ -54,8 +54,8 @@ sub list_dashboards {
     my $results = $self->_crud_read($sql);
 
     for my $row (@$results) {
-        $row->{widgets} = eval { $self->_json->decode($row->{widgets} // '[]') } // [];
-        $row->{layout}  = eval { $self->_json->decode($row->{layout}  // '{}') } // {};
+        $row->{widgets} = $self->_decode_json_column($row->{widgets}, []);
+        $row->{layout}  = $self->_decode_json_column($row->{layout}, {});
         $row->{shared}  = $row->{shared} ? \1 : \0;
     }
 
@@ -87,8 +87,8 @@ sub get_dashboard {
     return undef unless @$results;
 
     my $row = $results->[0];
-    $row->{widgets} = eval { $self->_json->decode($row->{widgets} // '[]') } // [];
-    $row->{layout}  = eval { $self->_json->decode($row->{layout}  // '{}') } // {};
+    $row->{widgets} = $self->_decode_json_column($row->{widgets}, []);
+    $row->{layout}  = $self->_decode_json_column($row->{layout}, {});
     $row->{shared}  = $row->{shared} ? \1 : \0;
     return $row;
 }
@@ -99,8 +99,8 @@ sub create_dashboard {
 
     my $name        = $self->_quote_string($data->{name} // 'Untitled Dashboard');
     my $description = $self->_quote_string($data->{description} // '');
-    my $widgets     = $self->_quote_string($self->_json->encode($data->{widgets} // []));
-    my $layout      = $self->_quote_string($self->_json->encode($data->{layout} // {}));
+    my $widgets     = $self->_quote_string($self->_encode_json_column($data->{widgets} // []));
+    my $layout      = $self->_quote_string($self->_encode_json_column($data->{layout} // {}));
     my $owner       = $self->_quote_string($data->{owner} // '');
     my $shared      = $data->{shared} ? 1 : 0;
 
@@ -122,23 +122,16 @@ sub update_dashboard {
 
     my $db = $self->database;
 
-    my $name        = $self->_quote_string($data->{name}        // $existing->{name});
-    my $description = $self->_quote_string($data->{description} // $existing->{description});
-    my $widgets     = $self->_quote_string(
-        $self->_json->encode($data->{widgets} // $existing->{widgets})
-    );
-    my $layout = $self->_quote_string(
-        $self->_json->encode($data->{layout} // $existing->{layout})
-    );
-    my $owner  = $self->_quote_string($data->{owner}  // $existing->{owner});
-    my $shared = exists $data->{shared} ? ($data->{shared} ? 1 : 0) : ($existing->{shared} ? 1 : 0);
-
-    my $sql = qq{
-        INSERT INTO ${db}.dashboards (id, name, description, widgets, layout, owner, shared, created_at, updated_at)
-        VALUES ('$id', $name, $description, $widgets, $layout, $owner, $shared, '$existing->{created_at}', now())
-    };
-
-    $self->_crud_write($sql);
+    $self->_insert_crud_version("${db}.dashboards", $id, {
+        name        => $self->_quote_string($data->{name}        // $existing->{name}),
+        description => $self->_quote_string($data->{description} // $existing->{description}),
+        widgets     => $self->_quote_string(
+            $self->_encode_json_column($data->{widgets} // $existing->{widgets})),
+        layout      => $self->_quote_string(
+            $self->_encode_json_column($data->{layout} // $existing->{layout})),
+        owner       => $self->_quote_string($data->{owner} // $existing->{owner}),
+        shared      => $self->_crud_flag($data, $existing, 'shared'),
+    });
     return { status => 'updated' };
 }
 

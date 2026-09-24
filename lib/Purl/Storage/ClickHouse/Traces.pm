@@ -77,7 +77,7 @@ sub get_context {
         my ($logs) = @_;
         for my $row (@$logs) {
             $row->{timestamp} = delete $row->{ts};
-            $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
+            $row->{meta} = $self->_decode_json_column($row->{meta_json}, {});
             delete $row->{meta_json};
         }
         return $logs;
@@ -85,7 +85,7 @@ sub get_context {
 
     # Process reference log
     $ref_log->{timestamp} = delete $ref_log->{ts};
-    $ref_log->{meta} = eval { $self->_json->decode($ref_log->{meta_json} // '{}') } // {};
+    $ref_log->{meta} = $self->_decode_json_column($ref_log->{meta_json}, {});
     delete $ref_log->{meta_json};
     delete $ref_log->{raw_ts};
 
@@ -161,7 +161,7 @@ sub search_by_trace {
     # Process results
     for my $row (@$results) {
         $row->{timestamp} = delete $row->{ts};
-        $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
+        $row->{meta} = $self->_decode_json_column($row->{meta_json}, {});
         delete $row->{meta_json};
     }
 
@@ -242,7 +242,7 @@ sub search_by_request {
     # Process results
     for my $row (@$results) {
         $row->{timestamp} = delete $row->{ts};
-        $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
+        $row->{meta} = $self->_decode_json_column($row->{meta_json}, {});
         delete $row->{meta_json};
     }
 

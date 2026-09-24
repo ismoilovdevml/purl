@@ -30,18 +30,15 @@ sub search {
 
     my $results = $self->_query_json($sql, params => $bind_params);
 
-    # Rename ts back to timestamp for API response
-    for my $row (@$results) {
-        $row->{timestamp} = delete $row->{ts};
-    }
-
-    # Parse meta JSON
-    for my $row (@$results) {
-        $row->{meta} = eval { $self->_json->decode($row->{meta_json} // '{}') } // {};
-        delete $row->{meta_json};
-    }
-
-    return $results;
+    # Build NEW row hashes: $results may be the query cache's own arrayref, and
+    # rewriting it in place (delete ts / meta_json) made every cache hit come
+    # back with timestamp undef and meta {}.
+    return [ map {
+        my %row = %$_;
+        $row{timestamp} = delete $row{ts};
+        $row{meta}      = $self->_decode_json_column(delete $row{meta_json}, {});
+        \%row;
+    } @$results ];
 }
 
 # Count logs (SQL injection protected)
@@ -137,11 +134,14 @@ sub histogram {
 
     # Calculate time bounds for WITH FILL
     my ($fill_from, $fill_to);
-    if ($params{from} && $params{to}) {
+    # Fill only between bounds that normalised: an unreadable from/to is ''
+    # (no filter), and filling from 1970 built hundreds of thousands of buckets.
+    my ($ts_from, $ts_to) = map { $self->_convert_to_clickhouse_ts($_) } @params{qw(from to)};
+    if ($ts_from && $ts_to) {
         $fill_from = "$to_start_func({p_fill_from:DateTime64(3)})";
         $fill_to = "$to_start_func({p_fill_to:DateTime64(3)})";
-        $bind_params->{p_fill_from} = $self->_convert_to_clickhouse_ts($params{from});
-        $bind_params->{p_fill_to} = $self->_convert_to_clickhouse_ts($params{to});
+        $bind_params->{p_fill_from} = $ts_from;
+        $bind_params->{p_fill_to} = $ts_to;
     } elsif ($params{range}) {
         # Parse range like '15m', '1h', '24h', '7d'
         my $range = $params{range};

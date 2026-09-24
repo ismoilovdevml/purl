@@ -6,6 +6,7 @@ use 5.024;
 use Moo::Role;
 use Time::HiRes qw(time);
 use Digest::MD5 qw(md5_hex);
+use Encode qw(encode_utf8);
 
 # Cache attributes
 has '_query_cache' => (
@@ -40,13 +41,15 @@ has '_eviction_rate' => (
 
 # Generate cache key from SQL + params using MD5 for better distribution.
 # Sort params keys before hashing so parameter order does not affect the cache key.
+# md5 takes bytes: the key is built from character strings (search terms), so
+# it is UTF-8 encoded first — md5_hex on Cyrillic/CJK text dies (#113).
 sub _get_cache_key {
     my ($self, $sql, $params) = @_;
     my $key_string = $sql;
     if ($params && ref($params) eq 'HASH') {
         $key_string .= '|' . join('|', map { "$_=" . ($params->{$_} // '') } sort keys %$params);
     }
-    return md5_hex($key_string);
+    return md5_hex(encode_utf8($key_string));
 }
 
 # Get cached value

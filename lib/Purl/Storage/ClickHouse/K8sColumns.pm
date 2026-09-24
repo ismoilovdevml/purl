@@ -27,7 +27,11 @@ use namespace::clean;
 # sent by the ingest path, and invisible to `SELECT *` (backups are unchanged).
 
 # Column names double as the search-language field names (Purl::Util::KQL).
-my @COLUMNS = qw(namespace pod container);
+# cluster (#108): the cluster picker listed DISTINCT JSONExtractString(meta,
+# 'cluster') over the WHOLE table on every page load: 1.2M rows, 276 MiB on
+# a production cluster after 16 minutes of data, growing with retention. As a column:
+# 507 ms -> 65 ms and 1.14 GiB -> 4.8 MiB read per 5M rows (ClickHouse 25.11).
+my @COLUMNS = qw(namespace pod container cluster);
 
 sub is_k8s_column {
     my ($self, $name) = @_;
@@ -87,7 +91,7 @@ __END__
 
 =head1 NAME
 
-Purl::Storage::ClickHouse::K8sColumns - namespace/pod/container as MATERIALIZED
+Purl::Storage::ClickHouse::K8sColumns - namespace/pod/container/cluster as MATERIALIZED
 columns of the logs table, their one-time migration, and the shared SQL for
 reading a key out of the C<meta> JSON.
 

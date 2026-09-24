@@ -5,6 +5,7 @@ use 5.024;
 
 use Moo::Role;
 use Time::HiRes qw(time);
+use Purl::Storage::ClickHouse::Errors qw(classify_clickhouse_error);
 use namespace::clean;
 
 # Circuit breaker state
@@ -48,17 +49,49 @@ sub _circuit_guard {
     die "ClickHouse circuit breaker is open - service unavailable\n";
 }
 
+# Does this failure mean ClickHouse itself cannot be used (#108)?
+#
+# The breaker exists so that a server which is down or unreachable is not
+# hammered, and callers fail fast instead of each waiting out a connect or read
+# timeout. Only that kind of failure may open it:
+#
+#   - HTTP::Tiny 599: no HTTP answer at all (refused, reset, read timeout);
+#   - a transport die that is not a ClickHouse answer (no DB::Exception text);
+#   - a ClickHouse answer classified storage_unavailable (auth, unknown
+#     database, read-only table, disk full).
+#
+# Everything else is a ClickHouse ANSWER about one query: MEMORY_LIMIT_EXCEEDED,
+# TIMEOUT_EXCEEDED, SYNTAX_ERROR, TOO_MANY_ROWS ... The server is up and said
+# no to that query; the next, cheaper query may well succeed. On a production cluster
+# three OOMing searches in a row opened the breaker and took alerts, patterns
+# and every other endpoint down for 30 s with them.
+sub _is_outage {
+    my ($failure) = @_;
+    return 1 unless defined $failure && length $failure;
+    return 1 if $failure =~ /\bClickHouse (?:insert )?error: 599\b/;
+    my ($class) = classify_clickhouse_error($failure);
+    return $class eq q{storage_unavailable} ? 1 : 0 if defined $class;
+    return $failure =~ /DB::Exception|\bCode: \d+\./ ? 0 : 1;
+}
+
 # Record the outcome of one ClickHouse round-trip. Shared by every transport
 # path (_query, _query_to_file, _post_file) so a streaming export can trip and
 # reset the breaker exactly like a normal query — there is only one breaker.
+#
+# $failure is the error text for a failed round-trip ("ClickHouse error:
+# <status> - <body>" or the transport die). A failure that is not an outage
+# (see _is_outage) proves the server answered, so it resets the count exactly
+# like a success does.
 sub _circuit_record {
-    my ($self, $ok, $elapsed) = @_;
+    my ($self, $ok, $elapsed, $failure) = @_;
 
     $self->_metrics->{queries_total}++;
     $self->_metrics->{query_time_total} += $elapsed;
 
     unless ($ok) {
         $self->_metrics->{errors_total}++;
+    }
+    if (!$ok && _is_outage($failure)) {
         $self->_consecutive_failures($self->_consecutive_failures + 1);
         if ($self->_consecutive_failures >= $self->_circuit_failure_threshold) {
             $self->_circuit_state('open');
@@ -67,6 +100,7 @@ sub _circuit_record {
         }
         return;
     }
+    $self->_metrics->{query_errors_total}++ unless $ok;
 
     if ($self->_circuit_state ne 'closed') {
         warn "ClickHouse circuit breaker CLOSED - connection recovered\n";

@@ -94,16 +94,16 @@ sub get_unhealthy_pods {
         my $ns = $params->{namespace};
         $ns =~ s/[^a-zA-Z0-9_\-\.]//g;
         if (length($ns) > 0) {
-            $bind_params{p_ns_filter} = qq{"namespace":"$ns"};
-            $ns_filter = "AND position(meta, {p_ns_filter:String}) > 0";
+            $bind_params{p_ns_filter} = $ns;
+            $ns_filter = "AND namespace = {p_ns_filter:String}";
         }
     }
 
     my $sql = qq{
         SELECT
-            JSONExtractString(meta, 'pod')       AS pod_name,
-            JSONExtractString(meta, 'namespace')  AS namespace,
-            JSONExtractString(meta, 'container')  AS container,
+            pod                                   AS pod_name,
+            namespace                             AS namespace,
+            container                             AS container,
             JSONExtractString(meta, 'node')       AS node,
             $case_expr AS error_type,
             count()                               AS error_count,
@@ -112,7 +112,7 @@ sub get_unhealthy_pods {
         FROM ${db}.logs
         WHERE timestamp >= now() - INTERVAL $hours HOUR
             AND ($or_clause)
-            AND JSONExtractString(meta, 'pod') != ''
+            AND pod != ''
             $ns_filter
         GROUP BY pod_name, namespace, container, node, error_type
         ORDER BY error_count DESC
@@ -137,10 +137,10 @@ sub get_k8s_pod_count {
     $hours = 72 if $hours > 72;
 
     my $sql = qq{
-        SELECT uniqExact(JSONExtractString(meta, 'pod')) AS pod_count
+        SELECT uniqExact(pod) AS pod_count
         FROM ${db}.logs
         WHERE timestamp >= now() - INTERVAL $hours HOUR
-            AND JSONExtractString(meta, 'pod') != ''
+            AND pod != ''
     };
 
     my $rows = $self->_query_json($sql, no_cache => 1);
@@ -189,12 +189,12 @@ sub get_pod_health_summary {
     my $sql = qq{
         SELECT
             $case_expr AS error_type,
-            uniqExact(JSONExtractString(meta, 'pod')) AS pod_count,
+            uniqExact(pod) AS pod_count,
             count() AS total_errors
         FROM ${db}.logs
         WHERE timestamp >= now() - INTERVAL $hours HOUR
             AND ($or_clause)
-            AND JSONExtractString(meta, 'pod') != ''
+            AND pod != ''
         GROUP BY error_type
         ORDER BY total_errors DESC
     };
