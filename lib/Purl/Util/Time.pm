@@ -2,7 +2,7 @@ package Purl::Util::Time;
 use strict;
 use warnings;
 use Time::HiRes qw(time);
-use Time::Piece;
+use Time::Local qw(timegm);
 use Exporter 'import';
 
 our @EXPORT_OK = qw(
@@ -77,20 +77,53 @@ sub format_duration {
     return join(' ', @parts) || '0s';
 }
 
-# Convert ISO8601 timestamp to ClickHouse DateTime64(3) format
-# Example: "2024-12-24T10:30:00Z" -> "2024-12-24 10:30:00.000"
+# THE time-bound normaliser (#121). Every from/to a user or shipper sends —
+# search, histogram, facets, patterns, traces, dashboards, ingest timestamps —
+# goes through here on its way to a ClickHouse DateTime64(3).
+#
+# Accepts:
+#   ISO-8601 with Z / z, +HH:MM, +HHMM, -HH:MM, or no zone (taken as UTC),
+#     'T' or space separator, seconds and fraction optional, or a bare date
+#   epoch seconds (10 digits, optional fraction) or milliseconds (13 digits)
+# Returns UTC 'YYYY-MM-DD HH:MM:SS.fff' (fraction truncated to ms), or '' for
+# anything it cannot read as a real instant — callers treat '' as "no bound"
+# (and ingest as "use now"), never pass it to ClickHouse.
 sub to_clickhouse_ts {
     my ($ts) = @_;
-    return '' unless $ts;
+    return '' unless defined $ts && length $ts;
+    $ts =~ s/\A\s+|\s+\z//g;
 
-    # Replace T with space
-    $ts =~ s/T/ /;
-    # Remove Z suffix
-    $ts =~ s/Z$//;
-    # Add milliseconds if missing
-    $ts .= '.000' unless $ts =~ /\.\d+$/;
+    my ($epoch, $frac);
+    if ($ts =~ /\A(\d{13})\z/) {
+        ($epoch, $frac) = (int($1 / 1000), sprintf('%03d', $1 % 1000));
+    }
+    elsif ($ts =~ /\A(\d{9,10})(?:\.(\d+))?\z/) {
+        ($epoch, $frac) = ($1, $2 // '');
+    }
+    elsif ($ts =~ /\A(\d{4})-(\d\d)-(\d\d)
+                   (?:[Tt\ ](\d\d):(\d\d)(?::(\d\d)(?:[.,](\d+))?)?)?
+                   \s*([Zz]|[+-]\d\d:?\d\d)?\z/x) {
+        my ($y, $mo, $d, $h, $mi, $sec, $zone) = ($1, $2, $3, $4 // 0, $5 // 0, $6 // 0, $8);
+        $frac = $7 // '';
+        return '' if $mo < 1 || $mo > 12 || $d < 1 || $h > 23 || $mi > 59 || $sec > 59;
+        $epoch = eval { timegm($sec, $mi, $h, $d, $mo - 1, $y) };
+        return '' unless defined $epoch;
+        # timegm normalises 2026-02-30 to March 2: refuse instead of guessing.
+        my @back = gmtime($epoch);
+        return '' unless $back[3] == $d && $back[4] == $mo - 1;
+        if (defined $zone && $zone =~ /\A([+-])(\d\d):?(\d\d)\z/) {
+            my $off = $2 * 3600 + $3 * 60;
+            $epoch += $1 eq '+' ? -$off : $off;
+        }
+    }
+    else {
+        return '';
+    }
 
-    return $ts;
+    my @t = gmtime($epoch);
+    return sprintf('%04d-%02d-%02d %02d:%02d:%02d.%s',
+        $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0],
+        substr($frac . '000', 0, 3));
 }
 
 # Get current time in ISO8601 format
@@ -98,10 +131,10 @@ sub now_iso {
     return epoch_to_iso(time());
 }
 
-# Get current time in ClickHouse format
+# Current time in ClickHouse format — UTC, whatever TZ the host runs in (#109).
 sub now_clickhouse {
-    my $t = Time::Piece->new;
-    return sprintf('%s.000', $t->strftime('%Y-%m-%d %H:%M:%S'));
+    my $now = time();
+    return to_clickhouse_ts(sprintf('%.3f', $now));
 }
 
 1;
