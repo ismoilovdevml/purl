@@ -294,3 +294,29 @@ Usage: {{ include "purl.dataChecksum" (dict "ctx" $ "file" "secret.yaml") }}
 {{- $obj := include (print .ctx.Template.BasePath "/" .file) .ctx | fromYaml | default dict -}}
 {{- pick $obj "data" "stringData" "binaryData" | toYaml | sha256sum -}}
 {{- end }}
+
+{{/*
+clickhouse.serverConfig.* values the operator set, as XML lines for
+config.d/zzz-purl-overrides.xml. Empty string = nothing set, so callers can
+test `include ... | trim` both to render the ConfigMap key and to decide
+whether to mount it (a subPath mount of a missing key fails the pod).
+"" means "not set"; 0 is a real value (uncompressed_cache_size 0 disables the
+cache), so the test is on the string form, not on truthiness.
+*/}}
+{{- define "purl.clickhouse.serverOverrides" -}}
+{{- $s := .Values.clickhouse.serverConfig -}}
+{{- $ratio := $s.maxServerMemoryUsageToRamRatio }}
+{{- if and (not (kindIs "invalid" $ratio)) (not (eq (toString $ratio) "")) }}
+<max_server_memory_usage_to_ram_ratio>{{ $ratio }}</max_server_memory_usage_to_ram_ratio>
+{{- end }}
+{{- range $key, $tag := dict "uncompressedCacheSize" "uncompressed_cache_size" "markCacheSize" "mark_cache_size" "indexMarkCacheSize" "index_mark_cache_size" "primaryIndexCacheSize" "primary_index_cache_size" "queryConditionCacheSize" "query_condition_cache_size" "queryCacheMaxSizeInBytes" "query_cache_max_size_in_bytes" }}
+{{- $v := index $s $key }}
+{{- if and (not (kindIs "invalid" $v)) (not (eq (toString $v) "")) }}
+{{- if eq $tag "query_cache_max_size_in_bytes" }}
+<query_cache><max_size_in_bytes>{{ int64 $v }}</max_size_in_bytes></query_cache>
+{{- else }}
+<{{ $tag }}>{{ int64 $v }}</{{ $tag }}>
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

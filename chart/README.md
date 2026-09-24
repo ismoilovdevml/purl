@@ -37,6 +37,95 @@ rendered on `X.Y.*` must keep rendering on `X.(Y+1).*`. A guard that rejects
 previously valid values is a MAJOR bump, which is why the release after 1.1.0
 is 2.0.0 and not 1.2.0.
 
+## 2.2.0
+
+A minor version, not a patch: this release changes defaults (the ClickHouse
+memory limit and profile). Every values file that rendered on 2.1.x still
+renders; see "Upgrading to 2.2.0" below before upgrading.
+
+- A ClickHouse outage no longer takes Purl off the network (#120). The
+  readiness and startup probes still call `/api/health/ready`, but from the
+  next Purl image on (after 1.3.0) that endpoint answers "can this process
+  serve?" instead of "is ClickHouse up?". The Purl pod stays in the Service,
+  so the UI, login and settings keep loading, and searches return the app's
+  own `storage_unavailable` error. Before this, the mesh or ingress answered
+  every request with a bare `no healthy upstream`. ClickHouse health is still
+  reported by `/api/health` and the `purl_clickhouse_healthy` metric.
+  Images up to 1.3.0 keep the old gate: the chart change is documentation and
+  a version bump, and the fix itself ships in the image.
+- The `wait-for-clickhouse` init container stays. The server still creates
+  its schema at startup and refuses to start when ClickHouse is unreachable,
+  so without the wait a pod started during an outage would crash-loop. It
+  only affects startup. A running pod is not affected.
+- **ClickHouse small profile, on by default (#108).**
+  `clickhouse.serverConfig.smallProfile: true` mounts two files from
+  `chart/files/clickhouse/`:
+  - `purl-small.xml` as `config.d/zz-purl-server.xml`: memory ratio 0.8, the
+    uncompressed cache off (0), a 64 MiB mark cache and smaller index caches,
+    smaller background pools, and only `query_log` and `part_log` kept as
+    system log tables, with a 3-day TTL.
+  - `purl-small-profile.xml` as `users.d/zz-purl-profile.xml`: at most
+    256 MiB per query, sorts and GROUP BYs spill to disk above 64 MiB,
+    `max_threads` 2, and `max_execution_time` 30s.
+
+  Measured: idle ClickHouse memory fell from 663 MiB to 137 MiB, and a
+  20-round ingest and search soak held 535–745 MiB.
+
+  `clickhouse.resources` now defaults to a **1.5 GiB limit and a 768 MiB
+  request** (was 4 GiB / 1 GiB). Do not go below 1.5 GiB: 1 GiB failed a
+  50k-row insert. Set `smallProfile: false` for a large dedicated ClickHouse,
+  and raise `clickhouse.resources` at the same time.
+- The 2.1.3 `serverConfig` cache keys are now **optional overrides**,
+  rendered into `config.d/zzz-purl-overrides.xml`, which is read after the
+  profile and so wins. Their defaults are now `""`, which means "keep the
+  profile's value". In 2.1.3, `""` meant "ClickHouse's default". `0` is a
+  real value: `uncompressedCacheSize: 0` disables that cache.
+- docker-compose runs the same profile. `docker/clickhouse/config.xml` and
+  `users.xml` repeat the values inline, because `install.sh` downloads those
+  two files and nothing else. `make helm-lint` runs
+  `scripts/check_clickhouse_profile.py`, which fails if any profile value
+  differs between the chart and compose. The compose ClickHouse limit is
+  1.5 GiB as well. When a purl-web checkout sits next to this repo, the same
+  check also compares the website copies that `install.sh` downloads, as
+  warnings only.
+- **Cluster mode (`clickhouse.cluster.enabled=true`, replicated) has not been
+  tested with the small profile.** The profile shrinks the background pools
+  (`background_fetches_pool_size` 1, schedule pool 16) and replication uses
+  them for part fetches and queue processing. For a replicated install, test
+  it first or set `smallProfile: false` with a matching
+  `clickhouse.resources`.
+
+### Upgrading to 2.2.0
+
+- **ClickHouse memory limit falls from 4Gi to 1536Mi**, and the request from
+  1Gi to 768Mi, because the small profile is on. To keep the old behaviour,
+  set both:
+
+  ```yaml
+  clickhouse:
+    resources:
+      limits: {memory: 4Gi, cpu: "2", ephemeral-storage: 2Gi}
+      requests: {memory: 1Gi, cpu: 500m, ephemeral-storage: 512Mi}
+    serverConfig:
+      smallProfile: false
+  ```
+
+  Keeping the profile with a larger limit is fine, but don't do the reverse:
+  1536Mi without the profile is too little.
+- **`serverConfig` cache keys: `""` now means "keep the profile's value"**,
+  not "ClickHouse's default". A 2.1.3 values file that set explicit sizes
+  keeps them, because they are rendered as overrides.
+- **Backup restore needs the matching Purl image.** The profile caps a single
+  query at 256 MiB. The Purl image released with this chart runs restore
+  within that cap; an older image can fail a large restore with
+  `MEMORY_LIMIT_EXCEEDED` (code 241). Upgrade the image together with the
+  chart, or set `smallProfile: false` until it is upgraded.
+- The upgrade restarts ClickHouse once, because its mounted configuration
+  changes. The server file keeps its 2.1.3 name,
+  `config.d/zz-purl-server.xml`, so a pod that restarts during the rollout
+  still finds it. Only the users profile (`users.d/zz-purl-profile.xml`) is
+  new.
+
 ## 2.1.3
 
 - New `clickhouse.serverConfig` block, rendered to

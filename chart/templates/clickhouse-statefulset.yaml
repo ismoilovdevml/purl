@@ -46,7 +46,7 @@ spec:
         # Secret via secretKeyRef, so only a pod template change restarts it.
         checksum/secret: {{ include "purl.dataChecksum" (dict "ctx" $ "file" "secret.yaml") }}
         {{- end }}
-        {{- if .Values.clickhouse.serverConfig.enabled }}
+        {{- if and .Values.clickhouse.serverConfig.enabled (or .Values.clickhouse.serverConfig.smallProfile (include "purl.clickhouse.serverOverrides" . | trim)) }}
         checksum/server-config: {{ include "purl.dataChecksum" (dict "ctx" $ "file" "clickhouse-server-config.yaml") }}
         {{- end }}
       labels:
@@ -183,12 +183,26 @@ spec:
               mountPath: /etc/clickhouse-server/config.d/backup-s3.xml
               subPath: backup-s3.xml
             {{- end }}
+            {{- /*
+              Small-install profile + operator overrides
+              (templates/clickhouse-server-config.yaml). One subPath mount
+              per key, each only when that key exists: a subPath mount of a
+              missing ConfigMap key fails the pod.
+            */}}
             {{- if .Values.clickhouse.serverConfig.enabled }}
-            # Memory/cache bounds (clickhouse.serverConfig). "zz-" sorts it
-            # after the image's own config.d fragments so these values win.
+            {{- if .Values.clickhouse.serverConfig.smallProfile }}
             - name: server-config
               mountPath: /etc/clickhouse-server/config.d/zz-purl-server.xml
               subPath: zz-purl-server.xml
+            - name: server-config
+              mountPath: /etc/clickhouse-server/users.d/zz-purl-profile.xml
+              subPath: zz-purl-profile.xml
+            {{- end }}
+            {{- if include "purl.clickhouse.serverOverrides" . | trim }}
+            - name: server-config
+              mountPath: /etc/clickhouse-server/config.d/zzz-purl-overrides.xml
+              subPath: zzz-purl-overrides.xml
+            {{- end }}
             {{- end }}
       {{- if and .Values.clickhouse.cluster.enabled .Values.clickhouse.cluster.keeper.enabled }}
       initContainers:
@@ -253,7 +267,7 @@ spec:
           configMap:
             name: {{ include "purl.clickhouse.fullname" . }}-backup-s3
         {{- end }}
-        {{- if .Values.clickhouse.serverConfig.enabled }}
+        {{- if and .Values.clickhouse.serverConfig.enabled (or .Values.clickhouse.serverConfig.smallProfile (include "purl.clickhouse.serverOverrides" . | trim)) }}
         - name: server-config
           configMap:
             name: {{ include "purl.clickhouse.fullname" . }}-server

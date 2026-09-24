@@ -99,13 +99,17 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+    # Sized for the small profile in docker/clickhouse/{config,users}.xml
+    # (#108, shared with the Helm chart): a 20-round ingest+search soak held
+    # 535-745 MiB under 1.5 GiB and ClickHouse stops itself at 0.8 x limit.
+    # Do not go below 1.5 GiB — 1 GiB failed a 50k-row insert.
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 1536M
           cpus: '2.0'
         reservations:
-          memory: 1G
+          memory: 768M
           cpus: '0.5'
     logging:
       driver: json-file

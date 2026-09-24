@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<!-- Purl small-install query profile (#108). Merges into the `default`
+     profile, which both the `purl` and `default` users use.
+
+     ONE SOURCE OF TRUTH. The Helm chart mounts this file as
+     users.d/zz-purl-profile.xml. The <default> profile in
+     docker/clickhouse/users.xml must carry the same values;
+     `make helm-lint` runs scripts/check_clickhouse_profile.py and fails on any
+     difference. -->
+<clickhouse>
+    <profiles>
+        <default>
+            <!-- No single query may take more than 256 MiB; above that it
+                 spills (sort / group by) or fails ALONE with code 241
+                 instead of pushing the whole server over its limit. -->
+            <max_memory_usage>268435456</max_memory_usage>
+            <max_bytes_before_external_sort>67108864</max_bytes_before_external_sort>
+            <max_bytes_before_external_group_by>67108864</max_bytes_before_external_group_by>
+            <max_threads>2</max_threads>
+            <use_uncompressed_cache>0</use_uncompressed_cache>
+            <!-- Built-in lazy materialisation (read heavy columns only for
+                 the rows that survive ORDER BY ... LIMIT) is capped at
+                 LIMIT 100 by default; Purl pages are 500-2000. -->
+            <query_plan_max_limit_for_lazy_materialization>10000</query_plan_max_limit_for_lazy_materialization>
+            <max_execution_time>30</max_execution_time>
+            <async_insert_max_data_size>4194304</async_insert_max_data_size>
+        </default>
+    </profiles>
+</clickhouse>

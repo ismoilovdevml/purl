@@ -305,19 +305,40 @@ helm-lint:
 	C=$$(helm template purl chart/ $$PIN --set clickhouse.serverConfig.markCacheSize=1 | grep 'checksum/server-config'); \
 	[ "$$C" != "$$(printf '%s\n' "$$A" | grep 'checksum/server-config')" ] || { \
 		echo "  FAIL: changing clickhouse.serverConfig did not change checksum/server-config."; exit 1; }
-	@echo "Asserting ClickHouse cache bounds are rendered and mounted..."
+	@echo "Asserting the ClickHouse small profile is identical in chart and compose (#108)..."
+	@python3 scripts/check_clickhouse_profile.py || { \
+		echo "  FAIL: chart/files/clickhouse/*.xml and docker/clickhouse/*.xml disagree."; \
+		echo "        Helm and docker-compose would run different ClickHouse limits."; exit 1; }
+	@echo "Asserting the ClickHouse small profile is rendered and mounted..."
 	@set -e; \
 	R=$$(helm template purl chart/ $(AUTOGEN)); \
-	for want in '<uncompressed_cache_size>268435456</uncompressed_cache_size>' \
-		'<mark_cache_size>268435456</mark_cache_size>' \
+	for want in '<uncompressed_cache_size>0</uncompressed_cache_size>' \
 		'<max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>' \
-		'mountPath: /etc/clickhouse-server/config.d/zz-purl-server.xml'; do \
-		printf '%s\n' "$$R" | grep -qF "$$want" || { \
+		'<max_memory_usage>268435456</max_memory_usage>' \
+		'mountPath: /etc/clickhouse-server/config.d/zz-purl-server.xml' \
+		'mountPath: /etc/clickhouse-server/users.d/zz-purl-profile.xml' \
+		'memory: 1536Mi'; do \
+		printf '%s\n' "$$R" | grep -qF -- "$$want" || { \
 			echo "  FAIL: default render is missing: $$want"; \
-			echo "        Without cache caps ClickHouse sizes caches above the pod limit."; exit 1; }; \
+			echo "        Without the profile ClickHouse sizes caches above the pod limit (#106)."; exit 1; }; \
 	done; \
-	helm template purl chart/ $(AUTOGEN) --set clickhouse.serverConfig.enabled=false | grep -q 'zz-purl-server' && { \
-		echo "  FAIL: clickhouse.serverConfig.enabled=false still mounts the fragment."; exit 1; } || true
+	printf '%s\n' "$$R" | grep -q 'zzz-purl-overrides' && { \
+		echo "  FAIL: an overrides file rendered although no serverConfig override is set."; exit 1; } || true; \
+	O=$$(helm template purl chart/ $(AUTOGEN) --set clickhouse.serverConfig.uncompressedCacheSize=0); \
+	printf '%s\n' "$$O" | grep -qF 'mountPath: /etc/clickhouse-server/config.d/zzz-purl-overrides.xml' \
+		&& printf '%s\n' "$$O" | awk '/zzz-purl-overrides.xml: [|]/,/<\/clickhouse>/' | grep -qF '<uncompressed_cache_size>0</uncompressed_cache_size>' || { \
+		echo "  FAIL: an override of 0 was dropped. 0 is a real value (it disables a cache)."; exit 1; }; \
+	helm template purl chart/ $(AUTOGEN) --set clickhouse.serverConfig.maxServerMemoryUsageToRamRatio=0 \
+		| awk '/zzz-purl-overrides.xml: [|]/,/<\/clickhouse>/' \
+		| grep -qF '<max_server_memory_usage_to_ram_ratio>0</max_server_memory_usage_to_ram_ratio>' || { \
+		echo "  FAIL: maxServerMemoryUsageToRamRatio=0 was dropped. Every override key must"; \
+		echo "        treat 0 as a value and only \"\" as unset."; exit 1; }; \
+	P=$$(helm template purl chart/ $(AUTOGEN) --set clickhouse.serverConfig.smallProfile=false); \
+	printf '%s\n' "$$P" | grep -qE 'zz-purl-server|zz-purl-profile|name: server-config' && { \
+		echo "  FAIL: smallProfile=false with no overrides still mounts server-config."; \
+		echo "        A subPath mount of a missing ConfigMap key fails the pod."; exit 1; } || true; \
+	helm template purl chart/ $(AUTOGEN) --set clickhouse.serverConfig.enabled=false | grep -qE 'zz-purl-server|zzz-purl-overrides|name: server-config' && { \
+		echo "  FAIL: clickhouse.serverConfig.enabled=false still mounts the profile."; exit 1; } || true
 	@echo "Asserting render-time guards fire..."
 	@set -e; \
 	for guard in \

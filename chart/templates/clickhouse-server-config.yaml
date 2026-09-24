@@ -1,21 +1,33 @@
 {{- /*
-Server-level memory and cache bounds for the embedded ClickHouse, mounted as
-config.d/zz-purl-server.xml (the zz- prefix sorts it after the image's own
-config.d fragments, so these values win the merge).
+ClickHouse server + query profile for the embedded ClickHouse (#106, #108).
 
-Why this exists: without it ClickHouse sizes its caches for a big dedicated
-host — mark_cache_size, index_mark_cache_size and primary_index_cache_size
-default to 5 GiB and uncompressed_cache_size to 8 GiB, each larger than the
-container memory limit. Under ingest + search the uncompressed cache alone
-grew to 3.8 GB inside a 5 GiB pod; every query then failed with
-MEMORY_LIMIT_EXCEEDED, Purl's readiness went red and the dashboard answered
-"no healthy upstream". docker-compose never hit this because
-docker/clickhouse/config.xml caps the caches; the chart had no equivalent.
+Three keys, each mounted by clickhouse-statefulset.yaml:
 
-A value left empty ("") is omitted and ClickHouse's own default applies.
+  zz-purl-server.xml      -> config.d/   the small-install SERVER profile
+  zz-purl-profile.xml    -> users.d/    the small-install QUERY profile
+  zzz-purl-overrides.xml -> config.d/   clickhouse.serverConfig.* values the
+                                        operator set, rendered LAST so they win
+
+The first two come verbatim from chart/files/clickhouse/ — the single source
+of truth shared with docker/clickhouse/{config,users}.xml (compose), kept
+identical by scripts/check_clickhouse_profile.py in `make helm-lint`.
+
+Why a profile at all: ClickHouse sizes its caches and pools for a large
+dedicated host. Mark / index-mark / primary-index caches default to 5 GiB and
+the uncompressed cache to 8 GiB — each above a small pod's whole limit. On
+a production cluster the uncompressed cache alone filled a 5 GiB pod in ~12 minutes
+and every query failed with MEMORY_LIMIT_EXCEEDED (#106).
+
+File names matter: ClickHouse merges config.d/ and users.d/ in sorted order,
+so "zz-" sorts after the image's own fragments and "zzz-" after "zz-".
+The server key keeps its 2.1.3 name, zz-purl-server.xml, on purpose: during an
+upgrade the ConfigMap changes before the old pod is replaced, and an old pod
+whose container restarts in that window must still find its subPath key.
 */ -}}
 {{- if and .Values.clickhouse.enabled .Values.clickhouse.serverConfig.enabled }}
 {{- $s := .Values.clickhouse.serverConfig }}
+{{- $overrides := include "purl.clickhouse.serverOverrides" . | trim }}
+{{- if or $s.smallProfile $overrides }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -24,30 +36,17 @@ metadata:
     {{- include "purl.labels" . | nindent 4 }}
     app.kubernetes.io/component: clickhouse
 data:
+  {{- if $s.smallProfile }}
   zz-purl-server.xml: |
+    {{- .Files.Get "files/clickhouse/purl-small.xml" | nindent 4 }}
+  zz-purl-profile.xml: |
+    {{- .Files.Get "files/clickhouse/purl-small-profile.xml" | nindent 4 }}
+  {{- end }}
+  {{- if $overrides }}
+  zzz-purl-overrides.xml: |
     <clickhouse>
-      {{- with $s.maxServerMemoryUsageToRamRatio }}
-      <max_server_memory_usage_to_ram_ratio>{{ . }}</max_server_memory_usage_to_ram_ratio>
-      {{- end }}
-      {{- with $s.uncompressedCacheSize }}
-      <uncompressed_cache_size>{{ int64 . }}</uncompressed_cache_size>
-      {{- end }}
-      {{- with $s.markCacheSize }}
-      <mark_cache_size>{{ int64 . }}</mark_cache_size>
-      {{- end }}
-      {{- with $s.indexMarkCacheSize }}
-      <index_mark_cache_size>{{ int64 . }}</index_mark_cache_size>
-      {{- end }}
-      {{- with $s.primaryIndexCacheSize }}
-      <primary_index_cache_size>{{ int64 . }}</primary_index_cache_size>
-      {{- end }}
-      {{- with $s.queryConditionCacheSize }}
-      <query_condition_cache_size>{{ int64 . }}</query_condition_cache_size>
-      {{- end }}
-      {{- with $s.queryCacheMaxSizeInBytes }}
-      <query_cache>
-        <max_size_in_bytes>{{ int64 . }}</max_size_in_bytes>
-      </query_cache>
-      {{- end }}
+      {{- $overrides | nindent 6 }}
     </clickhouse>
+  {{- end }}
+{{- end }}
 {{- end }}

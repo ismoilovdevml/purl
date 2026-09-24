@@ -413,59 +413,73 @@ clickhouse:
     accessModes:
       - ReadWriteOnce
 
-  # -- ClickHouse resource limits and requests
   # -- ClickHouse resources. ephemeral-storage covers /var/log/clickhouse-server
   # (an emptyDir, see logsSizeLimit) and the container writable layer. It does
   # NOT cover the data PVC.
+  #
+  # Memory is sized for serverConfig.smallProfile (#108): with the profile a
+  # 20-round ingest+search soak held 535-745 MiB under a 1.5 GiB limit, and
+  # ClickHouse itself stops at limit x 0.8 (the profile's
+  # max_server_memory_usage_to_ram_ratio). Do not go below 1.5 GiB: 1 GiB
+  # failed a 50k-row insert. Without the profile ClickHouse needs far more —
+  # raise this before setting smallProfile=false.
   resources:
     limits:
-      memory: 4Gi
+      memory: 1536Mi
       cpu: "2"
       ephemeral-storage: 2Gi
     requests:
-      memory: 1Gi
+      memory: 768Mi
       cpu: "500m"
       ephemeral-storage: 512Mi
   # -- Cap on the /var/log/clickhouse-server emptyDir. Unbounded, ClickHouse
   # server+error logs grow onto the node filesystem with nothing to stop them.
   logsSizeLimit: 1Gi
 
-  # -- ClickHouse server memory/cache bounds, rendered into
-  # config.d/zz-purl-server.xml (templates/clickhouse-server-config.yaml).
+  # -- ClickHouse server + query tuning (templates/clickhouse-server-config.yaml).
   #
   # ClickHouse's own defaults assume a large dedicated host: mark, index-mark
   # and primary-index caches default to 5 GiB and the uncompressed cache to
-  # 8 GiB — each bigger than clickhouse.resources.limits.memory. Unbounded, the
+  # 8 GiB — each bigger than a small pod's whole limit. Unbounded, the
   # uncompressed cache filled a 5 GiB pod in ~12 minutes of ingest + search,
-  # every query hit MEMORY_LIMIT_EXCEEDED and the dashboard went down.
-  # The defaults below suit a small install (a few GiB of limit); scale the
-  # caches with the limit, keeping their sum well under
-  # limit x maxServerMemoryUsageToRamRatio so queries and merges have room.
-  # Sizes are bytes. Set a key to "" to omit it and use ClickHouse's default.
+  # every query hit MEMORY_LIMIT_EXCEEDED and the dashboard went down (#106).
   serverConfig:
-    # -- Render and mount the server config fragment. Changing any value below
-    # restarts ClickHouse (checksum/server-config annotation).
+    # -- Mount anything at all. false = ClickHouse's stock configuration.
     enabled: true
-    # -- Fraction of the container memory limit (cgroup) ClickHouse may use in
-    # total before refusing allocations. ClickHouse default: 0.9.
-    maxServerMemoryUsageToRamRatio: 0.8
-    # -- Decompressed-block cache (used by queries with use_uncompressed_cache=1).
-    # 256 MiB. ClickHouse default: 8 GiB.
-    uncompressedCacheSize: 268435456
-    # -- Mark cache (granule offsets for MergeTree reads). 256 MiB.
+    # -- Mount the small-install profile (#108): chart/files/clickhouse/
+    # purl-small.xml as config.d/zz-purl-server.xml (caches, background pools,
+    # memory ratio 0.8, trimmed system log tables) and purl-small-profile.xml
+    # as users.d/zz-purl-profile.xml (256 MiB per query, spill-to-disk sorts,
+    # max_threads 2). Measured: idle memory 663 MiB -> 137 MiB.
+    # docker-compose ships the same values (docker/clickhouse/*.xml);
+    # `make helm-lint` fails if the two drift. Set false for a large
+    # dedicated ClickHouse — and raise clickhouse.resources with it.
+    smallProfile: true
+    # -- Everything below is an OPTIONAL OVERRIDE of the profile, rendered into
+    # config.d/zzz-purl-overrides.xml (sorts after the profile, so it wins).
+    # "" = keep the profile's value (or ClickHouse's default with
+    # smallProfile=false). Sizes are bytes; 0 is a real value
+    # (uncompressedCacheSize: 0 disables that cache). Any change restarts
+    # ClickHouse (checksum/server-config annotation).
+    #
+    # Fraction of the container memory limit ClickHouse may use in total.
+    # Profile: 0.8. ClickHouse default: 0.9.
+    maxServerMemoryUsageToRamRatio: ""
+    # -- Decompressed-block cache. Profile: 0 (off — log search reads each
+    # block once). ClickHouse default: 8 GiB.
+    uncompressedCacheSize: ""
+    # -- Mark cache. Profile: 64 MiB. ClickHouse default: 5 GiB.
+    markCacheSize: ""
+    # -- Marks of secondary (skip) indexes. Profile: 16 MiB.
     # ClickHouse default: 5 GiB.
-    markCacheSize: 268435456
-    # -- Marks of secondary (skip) indexes. 64 MiB. ClickHouse default: 5 GiB.
-    indexMarkCacheSize: 67108864
-    # -- Primary-index cache (tables with use_primary_key_cache). 128 MiB.
-    # ClickHouse default: 5 GiB.
-    primaryIndexCacheSize: 134217728
-    # -- Query condition cache (granules known not to match a WHERE). 64 MiB.
-    # ClickHouse default: ~100 MiB.
-    queryConditionCacheSize: 67108864
-    # -- Query result cache (queries run with use_query_cache=1). 64 MiB.
-    # ClickHouse default: 1 GiB.
-    queryCacheMaxSizeInBytes: 67108864
+    indexMarkCacheSize: ""
+    # -- Primary-index cache. Profile: 32 MiB. ClickHouse default: 5 GiB.
+    primaryIndexCacheSize: ""
+    # -- Query condition cache. Profile: 16 MiB. ClickHouse default: ~100 MiB.
+    queryConditionCacheSize: ""
+    # -- Query result cache (use_query_cache=1). Profile: ClickHouse default
+    # (1 GiB cap, only filled by queries that opt in).
+    queryCacheMaxSizeInBytes: ""
 
 # -- Autoscaling (HPA) for Purl pods
 autoscaling:

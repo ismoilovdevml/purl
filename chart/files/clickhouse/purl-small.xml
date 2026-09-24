@@ -1,65 +1,25 @@
 <?xml version="1.0"?>
-<!-- ClickHouse server config for docker-compose (mounted as
-     config.d/custom.xml). install.sh downloads a copy of this file.
+<!-- Purl small-install ClickHouse server profile (#108).
+     Target: steady-state RSS <= 1 GiB for ~1M logs / 15 min in a 1.5 GiB
+     container. Measured: idle memory 663 MiB -> 137 MiB; a 20-round soak held
+     535-745 MiB under a 1.5 GiB limit. A 1 GiB limit failed a 50k-row insert.
 
-     Two parts:
-       1. compose-only settings (listen, console logging, compression, ...)
-       2. the Purl SMALL PROFILE (#108): memory, caches, background pools,
-          system log tables. Its source of truth is
-          chart/files/clickhouse/purl-small.xml, which the Helm chart mounts.
-          Every value there must appear here unchanged — `make helm-lint`
-          runs scripts/check_clickhouse_profile.py and fails on any drift.
-          Change a profile value in BOTH files.
--->
+     ONE SOURCE OF TRUTH. The Helm chart mounts this file as
+     config.d/zz-purl-server.xml. docker/clickhouse/config.xml (docker-compose,
+     and the copy install.sh downloads) must carry the same values;
+     `make helm-lint` runs scripts/check_clickhouse_profile.py and fails on any
+     difference. Change a value here AND there. -->
 <clickhouse>
-    <!-- =========================================================== -->
-    <!-- 1. Compose-only settings                                     -->
-    <!-- =========================================================== -->
-
-    <!-- Network - Force IPv4 only -->
-    <listen_host>0.0.0.0</listen_host>
-    <listen_try>1</listen_try>
-
-    <!-- Logging: console for `docker logs`, errors also to a file.
-         <level> is part of the profile below. -->
-    <logger>
-        <level>warning</level>
-        <console>1</console>
-        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
-    </logger>
-
-    <!-- Compression - LZ4 is fastest for logs -->
-    <compression>
-        <case>
-            <method>lz4</method>
-        </case>
-    </compression>
-
-    <max_connections>100</max_connections>
-
-    <!-- Single node - disable interserver -->
-    <interserver_http_host>127.0.0.1</interserver_http_host>
-
-    <!-- HTTP Server Settings - reduce connection errors -->
-    <http_server_default_response><![CDATA[<html><body><h1>Ok.</h1></body></html>]]></http_server_default_response>
-    <keep_alive_timeout>10</keep_alive_timeout>
-
-    <!-- Skip check for user-level settings at top level -->
-    <skip_check_for_incorrect_settings>1</skip_check_for_incorrect_settings>
-
-    <!-- =========================================================== -->
-    <!-- 2. Purl small profile — mirror of                            -->
-    <!--    chart/files/clickhouse/purl-small.xml (see header)        -->
-    <!-- =========================================================== -->
-
-    <!-- Headroom inside the container limit: jemalloc retained pages and
-         the binary's resident text are outside the memory tracker. -->
+    <!-- Leave headroom inside the cgroup: jemalloc retained pages + the
+         binary's resident text are outside the tracker. -->
     <max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>
 
     <!-- Caches. Server defaults are sized for dedicated hosts (uncompressed
-         8 GiB, mark / primary index 5 GiB). Log search reads each block once,
-         so caching decompressed blocks buys nothing; 0 disables it even when
-         a client sends use_uncompressed_cache=1. -->
+         8 GiB, mark 5 GiB, primary index 5 GiB): on a 3 GiB pod the
+         uncompressed cache alone grew to 1.88 GiB and starved queries.
+         Log search reads each block once; caching decompressed blocks buys
+         nothing. 0 disables it even when a client sends
+         use_uncompressed_cache=1 (older Purl versions do). -->
     <uncompressed_cache_size>0</uncompressed_cache_size>
     <mark_cache_size>67108864</mark_cache_size>                 <!-- 64 MiB -->
     <primary_index_cache_size>33554432</primary_index_cache_size> <!-- 32 MiB -->
@@ -85,8 +45,7 @@
     <max_concurrent_queries>64</max_concurrent_queries>
 
     <merge_tree>
-        <!-- Profile values. Must stay <= background_pool_size *
-             concurrency_ratio (8). -->
+        <!-- must stay <= background_pool_size * concurrency_ratio (8) -->
         <number_of_free_entries_in_pool_to_execute_mutation>4</number_of_free_entries_in_pool_to_execute_mutation>
         <number_of_free_entries_in_pool_to_lower_max_size_of_merge>4</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
         <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>4</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
@@ -94,16 +53,11 @@
              merge's working set down. -->
         <merge_max_block_size>2048</merge_max_block_size>
         <max_bytes_to_merge_at_max_space_in_pool>5368709120</max_bytes_to_merge_at_max_space_in_pool>
-
-        <!-- Compose-only MergeTree settings -->
-        <max_suspicious_broken_parts>5</max_suspicious_broken_parts>
-        <parts_to_delay_insert>150</parts_to_delay_insert>
-        <parts_to_throw_insert>300</parts_to_throw_insert>
-        <max_replicated_merges_in_queue>16</max_replicated_merges_in_queue>
-        <index_granularity>8192</index_granularity>
-        <min_rows_for_wide_part>100000</min_rows_for_wide_part>
-        <min_bytes_for_wide_part>10485760</min_bytes_for_wide_part>
     </merge_tree>
+
+    <logger>
+        <level>warning</level>
+    </logger>
 
     <!-- System log tables: keep query_log (Purl's own diagnostics read it)
          and part_log, bound them with a TTL; drop the rest. -->

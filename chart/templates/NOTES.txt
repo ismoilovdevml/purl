@@ -166,6 +166,22 @@ NetworkPolicy is ON. Reachability comes only from the configured peers:
      CrashLoopBackOff with passing logs, add your node IPs there.
 {{- end }}
 {{- end }}
+{{- if and .Release.IsUpgrade .Values.clickhouse.enabled .Values.clickhouse.serverConfig.enabled .Values.clickhouse.serverConfig.smallProfile }}
+
+Upgrading to chart 2.2.0 or later — ClickHouse small profile (#108):
+  * ClickHouse runs with the small profile and, unless you set
+    clickhouse.resources, a 1536Mi memory limit (was 4Gi). To keep the old
+    behaviour set clickhouse.resources back AND
+    clickhouse.serverConfig.smallProfile=false. 1536Mi without the profile is
+    too little.
+  * clickhouse.serverConfig.* cache keys: "" now means "keep the profile's
+    value", not "ClickHouse's default".
+  * Backup restore needs the Purl image released with this chart: the profile
+    caps one query at 256 MiB and an older image can fail a large restore
+    with MEMORY_LIMIT_EXCEEDED.
+  * The profile is untested in cluster mode (clickhouse.cluster.enabled).
+  Details: chart README, "Upgrading to 2.2.0".
+{{- end }}
 
 To send logs to Purl, use the ingest API:
 
