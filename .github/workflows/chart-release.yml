@@ -112,7 +112,7 @@ jobs:
       # run Helm 3, so the published package is built and linted with it.
       - name: Install Helm
         if: steps.image.outputs.ready == 'true'
-        uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78 # v4
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v4
         with:
           version: v3.16.4
 
