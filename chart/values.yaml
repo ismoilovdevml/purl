@@ -369,6 +369,27 @@ clickhouse:
   # itself as on.
   restrictDefaultUser: true
 
+  # -- Drop the system log tables the small profile disables (#139).
+  # ClickHouse stops writing a log table that the profile removes
+  # (<metric_log remove="1"/>) but never deletes the table itself, so an
+  # install that ran with the stock config keeps them: ~570 MiB on one
+  # install, plus background merges of a 1,531-column system.metric_log.
+  #
+  # Mechanism: an init script in the ClickHouse image's
+  # /docker-entrypoint-initdb.d, run on every pod start
+  # (CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS=1) against a localhost-only
+  # server, before the real server starts listening. It drops
+  # system.<name> and renamed leftovers system.<name>_N for every
+  # <name remove="1"/> in files/clickhouse/purl-small.xml, and nothing else:
+  # never query_log/part_log (kept by the profile), never the purl
+  # database. Idempotent (DROP TABLE IF EXISTS ... SYNC), and a failure only
+  # logs a warning, it never blocks ClickHouse from starting. System log
+  # tables are local to each server, so it runs on every replica in
+  # cluster mode, no ON CLUSTER involved. Only active with
+  # serverConfig.smallProfile=true. Cost: one extra localhost-only server
+  # start per pod start (a few seconds on a small install).
+  dropDisabledSystemLogs: true
+
   # -- Pod-level security context for the ClickHouse StatefulSet.
   # uid/gid 101 is the `clickhouse` user baked into the official image, so
   # the data PVC is already owned by it.
@@ -608,9 +629,10 @@ vector:
   # to run Purl as an ingest-only endpoint with an external collector.
   #
   # !! Pod Security Standards: Vector requires a `privileged` namespace.
-  # It mounts four hostPath volumes (/var/log, /var/log/pods,
-  # /var/log/journal, /var/lib/vector) and runs as root, because that is what
-  # reading node-level container logs takes. hostPath is forbidden at
+  # It mounts hostPath volumes (/var/log, /var/log/pods, /var/lib/vector, and
+  # with journald.enabled also /var/log/journal, /run/log/journal and
+  # /etc/machine-id) and runs as root, because that is what reading
+  # node-level container logs takes. hostPath is forbidden at
   # `baseline`, and root + hostPath are both forbidden at `restricted`.
   # No securityContext can fix this — it is inherent to node log collection.
   #
@@ -676,6 +698,29 @@ vector:
     retryAttempts: 5
     # -- Give up retrying a batch after this many seconds
     retryMaxDurationSecs: 300
+  # -- Node systemd journal collection (kubelet, containerd, docker units).
+  # OFF by default (#136): the default -alpine image has no journalctl, so
+  # the journald source failed on every node ("Error starting journalctl
+  # process: No such file or directory") and collected nothing.
+  journald:
+    # -- Collect the node journal. true switches the DaemonSet to the Vector
+    # -debian image (it ships journalctl) and mounts /var/log/journal and
+    # /run/log/journal read-only, plus the host /etc/machine-id: journalctl
+    # only opens journal directories named after the local machine id.
+    # /var/log/journal and /run/log/journal are created on the node if
+    # missing (hostPath DirectoryOrCreate).
+    enabled: false
+    # -- systemd units to collect. [] collects EVERY unit on the node
+    # (Vector's include_units semantics), which can be a lot of volume.
+    includeUnits: ["kubelet", "containerd", "docker"]
+    image:
+      # -- Image repository when journald is on. "" = vector.image.repository
+      repository: ""
+      # -- Image tag when journald is on. "" = vector.image.tag with its
+      # variant suffix replaced by -debian (0.51.1-alpine -> 0.51.1-debian),
+      # so the two versions cannot drift. Required when vector.image.tag is
+      # pinned by digest (@sha256:...): the render fails rather than guess.
+      tag: ""
   # -- Kubernetes cluster name for log metadata
   clusterName: "default"
   # -- Collect logs from kube-system namespace (control plane components)

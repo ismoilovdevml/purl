@@ -129,8 +129,9 @@ purl.redis.enabled=true + purl.redis.url for fleet-wide counters.
 {{- if .Values.vector.enabled }}
 
 Vector (log collector DaemonSet) needs a PRIVILEGED namespace. It mounts
-hostPath volumes and runs as root to read /var/log/pods and the journal —
-inherent to node-level log collection, not fixable with a securityContext.
+hostPath volumes and runs as root to read /var/log/pods (and the journal,
+with vector.journald.enabled) — inherent to node-level log collection, not
+fixable with a securityContext.
 On a namespace enforcing Pod Security Standards `restricted` OR `baseline`,
 Purl/ClickHouse/backup start normally and EVERY Vector pod is rejected, so
 the release looks healthy while collecting nothing. Check with:

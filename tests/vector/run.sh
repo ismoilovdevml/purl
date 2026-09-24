@@ -38,10 +38,22 @@ for copy in deploy install; do
 done
 
 # --- chart -------------------------------------------------------------------
-helm template purl "$ROOT/chart" --set purl.autoGenerateSecrets=true \
-    --show-only templates/vector-configmap.yaml \
-  | awk '/^  vector.toml: \|/{on=1; next} on && /^[^ ]/{exit} on{sub(/^    /,""); print}' \
-  > "$WORK/chart.toml"
+# Rendered twice: the default (journald off, #136) and with
+# vector.journald.enabled=true, so the conditional journald source and the
+# `filtered` inputs list are checked as a real Vector config both ways.
+chart_toml() {
+  helm template purl "$ROOT/chart" --set purl.autoGenerateSecrets=true "$@" \
+      --show-only templates/vector-configmap.yaml \
+    | awk '/^  vector.toml: \|/{on=1; next} on && /^[^ ]/{exit} on{sub(/^    /,""); print}'
+}
+chart_toml > "$WORK/chart.toml"
+chart_toml --set vector.journald.enabled=true > "$WORK/chart-journald.toml"
+if grep -q '^\[sources\.journald\]' "$WORK/chart.toml"; then
+  echo "FAIL: the default chart render has a journald source; it must be opt-in (#136)" >&2
+  exit 1
+fi
+grep -q '^\[sources\.journald\]' "$WORK/chart-journald.toml" \
+  || { echo "FAIL: vector.journald.enabled=true rendered no journald source" >&2; exit 1; }
 
 # --- deploy ------------------------------------------------------------------
 cp "$ROOT/deploy/vector/vector.toml" "$WORK/deploy.toml"
@@ -90,7 +102,7 @@ run_vector() {
 # not reproducible in 32 local runs). Rerun a target once in exactly that
 # situation, and say so; any assertion failure or other error fails at once.
 fail=0
-for target in chart:parsed deploy:parse install:parsed; do
+for target in chart:parsed chart-journald:parsed deploy:parse install:parsed; do
   name="${target%%:*}"
   transform="${target#*:}"
   sed "s/@TRANSFORM@/$transform/g" "$CASES" > "$WORK/$name-tests.toml"

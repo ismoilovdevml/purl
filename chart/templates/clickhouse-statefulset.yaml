@@ -109,6 +109,13 @@ spec:
                   name: {{ include "purl.secretName" . }}
                   key: PURL_CLICKHOUSE_PASSWORD
             {{- end }}
+            {{- if include "purl.clickhouse.dropDisabledSystemLogs" . }}
+            # Run /docker-entrypoint-initdb.d on every start, not only on an
+            # empty data dir: the disabled-system-log cleanup exists for
+            # installs that already have data (#139).
+            - name: CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS
+              value: "1"
+            {{- end }}
             {{- if and .Values.backup.enabled (not .Values.backup.s3.credentialsInQuery) }}
             # Read by config.d/backup-s3.xml via from_env, so the BACKUP
             # statement itself carries no credentials (they would otherwise
@@ -204,6 +211,11 @@ spec:
               subPath: zzz-purl-overrides.xml
             {{- end }}
             {{- end }}
+            {{- if include "purl.clickhouse.dropDisabledSystemLogs" . }}
+            - name: system-log-cleanup
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+            {{- end }}
       {{- if and .Values.clickhouse.cluster.enabled .Values.clickhouse.cluster.keeper.enabled }}
       initContainers:
         # Keeper server_id must be 1..N to match <raft_configuration>, but a
@@ -271,6 +283,17 @@ spec:
         - name: server-config
           configMap:
             name: {{ include "purl.clickhouse.fullname" . }}-server
+        {{- end }}
+        {{- if include "purl.clickhouse.dropDisabledSystemLogs" . }}
+        # Only the cleanup script, executable: the entrypoint runs an
+        # executable *.sh and would `source` a non-executable one into itself.
+        - name: system-log-cleanup
+          configMap:
+            name: {{ include "purl.clickhouse.fullname" . }}-server
+            items:
+              - key: purl-drop-disabled-system-logs.sh
+                path: purl-drop-disabled-system-logs.sh
+                mode: 0555
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

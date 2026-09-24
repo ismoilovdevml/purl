@@ -1,12 +1,15 @@
 {{- /*
 ClickHouse server + query profile for the embedded ClickHouse (#106, #108).
 
-Three keys, each mounted by clickhouse-statefulset.yaml:
+Four keys, each mounted by clickhouse-statefulset.yaml:
 
   zz-purl-server.xml      -> config.d/   the small-install SERVER profile
   zz-purl-profile.xml    -> users.d/    the small-install QUERY profile
   zzz-purl-overrides.xml -> config.d/   clickhouse.serverConfig.* values the
                                         operator set, rendered LAST so they win
+  purl-drop-disabled-system-logs.sh
+                         -> /docker-entrypoint-initdb.d/  drops the system log
+                                        tables the profile disables (#139)
 
 The first two come verbatim from chart/files/clickhouse/ — the single source
 of truth shared with docker/clickhouse/{config,users}.xml (compose), kept
@@ -41,6 +44,40 @@ data:
     {{- .Files.Get "files/clickhouse/purl-small.xml" | nindent 4 }}
   zz-purl-profile.xml: |
     {{- .Files.Get "files/clickhouse/purl-small-profile.xml" | nindent 4 }}
+  {{- end }}
+  {{- if include "purl.clickhouse.dropDisabledSystemLogs" . }}
+  # Mounted into /docker-entrypoint-initdb.d (clickhouse.dropDisabledSystemLogs,
+  # #139). The image entrypoint runs it on every pod start against a server
+  # that listens on 127.0.0.1 only, before the real server starts.
+  purl-drop-disabled-system-logs.sh: |
+    #!/bin/sh
+    # Drop system log tables the small profile disables (<X_log remove="1"/>
+    # in purl-small.xml), including renamed leftovers X_log_N. ClickHouse stops
+    # writing them but never deletes them. Only the `system` database is
+    # touched. Best effort: never fail the entrypoint, which would stop
+    # ClickHouse from starting.
+    PATTERN='^({{ include "purl.clickhouse.disabledSystemLogs" . }})(_[0-9]+)?$'
+    # clickhouse-client takes the user and password from CLICKHOUSE_USER /
+    # CLICKHOUSE_PASSWORD in the environment, so the password is not on argv.
+    # Bounded: a hung call must not hold the entrypoint (and ClickHouse
+    # start) forever. A timeout is just a failed call: warn and go on.
+    ch() { clickhouse-client --host 127.0.0.1 --connect_timeout 5 --receive_timeout 60 --send_timeout 60 "$@"; }
+    if ! TABLES=$(ch --param_re="$PATTERN" -q "SELECT name FROM system.tables WHERE database = 'system' AND match(name, {re:String}) ORDER BY name FORMAT TSVRaw"); then
+      echo "purl: WARNING: could not list system tables; skipping the disabled system log cleanup" >&2
+      exit 0
+    fi
+    if [ -z "$TABLES" ]; then
+      echo "purl: no disabled system log tables on disk"
+      exit 0
+    fi
+    for t in $TABLES; do
+      if ch -q "DROP TABLE IF EXISTS system.\`$t\` SYNC"; then
+        echo "purl: dropped system.$t (disabled by the small profile)"
+      else
+        echo "purl: WARNING: could not drop system.$t" >&2
+      fi
+    done
+    exit 0
   {{- end }}
   {{- if $overrides }}
   zzz-purl-overrides.xml: |

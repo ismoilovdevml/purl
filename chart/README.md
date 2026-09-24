@@ -37,6 +37,32 @@ rendered on `X.Y.*` must keep rendering on `X.(Y+1).*`. A guard that rejects
 previously valid values is a MAJOR bump, which is why the release after 1.1.0
 is 2.0.0 and not 1.2.0.
 
+## 2.2.3
+
+- The Vector journald source is now opt-in: `vector.journald.enabled`
+  (default `false`) (#136). The default `-alpine` Vector image has no
+  `journalctl`, so the source failed on every node with "Error starting
+  journalctl process: No such file or directory" and collected nothing.
+  With `vector.journald.enabled=true` the DaemonSet uses the `-debian`
+  variant of the same Vector version (`0.51.1-alpine` -> `0.51.1-debian`,
+  override with `vector.journald.image.*`) and mounts `/var/log/journal`,
+  `/run/log/journal` and the host `/etc/machine-id` read-only. A digest-pinned
+  `vector.image.tag` (`@sha256:`) needs `vector.journald.image.tag` set
+  explicitly; the render fails otherwise. The
+  machine-id is required: journalctl only opens journal directories named
+  after the local machine id, and without the host's id it finds no journal
+  at all (checked against a journal written for another machine id: no
+  entries without the mount, entries with it). `vector.journald.includeUnits`
+  lists the units (default kubelet, containerd, docker); `[]` collects every
+  unit. Default installs
+  lose nothing, since the source never worked; the Vector pods roll once
+  (the journald config and mounts are gone).
+- New `clickhouse.dropDisabledSystemLogs` (default `true`) drops the system
+  log tables that the small profile disables (#139). See
+  [ClickHouse system log cleanup](#clickhouse-system-log-cleanup). Adds an
+  env var and a volume to the ClickHouse pod, so ClickHouse restarts once on
+  the upgrade. `appVersion` stays 1.3.0.
+
 ## 2.2.2
 
 - `purl.ingestDurable` (new, default `true`) sets `PURL_INGEST_DURABLE=1`
@@ -410,6 +436,80 @@ as a DBA namespace or an external ETL pod, and both speak the native protocol
 — `clickhouse-client`, the Go/Python drivers and the JDBC/ODBC bridges all
 connect on 9000. `networkPolicy.clickhouse.ingress.fromCIDRs` is unchanged and
 stays HTTP-only: it exists for kubelet probes, which never need 9000.
+
+## ClickHouse system log cleanup
+
+The small profile (`clickhouse.serverConfig.smallProfile`, on by default)
+turns off most ClickHouse system log tables with `<X_log remove="1"/>` in
+`files/clickhouse/purl-small.xml`. ClickHouse then stops writing them but
+never deletes a table that already exists, so an install that once ran with
+the stock config keeps them on disk. On one install that was ~570 MiB, and a
+leftover 1,531-column `system.metric_log` kept ClickHouse busy with merges
+that failed at the memory cap.
+
+With `clickhouse.dropDisabledSystemLogs: true` (the default) the ClickHouse
+pod drops them on every start:
+
+- **What is dropped:** `system.<name>` and the renamed leftovers
+  `system.<name>_N` (ClickHouse renames a log table to `<name>_0`, `_1`, ...
+  when its schema changes) for every `<name remove="1"/>` in the profile. The
+  list is read from the profile file at render time, so the two cannot drift.
+  `query_log` and `part_log` are kept by the profile and are never dropped,
+  and neither are their `_N` leftovers. Nothing outside the `system`
+  database is touched, the `purl` database included.
+- **How:** a script in the ClickHouse image's `/docker-entrypoint-initdb.d`.
+  The chart sets `CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS=1`, so the image
+  entrypoint runs it on every start (not only on an empty data directory)
+  against a temporary server that listens on 127.0.0.1 only, before the
+  real server starts. It lists the matching tables in `system.tables` and
+  runs `DROP TABLE IF EXISTS system.<t> SYNC` for each, as the `default`
+  user over localhost. A second start finds nothing and logs
+  `purl: no disabled system log tables on disk`.
+- **Why not a Helm hook Job:** a post-upgrade Job would need a curl image,
+  NetworkPolicy access to ClickHouse and a way to reach every replica, and a
+  failed hook fails `helm upgrade`. System log tables are local to each
+  ClickHouse server, not replicated, so the cleanup has to run on each one.
+  An init script does that by construction, in cluster mode as well, with
+  no `ON CLUSTER`. It has not been tested with embedded Keeper in cluster
+  mode yet (only rendered). It also runs when the
+  profile is switched on later, not only on `helm upgrade`, and works with
+  GitOps tools that do not run Helm hooks.
+- **Failure:** the script always exits 0. If it cannot list or drop a table
+  it logs a `purl: WARNING` line and ClickHouse starts normally.
+- **Cost:** one extra start of a localhost-only server per pod start. With
+  the image's own init step it added 1-3 s on a small install in local
+  tests.
+
+Check the result in the ClickHouse pod log:
+
+```bash
+kubectl -n <ns> logs <release>-clickhouse-0 | grep '^purl:'
+```
+
+Set `clickhouse.dropDisabledSystemLogs=false` to keep the tables. Nothing is
+rendered either when `smallProfile` is `false`, because those logs are then
+enabled again.
+
+### docker compose installs
+
+docker compose runs the same profile (`docker/clickhouse/config.xml`) but no
+cleanup. Run this once after upgrading. It prints nothing and changes
+nothing when there is nothing to drop:
+
+```bash
+docker compose exec -T clickhouse clickhouse-client -q "
+  SELECT 'DROP TABLE IF EXISTS system.\`' || name || '\` SYNC;'
+  FROM system.tables
+  WHERE database = 'system'
+    AND match(name, '^(trace_log|text_log|metric_log|asynchronous_metric_log|query_metric_log|query_thread_log|query_views_log|processors_profile_log|opentelemetry_span_log|session_log|latency_log|error_log|blob_storage_log|backup_log|s3queue_log|crash_log|asynchronous_insert_log|zookeeper_log|transactions_info_log|filesystem_cache_log)(_[0-9]+)?\$')
+  FORMAT TSVRaw" \
+| docker compose exec -T clickhouse clickhouse-client --multiquery
+```
+
+`clickhouse-client` takes the user and password from the container's
+`CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD`. The name list is the
+`remove="1"` entries of `docker/clickhouse/config.xml`; if you changed that
+file, adjust the list to match.
 
 ## Config volume
 

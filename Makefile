@@ -371,6 +371,83 @@ helm-lint:
 		echo "        A subPath mount of a missing ConfigMap key fails the pod."; exit 1; } || true; \
 	helm template purl chart/ $(AUTOGEN) --set clickhouse.serverConfig.enabled=false | grep -qE 'zz-purl-server|zzz-purl-overrides|name: server-config' && { \
 		echo "  FAIL: clickhouse.serverConfig.enabled=false still mounts the profile."; exit 1; } || true
+	@echo "Asserting the Vector journald source is opt-in (#136)..."
+	@set -e; \
+	D=$$(helm template purl chart/ $(AUTOGEN) --show-only templates/vector-daemonset.yaml --show-only templates/vector-configmap.yaml); \
+	printf '%s\n' "$$D" | grep -q 'image: "timberio/vector:[^"]*-alpine"' || { \
+		echo "  FAIL: default Vector image is not the -alpine variant."; exit 1; }; \
+	printf '%s\n' "$$D" | grep -qE '\[sources\.journald\]|journald_parsed|/run/log/journal|/var/log/journal|/etc/machine-id' && { \
+		echo "  FAIL: the default render still has a journald source or journal mounts."; \
+		echo "        The -alpine image has no journalctl; the source fails on every node."; exit 1; } || true; \
+	printf '%s\n' "$$D" | grep -qF 'inputs = ["parsed"]' || { \
+		echo "  FAIL: default 'filtered' transform must take only [\"parsed\"]; a dangling"; \
+		echo "        journald_parsed input makes Vector refuse the config."; exit 1; }; \
+	J=$$(helm template purl chart/ $(AUTOGEN) --set vector.journald.enabled=true \
+		--show-only templates/vector-daemonset.yaml --show-only templates/vector-configmap.yaml); \
+	for want in 'image: "timberio/vector:0.51.1-debian"' '[sources.journald]' \
+		'inputs = ["parsed","journald_parsed"]' \
+		'mountPath: /var/log/journal' 'mountPath: /run/log/journal' 'mountPath: /etc/machine-id' \
+		'path: /run/log/journal' 'path: /etc/machine-id'; do \
+		printf '%s\n' "$$J" | grep -qF -- "$$want" || { \
+			echo "  FAIL: vector.journald.enabled=true render is missing: $$want"; exit 1; }; \
+	done; \
+	RO=$$(printf '%s\n' "$$J" | grep -A1 -E 'mountPath: (/var/log/journal|/run/log/journal|/etc/machine-id)$$' | grep -c 'readOnly: true' || true); \
+	[ "$$RO" -eq 3 ] || { echo "  FAIL: journal mounts must be readOnly ($$RO of 3 are)."; exit 1; }; \
+	helm template purl chart/ $(AUTOGEN) --set vector.journald.enabled=true --set vector.image.tag=0.51.1-debian \
+		--show-only templates/vector-daemonset.yaml | grep -qF 'image: "timberio/vector:0.51.1-debian"' || { \
+		echo "  FAIL: an image.tag that is already -debian must not become -debian-debian."; exit 1; }
+	@echo "Asserting the disabled-system-log cleanup (#139)..."
+	@set -e; \
+	R=$$(helm template purl chart/ $(AUTOGEN) --show-only templates/clickhouse-statefulset.yaml --show-only templates/clickhouse-server-config.yaml); \
+	for want in 'name: CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS' 'mountPath: /docker-entrypoint-initdb.d' \
+		'key: purl-drop-disabled-system-logs.sh' 'mode: 0555' 'purl-drop-disabled-system-logs.sh: |' \
+		'DROP TABLE IF EXISTS system.\`$$t\` SYNC' "WHERE database = 'system'"; do \
+		printf '%s\n' "$$R" | grep -qF -- "$$want" || { \
+			echo "  FAIL: default render is missing: $$want"; exit 1; }; \
+	done; \
+	SCRIPT=$$(printf '%s\n' "$$R" | awk '/purl-drop-disabled-system-logs.sh: [|]/{on=1; next} on && /^  [^ ]/{exit} on'); \
+	printf '%s\n' "$$SCRIPT" | grep -q 'DROP TABLE' || { echo "  FAIL: could not extract the cleanup script."; exit 1; }; \
+	printf '%s\n' "$$SCRIPT" | grep -v '^ *#' | grep -iE '(drop|truncate|alter|delete|rename) ' | grep -v 'system\.' && { \
+		echo "  FAIL: the cleanup script has a destructive statement that does not target"; \
+		echo "        the system database. It must never touch the purl database."; exit 1; } || true; \
+	WANT=$$(perl -0777 -pe 's/<!--.*?-->//gs' chart/files/clickhouse/purl-small.xml \
+		| sed -n 's/.*<\([a-z0-9_]*_log\) remove="1"[[:space:]]*\/>.*/\1/p' | sort | tr '\n' ' '); \
+	GOT=$$(printf '%s\n' "$$SCRIPT" | sed -n "s/.*PATTERN='^(\([^)]*\))(_\[0-9\]+)?\$$'.*/\1/p" | tr '|' '\n' | sort | tr '\n' ' '); \
+	[ -n "$$WANT" ] && [ "$$WANT" = "$$GOT" ] || { \
+		echo "  FAIL: the cleanup list differs from the <X_log remove=\"1\"/> entries in purl-small.xml."; \
+		echo "        profile: $$WANT"; echo "        cleanup: $$GOT"; exit 1; }; \
+	for kept in query_log part_log; do \
+		printf ' %s ' "$$GOT" | grep -q " $$kept " && { \
+			echo "  FAIL: the cleanup would drop $$kept, which the profile keeps."; exit 1; } || true; \
+	done; \
+	TMP=$$(mktemp -d); trap 'rm -rf "$$TMP"' EXIT; cp -R chart "$$TMP/chart"; \
+	perl -0pi -e 's|</clickhouse>|    <!-- <query_log remove="1"/> -->\n</clickhouse>|' "$$TMP/chart/files/clickhouse/purl-small.xml"; \
+	grep -qF '<!-- <query_log remove="1"/> -->' "$$TMP/chart/files/clickhouse/purl-small.xml" || { \
+		echo "  FAIL: could not plant the commented-out tag; the check below would assert nothing."; exit 1; }; \
+	helm template purl "$$TMP/chart" $(AUTOGEN) --show-only templates/clickhouse-server-config.yaml \
+		| grep "PATTERN=" | grep -qE "[(|]query_log[|)]" && { \
+		echo "  FAIL: a commented-out <query_log remove=\"1\"/> put query_log on the drop list."; exit 1; } || true; \
+	helm template purl "$$TMP/chart" $(AUTOGEN) --show-only templates/clickhouse-server-config.yaml \
+		| grep "PATTERN=" | grep -qE "[(|]trace_log[|)]" || { \
+		echo "  FAIL: the commented-tag render lost the real entries (trace_log); the check above is void."; exit 1; }; \
+	ERR=$$(helm template purl chart/ $(AUTOGEN) --set vector.journald.enabled=true \
+		--set 'vector.image.tag=0.51.1-alpine@sha256:0000000000000000000000000000000000000000000000000000000000000000' 2>&1 >/dev/null) && { \
+		echo "  FAIL: a digest-pinned vector.image.tag with journald rendered a guessed -debian tag."; exit 1; } || true; \
+	printf '%s\n' "$$ERR" | grep -q 'pinned by digest' || { \
+		echo "  FAIL: digest-pinned tag failed for another reason. Got:"; printf '%s\n' "$$ERR" | head -3; exit 1; }; \
+	helm template purl chart/ $(AUTOGEN) --set vector.journald.enabled=true \
+		--set 'vector.image.tag=0.51.1-alpine@sha256:0000000000000000000000000000000000000000000000000000000000000000' \
+		--set 'vector.journald.image.tag=0.51.1-debian@sha256:1111111111111111111111111111111111111111111111111111111111111111' >/dev/null || { \
+		echo "  FAIL: an explicit vector.journald.image.tag must satisfy the digest guard."; exit 1; }; \
+	helm template purl chart/ $(AUTOGEN) --set clickhouse.cluster.enabled=true --show-only templates/clickhouse-statefulset.yaml \
+		| grep -qF 'mountPath: /docker-entrypoint-initdb.d' || { \
+		echo "  FAIL: cluster mode must run the cleanup on every replica."; exit 1; }; \
+	for off in "--set clickhouse.dropDisabledSystemLogs=false" \
+		"--set clickhouse.serverConfig.smallProfile=false" \
+		"--set clickhouse.serverConfig.enabled=false"; do \
+		helm template purl chart/ $(AUTOGEN) $$off | grep -qE 'CLICKHOUSE_ALWAYS_RUN_INITDB_SCRIPTS|docker-entrypoint-initdb.d|purl-drop-disabled-system-logs' && { \
+			echo "  FAIL: '$$off' still renders the system log cleanup."; exit 1; } || true; \
+	done
 	@echo "Asserting render-time guards fire..."
 	@set -e; \
 	for guard in \

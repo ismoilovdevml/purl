@@ -320,3 +320,51 @@ cache), so the test is on the string form, not on truthiness.
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+Vector image. With vector.journald.enabled the DaemonSet needs journalctl,
+which only the -debian variant ships (the -alpine default has none, #136).
+vector.journald.image.tag "" derives it from vector.image.tag, so the two
+cannot drift: "0.51.1-alpine" -> "0.51.1-debian".
+*/}}
+{{- define "purl.vector.image" -}}
+{{- $v := .Values.vector -}}
+{{- if $v.journald.enabled -}}
+{{- if and (contains "@sha256:" $v.image.tag) (not $v.journald.image.tag) -}}
+{{- fail (printf "vector.image.tag %q is pinned by digest, so the journald (-debian) tag cannot be derived from it. Set vector.journald.image.tag explicitly (e.g. \"0.51.1-debian@sha256:...\")." $v.image.tag) -}}
+{{- end -}}
+{{- $tag := $v.journald.image.tag | default (printf "%s-debian" (regexReplaceAll "-(alpine|debian|distroless-libc|distroless-static)$" $v.image.tag "")) -}}
+{{- printf "%s:%s" ($v.journald.image.repository | default $v.image.repository) $tag -}}
+{{- else -}}
+{{- printf "%s:%s" $v.image.repository $v.image.tag -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+System log tables the small ClickHouse profile disables: every
+<X_log remove="1"/> in files/clickhouse/purl-small.xml, as a regex
+alternation ("trace_log|text_log|..."). Read from the profile itself so the
+cleanup can never drop a log table the profile keeps (query_log, part_log).
+*/}}
+{{- define "purl.clickhouse.disabledSystemLogs" -}}
+{{- /* Strip XML comments first: a commented-out <X_log remove="1"/> is not
+       disabled, and must never land on the drop list. */ -}}
+{{- $xml := regexReplaceAll "(?s)<!--.*?-->" (.Files.Get "files/clickhouse/purl-small.xml") "" -}}
+{{- $found := regexFindAll "<[a-z0-9_]+_log remove=\"1\"\\s*/>" $xml -1 -}}
+{{- $names := list -}}
+{{- range $found -}}
+{{- $names = append $names (regexReplaceAll "^<([a-z0-9_]+) .*$" . "${1}") -}}
+{{- end -}}
+{{- join "|" $names -}}
+{{- end }}
+
+{{/*
+"true" when the ClickHouse pod should run the disabled-system-log cleanup
+(#139): built-in ClickHouse, small profile mounted, and not switched off.
+*/}}
+{{- define "purl.clickhouse.dropDisabledSystemLogs" -}}
+{{- $c := .Values.clickhouse -}}
+{{- if and $c.enabled $c.serverConfig.enabled $c.serverConfig.smallProfile $c.dropDisabledSystemLogs -}}
+true
+{{- end -}}
+{{- end }}

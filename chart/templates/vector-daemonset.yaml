@@ -23,9 +23,9 @@ spec:
       serviceAccountName: {{ include "purl.fullname" . }}-vector
       {{- /*
         Vector CANNOT satisfy Pod Security Standards `restricted` or even
-        `baseline`: it mounts four hostPath volumes (forbidden at baseline)
-        and must run as root to read /var/log/pods and the journal off the
-        node. In a namespace labelled pod-security.kubernetes.io/enforce at
+        `baseline`: it mounts hostPath volumes (forbidden at baseline)
+        and must run as root to read /var/log/pods (and, with
+        vector.journald.enabled, the journal) off the node. In a namespace labelled pod-security.kubernetes.io/enforce at
         restricted or baseline, Purl / ClickHouse / backup admit fine and
         every Vector pod is rejected — log collection dies while the rest of
         the release looks healthy. This is a real constraint of node-level
@@ -51,7 +51,7 @@ spec:
         {{- toYaml .Values.vector.tolerations | nindent 8 }}
       containers:
         - name: vector
-          image: "{{ .Values.vector.image.repository }}:{{ .Values.vector.image.tag }}"
+          image: {{ include "purl.vector.image" . | quote }}
           imagePullPolicy: {{ .Values.vector.image.pullPolicy }}
           args: ["--config-dir", "/etc/vector"]
           {{- with .Values.vector.securityContext }}
@@ -116,9 +116,22 @@ spec:
             - name: pods-logs
               mountPath: /var/log/pods
               readOnly: true
+            {{- if .Values.vector.journald.enabled }}
+            # journalctl reads the persistent journal (/var/log/journal) and
+            # the volatile one (/run/log/journal). It only opens journal
+            # directories named after the local machine id, so the host's
+            # /etc/machine-id replaces the one baked into the image; without
+            # it journalctl finds no files and the source collects nothing.
             - name: journal
               mountPath: /var/log/journal
               readOnly: true
+            - name: run-journal
+              mountPath: /run/log/journal
+              readOnly: true
+            - name: machine-id
+              mountPath: /etc/machine-id
+              readOnly: true
+            {{- end }}
       volumes:
         - name: config
           configMap:
@@ -136,8 +149,18 @@ spec:
         - name: pods-logs
           hostPath:
             path: /var/log/pods
+        {{- if .Values.vector.journald.enabled }}
         - name: journal
           hostPath:
             path: /var/log/journal
             type: DirectoryOrCreate
+        - name: run-journal
+          hostPath:
+            path: /run/log/journal
+            type: DirectoryOrCreate
+        - name: machine-id
+          hostPath:
+            path: /etc/machine-id
+            type: File
+        {{- end }}
 {{- end }}

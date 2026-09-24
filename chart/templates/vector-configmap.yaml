@@ -29,9 +29,12 @@ data:
       "**/*_{{ include "purl.fullname" . }}_*/**",
     ]
 
+    {{- if .Values.vector.journald.enabled }}
+
     [sources.journald]
     type = "journald"
-    include_units = ["kubelet", "containerd", "docker"]
+    include_units = {{ .Values.vector.journald.includeUnits | toJson }}
+    {{- end }}
 
     [transforms.exclude_internal]
     type = "filter"
@@ -183,6 +186,8 @@ data:
     del(.kubernetes); del(.file); del(.stream)
     '''
 
+    {{- if .Values.vector.journald.enabled }}
+
     [transforms.journald_parsed]
     type = "remap"
     inputs = ["journald"]
@@ -219,10 +224,11 @@ data:
     .span_id = ""
     .parent_span_id = ""
     '''
+    {{- end }}
 
     [transforms.filtered]
     type = "filter"
-    inputs = ["parsed", "journald_parsed"]
+    inputs = {{ ternary (list "parsed" "journald_parsed") (list "parsed") .Values.vector.journald.enabled | toJson }}
     condition = 'length(string!(.message)) > 0 && !contains(string!(.message), "/health")'
 
     [sinks.purl]

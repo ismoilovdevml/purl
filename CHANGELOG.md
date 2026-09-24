@@ -34,6 +34,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Helm chart 2.2.3: the Vector DaemonSet's journald source is now opt-in
+  (`vector.journald.enabled`, default `false`) (#136). The default alpine
+  Vector image has no `journalctl`, so the source failed on every node and
+  collected nothing. When enabled, the chart uses the Vector debian image and
+  mounts `/var/log/journal`, `/run/log/journal` and the host
+  `/etc/machine-id` read-only.
+- Helm chart 2.2.3: ClickHouse drops the system log tables that the small
+  profile disables, plus their renamed `<name>_N` leftovers, on every start
+  (`clickhouse.dropDisabledSystemLogs`, default `true`) (#139). ClickHouse
+  never deletes an existing log table when the profile turns it off; one
+  install kept ~570 MiB of them. `query_log`, `part_log` and the `purl`
+  database are never touched. docker compose installs: run the one-off
+  command in chart/README.md, "ClickHouse system log cleanup".
+
 - ClickHouse small profile (chart 2.2.2 and `docker/clickhouse/config.xml`):
   `vertical_merge_algorithm_min_rows_to_activate` is now 1, so wide tables
   merge column by column. A Horizontal merge of a leftover 1531-column
