@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Log level detection in the Vector configs (Helm chart 2.2.1,
+  `deploy/vector/vector.toml` for docker compose, and the agent that
+  `install.sh -a` sets up) no longer matches a level word anywhere in a line
+  (#111). A JSON `level` / `severity` / `lvl` / `log.level` field wins, then a
+  level at the start of the line, then `level=` in logfmt lines, then an
+  upper-case `ERROR` / `WARN` / `FATAL`, `[error]`, `<Error>` or similar
+  marker in the first 120 characters. **Docker and agent users:** lines that
+  only contain a bare "failed", "exception" or "err" (e.g. "request failed,
+  retrying") are no longer ERROR but INFO, so ERROR counts and alerts based
+  on them will drop.
+
+### Fixed
+
+- The Vector agent config written by `install.sh -a` did not compile (VRL
+  rejected its `else` clauses), so the agent never started.
+- The chart's Vector config aborted the remap (the event went out without
+  service, level or meta) when a JSON `msg` was not a string.
+
 ## [1.3.0] - 2026-09-24
 
 ### Removed

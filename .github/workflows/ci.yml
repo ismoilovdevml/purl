@@ -198,6 +198,14 @@ jobs:
             --set purl.existingSecretHasClickHousePassword=true \
             > /dev/null
 
+      # `vector test` on the level-detection VRL (#111) in the chart's Vector
+      # config, deploy/vector/vector.toml and the agent config install.sh
+      # writes. Runs the chart's own timberio/vector image via docker.
+      # Once, on the Helm 3 leg: the VRL does not depend on the Helm major.
+      - name: Vector unit tests (log level detection)
+        if: matrix.helm == 'v3.16.4'
+        run: tests/vector/run.sh
+
       # Rendering successfully is NOT evidence the chart is correct. These
       # assert on the rendered content, which is where the last round of
       # silent misconfigurations lived: a policy that rendered fine and

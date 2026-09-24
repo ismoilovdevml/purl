@@ -1,0 +1,814 @@
+# Level-detection cases for every Vector config Purl ships (#111).
+# tests/vector/run.sh substitutes @TRANSFORM@ with the remap transform under
+# test and runs `vector test` against the chart, deploy/vector/vector.toml
+# and the agent config install.sh writes.
+
+[[tests]]
+name = "free text mentioning debug is not DEBUG"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "user clicked debug panel"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "INFO")'
+
+[[tests]]
+name = "structured JSON level wins"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"level\":\"debug\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "DEBUG")'
+
+[[tests]]
+name = "bracketed level at line start"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "[ERROR] x"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "key=value level"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "level=warn"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "WARN")'
+
+[[tests]]
+name = "leading ERROR beats a later debug word (#111)"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "ERROR failed to load debug symbols"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "JSON severity is normalised"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"severity\":\"warning\",\"msg\":\"disk almost full\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "WARN")'
+
+[[tests]]
+name = "JSON lvl field"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"lvl\":\"error\",\"msg\":\"boom\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "JSON flat ECS log.level key"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"log.level\":\"error\",\"message\":\"x\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "JSON nested log.level"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"log\":{\"level\":\"warn\"},\"message\":\"x\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "WARN")'
+
+[[tests]]
+name = "JSON numeric pino level beats message words"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"level\":30,\"msg\":\"debug mode enabled\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "INFO")'
+
+[[tests]]
+name = "JSON numeric pino 10 is TRACE"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"level\":10,\"msg\":\"x\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "TRACE")'
+
+[[tests]]
+name = "JSON numeric syslog severity"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"level\":3,\"msg\":\"x\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "JSON level beats level words in its message"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"level\":\"debug\",\"msg\":\"ERROR in payload\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "DEBUG")'
+
+[[tests]]
+name = "JSON unknown level is kept upper-cased"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"level\":\"audit\",\"msg\":\"x\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "AUDIT")'
+
+[[tests]]
+name = "JSON trace stays TRACE, as lib/Purl/Util/Level.pm"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"level\":\"trace\",\"msg\":\"x\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "TRACE")'
+
+[[tests]]
+name = "JSON non-string msg does not abort the event"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"level\":\"warn\",\"msg\":42}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "WARN")'
+
+[[tests]]
+name = "logfmt line from logrus"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "time=\"2026-09-24T10:00:00Z\" level=error msg=\"db down\""
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "timestamp then level token"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "2026-09-24T10:00:00.123Z WARN cache miss for error page"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "WARN")'
+
+[[tests]]
+name = "nginx error log"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "2026/09/24 10:00:00 [error] 12#12: *1 connect() failed"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "log4j style with thread"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "10:00:00.123 [main] INFO c.e.App - debug flag is off"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "INFO")'
+
+[[tests]]
+name = "lowercase level with colon"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "error: could not open config"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "klog error line"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "E0924 10:00:00.123456       1 reflector.go:123] watch failed"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "klog warning line"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "W0924 10:00:00.123456       1 warnings.go:70] deprecated API"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "WARN")'
+
+[[tests]]
+name = "level words in the middle of a line do not count"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "request failed with an error, see warning above"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "INFO")'
+
+[[tests]]
+name = "bare failed / exception are not ERROR"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "retrying after exception in worker, request failed"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "INFO")'
+
+[[tests]]
+name = "level substring inside a word does not count"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "GET /api/errors 200 12ms"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "INFO")'
+
+[[tests]]
+name = "bracketed word that is not a level"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "[main] debug panel opened"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "INFO")'
+
+[[tests]]
+name = "postgres"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "2026-09-24 10:00:00.123 UTC [1] ERROR:  relation \"x\" does not exist"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "clickhouse"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "2026.09.24 10:00:00.000000 [ 1 ] {} <Error> executeQuery: Code: 60"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "clickhouse warning"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "2026.09.24 10:00:00.000000 [ 1 ] {} <Warning> Application: low memory"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "WARN")'
+
+[[tests]]
+name = "ruby logger error"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "E, [2026-09-24T10:00:00.123456 #1] ERROR -- : x"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "ruby logger warn"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "W, [2026-09-24T10:00:00.123456 #1]  WARN -- : x"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "WARN")'
+
+[[tests]]
+name = "rfc3164 syslog lowercase error"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "Sep 24 10:00:00 host app[1]: error: x"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "zap console encoder"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "2026-09-24T10:00:00Z\terror\tx"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "java uncaught exception"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "Exception in thread \"main\" java.lang.IllegalStateException: x"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "python traceback"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "Traceback (most recent call last):"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "leading token beats a later loglevel="
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "[ERROR] failed to apply config loglevel=info"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "leading token beats a later level="
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "ERROR could not set level=debug on logger"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "ERROR")'
+
+[[tests]]
+name = "level= in free text is not a level"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "user set level=debug for the test run"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "INFO")'
+
+[[tests]]
+name = "ALERT: upper case is FATAL"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "ALERT: disk full"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "FATAL")'
+
+[[tests]]
+name = "Alert: in a sentence is not a level"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "Alert: your order has shipped"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "INFO")'
+
+[[tests]]
+name = "crit: lower case is not a level"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "crit: rating 4 of 5"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.level, "INFO")'
+
+[[tests]]
+name = "JSON message field becomes .message"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"message\":\"hello\",\"level\":\"info\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.message, "hello")'
+
+[[tests]]
+name = "JSON msg is used when message is missing"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"msg\":\"hello\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.message, "hello")'
+
+[[tests]]
+name = "JSON msg is used when message is not a string"
+
+[[tests.inputs]]
+insert_at = "@TRANSFORM@"
+type = "log"
+
+[tests.inputs.log_fields]
+message = "{\"message\":null,\"msg\":\"hi\"}"
+container_name = "/app"
+
+[[tests.outputs]]
+extract_from = "@TRANSFORM@"
+
+[[tests.outputs.conditions]]
+type = "vrl"
+source = 'assert_eq!(.message, "hi")'

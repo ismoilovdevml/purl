@@ -380,11 +380,77 @@ service_name = string(.container_name) ?? string(._SYSTEMD_UNIT) ?? "unknown"
 msg = string(.message) ?? ""
 .raw = msg
 
-if match(msg, r'(?i)\b(fatal|panic|critical)\b') { .level = "FATAL" }
-else if match(msg, r'(?i)\b(error|err|exception|failed)\b') { .level = "ERROR" }
-else if match(msg, r'(?i)\b(warn|warning)\b') { .level = "WARN" }
-else if match(msg, r'(?i)\b(debug|trace)\b') { .level = "DEBUG" }
-else { .level = "INFO" }
+# (unquoted heredoc: every dollar sign in the VRL below is escaped)
+# BEGIN purl-level-detection (#111)
+# Identical in chart/templates/vector-configmap.yaml, deploy/vector/vector.toml
+# and install.sh (tests/vector/run.sh fails if they drift, then runs the
+# cases in tests/vector/level-detection.toml against all three).
+# A JSON body's string "message" (else "msg") field becomes .message.
+# Level, first match wins:
+#   1. JSON field level / severity / lvl / log.level. Strings are upper-cased
+#      and synonyms folded as lib/Purl/Util/Level.pm does; unknown names are
+#      kept. Numbers: 0-7 syslog severity, 10-60 pino/bunyan scale.
+#   2. a level token at the start of the line, after optional timestamp or
+#      [bracketed] tokens: "ERROR x", "[warn] x", "error: x", klog "E0924 ...".
+#   3. level= / lvl= / severity= in a logfmt line (one that starts with key=).
+#   4. within the first 120 characters: an UPPERCASE ERROR/WARN/FATAL/PANIC
+#      word, [error] or <Error> markers, a tab-delimited level (zap), an
+#      "app[1]: error:" syslog prefix, or a Java/Python exception header.
+#   Otherwise INFO. A lowercase level word in free text ("user clicked debug
+#   panel", "request failed") never decides the level.
+lv_raw = string(.message) ?? ""
+parsed = parse_json(lv_raw) ?? null
+if is_object(parsed) {
+  lv_body = parsed.message
+  if !is_string(lv_body) { lv_body = parsed.msg }
+  if is_string(lv_body) { .message = lv_body }
+}
+msg = string(.message) ?? ""
+lv_syn = {
+  "WARNING": "WARN", "ERR": "ERROR", "CRIT": "FATAL", "CRITICAL": "FATAL",
+  "EMERG": "FATAL", "EMERGENCY": "FATAL", "ALERT": "FATAL", "PANIC": "FATAL",
+  "NOTICE": "INFO"
+}
+level = ""
+lv_src = null
+if is_object(parsed) {
+  lv_src = parsed.level
+  if is_nullish(lv_src) { lv_src = parsed.severity }
+  if is_nullish(lv_src) { lv_src = parsed.lvl }
+  if is_nullish(lv_src) { lv_src = get(parsed, ["log.level"]) ?? null }
+  if is_nullish(lv_src) { lv_src = parsed.log.level }
+}
+if is_string(lv_src) {
+  lv_tok = upcase(strip_whitespace(string!(lv_src)))
+  level = string(get(lv_syn, [lv_tok]) ?? null) ?? lv_tok
+} else if is_integer(lv_src) || is_float(lv_src) {
+  lv_n = to_int(lv_src) ?? -1
+  level = if lv_n < 0 { "" } else if lv_n <= 2 { "FATAL" } else if lv_n == 3 { "ERROR" } else if lv_n == 4 { "WARN" } else if lv_n <= 6 { "INFO" } else if lv_n == 7 { "DEBUG" } else if lv_n < 20 { "TRACE" } else if lv_n < 30 { "DEBUG" } else if lv_n < 40 { "INFO" } else if lv_n < 50 { "WARN" } else if lv_n < 60 { "ERROR" } else { "FATAL" }
+}
+lv_tok = ""
+if level == "" {
+  lv_m = parse_regex(msg, r'^\s*(?:(?:[\[(]?\d\S*|\[[^\]]*\])\s+){0,4}?(?:[\[<(]\s*(?i:(?P<b>FATAL|PANIC|CRITICAL|CRIT|EMERGENCY|EMERG|ALERT|ERROR|ERR|WARNING|WARN|INFO|NOTICE|DEBUG|TRACE))\s*[\]>)]|(?P<u>FATAL|PANIC|CRITICAL|CRIT|EMERGENCY|EMERG|ALERT|ERROR|ERR|WARNING|WARN|INFO|NOTICE|DEBUG|TRACE)(?:[\s:|\]]|\$)|(?i:(?P<c>FATAL|PANIC|ERROR|ERR|WARNING|WARN|INFO|DEBUG|TRACE)):)') ?? {}
+  lv_tok = (string(lv_m.b) ?? "") + (string(lv_m.u) ?? "") + (string(lv_m.c) ?? "")
+  if lv_tok == "" {
+    lv_m = parse_regex(msg, r'^(?P<k>[IWEF])\d{4}\s+\d{2}:\d{2}:\d{2}') ?? {}
+    lv_k = string(lv_m.k) ?? ""
+    lv_tok = if lv_k == "I" { "INFO" } else if lv_k == "W" { "WARN" } else if lv_k == "E" { "ERROR" } else if lv_k == "F" { "FATAL" } else { "" }
+  }
+  if lv_tok == "" && match(msg, r'^\s*[\w.\-]+=') {
+    lv_m = parse_regex(msg, r'(?:^|\s)(?:log\.)?(?i:level|lvl|severity|loglevel)="?(?i:(?P<l>FATAL|PANIC|CRITICAL|CRIT|EMERGENCY|EMERG|ALERT|ERROR|ERR|WARNING|WARN|INFO|NOTICE|DEBUG|TRACE))\b') ?? {}
+    lv_tok = string(lv_m.l) ?? ""
+  }
+  if lv_tok == "" {
+    lv_m = parse_regex(truncate(msg, 120), r'\b(?P<u>FATAL|PANIC|ERROR|WARNING|WARN)\b|[\[<]\s*(?i:(?P<b>FATAL|PANIC|CRITICAL|CRIT|EMERGENCY|EMERG|ALERT|ERROR|ERR|WARNING|WARN))\s*[\]>]|\t(?i:(?P<z>FATAL|PANIC|ERROR|WARNING|WARN|INFO|DEBUG|TRACE))\t|:\s(?i:(?P<c>FATAL|PANIC|ERROR|ERR|WARNING|WARN)):\s|^(?P<x>Exception in thread |Traceback \(most recent call last\))') ?? {}
+    lv_tok = (string(lv_m.u) ?? "") + (string(lv_m.b) ?? "") + (string(lv_m.z) ?? "") + (string(lv_m.c) ?? "")
+    if lv_tok == "" && (string(lv_m.x) ?? "") != "" { lv_tok = "ERROR" }
+  }
+  lv_tok = upcase(lv_tok)
+  level = string(get(lv_syn, [lv_tok]) ?? null) ?? lv_tok
+}
+if level == "" { level = "INFO" }
+.level = level
+# END purl-level-detection
 
 .meta = encode_json({"source": "vector-agent", "server": .host})
 del(.container_id); del(.container_name); del(._SYSTEMD_UNIT); del(.PRIORITY); del(._PID)

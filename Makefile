@@ -1,4 +1,4 @@
-.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint chart-publish chart-publish-vercel release e2e-k8s e2e-docker
+.PHONY: help up down logs restart lint lint-perl lint-js web-dev web-build test preflight clean helm-lint vector-test chart-publish chart-publish-vercel release e2e-k8s e2e-docker
 
 # Variables
 # Perl deps are installed with local::lib into ~/perl5 (same layout as CI).
@@ -30,7 +30,8 @@ help:
 	@echo "  e2e-docker    Docker Compose E2E test"
 	@echo ""
 	@echo "Helm chart:"
-	@echo "  helm-lint     Lint + template-render the chart"
+	@echo "  helm-lint     Lint + template-render the chart (+ vector-test)"
+	@echo "  vector-test   Vector unit tests for chart, deploy/ and install.sh configs"
 	@echo "  chart-publish How the chart is published (CI: .github/workflows/chart-release.yml)"
 	@echo "  chart-publish-vercel  LEGACY manual publish to charts.purlogs.com (frozen)"
 	@echo ""
@@ -356,7 +357,16 @@ helm-lint:
 			echo "        for the wrong reason and asserted nothing."; exit 1; \
 		} || true; \
 	done
+	@$(MAKE) --no-print-directory vector-test
 	@echo "Helm validation passed."
+
+# Vector unit tests (`vector test`) for the log-level detection VRL in every
+# Vector config Purl ships: the chart DaemonSet, deploy/vector/vector.toml and
+# the agent config install.sh writes. Uses a local `vector` if installed,
+# otherwise the chart's timberio/vector image through docker.
+vector-test:
+	@echo "Running Vector unit tests (chart, deploy/, install.sh)..."
+	@tests/vector/run.sh
 
 # Release: cut a semver tag so CI publishes ismoilovdev/purl:X.Y.Z.
 # The chart resolves image.tag from Chart.yaml appVersion, so a chart whose

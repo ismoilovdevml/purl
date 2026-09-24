@@ -37,6 +37,37 @@ rendered on `X.Y.*` must keep rendering on `X.(Y+1).*`. A guard that rejects
 previously valid values is a MAJOR bump, which is why the release after 1.1.0
 is 2.0.0 and not 1.2.0.
 
+## 2.2.1
+
+- The Vector DaemonSet no longer marks a line as DEBUG (or WARN/ERROR) just
+  because the word appears somewhere in it (#111). "user clicked debug panel"
+  is now INFO, and "ERROR failed to load debug symbols" is ERROR. Values are
+  unchanged. The level now comes from, first match wins:
+  1. a `level` / `severity` / `lvl` / `log.level` field in a JSON body.
+     Strings are upper-cased and synonyms folded the way Purl's ingest does
+     (WARNING -> WARN, CRIT/ALERT/EMERG/PANIC -> FATAL, NOTICE -> INFO);
+     unknown names such as `audit` are kept (`AUDIT`).
+  2. a level token at the start of the line, after an optional timestamp:
+     `ERROR x`, `[warn] x`, `error: x`, klog `E0924 ...`.
+  3. `level=` / `lvl=` / `severity=` in a logfmt line (one starting `key=`).
+  4. within the first 120 characters: an upper-case `ERROR` / `WARN` /
+     `FATAL` / `PANIC` word, `[error]` or `<Error>` markers (nginx,
+     ClickHouse), a tab-delimited zap level, `app[1]: error:` (syslog), or a
+     `Exception in thread` / `Traceback` header.
+
+  Anything else is INFO. `alert:`, `crit:` and `emerg:` count only in upper
+  case. Numeric JSON levels are read on two scales:
+
+  | Value  | Scale                | Level                                   |
+  |--------|----------------------|-----------------------------------------|
+  | 0-7    | syslog severity      | 0-2 FATAL, 3 ERROR, 4 WARN, 5-6 INFO, 7 DEBUG |
+  | 10-60  | pino / bunyan        | 10 TRACE, 20 DEBUG, 30 INFO, 40 WARN, 50 ERROR, 60+ FATAL |
+
+  Python's numeric levels use a different scale (10 DEBUG, 20 INFO,
+  30 WARNING, 40 ERROR, 50 CRITICAL) and come out one step too low; log
+  Python's `levelname` string instead. `make vector-test` runs the cases in
+  `tests/vector/`.
+
 ## 2.2.0
 
 A minor version, not a patch: this release changes defaults (the ClickHouse
