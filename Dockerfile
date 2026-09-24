@@ -18,7 +18,7 @@ RUN npm run build
 # Stable Perl releases only: an ODD minor (5.41, 5.43, ...) is a development
 # series and must never be a base image (see .github/dependabot.yml ignore).
 # perl:5.42-slim-bookworm
-FROM perl@sha256:cb30febd1c9b2bc88c77047454ca0eb8cd0defefad8312bcf3957e6e25e05711 AS perl-builder
+FROM perl@sha256:841aa507eb76ae1bd547b07448455f857837ee9abbe53811b2a957fefe7b36c1 AS perl-builder
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential libssl-dev libxml2-dev \
@@ -34,7 +34,7 @@ RUN cpanm --notest --installdeps .
 
 # Final image (no build-essential = ~400MB smaller)
 # perl:5.42-slim-bookworm
-FROM perl@sha256:cb30febd1c9b2bc88c77047454ca0eb8cd0defefad8312bcf3957e6e25e05711
+FROM perl@sha256:841aa507eb76ae1bd547b07448455f857837ee9abbe53811b2a957fefe7b36c1
 LABEL maintainer="Purl Contributors"
 LABEL org.opencontainers.image.source="https://github.com/ismoilovdevml/purl"
 LABEL org.opencontainers.image.title="Purl"
