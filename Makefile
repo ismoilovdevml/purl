@@ -346,6 +346,7 @@ helm-lint:
 	for want in '<uncompressed_cache_size>0</uncompressed_cache_size>' \
 		'<max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>' \
 		'<max_memory_usage>268435456</max_memory_usage>' \
+		'<vertical_merge_algorithm_min_rows_to_activate>1</vertical_merge_algorithm_min_rows_to_activate>' \
 		'mountPath: /etc/clickhouse-server/config.d/zz-purl-server.xml' \
 		'mountPath: /etc/clickhouse-server/users.d/zz-purl-profile.xml' \
 		'memory: 1536Mi'; do \

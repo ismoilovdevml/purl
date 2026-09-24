@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- ClickHouse small profile (chart 2.2.2 and `docker/clickhouse/config.xml`):
+  `vertical_merge_algorithm_min_rows_to_activate` is now 1, so wide tables
+  merge column by column. A Horizontal merge of a leftover 1531-column
+  `system.metric_log` from a pre-profile install needed ~1 GiB, failed at the
+  memory cap, retried every few seconds and made unrelated inserts fail with
+  code 241 (memory limit exceeded). Under 1,100 rows/s for 10 minutes, code-241
+  errors went from 1,955 to 0 and peak ClickHouse memory from 1,215 MiB to
+  525 MiB.
 - The Vector agent config written by `install.sh -a` did not compile (VRL
   rejected its `else` clauses), so the agent never started.
 - The chart's Vector config aborted the remap (the event went out without

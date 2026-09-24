@@ -63,6 +63,14 @@ is 2.0.0 and not 1.2.0.
   ClickHouse (`system.asynchronous_insert_log`, `status != 'Ok'`), which is
   why durable mode is the default. If you run your own Prometheus rules
   instead of the chart's PrometheusRule, add the expression above.
+- The ClickHouse small profile sets
+  `merge_tree.vertical_merge_algorithm_min_rows_to_activate: 1`, so wide
+  tables merge column by column at any size. A Horizontal merge of a leftover
+  1531-column `system.metric_log` from a pre-profile install asked for ~1 GiB,
+  failed at the memory cap and retried every few seconds, making unrelated
+  inserts fail with code 241. Measured at 1,100 rows/s for 10 minutes:
+  failed async flushes 17 -> 0, code-241 errors 1,955 -> 0, peak tracked
+  memory 1,215 MiB -> 525 MiB. Rolls ClickHouse (`checksum/server-config`).
 
 ## 2.2.1
 
