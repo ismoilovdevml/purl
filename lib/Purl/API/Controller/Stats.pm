@@ -40,6 +40,7 @@ sub field_stats {
         # was searched with narrows them (#104).
         my $query = $c->param('q') // '';
         return unless $self->_apply_query($c, \%params, $query);
+        $self->_apply_k8s_filters($c, \%params);
 
         # Keyed by the query SOURCE, not the AST (hash order is not stable).
         my $cache_key = "field_stats:$field:"

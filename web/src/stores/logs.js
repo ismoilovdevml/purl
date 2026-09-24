@@ -5,7 +5,6 @@ import { uniqueId } from '../utils/id.js';
 import { settings, clampMaxResults } from './settings.js';
 import { passwordChangeRequired, endRevokedSession, WS_SESSION_REVOKED } from './auth.js';
 import { error as toastError } from './toast.js';
-import { kqlClause } from '../utils/kql.js';
 import { selectedCluster } from './cluster.js';
 
 // State stores
@@ -62,17 +61,16 @@ let searchController = null;
 let statsController = null;
 
 /**
- * The query the server should run: the search bar's text plus the cluster
- * picker's filter. Shared by the search and the field facets, so a facet's
- * counts always describe the result set on screen (#104).
- * @returns {string} empty when there is nothing to filter on
+ * Narrow a search request to the cluster picker's choice. Sent as its own
+ * `cluster` param, which the server ANDs with the whole search expression.
+ * Appended to the query text instead, `a OR b` became `a OR b meta.cluster:x`,
+ * i.e. `a OR (b AND cluster)` (#112). Shared by the search and the field
+ * facets, so a facet's counts always describe the result set on screen (#104).
+ * @param {URLSearchParams} params
  */
-function effectiveQuery() {
-  const currentQuery = get(query);
+function applyClusterFilter(params) {
   const cluster = get(selectedCluster);
-  if (!cluster || cluster === 'all') return currentQuery;
-  const clusterFilter = kqlClause('meta.cluster', cluster);
-  return currentQuery ? `${currentQuery} ${clusterFilter}` : clusterFilter;
+  if (cluster && cluster !== 'all') params.set('cluster', cluster);
 }
 
 // Search logs with proper request cancellation
@@ -109,10 +107,11 @@ export async function searchLogs() {
       params.set('range', currentRange);
     }
 
-    const finalQuery = effectiveQuery();
-    if (finalQuery) {
-      params.set('q', finalQuery);
+    const currentQuery = get(query);
+    if (currentQuery) {
+      params.set('q', currentQuery);
     }
+    applyClusterFilter(params);
 
     const data = await api.get('/logs', { query: params, signal });
 
@@ -206,8 +205,9 @@ async function fetchFieldStats(field, signal = null) {
 
   // Narrow the facet to the current search (#104); the endpoint takes `q`
   // for every field.
-  const finalQuery = effectiveQuery();
-  if (finalQuery) params.set('q', finalQuery);
+  const currentQuery = get(query);
+  if (currentQuery) params.set('q', currentQuery);
+  applyClusterFilter(params);
 
   const data = await api.get(`/stats/fields/${encodeURIComponent(field)}`, {
     query: params,

@@ -116,6 +116,20 @@ sub _apply_query {
     return 1;
 }
 
+# The Kubernetes pickers (cluster, namespace, pod, container) as their own
+# storage filters, ANDed with the whole search expression (#112). Sent inside
+# `q` they became part of the expression: `a OR b cluster:x` is
+# `a OR (b AND cluster:x)`. Shared by every endpoint that takes `q`, so the log
+# list and its facets always describe the same rows.
+sub _apply_k8s_filters {
+    my ($self, $c, $params) = @_;
+    for my $name (qw(cluster namespace pod container)) {
+        my $value = $c->param($name);
+        $params->{$name} = $value if defined $value && length $value;
+    }
+    return;
+}
+
 # ============================================
 # RBAC helpers
 # ============================================

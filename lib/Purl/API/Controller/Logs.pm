@@ -125,6 +125,7 @@ sub search {
 
         # KQL when the string declares itself as KQL, literal text otherwise.
         return unless $self->_apply_query($c, \%params, $query);
+        $self->_apply_k8s_filters($c, \%params);
 
         # Check cache. The AST is keyed by its SOURCE string: hash key order in
         # a nested structure is not stable, so hashing the AST itself would
