@@ -3,6 +3,25 @@ entries:
   purl:
   - apiVersion: v2
     appVersion: 1.3.0
+    created: "2026-09-24T06:57:52.750484243Z"
+    description: Lightweight self-hosted log aggregation system
+    digest: 1c92efe69d49346fd71b32f414107b66e9be55f3fb1297589cf3b33e3059fbcf
+    home: https://github.com/ismoilovdevml/purl
+    keywords:
+    - logging
+    - log-aggregation
+    - observability
+    - clickhouse
+    maintainers:
+    - email: ismoilovdevarchlinux@gmail.com
+      name: ismoilovdevml
+    name: purl
+    type: application
+    urls:
+    - https://github.com/ismoilovdevml/purl/releases/download/purl-2.2.3/purl-2.2.3.tgz
+    version: 2.2.3
+  - apiVersion: v2
+    appVersion: 1.3.0
     created: "2026-09-24T05:39:54.775974012Z"
     description: Lightweight self-hosted log aggregation system
     digest: 384bd8a5920f138c5837e183c1012d643d6d304015ec332df7e4571085789f51
@@ -96,4 +115,4 @@ entries:
     urls:
     - https://github.com/ismoilovdevml/purl/releases/download/purl-1.0.0/purl-1.0.0.tgz
     version: 1.0.0
-generated: "2026-09-24T05:39:54.775999259Z"
+generated: "2026-09-24T06:57:52.750504714Z"
