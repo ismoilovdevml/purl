@@ -29,6 +29,19 @@ sub _backup_query_settings {
     return "max_execution_time=$timeout&max_rows_to_read=0";
 }
 
+# Restore INSERT settings: the backup settings plus a bounded insert. Parallel
+# CSV parsing of a large backup file allocates far past a per-query memory cap
+# (Code 241 in ParallelParsingBlockInputFormat under the #108 profile: 256 MiB
+# per query, 1.5 GiB pod; a 3M-row / 638 MB CSV failed even uncapped, on the
+# server-wide total). Single-threaded parsing into 64K-row / 64 MiB blocks
+# restores it within both. Export does not need this.
+sub _restore_insert_settings {
+    my ($self) = @_;
+    return $self->_backup_query_settings
+        . '&input_format_parallel_parsing=0&max_insert_block_size=65536'
+        . '&min_insert_block_size_rows=65536&min_insert_block_size_bytes=67108864';
+}
+
 sub _validate_backup_table {
     my ($self, $table) = @_;
     return $VALID_BACKUP_TABLES{$table} ? 1 : 0;
@@ -255,7 +268,7 @@ sub restore_backup {
         my $response = $self->_post_file(
             "INSERT INTO $full_table FORMAT CSVWithNames",
             $file,
-            settings => $self->_backup_query_settings,
+            settings => $self->_restore_insert_settings,
         );
 
         # Exact count from the server when it reports one; otherwise fall back
