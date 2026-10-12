@@ -7,7 +7,7 @@
 # Build web assets — node:24-alpine (Active LTS). Node 20 is EOL; 26 is not
 # picked while it is still "Current" (not LTS). Vite 8 / ESLint 10 need
 # ^20.19 || >=22.12, so any 22+/24 LTS satisfies them.
-FROM node@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS web-builder
+FROM node@sha256:32fa97f3363975684b08bf4e8a68a47c7905175cc20275b50b974bbd02aba731 AS web-builder
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
